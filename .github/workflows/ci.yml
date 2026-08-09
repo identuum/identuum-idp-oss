@@ -1,0 +1,225 @@
+# identuum-idp-oss CI pipeline.
+# Runs on every push and pull request to main/master.
+#
+# Every job drives the SAME Makefile targets developers run locally, so CI
+# cannot silently drift from `make verify` / `make integration-test`:
+#
+#   1. verify       — `make ci-verify` (= `make verify` minus the two
+#                     LOCAL-ONLY gograph lines, minus govulncheck which has
+#                     its own job, and minus the THREE wiki-coupled targets
+#                     that cannot fire here because CI checks out one repo
+#                     and the sibling wiki is absent — enumerated, and this
+#                     list must stay equal to what the Makefile subtracts:
+#                       - repo-green      ($(WIKI_TOOLS)/repo-green-gate.sh;
+#                                          its four floors — fmt, build,
+#                                          test, vet — are explicit ci-verify
+#                                          steps, so CI loses nothing)
+#                       - clock-fuse-gate ($(WIKI_TOOLS)/clockfuse-gate.sh;
+#                                          the snapshot comparison is
+#                                          local-only — recorded residue,
+#                                          REL-CI-WIKI-COUPLING —
+#                                          clock-fuse-report still runs and
+#                                          hard-fails on tool error and the
+#                                          deadline arm)
+#                       - wiki-fresh      (self-skips when ../wiki is absent;
+#                                          the call could only ever print
+#                                          SKIPPED)
+#                     + the integration-tagged compile/lint that `verify`
+#                     itself does not exercise.
+#   2. integration  — `make integration-test` against a Postgres service
+#                     (e2e + DB-backed runtime + pkg/runtime teeth).
+#   3. race         — `go test -race ./... -count=1`. CI-ONLY: the race
+#                     detector is deliberately NOT part of `make verify`.
+#
+# gograph is a developer-local tool with no CI install path; `ci-verify`
+# documents that omission. grype and tidy-diff RUN in CI via `ci-verify` —
+# previously they were developer-only. govulncheck also runs in CI, but as its
+# OWN JOB rather than inside `ci-verify`, so a vulnerability database that moves
+# under an unchanged tree turns that job red without taking the build/test
+# signal down with it. See the Makefile `ci-verify` / `verify` targets.
+#
+# No real secrets are required. Every committed credential is a
+# TRANSPARENT PLACEHOLDER, fake by construction (THE-TRANSPARENT-CREDENTIALS):
+# database passwords are dev-<user>-not-a-secret, and the data encryption key
+# is the sequential byte string 00 01 02 … 1f — a value nobody would ever
+# deploy, so it can never be mistaken for a leaked real key. The
+# credential-transparency Makefile gate refuses anything else.
+#
+# Port allocation: identuum-idp-oss uses 5513 to avoid conflicts with
+# the monolith (5432), the AG monolith (5532), and identuum-ag-oss
+# (5533). Reserved: 5534.
+#
+# CE, monolith, IDP-CE, AG, UI, auth-service, and wiki services are
+# NOT included.
+
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  # Well-known public dev AES key — not a real secret. Safe ONLY for CI.
+  IDENTUUM_IDP_DATA_ENCRYPTION_KEY: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  IDENTUUM_IDP_DEPLOYMENT_MODE: dev
+
+jobs:
+  verify:
+    name: Verify (ci-verify + integration lint)
+    runs-on: ubuntu-latest
+    # P2-24 (owner approved): an ephemeral Postgres so the DB-backed runtime
+    # tests RUN here instead of skipping. They skipped in EVERY gate — local
+    # and CI — and a skip is green, so the strongest tests in internal/runtime
+    # were decoration. The tests self-migrate (migrateTestSchema), so the
+    # service needs no init beyond existing.
+    #
+    # IDENTUUM_IDP_REQUIRE_DB_TESTS turns a missing DSN into a FAILURE
+    # (internal/runtime/testdb_test.go): if this service is ever lost — renamed,
+    # misconfigured, or silently dropped — the job goes red instead of the
+    # suite quietly shrinking back to skips.
+    #
+    # postgres:18 (Debian), NOT -alpine: the image-base policy is no Alpine
+    # anywhere except the Go builder.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: dev-ci-not-a-secret
+          POSTGRES_DB: identuum_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d identuum_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:5432/identuum_ci?sslmode=disable
+      IDENTUUM_IDP_REQUIRE_DB_TESTS: "1"
+      # The single-replica lease contends when tests share one DB; the runtime
+      # tests set this themselves locally, and CI matches (A-2a memory note).
+      IDENTUUM_IDP_ALLOW_MULTI_REPLICA: "1"
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # ci-verify runs staticcheck and grype — install them first. govulncheck
+      # is NOT installed here: it has its own job.
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Install grype
+        # Pinned to a tagged release — BOTH the install script ref and the
+        # installed version — so the supply chain cannot move under CI. `main`
+        # is a rolling branch with no checksum; a tag is immutable. Bump this
+        # version deliberately, never implicitly. (Severity / fail-on policy is
+        # owner-controlled and lives in the Makefile grype-scan target, not here.)
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/v0.116.0/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v0.116.0
+
+      # The whole verify matrix in one Makefile target: image-base-check,
+      # tidy-diff, build, unit tests, staticcheck, grype-scan. The steps of
+      # `verify` omitted by design are enumerated ONCE, in this file's header
+      # (gograph, govulncheck, and the three wiki-coupled targets) — this
+      # comment used to carry its own shorter list, which drifted the moment
+      # the header's grew. One list, one place.
+      - name: make ci-verify
+        run: make ci-verify
+
+      # `verify` / `ci-verify` build and lint only the DEFAULT tag set. The
+      # integration-tagged code (internal/e2e, internal/postgres) still needs a
+      # compile + lint gate here; this preserves the coverage the previous CI
+      # had via its separate build/staticcheck jobs.
+      - name: Integration-tagged compile + lint
+        run: |
+          go build -tags integration ./...
+          staticcheck -tags integration ./...
+
+  govulncheck:
+    name: Govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Install govulncheck
+        # Installed inline. No binary is vendored or committed.
+        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+
+      # Its own job on purpose, and therefore deliberately absent from
+      # `ci-verify`: a vulnerability database moves under a tree that has not
+      # moved, so a red scan here leaves the build/test signal intact and "the
+      # code broke" stays distinguishable from "the world changed". `make verify`
+      # still runs it for anyone running the full chain locally.
+      - name: Govulncheck
+        run: govulncheck ./...
+
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # PostgreSQL 18+ is required: migration 0001 depends on the
+        # built-in uuidv7() function introduced in PG 18. Older images
+        # (e.g. postgres:16-alpine) will fail at migration time.
+        # Keep in sync with deployment/docker-compose.dev.yml.
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: idp_oss_user
+          POSTGRES_PASSWORD: dev-idp_oss_user-not-a-secret
+          POSTGRES_DB: identuum_idp_oss
+        ports:
+          - 5513:5432
+        options: >-
+          --health-cmd "pg_isready -U idp_oss_user -d identuum_idp_oss"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5513 -U idp_oss_user; do
+            sleep 1
+          done
+        env:
+          PGPASSWORD: oss_dev_local_only
+
+      # Drives the Makefile target verbatim (e2e + DB-backed runtime +
+      # pkg/runtime teeth). The DSN is supplied via env and is NOT echoed —
+      # `make integration-test` prefixes its recipe with @ and the Makefile
+      # respects IDENTUUM_IDP_TEST_DATABASE_URL when set.
+      - name: make integration-test
+        env:
+          IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss?sslmode=disable
+        run: make integration-test
+
+  race:
+    name: Race Detector
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      # CI-ONLY: the race detector is deliberately NOT in `make verify` (it
+      # ~10x's test wall time). Untagged packages only — no DB required.
+      - name: go test -race
+        run: go test -race ./... -count=1

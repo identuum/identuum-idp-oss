@@ -1,0 +1,142 @@
+# identuum-idp-oss local-demo image.
+#
+# Multi-stage build:
+#   builder  — golang:1.26.5-bookworm (Debian) compiles cmd/identuum-idp with
+#              embedded migrations and embedded api-docgen testdata. Pinned to
+#              the EXACT Go version go.mod requires (go 1.26.5) BY DIGEST, not a
+#              floating `1.26` tag, so the toolchain is reproducible. A Debian
+#              builder is used (not alpine) to keep the whole file Alpine-free
+#              per owner policy; CGO is off so the base libc is irrelevant.
+#   prep     — the same Debian image, used ONCE to materialise the things a
+#              distroless runtime cannot create for itself: the passwd/group
+#              entries and the data directory with its ownership and mode.
+#   runtime  — gcr.io/distroless/base-debian12. The binary, the CA bundle, the
+#              account files, and the data directory. NO shell, no apt, no
+#              package manager, no coreutils, no gosu, no tini.
+#
+# ── WHY THIS COULD NOT BE A BASE-IMAGE SWAP (P2-19b, unblocked by P2-19c) ────
+# The previous runtime was debian:bookworm-slim because deployment/entrypoint.sh
+# needed `sh`, `gosu`, `tini`, `chown`, `chmod`, `mkdir`, `head`, `od` and `tr`.
+# Distroless has NONE of them, so changing FROM alone would have produced an
+# image that cannot start. The entrypoint's work moved into the binary first
+# (the `appliance` subcommand, internal/appliance): env validation, data-dir
+# ownership, at-rest key provisioning, migrations, env mapping, and the
+# privilege drop. Only then does the base swap become possible.
+#
+# WHAT WENT AWAY, AND WHAT REPLACED IT:
+#   sh + entrypoint.sh → `identuum-idp appliance`
+#   gosu               → syscall.Setgroups/Setgid/Setuid, in that order, with
+#                        the result VERIFIED (a drop that silently did not
+#                        happen would serve as root while claiming otherwise)
+#   tini               → nothing. tini existed to reap the shell's children and
+#                        forward signals; there is no shell and no child process
+#                        now, and the Go runtime handles SIGTERM as PID 1
+#                        directly into the existing graceful-shutdown path.
+#   head/od/tr/openssl → crypto/rand + encoding/hex. The old pipeline
+#                        (`head -c 32 /dev/urandom | od -An -tx1 | tr -dc …`)
+#                        could silently yield a SHORT key and nothing checked.
+#   apt ca-certificates→ the distroless base ships them; the builder's bundle is
+#                        copied so the two generations cannot drift apart.
+#   mkdir/chown/chmod  → done in the prep stage at build time, and re-applied at
+#                        runtime by the binary when a named volume masks it.
+#
+# THE CONTAINER STILL STARTS AS ROOT, DELIBERATELY. Docker mounts a named volume
+# at a root-owned mountpoint regardless of image-side ownership, so something
+# privileged must fix it before serving. A build-time `USER 10001` would make
+# the image unable to do that, and first-run setup would fail writing its token
+# on a FRESH database only — the failure mode that is hardest to catch. The
+# binary therefore starts privileged, fixes the mount, drops, and REFUSES TO
+# SERVE if the drop did not take effect.
+#
+# base-debian12 rather than static-debian12: the binary is CGO-free and static,
+# so `static` would fit today, but `base` keeps glibc and /etc present for the
+# netgo/ossl fallbacks and for any future CGO-requiring dependency, at a cost of
+# a few MB and still no shell. Revisit if the image size ever matters more than
+# that margin.
+#
+# Build context MUST be the module root (one level above this Dockerfile):
+#   docker compose -f deployment/docker-compose.dev.yml --profile app build
+# (compose handles the context automatically).
+
+# Builder — exact Go version (go.mod: go 1.26.5), Debian-based, digest-pinned.
+FROM golang:1.26.5-bookworm@sha256:18aedc16aa19b3fd7ded7245fc14b109e054d65d22ed53c355c899582bbb2113 AS builder
+
+# CGO disabled for a pure-static binary; no glibc dependency means the runtime
+# stage does not link the base libc.
+ENV CGO_ENABLED=0 \
+    GOFLAGS=-mod=readonly
+
+WORKDIR /src
+
+# Cache module downloads independently of source edits.
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the full module so embed.FS in migrations/ and tools/api-docgen/
+# testdata/ are present at build time. .dockerignore (sibling file) elides
+# build artifacts and local test data.
+COPY . .
+
+# Release version stamp (THE-V032-ALL-GREEN Order C). The publish workflow
+# passes the dispatched tag (leading v stripped); local builds default to
+# "dev", which can never match a release tag — the workflow's canonical
+# binary-vs-tag gate therefore refuses any build where this plumbing broke.
+ARG VERSION=dev
+
+# Build the OSS binary. Strip symbol + DWARF tables to shrink the image;
+# stamp the release version into main.buildVersion.
+RUN go build \
+        -trimpath \
+        -ldflags="-s -w -X main.buildVersion=${VERSION}" \
+        -o /out/identuum-idp \
+        ./cmd/identuum-idp
+
+# ──────────────────────────────────────────────────────────────────────────
+
+# Prep — creates what distroless cannot create for itself. Everything here is
+# COPYed into the runtime as plain files; this stage does not ship.
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS prep
+
+# UID/GID 10001 sits above the Debian system-user range so an operator-mounted
+# volume stays safe. The numbers are ALSO compiled into the binary
+# (applianceRunUID / applianceRunGID) and the two must agree — asserted by
+# cmd/identuum-idp/appliance_image_test.go against this file.
+RUN groupadd -r -g 10001 idp \
+    && useradd -r -u 10001 -g idp -s /usr/sbin/nologin idp \
+    && mkdir -p /prep/data \
+    && chown 10001:10001 /prep/data \
+    && chmod 0700 /prep/data
+
+# ──────────────────────────────────────────────────────────────────────────
+
+# Runtime — distroless (Debian 12 generation), digest-pinned. No shell, no
+# package manager, no coreutils. `docker exec … sh` does not work here by
+# design: that debuggability is traded for an image with nothing in it for an
+# attacker to use after a compromise.
+FROM gcr.io/distroless/base-debian12@sha256:62730825d3cf03571e0a1b8f014748de94d0404500f063593b614c23da38841d AS runtime
+
+# TLS roots for the binary's OUTBOUND HTTPS to upstream OIDC discovery + JWKS
+# endpoints. The base ships a bundle; copying the builder's keeps the two
+# generations identical rather than assuming they match.
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+
+# Account files. setuid(2) is numeric and does not need these, so they are for
+# legibility — `docker inspect` and any future os/user lookup resolve a name
+# instead of a bare number.
+COPY --from=prep /etc/passwd /etc/passwd
+COPY --from=prep /etc/group /etc/group
+
+# The binary.
+COPY --from=builder /out/identuum-idp /app/identuum-idp
+
+# Persistent data directory, 0700 owned by 10001, carried from prep with its
+# ownership intact. A named volume mounted here masks it — which is exactly why
+# the binary re-applies ownership at start.
+COPY --from=prep --chown=10001:10001 /prep/data /app/data
+
+EXPOSE 7113
+
+# No tini: there is no shell and no child process to reap, and the Go runtime
+# takes SIGTERM as PID 1 straight into the graceful-shutdown path. Compose's
+# `init: true` remains available to an operator who wants an init anyway.
+ENTRYPOINT ["/app/identuum-idp", "appliance"]

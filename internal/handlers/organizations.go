@@ -1,0 +1,573 @@
+package handlers
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
+	"github.com/identuum/identuum-idp-oss/internal/mw"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
+	"github.com/identuum/identuum-idp-oss/internal/service"
+)
+
+// OrganizationsHandlerDeps wires /api/v1/organizations.
+//
+// OrganizationService preferred; OrganizationRepo legacy fallback
+// (read-only). Audit defaults to NoopService.
+//
+// Authority decision (this slice): every route requires
+// RequireSiteAdmin(). The Identuum admin-authority model preserves
+// site_admin's right to manage infrastructure-level Active/Deleted
+// status; per-org `org_admin` access is deferred until a future
+// slice with a CE-side per-org gate.
+type OrganizationsHandlerDeps struct {
+	OrganizationService *service.OrganizationService
+	OrganizationRepo    repository.OrganizationRepository
+	Audit               audit.Service
+
+	// StartupReport receives a fatal fault if neither service nor repo is
+	// wired — instead of panicking (P-018). Nil-safe.
+	StartupReport *lifecycle.StartupReport
+
+	// SessionRevoker, RefreshTokenRevoker, and MemberLister wire the
+	// lifecycle→revocation cascade for org deactivate/delete (R3 / R1-secondary).
+	// All nil-safe: when unwired the cascade is a no-op (scaffold deployments).
+	//   - SessionRevoker      → the existing org-scoped RevokeByOrganizationID.
+	//   - RefreshTokenRevoker → per-member RevokeAllForUser fan-out.
+	//   - MemberLister        → enumerates org members for the refresh fan-out.
+	SessionRevoker      OrgSessionRevoker
+	RefreshTokenRevoker service.UserRefreshTokenRevoker
+	MemberLister        OrgMemberLister
+
+	// ActivationResender re-issues + re-dispatches a pending org's
+	// activation token (POST /:id/resend-activation). Nil-safe: when
+	// unwired the route fails closed with 503.
+	ActivationResender OrgActivationResender
+}
+
+// RegisterOrganizationsRoutes mounts /api/v1/organizations onto router.
+//
+// Implemented (LIVE) when OrganizationService non-nil:
+//
+//	POST   /api/v1/organizations                 (site_admin)
+//	GET    /api/v1/organizations                 (site_admin)
+//	GET    /api/v1/organizations/current         (any authenticated principal w/ org id)
+//	GET    /api/v1/organizations/:id             (site_admin OR same-org org_admin)
+//	PUT    /api/v1/organizations/:id             (site_admin)
+//	DELETE /api/v1/organizations/:id             (site_admin)
+//	POST   /api/v1/organizations/:id/restore     (site_admin)
+//	GET    /api/v1/organizations/:id/admin-recovery-candidates (site_admin)
+//	GET    /api/v1/organizations/export-candidates (site_admin OR org_admin w/ orgs:read scope)
+//	POST   /api/v1/organizations/:id/resend-activation (site_admin)
+//
+// Authority decisions:
+//
+//   - List, Create, Update, Delete, Restore stay site_admin-only.
+//     The Identuum admin authority model leaves infrastructure-level
+//     lifecycle decisions with site_admin.
+//   - GET /:id permits same-org org_admin via
+//     RequireSiteAdminOrSameOrgAdmin so a tenant admin can read their
+//     own org card.
+//   - GET /current resolves the target org from
+//     Principal.OrganizationID via RequireSiteAdminOrPrincipalOrg.
+//     A site_admin with no org id (the SystemActor case) currently
+//     400s at the handler because /current is a self-route and the
+//     handler has no target to read.
+func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDeps) {
+	if deps.OrganizationService == nil && deps.OrganizationRepo == nil {
+		// P-018: organizations are the tenant identity boundary. FATAL.
+		// Record the fault + mount a service-missing fallback (same route
+		// set as the live surface) instead of panicking.
+		deps.StartupReport.Fatal(
+			"organizations-routes",
+			"organizations admin surface unavailable: neither OrganizationService nor OrganizationRepo is wired",
+		)
+		g := router.Group("/api/v1/organizations")
+		g.GET("", serviceMissingFallback("organizations"))
+		g.POST("", serviceMissingFallback("organizations"))
+		g.PUT("/:id", serviceMissingFallback("organizations"))
+		g.DELETE("/:id", serviceMissingFallback("organizations"))
+		g.POST("/:id/restore", serviceMissingFallback("organizations"))
+		g.POST("/:id/resend-activation", serviceMissingFallback("organizations"))
+		g.GET("/export-candidates", serviceMissingFallback("organizations"))
+		g.GET("/:id/admin-recovery-candidates", serviceMissingFallback("organizations"))
+		g.GET("/current", serviceMissingFallback("organizations"))
+		g.GET("/:id", serviceMissingFallback("organizations"))
+		return
+	}
+	if deps.Audit == nil {
+		deps.Audit = audit.NoopService{}
+	}
+
+	g := router.Group("/api/v1/organizations")
+
+	// List: site_admin sees every org; org_admin gets a single-row
+	// list scoped to their own org (handler enforces). Behind the
+	// composed scope guard so an org_admin without orgs:read scope
+	// is rejected before any DB call.
+	listGroup := g.Group("")
+	listGroup.Use(mw.RequireSiteAdminOrOrgAdminWithScopesAudit(deps.Audit, domain.ScopeOrgsRead))
+
+	// docgen:endpoint
+	// docgen:surface=organizations
+	// docgen:method=GET
+	// docgen:path=/api/v1/organizations
+	// docgen:summary=List organizations (paginated). site_admin sees every org; org_admin gets a single-row list scoped to their own org.
+	// docgen:tier=oss
+	// docgen:auth=site_admin|org_admin
+	// docgen:response=oss.handlers.safeOrganization
+	// docgen:notes=org_admin actor additionally requires the orgs:read scope (denied before any DB call).
+	listGroup.GET("", HandleListOrganizations(deps))
+
+	// docgen:endpoint
+	// docgen:surface=organizations
+	// docgen:method=GET
+	// docgen:path=/api/v1/organizations/export-candidates
+	// docgen:summary=List organizations for cross-system (IDP -> AG) linking/import planning. Safe, narrow projection — NOT the Enterprise SIEM audit-export feature. site_admin sees every non-deleted org (active + inactive); org_admin gets a single-row list scoped to their own org.
+	// docgen:tier=oss
+	// docgen:auth=site_admin|org_admin
+	// docgen:response=oss.handlers.organizationExportCandidate
+	// docgen:notes=Ported from the ancestor's HandleListOrganizationExportCandidates (RBAC-scope-gated there too, not license-gated). org_admin actor additionally requires the orgs:read scope (denied before any DB call), mirroring the sibling list route.
+	listGroup.GET("/export-candidates", HandleListOrganizationExportCandidates(deps))
+
+	// site_admin-only: lifecycle mutations + deferred 501s.
+	siteOnly := g.Group("")
+	siteOnly.Use(mw.RequireSiteAdmin())
+	if deps.OrganizationService != nil {
+		// docgen:endpoint
+		// docgen:surface=organizations
+		// docgen:method=POST
+		// docgen:path=/api/v1/organizations
+		// docgen:summary=Create an organization.
+		// docgen:tier=oss
+		// docgen:auth=site_admin
+		// docgen:response=oss.handlers.safeOrganization
+		// docgen:status=201
+		siteOnly.POST("", HandleCreateOrganization(deps))
+
+		// docgen:endpoint
+		// docgen:surface=organizations
+		// docgen:method=PUT
+		// docgen:path=/api/v1/organizations/:id
+		// docgen:summary=Update an organization (lifecycle + policy fields).
+		// docgen:tier=oss
+		// docgen:auth=site_admin
+		// docgen:response=oss.handlers.safeOrganization
+		siteOnly.PUT("/:id", HandleUpdateOrganization(deps))
+
+		// docgen:endpoint
+		// docgen:surface=organizations
+		// docgen:method=DELETE
+		// docgen:path=/api/v1/organizations/:id
+		// docgen:summary=Soft-delete an organization.
+		// docgen:tier=oss
+		// docgen:auth=site_admin
+		siteOnly.DELETE("/:id", HandleDeleteOrganization(deps))
+
+		// docgen:endpoint
+		// docgen:surface=organizations
+		// docgen:method=POST
+		// docgen:path=/api/v1/organizations/:id/restore
+		// docgen:summary=Restore a previously soft-deleted organization.
+		// docgen:tier=oss
+		// docgen:auth=site_admin
+		// docgen:response=oss.handlers.safeOrganization
+		siteOnly.POST("/:id/restore", HandleRestoreOrganization(deps))
+	} else {
+		siteOnly.POST("", orgServiceMissing("create"))
+		siteOnly.PUT("/:id", orgServiceMissing("update"))
+		siteOnly.DELETE("/:id", orgServiceMissing("delete"))
+		siteOnly.POST("/:id/restore", orgServiceMissing("restore"))
+	}
+
+	// docgen:endpoint
+	// docgen:surface=organizations
+	// docgen:method=POST
+	// docgen:path=/api/v1/organizations/:id/resend-activation
+	// docgen:summary=Re-issue and return a pending organization's activation token (site_admin operator retrieval path). Re-dispatches via email when a notifier is wired; OSS echoes the token in the response.
+	// docgen:tier=oss
+	// docgen:auth=site_admin
+	// docgen:notes=Only a pending (not-yet-active) org with an org_admin may be resent; an active org returns 409, a missing org or one with no org_admin returns 404. A fresh token is minted (the old is invalidated); the raw token is echoed in the response and never logged or audited.
+	siteOnly.POST("/:id/resend-activation", HandleResendActivation(deps))
+
+	// docgen:endpoint
+	// docgen:surface=organizations
+	// docgen:method=GET
+	// docgen:path=/api/v1/organizations/:id/admin-recovery-candidates
+	// docgen:summary=List the org_admin accounts of a tenant org for operator-driven recovery (reset-MFA card). site_admin only.
+	// docgen:tier=oss
+	// docgen:auth=site_admin
+	// docgen:notes=Ported from the CE reference (unlicensed, OSS-tier). Empty array when the org has no org_admin rows; System Org and unknown orgs 404.
+	siteOnly.GET("/:id/admin-recovery-candidates", HandleListOrgAdminRecoveryCandidates(deps))
+
+	// /current: site_admin OR any principal w/ org id. Mounted
+	// before the /:id route to win the gin route-priority match.
+	currentGroup := g.Group("")
+	currentGroup.Use(mw.RequireSiteAdminOrPrincipalOrg())
+
+	// docgen:endpoint
+	// docgen:surface=organizations
+	// docgen:method=GET
+	// docgen:path=/api/v1/organizations/current
+	// docgen:summary=Show the authenticated principal's current organization (resolved from the principal's organization_id).
+	// docgen:tier=oss
+	// docgen:auth=authenticated
+	// docgen:response=oss.handlers.safeOrganization
+	// docgen:notes=Mounted before /:id so the gin route-priority match resolves /current correctly. Middleware short-circuits to site_admin OR a principal carrying an organization id.
+	currentGroup.GET("/current", HandleGetCurrentOrganization(deps))
+
+	// /:id: site_admin OR same-org org_admin.
+	sameOrg := g.Group("")
+	sameOrg.Use(mw.RequireSiteAdminOrSameOrgAdmin("id"))
+
+	// docgen:endpoint
+	// docgen:surface=organizations
+	// docgen:method=GET
+	// docgen:path=/api/v1/organizations/:id
+	// docgen:summary=Show a single organization by id (site_admin OR same-org org_admin).
+	// docgen:tier=oss
+	// docgen:auth=site_admin|org_admin
+	// docgen:response=oss.handlers.safeOrganization
+	// docgen:notes=org_admin actor must be a member of the requested org (handler enforces same-org binding).
+	sameOrg.GET("/:id", HandleGetOrganization(deps))
+}
+
+// safeOrganization is the on-the-wire org shape. The Organization
+// struct carries no secret material today; the projection exists
+// for forward-compat (a future field added to the domain type that
+// IS sensitive will be omitted by default rather than leaking).
+type safeOrganization struct {
+	ID                          uuid.UUID  `json:"id"`
+	Name                        string     `json:"name"`
+	Domain                      string     `json:"domain"`
+	OrgSlug                     string     `json:"org_slug"`
+	Active                      bool       `json:"active"`
+	MaxSessionsPerUser          int        `json:"max_sessions_per_user"`
+	MFAPolicy                   string     `json:"mfa_policy"`
+	AuthPolicy                  string     `json:"auth_policy"`
+	ApiAuthorizationPolicy      string     `json:"api_authorization_policy,omitempty"`
+	AllowPublicRegistration     bool       `json:"allow_public_registration"`
+	RequireRegistrationApproval bool       `json:"require_registration_approval"`
+	RequireStrictReauth         bool       `json:"require_strict_reauth"`
+	LocalAdminOnly              bool       `json:"local_admin_only"`
+	PasswordComplexityEnabled   bool       `json:"password_complexity_enabled"`
+	Tier                        string     `json:"tier"`
+	CreatedAt                   time.Time  `json:"created_at"`
+	UpdatedAt                   time.Time  `json:"updated_at"`
+	DeletedAt                   *time.Time `json:"deleted_at,omitempty"`
+}
+
+func toSafeOrganization(o *domain.Organization) safeOrganization {
+	if o == nil {
+		return safeOrganization{}
+	}
+	return safeOrganization{
+		ID:                          o.ID,
+		Name:                        o.Name,
+		Domain:                      o.Domain,
+		OrgSlug:                     o.OrgSlug,
+		Active:                      o.Active,
+		MaxSessionsPerUser:          o.MaxSessionsPerUser,
+		MFAPolicy:                   o.MFAPolicy,
+		AuthPolicy:                  o.AuthPolicy,
+		ApiAuthorizationPolicy:      o.ApiAuthorizationPolicy,
+		AllowPublicRegistration:     o.AllowPublicRegistration,
+		RequireRegistrationApproval: o.RequireRegistrationApproval,
+		RequireStrictReauth:         o.RequireStrictReauth,
+		LocalAdminOnly:              o.LocalAdminOnly,
+		PasswordComplexityEnabled:   o.PasswordComplexityEnabled,
+		Tier:                        o.Tier.String(),
+		CreatedAt:                   o.CreatedAt,
+		UpdatedAt:                   o.UpdatedAt,
+		DeletedAt:                   o.DeletedAt,
+	}
+}
+
+// HandleListOrganizations lists organizations with paging.
+// site_admin sees every row; org_admin sees a single-row response
+// scoped to actor.OrganizationID (their own org). org_admin with no
+// org id 403s — the composed guard would already have rejected
+// them at the HTTP layer, but the handler also fails closed.
+func HandleListOrganizations(deps OrganizationsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		pageSize := parsePositiveQuery(c, "page_size", 50, 200)
+		page := parsePositiveQuery(c, "page", 1, 1<<16)
+		pagination := repository.NewPagination(page, pageSize)
+		sort := repository.NewOrganizationSort("created_at", true)
+		actor, _ := mw.PrincipalFromContext(c)
+		// org_admin path: return only own org as a single-row list.
+		if actor != nil && actor.IsOrgAdminOnly() {
+			if actor.OrganizationID == uuid.Nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			var (
+				o   *domain.Organization
+				err error
+			)
+			if deps.OrganizationService != nil {
+				o, err = deps.OrganizationService.GetByID(c.Request.Context(), actor.OrganizationID)
+			} else {
+				o, err = deps.OrganizationRepo.GetByID(c.Request.Context(), actor.OrganizationID)
+			}
+			if err != nil || o == nil {
+				c.JSON(http.StatusOK, gin.H{
+					"organizations": []safeOrganization{},
+					"total":         0,
+					"page":          page,
+					"page_size":     pageSize,
+				})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"organizations": []safeOrganization{toSafeOrganization(o)},
+				"total":         1,
+				"page":          page,
+				"page_size":     pageSize,
+			})
+			return
+		}
+		// site_admin / fallback: cross-tenant list.
+		var (
+			orgs  []*domain.Organization
+			total int
+			err   error
+		)
+		if deps.OrganizationService != nil {
+			orgs, total, err = deps.OrganizationService.List(c.Request.Context(), repository.OrganizationFilter{}, pagination, sort)
+		} else {
+			orgs, total, err = deps.OrganizationRepo.List(c.Request.Context(), repository.OrganizationFilter{}, pagination, sort)
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			return
+		}
+		out := make([]safeOrganization, 0, len(orgs))
+		for _, o := range orgs {
+			out = append(out, toSafeOrganization(o))
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"organizations": out,
+			"total":         total,
+			"page":          page,
+			"page_size":     pageSize,
+		})
+	}
+}
+
+// HandleGetCurrentOrganization returns the organization the
+// authenticated principal belongs to. The target org id comes from
+// Principal.OrganizationID; site_admins without an org id (the
+// SystemActor case) get 400 because /current is a self-route.
+func HandleGetCurrentOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		p, ok := mw.PrincipalFromContext(c)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		if p.OrganizationID == uuid.Nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
+			return
+		}
+		var (
+			o   *domain.Organization
+			err error
+		)
+		if deps.OrganizationService != nil {
+			o, err = deps.OrganizationService.GetByID(c.Request.Context(), p.OrganizationID)
+		} else {
+			o, err = deps.OrganizationRepo.GetByID(c.Request.Context(), p.OrganizationID)
+		}
+		if err != nil || o == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusOK, toSafeOrganization(o))
+	}
+}
+
+// HandleGetOrganization returns a single organization by id.
+func HandleGetOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		var o *domain.Organization
+		if deps.OrganizationService != nil {
+			o, err = deps.OrganizationService.GetByID(c.Request.Context(), id)
+		} else {
+			o, err = deps.OrganizationRepo.GetByID(c.Request.Context(), id)
+		}
+		if err != nil || o == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusOK, toSafeOrganization(o))
+	}
+}
+
+// HandleCreateOrganization creates an organization.
+func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req struct {
+			Name               string `json:"name"`
+			Domain             string `json:"domain"`
+			MaxSessionsPerUser int    `json:"max_sessions_per_user,omitempty"`
+			MFAPolicy          string `json:"mfa_policy,omitempty"`
+			AuthPolicy         string `json:"auth_policy,omitempty"`
+			Active             bool   `json:"active,omitempty"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		created, err := deps.OrganizationService.Create(c.Request.Context(), service.CreateOrganizationOptions{
+			Name:               req.Name,
+			Domain:             req.Domain,
+			MaxSessionsPerUser: req.MaxSessionsPerUser,
+			MFAPolicy:          req.MFAPolicy,
+			AuthPolicy:         req.AuthPolicy,
+			Active:             req.Active,
+		})
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		c.JSON(http.StatusCreated, toSafeOrganization(created))
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action:    "organization.created",
+			Outcome:   "success",
+			IPAddress: c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Metadata:  map[string]any{"organization_id": created.ID, "name": created.Name, "domain": created.Domain},
+		})
+	}
+}
+
+// HandleUpdateOrganization mutates an organization.
+func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		var req struct {
+			Name                        *string `json:"name,omitempty"`
+			Domain                      *string `json:"domain,omitempty"`
+			Active                      *bool   `json:"active,omitempty"`
+			MaxSessionsPerUser          *int    `json:"max_sessions_per_user,omitempty"`
+			PasswordComplexityEnabled   *bool   `json:"password_complexity_enabled,omitempty"`
+			MFAPolicy                   *string `json:"mfa_policy,omitempty"`
+			AuthPolicy                  *string `json:"auth_policy,omitempty"`
+			ApiAuthorizationPolicy      *string `json:"api_authorization_policy,omitempty"`
+			AllowPublicRegistration     *bool   `json:"allow_public_registration,omitempty"`
+			RequireRegistrationApproval *bool   `json:"require_registration_approval,omitempty"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		updated, err := deps.OrganizationService.Update(c.Request.Context(), id, repository.UpdateOrganizationOptions{
+			Name:                        req.Name,
+			Domain:                      req.Domain,
+			Active:                      req.Active,
+			MaxSessionsPerUser:          req.MaxSessionsPerUser,
+			PasswordComplexityEnabled:   req.PasswordComplexityEnabled,
+			MFAPolicy:                   req.MFAPolicy,
+			AuthPolicy:                  req.AuthPolicy,
+			ApiAuthorizationPolicy:      req.ApiAuthorizationPolicy,
+			AllowPublicRegistration:     req.AllowPublicRegistration,
+			RequireRegistrationApproval: req.RequireRegistrationApproval,
+		})
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		// Lifecycle-first cascade (P-018 best-effort): when this update
+		// DEACTIVATES the org (active→false), the change persisted above —
+		// revoke all member sessions + refresh tokens so the Stage-1
+		// bearer check rejects them. A revoke failure is logged at ERROR
+		// and never breaks the update.
+		if req.Active != nil && !*req.Active {
+			cascadeRevokeOrg(c.Request.Context(), deps.SessionRevoker, deps.RefreshTokenRevoker, deps.MemberLister, updated.ID, "org_suspended")
+		}
+		c.JSON(http.StatusOK, toSafeOrganization(updated))
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action:    "organization.updated",
+			Outcome:   "success",
+			IPAddress: c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Metadata:  map[string]any{"organization_id": updated.ID},
+		})
+	}
+}
+
+// HandleDeleteOrganization soft-deletes an organization.
+func HandleDeleteOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		if err := deps.OrganizationService.Delete(c.Request.Context(), id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		// Lifecycle-first cascade (P-018 best-effort): the org soft-delete
+		// persisted; revoke all member sessions (RevokeByOrganizationID)
+		// + refresh tokens so the Stage-1 bearer check rejects them. A
+		// revoke failure is logged at ERROR and never breaks the delete.
+		cascadeRevokeOrg(c.Request.Context(), deps.SessionRevoker, deps.RefreshTokenRevoker, deps.MemberLister, id, "org_deleted")
+		c.JSON(http.StatusOK, gin.H{"deleted": id})
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action:    "organization.deleted",
+			Outcome:   "success",
+			IPAddress: c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Metadata:  map[string]any{"organization_id": id},
+		})
+	}
+}
+
+// HandleRestoreOrganization un-deletes a soft-deleted organization.
+func HandleRestoreOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		if err := deps.OrganizationService.Restore(c.Request.Context(), id); err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"restored": id})
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action:    "organization.restored",
+			Outcome:   "success",
+			IPAddress: c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Metadata:  map[string]any{"organization_id": id},
+		})
+	}
+}
+
+func orgServiceMissing(op string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusNotImplemented, gin.H{
+			"error":     "not implemented",
+			"operation": op,
+			"reason":    "OrganizationService not yet relocated into the OSS module; " + op + " requires service-layer validation.",
+		})
+	}
+}

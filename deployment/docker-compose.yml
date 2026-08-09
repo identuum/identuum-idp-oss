@@ -1,0 +1,227 @@
+# identuum-idp-oss — customer-facing single-node self-hosted Compose stack.
+#
+# This is the canonical self-hosted appliance install target captured in
+# wiki/platform/idp-appliance-install-ux.md (D-IDP-INSTALL-01,
+# D-IDP-INSTALL-06, D-IDP-INSTALL-12, D-IDP-INSTALL-17, D-IDP-INSTALL-25).
+#
+# Customer install flow:
+#
+#   curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
+#   docker compose up -d
+#   open http://localhost:7104
+#
+# That is all. No `.env.example`, no `openssl`, no `Makefile`, no manual
+# database URL, no manual issuer URL, no manual signing-key generation, no
+# manual bootstrap (D-IDP-INSTALL-16). The IDP binary owns first-run
+# secret generation, migrations, setup-token issuance, and the first
+# signing key (D-IDP-INSTALL-09); the UI owns the human wizard
+# (D-IDP-INSTALL-10) and detects setup_required dynamically via
+# GET /api/setup/status (D-IDP-INSTALL-18).
+#
+# Topology (single-node self-hosted):
+#
+#   postgres        internal-only Postgres 18 (no published host port)
+#   identuum-idp    OSS IDP Authorization Server on http://localhost:7113
+#   identuum-ui     Next.js setup-wizard / operator UI on http://localhost:7104
+#
+# ─────────────────────────────────────────────────────────────────────────
+# Image-based customer path
+# ─────────────────────────────────────────────────────────────────────────
+#
+# This file is image-only. A customer who downloads only this file MUST
+# NOT need a sibling source checkout. `docker compose up -d` pulls the
+# published images from `ghcr.io/identuum/*` and never builds anything.
+#
+# Maintainers who need to build the images from a local source tree use
+# the developer-only overlay:
+#
+#   docker compose \
+#     -f deployment/docker-compose.yml \
+#     -f deployment/docker-compose.build.yml \
+#     up -d --build
+#
+# The overlay restores the build contexts for `identuum-idp` and
+# `identuum-ui`. The customer-facing file deliberately omits them.
+#
+# ─────────────────────────────────────────────────────────────────────────
+# Single-node defaults and follow-up hardening
+# ─────────────────────────────────────────────────────────────────────────
+#
+# The Postgres password below is a fixed, internal, single-node default.
+# Postgres is NOT published on the host — it is reachable only on the
+# default Compose project network, so the credential never crosses the
+# host boundary. Generated-on-first-boot DB credentials are a documented
+# follow-up hardening item; replacing this default is the operator's
+# documented advanced override path until that lands.
+#
+# Production hardening that is intentionally out of scope for this
+# foundation slice (each is its own future slice per
+# wiki/platform/idp-appliance-install-ux.md §3):
+#
+#   - generated-on-first-boot DB credentials
+#   - external Postgres (HA / customer-managed)
+#   - reverse proxy with TLS in front of identuum-idp + identuum-ui
+#   - backup automation (Phase 10)
+#   - OSS-to-CE upgrade overlay (Phase 6 / 8 / 9)
+#
+# Compose project name. Distinct from the developer stack (which has no
+# `name:` field and defaults to "deployment") so customer and dev can
+# co-exist on the same host without clobbering each other's containers
+# or volumes.
+name: identuum-idp-oss
+
+services:
+
+  postgres:
+    # Postgres 18 is required: migration 0001 calls the built-in uuidv7()
+    # function added in PG18, so PG17 and earlier reject the schema at
+    # migrate time.
+    image: postgres:18-alpine
+    container_name: identuum-idp-oss-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: identuum_idp
+      # Single-node internal default. Postgres is NOT exposed on the host
+      # (no `ports:` block below). See the header for the hardening
+      # follow-up that replaces this with generated-on-first-boot
+      # credentials.
+      POSTGRES_PASSWORD: dev-identuum_idp-not-a-secret
+      POSTGRES_DB: identuum_idp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U identuum_idp -d identuum_idp"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    volumes:
+      # PG18+ stores data in a major-version-specific subdirectory under
+      # /var/lib/postgresql to keep pg_upgrade --link safe; mount the
+      # parent dir, not /var/lib/postgresql/data.
+      - identuum-idp-oss-postgres-data:/var/lib/postgresql
+
+  identuum-idp:
+    # Customer-facing image. Pulled from the official registry by
+    # `docker compose up -d`. The image tag matches the OSS binary version
+    # (`v0.3.0`; see cmd/identuum-idp.version). Maintainers who need to rebuild
+    # from local source use deployment/docker-compose.build.yml as an overlay.
+    image: ghcr.io/identuum/identuum-idp-oss:v0.3.0
+    container_name: identuum-idp-oss
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      # 7113 is the canonical OSS IDP loopback port across the workspace.
+      # Compose's default 0.0.0.0 bind lets the customer reach the
+      # browser-facing surface from `http://localhost:7113` and matches
+      # the issuer URL advertised in OIDC discovery.
+      - "7113:7113"
+    environment:
+      # ── Existing entrypoint contract (deployment/entrypoint.sh) ────────
+      # These three are read by entrypoint.sh: the DB URL is passed to
+      # `identuum-idp migrate` (one-shot), and all three are mapped onto
+      # the CLI's serve env names for the no-arg default serve
+      # (long-running). The DB URL is never echoed.
+      IDENTUUM_IDP_OSS_DB: "postgres://identuum_idp:dev-identuum_idp-not-a-secret@postgres:5432/identuum_idp?sslmode=disable"
+      IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
+      IDENTUUM_IDP_OSS_ISSUER: "http://localhost:7113"
+      # ── Appliance contract (pkg/runtime + show-setup-code subcommand) ──
+      # IDENTUUM_IDP_DATA_DIR is the persistent data directory the
+      # appliance setup foundation writes to (setup-token.txt at mode
+      # 0600). Mounted as a named volume below so the token survives
+      # container restarts and so `docker exec identuum-idp-oss identuum-idp
+      # show-setup-code /app/data` works.
+      IDENTUUM_IDP_DATA_DIR: "/app/data"
+      # IDENTUUM_IDP_UI_PUBLIC_BASE_URL is the browser-facing UI base URL
+      # the setup banner uses to render "open the wizard at <URL>" on
+      # every boot while status == setup_required. Falls back to the
+      # issuer when unset; setting it explicitly keeps the banner
+      # pointing at the UI port (7104) instead of the IDP port (7113).
+      IDENTUUM_IDP_UI_PUBLIC_BASE_URL: "http://localhost:7104"
+      # IDENTUUM_IDP_DATABASE_URL is consumed by the show-setup-code
+      # subcommand so the customer can re-display the setup code after the
+      # boot log has scrolled, via:
+      #
+      #   docker compose exec identuum-idp \
+      #     identuum-idp show-setup-code /app/data
+      #
+      # The URL is read inside the container only and is never echoed
+      # on failure (redactURL strips user/password/host).
+      IDENTUUM_IDP_DATABASE_URL: "postgres://identuum_idp:dev-identuum_idp-not-a-secret@postgres:5432/identuum_idp?sslmode=disable"
+      # ── At-rest encryption key (optional, overridable, NEVER hardcoded) ──
+      # The runtime requires a 32-byte (64 hex) AES key to encrypt MFA seeds
+      # at rest; a missing/invalid key brings the IdP up NOT-SERVING (P-018).
+      # Zero-config default: this is empty unless the operator exports it, and
+      # the entrypoint then auto-generates a key and persists it to the data
+      # volume (identuum-idp-oss-data) on first boot, reusing it every reboot —
+      # so a plain `docker compose up -d` comes up SERVING with no manual step.
+      # PRODUCTION: supply an externally-managed key instead, e.g.
+      #   export IDENTUUM_IDP_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+      # before `docker compose up`. It is passed through here, used as-is, and
+      # never written to the volume (the persisted file is convenience, not
+      # strong key separation). Losing the key makes encrypted MFA secrets
+      # unrecoverable (affected users re-enroll); back it up with the database.
+      IDENTUUM_IDP_ENCRYPTION_KEY: "${IDENTUUM_IDP_ENCRYPTION_KEY:-}"
+    volumes:
+      - identuum-idp-oss-data:/app/data
+
+  identuum-ui:
+    # Customer-facing image. Pulled from the official registry by
+    # `docker compose up -d`. The image tag mirrors the IDP version
+    # train. Maintainers who need to rebuild from local source use
+    # deployment/docker-compose.build.yml as an overlay.
+    image: ghcr.io/identuum/identuum-ui:v0.1.0
+    container_name: identuum-idp-oss-ui
+    restart: unless-stopped
+    depends_on:
+      identuum-idp:
+        condition: service_started
+    ports:
+      # 7104 is the canonical UI port across the workspace; D-IDP-INSTALL-06
+      # pins it as the customer-facing entry URL.
+      - "7104:7104"
+    configs:
+      # Ship the OSS runtime config inline (see the top-level `configs:`
+      # block below). Mounting it at /app/config/ui-runtime.json matches
+      # the production default path inside the UI image
+      # (src/lib/runtime-config.ts:configFilePath under NODE_ENV=production).
+      # Read-only (0444) so the container cannot mutate the source of
+      # truth.
+      - source: ui-runtime
+        target: /app/config/ui-runtime.json
+        mode: 0444
+
+# ──────────────────────────────────────────────────────────────────────────
+# Inline UI runtime configuration. Keeping the JSON in the Compose file
+# keeps the customer download to exactly ONE file (D-IDP-INSTALL-17) — no
+# separate config file ships next to docker-compose.yml.
+#
+# `internal_base_url` is the in-network address the UI's server-side
+# fetches use (Docker service-name DNS, not host loopback); the browser
+# uses `public_base_url`. AG is disabled in OSS — the AG fields stay
+# present so the UI's runtime config validator does not collapse into
+# unconfigured state.
+# ──────────────────────────────────────────────────────────────────────────
+configs:
+  ui-runtime:
+    content: |
+      {
+        "configured": true,
+        "ui_origin": "http://localhost:7104",
+        "idp": {
+          "enabled": true,
+          "public_base_url": "http://localhost:7113",
+          "internal_base_url": "http://identuum-idp:7113"
+        },
+        "ag": {
+          "enabled": false,
+          "public_base_url": "",
+          "internal_base_url": ""
+        }
+      }
+
+volumes:
+  identuum-idp-oss-postgres-data:
+    name: identuum-idp-oss-postgres-data
+  identuum-idp-oss-data:
+    name: identuum-idp-oss-data

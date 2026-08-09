@@ -1,0 +1,23 @@
+# CODEOWNERS — identuum-idp-oss
+#
+# This file is a placeholder. The repository owner controls who is
+# requested for review on pull requests touching specific paths.
+#
+# Until concrete GitHub teams or handles are confirmed by the owner,
+# no patterns are enforced here. GitHub will not request anyone
+# automatically.
+#
+# When the owner is ready to enable code ownership, add lines of the
+# form:
+#
+#   *           @identuum/maintainers
+#   /migrations @identuum/db-owners
+#   /.github    @identuum/release-owners
+#
+# Notes:
+# - Use only handles or teams that actually exist in the GitHub
+#   organization — invalid handles silently disable enforcement.
+# - Keep this file short; broad patterns are easier to maintain than
+#   per-file overrides.
+# - Required reviewers should be configured via branch protection
+#   rules on `main`, not just CODEOWNERS.

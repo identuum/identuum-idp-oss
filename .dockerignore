@@ -1,0 +1,34 @@
+# Docker build context excludes for identuum-idp-oss/deployment/Dockerfile.local.
+# Keep the context small + deterministic so a `make oss-up` rebuild is fast.
+
+# Build artifacts.
+bin/
+output/
+identuum-idp
+*.test
+*.out
+
+# Go module + workspace junk (shouldn't be checked in, but guarded here too).
+go.work
+go.work.sum
+
+# Local-only IDE + cache directories.
+.idea/
+.vscode/
+.gograph/
+.golangci-cache/
+
+# Git metadata.
+.git/
+.gitignore
+
+# Local logs / scratch / .env (.env is also a hard-rule no-touch).
+.env
+.env.*
+*.log
+
+# Test data not needed for the runtime binary. tools/api-docgen/testdata IS
+# referenced by tests, not the binary, so it can be excluded from the image.
+tools/api-docgen/testdata/
+
+# Documentation lives in identuum-idp/docs/open-core/ outside this context.

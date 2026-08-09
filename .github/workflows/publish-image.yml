@@ -1,0 +1,191 @@
+# identuum-idp-oss — manual image publish workflow.
+#
+# ★ MANUAL ONLY. workflow_dispatch — never runs on push or PR. ★
+#
+# Builds the OSS IDP container image from deployment/Dockerfile.local and
+# pushes it to ghcr.io/identuum/identuum-idp-oss with a user-specified version
+# tag and a short-SHA tag. An opt-in `latest_tag` input also pushes :latest;
+# that input defaults to `false` so an accidental run NEVER moves the rolling
+# `latest` pointer.
+#
+# Customer install (wiki/platform/idp-appliance-install-ux.md
+# D-IDP-INSTALL-06) expects:
+#
+#   curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
+#   docker compose up -d
+#   open http://localhost:7104
+#
+# The customer-facing deployment/docker-compose.yml references
+# `ghcr.io/identuum/identuum-idp-oss:v0.2.0`. This workflow publishes the image
+# that the customer command flow expects.
+#
+# P2-3 hardening (this job has packages:write, so it is privileged):
+#   - the user-supplied version_tag is consumed ONLY via an env var, never
+#     interpolated into a shell script (no ${{ }} inside any run: block);
+#   - the workflow checks out the REQUESTED TAG (not the dispatch ref) and
+#     proves the tag exists AND resolves to the checked-out commit;
+#   - the image is built, vuln-scanned (Trivy, fail on HIGH/CRITICAL), and
+#     canonically verified (binary --version must match the tag) BEFORE any
+#     push;
+#   - provenance (SLSA) + SBOM attestations are ENABLED on the pushed manifest;
+#   - every action is pinned to an immutable commit SHA (movable v-tags can be
+#     retargeted upstream).
+#
+# Permissions:
+#   contents: read   — checkout
+#   packages: write  — push to ghcr.io with the workflow's
+#                      ${{ secrets.GITHUB_TOKEN }} (no PAT, no static secret,
+#                      no third-party credential).
+#
+# No secrets are added by this workflow. No registry credentials are stored in
+# the repository.
+
+name: Publish OSS IDP image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Git tag to build and publish (e.g. v0.2.0). Must already exist and point at the commit to release. Pushed alongside the short-SHA tag.'
+        required: true
+        type: string
+      latest_tag:
+        description: 'Also push :latest. Defaults to false; never set true on an accidental run.'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Build and push to GHCR
+    runs-on: ubuntu-latest
+    env:
+      # P2-3: user-controlled inputs are exposed ONLY as env vars and referenced
+      # as "$VERSION_TAG" / "$LATEST_TAG" in shell. They are NEVER placed inside
+      # a run: block as ${{ inputs.* }}, which would let a dispatcher of this
+      # packages:write job inject arbitrary shell.
+      VERSION_TAG: ${{ inputs.version_tag }}
+      LATEST_TAG: ${{ inputs.latest_tag }}
+      LOCAL_IMAGE: identuum-idp-oss:verify
+    steps:
+      - name: Checkout the requested version tag
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Build the TAG the operator requested, not the ref the workflow was
+          # dispatched from. fetch-depth: 0 brings tags so the next step can
+          # prove the tag ↔ commit binding.
+          ref: ${{ inputs.version_tag }}
+          fetch-depth: 0
+
+      - name: Verify the tag exists and matches the checked-out commit
+        run: |
+          set -euo pipefail
+          if ! git rev-parse -q --verify "refs/tags/${VERSION_TAG}" >/dev/null; then
+            echo "::error::tag '${VERSION_TAG}' does not exist in this repository"
+            exit 1
+          fi
+          TAG_COMMIT="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          if [ "${TAG_COMMIT}" != "${HEAD_COMMIT}" ]; then
+            echo "::error::tag '${VERSION_TAG}' -> ${TAG_COMMIT} does not match checked-out ${HEAD_COMMIT}"
+            exit 1
+          fi
+          echo "verified: ${VERSION_TAG} points at ${HEAD_COMMIT}"
+
+      - name: Compute image metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          SHORT_SHA="$(git rev-parse --short=12 HEAD)"
+          REGISTRY_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/identuum-idp-oss"
+          TAGS="${REGISTRY_IMAGE}:${VERSION_TAG},${REGISTRY_IMAGE}:sha-${SHORT_SHA}"
+          if [ "${LATEST_TAG}" = "true" ]; then
+            TAGS="${TAGS},${REGISTRY_IMAGE}:latest"
+          fi
+          # Version stamp for the ldflags build-arg (Order C): the dispatched
+          # tag with its leading v stripped — the value the canonical
+          # binary-vs-tag gate expects the binary to report.
+          VERSION_SEMVER="${VERSION_TAG#v}"
+          {
+            echo "registry_image=${REGISTRY_IMAGE}"
+            echo "short_sha=${SHORT_SHA}"
+            echo "version_semver=${VERSION_SEMVER}"
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        # Required so the linux/arm64 stage can cross-compile on the linux/amd64
+        # GitHub-hosted runner.
+        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+
+      - name: Build amd64 image for verification (no push)
+        # Single-arch build LOADED into the runner's docker so the following
+        # steps can scan + smoke-verify the exact artifact before anything is
+        # published. buildx layer cache makes the later multi-arch build cheap.
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+        with:
+          context: .
+          file: deployment/Dockerfile.local
+          push: false
+          load: true
+          tags: ${{ env.LOCAL_IMAGE }}
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version_semver }}
+
+      - name: Canonical verification — binary version matches the tag
+        run: |
+          set -euo pipefail
+          # Override the entrypoint (which would run migrate+serve) to invoke the
+          # binary directly. This ties the PUBLISHED tag to the ACTUAL binary
+          # version and would have caught the 0.2.0-vs-v0.1.0 drift.
+          BIN_VERSION="$(docker run --rm --entrypoint /app/identuum-idp "${LOCAL_IMAGE}" --version)"
+          EXPECTED="${VERSION_TAG#v}"
+          echo "binary reports: '${BIN_VERSION}'; tag expects to contain: '${EXPECTED}'"
+          case "${BIN_VERSION}" in
+            *"${EXPECTED}"*) echo "version verified: binary matches tag ${VERSION_TAG}" ;;
+            *) echo "::error::binary version '${BIN_VERSION}' does not match tag '${VERSION_TAG}'"; exit 1 ;;
+          esac
+
+      - name: Vulnerability scan (Trivy) — fail on HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Log in to GHCR
+        # Login happens ONLY after verification + scan pass, so a failed check
+        # never reaches an authenticated push.
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (multi-arch, provenance + SBOM)
+        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+        with:
+          context: .
+          file: deployment/Dockerfile.local
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version_semver }}
+          # Apple Silicon hosts pull linux/arm64 natively; linux/amd64 covers
+          # the GitHub-hosted runner and most server deployments.
+          platforms: linux/amd64,linux/arm64
+          # SLSA provenance + SBOM attestations on the published manifest.
+          provenance: true
+          sbom: true

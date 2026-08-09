@@ -1,0 +1,10 @@
+identuum-idp-oss
+Copyright © 2026 Ozgur Demir. All rights reserved.
+
+This product is currently published for viewing and evaluation purposes
+only (see LICENSE).
+
+This product includes software developed by third parties under their
+own licenses. Third-party dependencies are declared in `go.mod` and
+`go.sum`; their license terms apply as published by their respective
+authors.

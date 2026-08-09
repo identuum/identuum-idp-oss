@@ -1,0 +1,554 @@
+{
+  "layers": [
+    {
+      "name": ".",
+      "packages": [
+        "./**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "auth",
+      "packages": [
+        "auth/**"
+      ],
+      "may_import": [
+        "github.com/golang-jwt/**",
+        "github.com/google/**",
+        "github.com/stretchr/**",
+        "internal/domain/**",
+        "internal/utils/**",
+        "logger/**"
+      ]
+    },
+    {
+      "name": "cmd_identuum-idp",
+      "packages": [
+        "cmd/identuum-idp/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "internal/appliance/**",
+        "internal/crypto/**",
+        "internal/domain/**",
+        "internal/postgres/**",
+        "internal/repository/**",
+        "internal/service/**",
+        "internal/setup/**",
+        "pkg/runtime/**"
+      ]
+    },
+    {
+      "name": "internal_api",
+      "packages": [
+        "internal/api/**"
+      ],
+      "may_import": [
+        "github.com/gin-gonic/**",
+        "github.com/google/**",
+        "internal/audit/**",
+        "internal/crypto/**",
+        "internal/domain/**",
+        "internal/features/**",
+        "internal/handlers/**",
+        "internal/lifecycle/**",
+        "internal/mw/**",
+        "internal/repository/**",
+        "internal/server/**",
+        "internal/service/**",
+        "internal/setup/**",
+        "mw/**",
+        "ratelimit/**"
+      ]
+    },
+    {
+      "name": "internal_audit",
+      "packages": [
+        "internal/audit/**"
+      ],
+      "may_import": [
+        "github.com/google/**"
+      ]
+    },
+    {
+      "name": "internal_auth",
+      "packages": [
+        "internal/auth/**"
+      ],
+      "may_import": [
+        "github.com/golang-jwt/**",
+        "github.com/google/**",
+        "internal/domain/**",
+        "internal/jwtpolicy/**",
+        "internal/lifecycle/**",
+        "internal/repository/**",
+        "internal/service/**"
+      ]
+    },
+    {
+      "name": "internal_crypto",
+      "packages": [
+        "internal/crypto/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "golang.org/x/**",
+        "internal/domain/**"
+      ]
+    },
+    {
+      "name": "internal_domain",
+      "packages": [
+        "internal/domain/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "github.com/stretchr/**"
+      ]
+    },
+    {
+      "name": "internal_features",
+      "packages": [
+        "internal/features/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "internal_handlers",
+      "packages": [
+        "internal/handlers/**"
+      ],
+      "may_import": [
+        "github.com/gin-gonic/**",
+        "github.com/golang-jwt/**",
+        "github.com/google/**",
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**",
+        "internal/audit/**",
+        "internal/crypto/**",
+        "internal/domain/**",
+        "internal/features/**",
+        "internal/lifecycle/**",
+        "internal/mappers/**",
+        "internal/mw/**",
+        "internal/repository/**",
+        "internal/service/**",
+        "internal/utils/**",
+        "logger/**",
+        "pkg/oidc/**",
+        "ratelimit/**",
+        "types/**"
+      ]
+    },
+    {
+      "name": "internal_infra",
+      "packages": [
+        "internal/infra/**"
+      ],
+      "may_import": [
+        "github.com/alicebob/**",
+        "github.com/prometheus/**",
+        "github.com/redis/**",
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**",
+        "internal/metrics/**",
+        "logger/**"
+      ]
+    },
+    {
+      "name": "internal_jwtpolicy",
+      "packages": [
+        "internal/jwtpolicy/**"
+      ],
+      "may_import": [
+        "github.com/golang-jwt/**"
+      ]
+    },
+    {
+      "name": "internal_lease",
+      "packages": [
+        "internal/lease/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "internal/domain/**",
+        "internal/lifecycle/**"
+      ]
+    },
+    {
+      "name": "internal_licenseprovider",
+      "packages": [
+        "internal/licenseprovider/**"
+      ],
+      "may_import": [
+        "internal/features/**"
+      ]
+    },
+    {
+      "name": "internal_lifecycle",
+      "packages": [
+        "internal/lifecycle/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "internal_mappers",
+      "packages": [
+        "internal/mappers/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "github.com/stretchr/**",
+        "internal/domain/**",
+        "types/**"
+      ]
+    },
+    {
+      "name": "internal_metrics",
+      "packages": [
+        "internal/metrics/**"
+      ],
+      "may_import": [
+        "github.com/prometheus/**"
+      ]
+    },
+    {
+      "name": "internal_mw",
+      "packages": [
+        "internal/mw/**"
+      ],
+      "may_import": [
+        "github.com/gin-gonic/**",
+        "github.com/google/**",
+        "go.uber.org/zap/**",
+        "internal/audit/**",
+        "internal/domain/**",
+        "internal/features/**",
+        "internal/lifecycle/**",
+        "internal/metrics/**",
+        "internal/service/**",
+        "logger/**",
+        "pkg/oidc/**",
+        "ratelimit/**",
+        "types/**"
+      ]
+    },
+    {
+      "name": "internal_postgres",
+      "packages": [
+        "internal/postgres/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "github.com/jackc/**",
+        "github.com/pressly/**",
+        "github.com/prometheus/**",
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**",
+        "internal/crypto/**",
+        "internal/domain/**",
+        "internal/handlers/**",
+        "internal/infra/**",
+        "internal/mappers/**",
+        "internal/metrics/**",
+        "internal/repository/**",
+        "internal/utils/**",
+        "logger/**",
+        "migrations/**",
+        "tools/**",
+        "types/**"
+      ]
+    },
+    {
+      "name": "internal_repository",
+      "packages": [
+        "internal/repository/**"
+      ],
+      "may_import": [
+        "github.com/alicebob/**",
+        "github.com/go-webauthn/**",
+        "github.com/google/**",
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**",
+        "internal/domain/**",
+        "internal/infra/**",
+        "internal/metrics/**",
+        "logger/**"
+      ]
+    },
+    {
+      "name": "internal_runtime",
+      "packages": [
+        "internal/runtime/**"
+      ],
+      "may_import": [
+        "github.com/gin-gonic/**",
+        "github.com/golang-jwt/**",
+        "github.com/google/**",
+        "github.com/jackc/**",
+        "github.com/prometheus/**",
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**",
+        "internal/api/**",
+        "internal/appliance/**",
+        "internal/auth/**",
+        "internal/crypto/**",
+        "internal/domain/**",
+        "internal/infra/**",
+        "internal/lease/**",
+        "internal/lifecycle/**",
+        "internal/mw/**",
+        "internal/postgres/**",
+        "internal/repository/**",
+        "internal/server/**",
+        "internal/service/**",
+        "internal/setup/**",
+        "internal/startup/**",
+        "internal/utils/**",
+        "logger/**",
+        "ratelimit/**"
+      ]
+    },
+    {
+      "name": "internal_server",
+      "packages": [
+        "internal/server/**"
+      ],
+      "may_import": [
+        "internal/domain/**",
+        "internal/repository/**"
+      ]
+    },
+    {
+      "name": "internal_service",
+      "packages": [
+        "internal/service/**"
+      ],
+      "may_import": [
+        "auth/**",
+        "github.com/go-webauthn/**",
+        "github.com/golang-jwt/**",
+        "github.com/google/**",
+        "github.com/jackc/**",
+        "github.com/prometheus/**",
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**",
+        "internal/audit/**",
+        "internal/crypto/**",
+        "internal/domain/**",
+        "internal/jwtpolicy/**",
+        "internal/lifecycle/**",
+        "internal/metrics/**",
+        "internal/postgres/**",
+        "internal/repository/**",
+        "internal/utils/**",
+        "logger/**",
+        "pkg/oidc/**",
+        "pkg/pkce/**",
+        "pkg/totp/**",
+        "tools/**"
+      ]
+    },
+    {
+      "name": "internal_setup",
+      "packages": [
+        "internal/setup/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "internal/crypto/**",
+        "internal/domain/**",
+        "internal/repository/**",
+        "internal/service/**"
+      ]
+    },
+    {
+      "name": "internal_startup",
+      "packages": [
+        "internal/startup/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "internal/features/**",
+        "internal/infra/**"
+      ]
+    },
+    {
+      "name": "internal_tlscert",
+      "packages": [
+        "internal/tlscert/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "logger/**"
+      ]
+    },
+    {
+      "name": "internal_utils",
+      "packages": [
+        "internal/utils/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "github.com/stretchr/**",
+        "internal/lifecycle/**",
+        "logger/**"
+      ]
+    },
+    {
+      "name": "logger",
+      "packages": [
+        "logger/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**"
+      ]
+    },
+    {
+      "name": "migrations",
+      "packages": [
+        "migrations/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "mw",
+      "packages": [
+        "mw/**"
+      ],
+      "may_import": [
+        "github.com/gin-gonic/**",
+        "github.com/google/**",
+        "github.com/stretchr/**",
+        "go.uber.org/zap/**",
+        "internal/domain/**",
+        "internal/features/**",
+        "internal/utils/**",
+        "logger/**",
+        "pkg/features/**",
+        "pkg/licenseprovider/**",
+        "types/**"
+      ]
+    },
+    {
+      "name": "pkg_features",
+      "packages": [
+        "pkg/features/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "internal/features/**"
+      ]
+    },
+    {
+      "name": "pkg_licenseprovider",
+      "packages": [
+        "pkg/licenseprovider/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "internal/features/**",
+        "internal/licenseprovider/**",
+        "pkg/features/**"
+      ]
+    },
+    {
+      "name": "pkg_migrations",
+      "packages": [
+        "pkg/migrations/**"
+      ],
+      "may_import": [
+        "github.com/pressly/**",
+        "github.com/stretchr/**",
+        "migrations/**"
+      ]
+    },
+    {
+      "name": "pkg_oidc",
+      "packages": [
+        "pkg/oidc/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "pkg_pkce",
+      "packages": [
+        "pkg/pkce/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "pkg_runtime",
+      "packages": [
+        "pkg/runtime/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "internal/postgres/**",
+        "internal/runtime/**"
+      ]
+    },
+    {
+      "name": "pkg_server",
+      "packages": [
+        "pkg/server/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "internal/domain/**",
+        "internal/server/**"
+      ]
+    },
+    {
+      "name": "pkg_totp",
+      "packages": [
+        "pkg/totp/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "pkg_webauthn",
+      "packages": [
+        "pkg/webauthn/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "internal/domain/**",
+        "internal/repository/**",
+        "internal/service/**"
+      ]
+    },
+    {
+      "name": "ratelimit",
+      "packages": [
+        "ratelimit/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "tools",
+      "packages": [
+        "tools/**"
+      ],
+      "may_import": [
+        "github.com/stretchr/**",
+        "gopkg.in/yaml.v3/**",
+        "internal/domain/**",
+        "internal/utils/**",
+        "pkg/**"
+      ]
+    },
+    {
+      "name": "types",
+      "packages": [
+        "types/**"
+      ],
+      "may_import": [
+        "github.com/google/**",
+        "github.com/stretchr/**",
+        "internal/domain/**"
+      ]
+    }
+  ]
+}

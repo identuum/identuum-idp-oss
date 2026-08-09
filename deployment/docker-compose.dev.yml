@@ -1,0 +1,104 @@
+# identuum-idp-oss local development compose stack.
+#
+# Two profiles:
+#
+#   (default)  — Postgres only. Used by `make fast-up` for unit + integration
+#                tests; preserves the original developer flow. PG image is
+#                postgres:18-alpine (migration 0001 requires the PG18+ built-in
+#                uuidv7() function).
+#
+#   app        — Postgres + the OSS app container running cmd/identuum-idp via
+#                the `migrate` subcommand then the no-arg default serve
+#                (full OSS IdP on 0.0.0.0:7113, config from env). Used by
+#                `make oss-up` to run the OSS demo locally on 127.0.0.1:7113.
+#                The app container is gated behind the `app` profile so
+#                `make fast-up` does NOT rebuild it on every test loop.
+#
+# Usage:
+#   make fast-up          # Postgres only (default profile)
+#   make fast-down        # stop + remove containers (volume preserved)
+#   make fast-clean       # stop + remove volume (full reset)
+#   make integration-test # run integration tests against this DB
+#   make oss-up           # Postgres + OSS app container (app profile)
+#   make oss-down         # stop the app container (Postgres preserved)
+#   make oss-logs         # tail the app container logs
+#
+# Port allocation:
+#   5532  identuum-ag monolith Postgres (avoid)
+#   5533  identuum-ag-oss Postgres      (avoid)
+#   5534  reserved
+#   5513  identuum-idp-oss Postgres     <-- THIS FILE
+#   7113  identuum-idp-oss app          <-- THIS FILE (app profile)
+#
+# CE / monolith / IDP-CE / AG / UI / auth-service / wiki services are NOT
+# included.
+#
+# Safety notes:
+#   - DB URL is constructed entirely inside the container's env + entrypoint
+#     script; nothing prints the URL to host stdout.
+#   - The PG18 volume is named `identuum-idp-oss-postgres-data-v18` so it does
+#     NOT collide with any prior PG16 volume named
+#     `identuum-idp-oss-postgres-data`. The latter is empty (every migration
+#     attempt against PG16 failed at 0001) and is left untouched by this
+#     compose file.
+
+services:
+  postgres-idp-oss:
+    image: postgres:18-alpine
+    container_name: identuum-idp-oss-postgres
+    environment:
+      POSTGRES_USER: idp_oss_user
+      POSTGRES_PASSWORD: dev-idp_oss_user-not-a-secret
+      POSTGRES_DB: identuum_idp_oss
+    ports:
+      # Bind to loopback only — not exposed to the network.
+      - "127.0.0.1:5513:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idp_oss_user -d identuum_idp_oss"]
+      interval: 3s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    volumes:
+      # PG18+ uses /var/lib/postgresql (root) as the mount target — not
+      # /var/lib/postgresql/data like PG ≤ 17 — because the image now
+      # stores data in major-version-specific subdirectories to support
+      # pg_upgrade --link safely. See:
+      # https://github.com/docker-library/postgres/pull/1259
+      # The volume name is distinct from the prior PG16 volume so neither
+      # can collide. Remove explicitly via `make fast-clean` to reset.
+      - postgres-idp-oss-data-v18:/var/lib/postgresql
+
+  # OSS app — gated behind the `app` profile so the default Postgres-only
+  # flow used by `make fast-up` + integration tests is unaffected. Build
+  # is the OSS bundled binary from cmd/identuum-idp; the entrypoint runs
+  # `identuum-idp migrate "$IDENTUUM_IDP_OSS_DB"` first (one-shot) and
+  # then exec's the no-arg default serve (full IdP on 0.0.0.0:7113).
+  app:
+    profiles: ["app"]
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.local
+    image: identuum-idp-oss:local
+    container_name: identuum-idp-oss
+    restart: unless-stopped
+    depends_on:
+      postgres-idp-oss:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:7113:7113"
+    environment:
+      # DB URL assembled inside the container only. Host stdout never sees it.
+      IDENTUUM_IDP_OSS_DB: "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@postgres-idp-oss:5432/identuum_idp_oss?sslmode=disable"
+      IDENTUUM_IDP_OSS_ISSUER: "http://localhost:7113"
+      IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
+      # Optional at-rest AES key, overridable from the host env (never
+      # hardcoded). Empty by default → the entrypoint auto-generates one. This
+      # dev app has no /app/data volume, so the generated key is EPHEMERAL and
+      # regenerates on container recreate; export IDENTUUM_IDP_ENCRYPTION_KEY in
+      # your shell for a stable local key (e.g. so dev MFA enrollments survive).
+      IDENTUUM_IDP_ENCRYPTION_KEY: "${IDENTUUM_IDP_ENCRYPTION_KEY:-}"
+
+volumes:
+  postgres-idp-oss-data-v18:
+    name: identuum-idp-oss-postgres-data-v18

@@ -1,0 +1,49 @@
+# SUP-1/SUP-2 (2026-07-25, applied here after landing in identuum-idp-ce
+# at 35e65a9): `grype dir:.` catalogues gitignored build artifacts alongside
+# the source tree — bin/ (e.g. tools/api-docgen output) and the root
+# ./identuum-idp binary. A binary built before a dependency bump still
+# carries the old, vulnerable version in its embedded Go build info, so the
+# gate's verdict tracks when someone last ran a build, not what go.mod
+# actually declares. Excluding build output makes the scan a pure function
+# of the declared dependency tree.
+#
+# The DB `max-allowed-built-age` is pinned here (5 days, matching grype's
+# own default) instead of left implicit, so a future default change
+# upstream can't quietly loosen or tighten what this gate accepts.
+exclude:
+  - ./bin/**
+  - ./identuum-idp
+  - ./.gograph/**
+db:
+  validate-age: true
+  max-allowed-built-age: 120h
+
+# SUP-3 DECISION (2026-08-04): GATE ON REACHABILITY, WITH A DATED IGNORE LIST.
+#
+# The policy question was: keep the blunt any-High-in-the-dependency-tree check
+# and accept permanent noise, or gate on reachability with a reviewed ignore
+# list. THE BLUNT CHECK LOSES, for one reason — GO-2026-5932 (x/crypto openpgp)
+# HAS NO FIX. Upstream is unmaintained; it will appear in every scan forever.
+# A gate that is permanently red for something that cannot be fixed and cannot
+# be reached is a gate people learn to skip, which is standing lesson 13 and the
+# same failure family as CI-1.
+#
+# WHAT MAKES THIS SAFE RATHER THAN A SUPPRESSION HABIT:
+#   * govulncheck still runs, ungated and unfiltered, in `make verify`. It is
+#     the REACHABILITY authority and it reported 0 reachable vulnerabilities on
+#     both repos when this was written. Nothing below can hide a reachable call.
+#   * Every entry is pinned to ONE vulnerability id. No package-wide or
+#     severity-wide suppression.
+#   * Every entry carries WHY and a RE-CHECK DATE. An entry past its date is a
+#     finding about this file, not about the dependency.
+#
+# RE-CHECK 2026-11-04 (quarterly). At that review each entry is either renewed
+# with a new date, or deleted because a fix shipped.
+ignore:
+  # GO-2026-5932 / GHSA-... — golang.org/x/crypto/openpgp.
+  # NO FIX AVAILABLE: the openpgp packages are frozen upstream and will not be
+  # patched. NOT REACHABLE: govulncheck reports 0 reachable vulnerabilities for
+  # this module in this repo; nothing here imports openpgp, it arrives as an
+  # indirect dependency of the x/crypto module graph.
+  # Re-check 2026-11-04, or immediately if govulncheck ever reports it reachable.
+  - vulnerability: GO-2026-5932
