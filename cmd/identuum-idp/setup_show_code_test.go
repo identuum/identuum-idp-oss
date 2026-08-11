@@ -71,6 +71,7 @@ func TestRunShowSetupCode_SetupRequiredWithValidFile_Prints(t *testing.T) {
 	}
 }
 
+// RULE: SETUP-CODE-1
 func TestRunShowSetupCode_SetupCompleteRefusesEvenWithStaleFile(t *testing.T) {
 	dir := t.TempDir()
 	// Stale file left behind from a partial setup-completion run.

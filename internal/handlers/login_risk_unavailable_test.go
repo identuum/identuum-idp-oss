@@ -117,6 +117,7 @@ func TestLoginRoute_RiskBackendUnavailableIs503(t *testing.T) {
 // invalid_credentials as a wrong password — NOT the 503. The
 // 503-vs-401 split therefore tracks backend state only, never lockout
 // state.
+// RULE: LOCKOUT-1
 func TestLoginRoute_GenuineLockoutIsInvalidCredentials(t *testing.T) {
 	seed := func(u *inMemoryUserLookupForHandlers) {
 		u.byEmail["alice@example.com"] = []*domain.User{{

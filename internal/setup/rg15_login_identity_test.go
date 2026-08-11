@@ -29,6 +29,7 @@ import (
 // because the mapping is the whole of the change and it can be stated here
 // without standing up a database; the end-to-end path is covered by the
 // existing setup integration suite.
+// RULE: LOGIN-PIN-1
 func TestRg15_SiteAdminLoginIsCanonicalNotTheOperatorsAddress(t *testing.T) {
 	const operator = "ops.person@customer.example"
 

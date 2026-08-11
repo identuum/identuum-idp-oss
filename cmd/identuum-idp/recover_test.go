@@ -182,6 +182,7 @@ func TestRecoverSiteAdminCore_MissingSiteAdmin(t *testing.T) {
 	}
 }
 
+// RULE: RECOVER-1
 func TestRecoverSiteAdminCore_RefusesWrongSentinelID(t *testing.T) {
 	t.Parallel()
 
