@@ -83,7 +83,7 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
 .PHONY: clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
-.PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh
+.PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
 ## Runs wiki-freshness.sh --repo identuum-idp-oss --strict against the sibling
@@ -104,6 +104,31 @@ wiki-fresh:
 	else \
 		bash "$(WIKI_DIR)/tools/wiki-freshness.sh" --repo identuum-idp-oss --strict; \
 	fi
+
+## rulefloor-check: RULE-FLOOR.md ledger gate — the sibling rulefloor CLI
+## verifies every armed rule (tag present and unique, no .skip/.only/t.Skip,
+## body hash pinned, Go rows re-run standalone, row count >= FLOOR, no orphan
+## tags). Sibling-coupled like wiki-fresh, so it is NOT in ci-verify (one-repo
+## rule) — enumerated in the ci.yml header. UNLIKE wiki-fresh there is NO skip
+## branch: a missing sibling checkout or a failed build of the tool is
+## CANNOT-EVALUATE, and CANNOT-EVALUATE is FATAL — a gate that could not
+## measure must never be mistaken for one that measured and approved.
+## No flag here may lower the tool's strictness.
+RULEFLOOR_DIR ?= ../rulefloor
+
+rulefloor-check:
+	@if [ ! -d "$(RULEFLOOR_DIR)" ]; then \
+		echo "rulefloor-check: CANNOT-EVALUATE — no rulefloor checkout at $(RULEFLOOR_DIR)" >&2; \
+		exit 2; \
+	fi
+	@if [ ! -x "$(RULEFLOOR_DIR)/rulefloor" ]; then \
+		echo "rulefloor-check: building $(RULEFLOOR_DIR)/rulefloor"; \
+		(cd "$(RULEFLOOR_DIR)" && go build -o rulefloor .) || { \
+			echo "rulefloor-check: CANNOT-EVALUATE — go build of the rulefloor tool failed" >&2; \
+			exit 2; \
+		}; \
+	fi
+	@"$(RULEFLOOR_DIR)/rulefloor" check --repo .
 
 ## repo-green: the commit floor — build + vet + test, as ONE named check.
 ##
@@ -229,6 +254,11 @@ verify:
 	@$(MAKE) --no-print-directory repo-green
 	@$(MAKE) --no-print-directory tracked-binary-check
 	@$(MAKE) --no-print-directory credential-transparency
+	# rulefloor-check sits EARLY on purpose: it is cheap (hash pins + four
+	# standalone go test -run rows) and a tampered rule proof should fail the
+	# aggregate before the expensive gates spend their minutes. Sibling-coupled,
+	# so ci-verify subtracts it — see the ci.yml header enumeration.
+	@$(MAKE) --no-print-directory rulefloor-check
 	# fmt-check / vet / go build / go test are NOT missing: `repo-green` above
 	# runs all four as ONE named floor (order F, THE-FLIPPED-CELLS). tagged-vet
 	# stays because repo-green runs UNTAGGED and cannot see //go:build files.

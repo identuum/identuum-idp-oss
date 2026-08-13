@@ -6,10 +6,11 @@
 #
 #   1. verify       — `make ci-verify` (= `make verify` minus the two
 #                     LOCAL-ONLY gograph lines, minus govulncheck which has
-#                     its own job, and minus the THREE wiki-coupled targets
+#                     its own job, and minus the FOUR sibling-coupled targets
 #                     that cannot fire here because CI checks out one repo
-#                     and the sibling wiki is absent — enumerated, and this
-#                     list must stay equal to what the Makefile subtracts:
+#                     and the sibling checkouts (wiki, rulefloor) are absent
+#                     — enumerated, and this list must stay equal to what
+#                     the Makefile subtracts:
 #                       - repo-green      ($(WIKI_TOOLS)/repo-green-gate.sh;
 #                                          its four floors — fmt, build,
 #                                          test, vet — are explicit ci-verify
@@ -24,6 +25,12 @@
 #                       - wiki-fresh      (self-skips when ../wiki is absent;
 #                                          the call could only ever print
 #                                          SKIPPED)
+#                       - rulefloor-check (../rulefloor sibling CLI verifying
+#                                          RULE-FLOOR.md; locally a missing
+#                                          sibling is CANNOT-EVALUATE = FATAL,
+#                                          never a skip, so the target cannot
+#                                          run in a one-repo checkout at all —
+#                                          THE-RULEFLOOR-GATE)
 #                     + the integration-tagged compile/lint that `verify`
 #                     itself does not exercise.
 #   2. integration  — `make integration-test` against a Postgres service

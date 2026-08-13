@@ -204,6 +204,17 @@ make fast-down
 The full one-shot validation chain (clean DB → up → integration tests
 → down) is `make validate`.
 
+### Rule ledger (RULE-FLOOR.md)
+
+`make verify` includes `make rulefloor-check`, which verifies the
+machine-checked rule ledger at the repo root with the sibling
+`../rulefloor` CLI (the ledger's only writer). Bootstrap: clone the
+`rulefloor` repo next to this checkout; the Make target builds the
+binary on first use (`go build`, stdlib only). A missing sibling or a
+failed tool build is CANNOT-EVALUATE and fails `verify` — there is no
+skip. CI's `ci-verify` deliberately excludes the target (one-repo
+checkout; see the ci.yml header enumeration).
+
 ## Configuration
 
 Copy the example env file and edit local values:
