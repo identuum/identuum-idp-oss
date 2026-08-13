@@ -70,6 +70,7 @@ func TestLoginRoute_SiteAdminWithoutMFAReturnsEnrollmentRequiredAndNoCookies(t *
 	}
 }
 
+// RULE: MFA-ADMIN-ENROLL-1
 func TestLoginRoute_OrgAdminWithoutMFAReturnsEnrollmentRequiredAndNoCookies(t *testing.T) {
 	r, _, _ := newAuthEngine(t, func(u *inMemoryUserLookupForHandlers) {
 		u.byEmail["orgadmin@example.invalid"] = []*domain.User{{
@@ -168,6 +169,7 @@ func TestLoginRoute_OrgUserOptionalPolicyNoMFAStillSucceedsWithCookies(t *testin
 	}
 }
 
+// RULE: MFA-EVERY-LOGIN-1
 func TestLoginRoute_AdminWithMFAEnabledMissingCodeReturnsMFARequiredNoCookies(t *testing.T) {
 	secret := "JBSWY3DPEHPK3PXP" // arbitrary base32 — never the real secret
 	r, _, _ := newAuthEngine(t, func(u *inMemoryUserLookupForHandlers) {

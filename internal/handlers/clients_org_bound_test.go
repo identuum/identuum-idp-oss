@@ -20,6 +20,7 @@ import (
 //
 // This is the ORG-BOUND half of the ruling. The scope half is pinned by
 // TestSessionScopeTrio_* and TestIssueForSession_MintsRoleDerivedScopes.
+// RULE: CLIENT-SCOPE-1
 func TestOrgAdminClientScope_BindsOrgAdminAndFreesSiteAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	org := uuid.New()

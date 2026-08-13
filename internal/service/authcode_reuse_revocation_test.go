@@ -67,6 +67,7 @@ func newReuseFixture(t *testing.T) (*AuthorizationCodeService, *recordingRevoker
 }
 
 // TestAuthCodeReuse_RevokesOnReplay is the P0-1b assertion.
+// RULE: AUTHCODE-REPLAY-1
 func TestAuthCodeReuse_RevokesOnReplay(t *testing.T) {
 	svc, rev, code := newReuseFixture(t)
 	verifier, _ := authorizeChallenge(t)

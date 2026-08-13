@@ -94,6 +94,7 @@ func TestMFAAtRest_TOTPSeedEncryptedAndVerifies(t *testing.T) {
 
 // (b) recovery codes stored as HASHES (not raw); a correct code is accepted
 // (hash match) and single-use; a wrong code rejected.
+// RULE: MFA-RECOVERY-1
 func TestMFAAtRest_RecoveryCodesHashedAcceptedSingleUseWrongRejected(t *testing.T) {
 	cipher := realMFACipher(t)
 	svc, userRepo, user, _, codes := enrollViaService(t, cipher)

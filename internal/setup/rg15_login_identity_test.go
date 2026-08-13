@@ -48,6 +48,7 @@ func TestRg15_SiteAdminLoginIsCanonicalNotTheOperatorsAddress(t *testing.T) {
 	}
 }
 
+// RULE: CONTACT-EMAIL-1
 func TestRg15_ContactIsTrimmedAndOptional(t *testing.T) {
 	if _, contact := siteAdminIdentity("  spaced@example.com \n"); contact != "spaced@example.com" {
 		t.Errorf("contact = %q, want it trimmed", contact)

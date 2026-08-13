@@ -280,6 +280,7 @@ func TestLoginRoute_HappyPathReturnsOneTimeRefreshToken(t *testing.T) {
 	}
 }
 
+// RULE: AUTH-WRONGPW-1
 func TestLoginRoute_WrongPasswordIs401InvalidCredentials(t *testing.T) {
 	r, _, _ := newAuthEngine(t, func(u *inMemoryUserLookupForHandlers) {
 		u.byEmail["alice@example.com"] = []*domain.User{{

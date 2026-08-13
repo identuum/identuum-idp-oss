@@ -95,6 +95,7 @@ func TestLogin_UnverifiedEmail(t *testing.T) {
 	}
 }
 
+// RULE: USER-BAN-LOGIN-1
 func TestLogin_BannedUserCollapsesToInvalidCredentials(t *testing.T) {
 	svc, users := newLoginHarness(t)
 	uid := uuid.New()

@@ -18,6 +18,7 @@ import (
 // enumerate ids in another. 404 says nothing.
 //
 // Measured live before this landed: read → HTTP 403, modify → HTTP 403.
+// RULE: MODEL-404-SA-1
 func TestModel_OrgAdminSeesSiteAdminAs404(t *testing.T) {
 	org := uuid.New()
 	eng := newTenantEngine(t, &domain.Principal{
@@ -40,6 +41,7 @@ func TestModel_OrgAdminSeesSiteAdminAs404(t *testing.T) {
 }
 
 // The same rule across an ordinary tenant boundary.
+// RULE: MODEL-404-CROSSORG-1
 func TestModel_OrgAdminSeesOtherOrgUserAs404(t *testing.T) {
 	mine, theirs := uuid.New(), uuid.New()
 	eng := newTenantEngine(t, &domain.Principal{

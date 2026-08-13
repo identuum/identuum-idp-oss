@@ -262,6 +262,7 @@ func TestIntrospection_ClientAuthFlipReplacesSiteAdmin(t *testing.T) {
 	}
 }
 
+// RULE: INTROSPECT-AUTH-1
 func TestIntrospection_ClientAuthRejectionReturns401(t *testing.T) {
 	v := &handlerFakeIntrospector{}
 	r := newIntrospectionEngineWithClientAuth(t, v, stubAuthnRejectAll{})

@@ -35,6 +35,7 @@ func siteAdmin() *domain.Principal {
 	return &domain.Principal{UserID: uuid.New(), Role: domain.RoleSiteAdmin}
 }
 
+// RULE: SA-TENANT-USER-1
 func TestSiteAdminTenantWrite_OrgUserInTenantForbidden(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)
@@ -52,6 +53,7 @@ func TestSiteAdminTenantWrite_OrgUserInTenantForbidden(t *testing.T) {
 	}
 }
 
+// RULE: SA-TENANT-FIRST-1
 func TestSiteAdminTenantWrite_FirstOrgAdminAllowed(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)
@@ -72,6 +74,7 @@ func TestSiteAdminTenantWrite_FirstOrgAdminAllowed(t *testing.T) {
 	}
 }
 
+// RULE: SA-TENANT-SECOND-1
 func TestSiteAdminTenantWrite_SecondOrgAdminForbidden(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)
@@ -96,6 +99,7 @@ func TestSiteAdminTenantWrite_SecondOrgAdminForbidden(t *testing.T) {
 
 // The system organization is NOT a tenant: bootstrap and recover-site-admin
 // write the site_admin into it, and this rule must never block that.
+// RULE: SA-TENANT-SYSORG-1
 func TestSiteAdminTenantWrite_SystemOrgIsNotATenant(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)

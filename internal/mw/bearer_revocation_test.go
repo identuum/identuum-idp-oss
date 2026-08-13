@@ -205,6 +205,7 @@ func TestBearerRevocation_M2MTokenExemptAndNoLookup(t *testing.T) {
 // Property (3): when the session-store lookup itself errors, a
 // user-session request is rejected (fail-closed) — a transient store
 // failure must not admit a possibly-revoked token.
+// RULE: P0-JTI-1
 func TestBearerRevocation_LookupErrorFailsClosed(t *testing.T) {
 	v := &stubVerifier{principal: &domain.Principal{
 		UserID: uuid.New(), Role: domain.RoleSiteAdmin, SessionID: uuid.New(),

@@ -55,6 +55,7 @@ func TestRateLimitMiddleware_UnderLimitPasses(t *testing.T) {
 }
 
 // (b) The (N+1)th request from the same IP returns 429.
+// RULE: RATE-TOKEN-1
 func TestRateLimitMiddleware_OverLimitReturns429(t *testing.T) {
 	limit := ratelimit.RateLimit{RequestsPerWindow: 1, WindowDuration: time.Minute}
 	r := newLimitedEngine(limit)

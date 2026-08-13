@@ -22,6 +22,7 @@ import (
 // answers 401 from a dead session. That is also why the compliance probe had to
 // run them on isolated stacks — measured in sequence, they turned every
 // following rule into a false COMPLIES.
+// RULE: MODEL-SYSORG-NORENAME-1
 func TestModel_SystemOrgCannotBeRenamed(t *testing.T) {
 	svc := NewOrganizationService(nil, newOrgRepo())
 	sys := uuid.MustParse(domain.SystemOrgID)
@@ -34,6 +35,7 @@ func TestModel_SystemOrgCannotBeRenamed(t *testing.T) {
 	}
 }
 
+// RULE: MODEL-SYSORG-NODELETE-1
 func TestModel_SystemOrgCannotBeDeleted(t *testing.T) {
 	svc := NewOrganizationService(nil, newOrgRepo())
 	sys := uuid.MustParse(domain.SystemOrgID)
@@ -60,6 +62,7 @@ func TestModel_SiteAdminCannotBeDeleted(t *testing.T) {
 // no org_admins, then site_admin can create/assign another org_admin" — and a
 // guard that over-reaches into ordinary users would make that clause
 // unreachable.
+// RULE: MODEL-DELETABLE-1
 func TestModel_OrdinaryUsersStayDeletable(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)
@@ -79,6 +82,7 @@ func TestModel_OrdinaryUsersStayDeletable(t *testing.T) {
 }
 
 // "Only site_admin user CAN be a member of System organization."
+// RULE: MODEL-SYSJOIN-1
 func TestModel_OnlySiteAdminMayJoinTheSystemOrg(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)
@@ -109,6 +113,7 @@ func TestModel_OnlySiteAdminMayJoinTheSystemOrg(t *testing.T) {
 // UserService.Delete never saw it — and its comment promised that
 // "last-site-admin invariants are enforced by higher-tier code" that did not
 // exist. Measured live: DELETE the sentinel → HTTP 200.
+// RULE: MODEL-SA-NODELETE-1
 func TestModel_SiteAdminCannotBeDeletedByAnyActor(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)

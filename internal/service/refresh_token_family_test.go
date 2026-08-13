@@ -22,6 +22,7 @@ import (
 // family B's tip (tb1) die too, so the "family B still rotates" assertion
 // fails — proving the change from subject-wide to family-scoped is
 // load-bearing.
+// RULE: P0-REFRESH-1
 func TestConsume_ReuseRevokesOnlyFamily_SiblingSurvives(t *testing.T) {
 	repo := newInMemoryRefreshTokenRepo()
 	svc := NewRefreshTokenService(nil, repo, RefreshTokenServiceOptions{TTL: time.Hour})

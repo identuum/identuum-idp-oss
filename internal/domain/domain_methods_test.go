@@ -604,6 +604,7 @@ func TestOrganizationValidate_PolicyFields(t *testing.T) {
 	}
 }
 
+// RULE: P0-TENANT-1
 func TestOrganizationIsOperational(t *testing.T) {
 	now := time.Now()
 

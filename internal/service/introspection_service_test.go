@@ -264,6 +264,7 @@ func (f *fakeRevocationChecker) IsRevoked(_ context.Context, jti string) (bool, 
 	return f.revoked[jti], nil
 }
 
+// RULE: INTROSPECT-REVOKED-1
 func TestIntrospect_RevokedJTIReturnsInactive(t *testing.T) {
 	v := &fakeIntrospector{claims: &IntrospectionClaims{
 		Sub: "cli-1", ClientID: "cli-1", Jti: "jti-1", Scope: "openid",

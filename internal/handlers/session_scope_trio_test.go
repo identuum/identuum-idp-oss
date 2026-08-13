@@ -25,6 +25,7 @@ import (
 // RED (before the minting existed): domain.SessionScopesForRole is undefined /
 // returns nothing for org_admin, and the own-org create is 403 exactly as
 // observed live.
+// RULE: TRIO-OWN-1
 func TestSessionScopeTrio_OrgAdminOwnOrgCreate201(t *testing.T) {
 	org := uuid.New()
 	eng := newTenantEngine(t, &domain.Principal{
@@ -44,6 +45,7 @@ func TestSessionScopeTrio_OrgAdminOwnOrgCreate201(t *testing.T) {
 	}
 }
 
+// RULE: TRIO-OTHER-1
 func TestSessionScopeTrio_OrgAdminOtherOrg403(t *testing.T) {
 	eng := newTenantEngine(t, &domain.Principal{
 		UserID:         uuid.New(),
@@ -63,6 +65,7 @@ func TestSessionScopeTrio_OrgAdminOtherOrg403(t *testing.T) {
 	}
 }
 
+// RULE: TRIO-USER-1
 func TestSessionScopeTrio_OrgUser403(t *testing.T) {
 	org := uuid.New()
 	eng := newTenantEngine(t, &domain.Principal{

@@ -48,6 +48,7 @@ func bearerEngine(t *testing.T, verifier TokenVerifier) *gin.Engine {
 	return r
 }
 
+// RULE: P0-BEARER-1
 func TestBearerPrincipal_NoHeaderFallsThroughTo401(t *testing.T) {
 	v := &stubVerifier{}
 	r := bearerEngine(t, v)

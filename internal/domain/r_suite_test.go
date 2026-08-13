@@ -21,6 +21,7 @@ import (
 // never be skipped for want of a database.
 
 // R4 — "System organization has lowest possible UUIDv7 id."
+// RULE: R4
 func TestR4_SystemOrgIDIsLowestUUIDv7(t *testing.T) {
 	const want = "00000000-0000-7000-0000-000000000000"
 	if domain.SystemOrgID != want {
@@ -39,6 +40,7 @@ func TestR4_SystemOrgIDIsLowestUUIDv7(t *testing.T) {
 }
 
 // R5 — "site_admin user has lowest possible UUIDv7 id. (…0001)"
+// RULE: R5
 func TestR5_SiteAdminIDIsLowestUUIDv7Plus1(t *testing.T) {
 	const want = "00000000-0000-7000-0000-000000000001"
 	if domain.SiteAdminID != want {
@@ -57,6 +59,7 @@ func TestR5_SiteAdminIDIsLowestUUIDv7Plus1(t *testing.T) {
 }
 
 // R6 — "user id is site_admin@system.local"
+// RULE: R6
 func TestR6_SiteAdminLoginIdentifier(t *testing.T) {
 	const want = "site_admin@system.local"
 	if domain.SiteAdminEmail != want {
@@ -66,6 +69,7 @@ func TestR6_SiteAdminLoginIdentifier(t *testing.T) {
 }
 
 // R8 — 'System Organization name is "System Organization", slug is: system-local'
+// RULE: R8
 func TestR8_SystemOrgNameAndSlug(t *testing.T) {
 	if domain.SystemOrgName != "System Organization" {
 		t.Errorf("SystemOrgName = %q, want %q", domain.SystemOrgName, "System Organization")
@@ -83,6 +87,7 @@ func TestR8_SystemOrgNameAndSlug(t *testing.T) {
 // the four pinned values, spelled out as literals so the CE twin
 // (internal/commercial/org/r_suite_test.go) can assert the SAME literals. If
 // either side moves, its own R-suite goes red.
+// RULE: R1
 func TestR1_PinnedValuesAreTheSharedContract(t *testing.T) {
 	shared := map[string]string{
 		"SystemOrgID":    "00000000-0000-7000-0000-000000000000",
@@ -108,6 +113,7 @@ func TestR1_PinnedValuesAreTheSharedContract(t *testing.T) {
 
 // R21 — "Org User: … No administrative authority of any kind."
 // The scope derivation is the machine-readable form of that sentence.
+// RULE: R21
 func TestR21_OrgUserCarriesNoAdministrativeScopes(t *testing.T) {
 	if s := domain.SessionScopesForRole(domain.RoleOrgUser); s != "" {
 		t.Fatalf("an org_user session token carries scopes %q, want none — the model gives it "+
@@ -124,6 +130,7 @@ func TestR21_OrgUserCarriesNoAdministrativeScopes(t *testing.T) {
 // nothing outside it. Day-to-day control of that organization's resources
 // (users, clients, service accounts, identity provider, protocol settings,
 // domains, RBAC roles)."
+// RULE: R16
 func TestR16_OrgAdminScopeSetCoversTheGrantedAreas(t *testing.T) {
 	held := map[string]bool{}
 	for _, s := range domain.OrgAdminSessionScopes {
@@ -164,6 +171,7 @@ func TestR16_OrgAdminScopeSetCoversTheGrantedAreas(t *testing.T) {
 }
 
 // R18 — "cannot promote anyone to site_admin."
+// RULE: R18
 func TestR18_SiteAdminIsNotAnAssignableOrgRole(t *testing.T) {
 	// PREMISE FIRST. This test is a loop that reports nothing when the set is
 	// empty, so without this line it passes green against zero scopes — proved

@@ -71,6 +71,7 @@ func TestOAuthClientAuth_PrivateKeyJWTClient_SecretAuthRejected(t *testing.T) {
 
 // Basic and Post are NOT interchangeable: each registered method succeeds ONLY
 // with its own presentation, and is rejected via the other.
+// RULE: P0-CLIAUTH-1
 func TestOAuthClientAuth_BasicVsPostNotInterchangeable(t *testing.T) {
 	repo := newClientRepo()
 	auth := NewOAuthClientAuthService(nil, NewClientService(nil, repo), nil)

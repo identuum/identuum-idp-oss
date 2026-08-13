@@ -30,6 +30,7 @@ import (
 //
 // The fix is not new policy — it is making three routes agree with the one
 // beside them that was already right.
+// RULE: RG10
 func TestRg10_CrossOrgWriteProbesAreIndistinguishableFromAMiss(t *testing.T) {
 	mine, theirs := uuid.New(), uuid.New()
 	actor := &domain.Principal{
