@@ -164,7 +164,10 @@ func (r *memOrgRepo) CreateWithAdmin(_ context.Context, _ *domain.Organization, 
 func (r *memOrgRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.Organization, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.rows[id], nil
+	if o := r.rows[id]; o != nil && o.DeletedAt == nil {
+		return o, nil
+	}
+	return nil, nil
 }
 func (r *memOrgRepo) GetByDomain(_ context.Context, _ string) (*domain.Organization, error) {
 	panic("not used")
@@ -187,13 +190,28 @@ func (r *memOrgRepo) Update(_ context.Context, id uuid.UUID, opts repository.Upd
 	}
 	return o, nil
 }
+
+// Delete/Undelete mirror the REAL repository's soft-delete semantics: the
+// row survives with DeletedAt set (reads filter it), and Undelete clears the
+// marker. The previous fake hard-deleted and no-op'd Undelete, which made
+// the restore path untestable through this engine.
 func (r *memOrgRepo) Delete(_ context.Context, id uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	delete(r.rows, id)
+	if o, ok := r.rows[id]; ok {
+		now := time.Now()
+		o.DeletedAt = &now
+	}
 	return nil
 }
-func (r *memOrgRepo) Undelete(_ context.Context, _ uuid.UUID) error { return nil }
+func (r *memOrgRepo) Undelete(_ context.Context, id uuid.UUID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if o, ok := r.rows[id]; ok {
+		o.DeletedAt = nil
+	}
+	return nil
+}
 func (r *memOrgRepo) List(_ context.Context, _ repository.OrganizationFilter, _ repository.Pagination, _ repository.Sort) ([]*domain.Organization, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -967,6 +985,7 @@ func TestOrganizations_Unauthenticated401(t *testing.T) {
 	}
 }
 
+// RULE: ORG-LIFECYCLE-1
 func TestOrganizations_NonSiteAdmin403(t *testing.T) {
 	eng := newIdentityEngine(t, &domain.Principal{UserID: uuid.New(), Role: domain.RoleOrgAdmin}, nil)
 	rec := doIdentityJSON(t, eng, http.MethodGet, "/api/v1/organizations", nil)
@@ -1153,5 +1172,54 @@ func TestOrganizationDomains_VerifyWithoutVerifierReturns501(t *testing.T) {
 	verify := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/organizations/"+orgID+"/domains/"+domainID+"/verify", nil)
 	if verify.Code != http.StatusNotImplemented {
 		t.Errorf("verify without verifier = %d, want 501", verify.Code)
+	}
+}
+
+// Organization creation is infrastructure authority: an org_user probing the
+// create route gets the same 403 the rest of the site-only surface answers.
+// RULE: ORG-CREATE-403-1
+func TestOrganizations_OrgUserCreate403(t *testing.T) {
+	eng := newIdentityEngine(t, &domain.Principal{UserID: uuid.New(), Role: domain.RoleOrgUser}, nil)
+	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/organizations", map[string]any{
+		"name":   "Rogue Org",
+		"domain": "rogue.test",
+		"active": true,
+	})
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want 403", rec.Code)
+	}
+}
+
+// A soft-deleted organization is gone from reads (404) yet stays restorable
+// to a usable state via PUT active:true — deletion is reversible lifecycle,
+// not destruction.
+// RULE: ORG-RESTORE-1
+func TestOrganizations_SoftDeleteThenRestore(t *testing.T) {
+	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
+	create := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/organizations", map[string]any{
+		"name":   "Phoenix",
+		"domain": "phoenix.test",
+		"active": true,
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d; body=%q", create.Code, create.Body.String())
+	}
+	var created safeOrganization
+	if err := json.Unmarshal(create.Body.Bytes(), &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	id := created.ID.String()
+	if del := doIdentityJSON(t, eng, http.MethodDelete, "/api/v1/organizations/"+id, nil); del.Code != http.StatusOK {
+		t.Fatalf("delete status = %d", del.Code)
+	}
+	if get := doIdentityJSON(t, eng, http.MethodGet, "/api/v1/organizations/"+id, nil); get.Code != http.StatusNotFound {
+		t.Fatalf("get after soft-delete = %d, want 404", get.Code)
+	}
+	restore := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/organizations/"+id+"/restore", nil)
+	if restore.Code != http.StatusOK {
+		t.Fatalf("restore status = %d; body=%q", restore.Code, restore.Body.String())
+	}
+	if get := doIdentityJSON(t, eng, http.MethodGet, "/api/v1/organizations/"+id, nil); get.Code != http.StatusOK {
+		t.Fatalf("get after restore = %d, want 200", get.Code)
 	}
 }

@@ -407,6 +407,7 @@ func TestRequestPasswordReset_BannedAndDeletedSkipped(t *testing.T) {
 	assert.Empty(t, rec.snapshot())
 }
 
+// RULE: USER-RESET-TOKEN-1
 func TestResetPassword_BadTokenIsInvalid(t *testing.T) {
 	users := newFakeUserRepo()
 	resets := newFakePasswordResetRepo()

@@ -284,6 +284,7 @@ func newTestOpts() bootstrapOptions {
 	}
 }
 
+// RULE: SA-IN-SYSORG-1
 func TestBootstrapCore_FreshDatabase(t *testing.T) {
 	t.Parallel()
 
@@ -337,6 +338,7 @@ func TestBootstrapCore_FreshDatabase(t *testing.T) {
 	}
 }
 
+// RULE: SA-SINGLETON-1
 func TestBootstrapCore_Idempotent(t *testing.T) {
 	t.Parallel()
 

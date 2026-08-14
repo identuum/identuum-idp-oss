@@ -163,6 +163,7 @@ func TestResendVerification_AlreadyVerifiedSkipped(t *testing.T) {
 	assert.Empty(t, rec.snapshot())
 }
 
+// RULE: USER-VERIFY-TOKEN-1
 func TestVerifyEmail_BadTokenIsInvalid(t *testing.T) {
 	users := newFakeUserRepo()
 	verifs := newFakeEmailVerificationRepo()

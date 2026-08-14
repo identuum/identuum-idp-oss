@@ -134,6 +134,7 @@ func TestClientService_RegisterConfidentialReturnsSecretOnce(t *testing.T) {
 	}
 }
 
+// RULE: SECRET-ROTATE-1
 func TestClientService_RegenerateRotatesAndReturnsOnce(t *testing.T) {
 	repo := newClientRepo()
 	svc := NewClientService(nil, repo)

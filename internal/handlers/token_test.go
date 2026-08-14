@@ -535,6 +535,7 @@ func TestToken_RefreshGrantSuccessShapeIncludesRefreshToken(t *testing.T) {
 	}
 }
 
+// RULE: TOKEN-SPLIT-1
 func TestToken_RefreshGrantUnknownIsInvalidGrant(t *testing.T) {
 	r, _ := newTokenEngineWithRefresh(t, tokenStubAllow{kind: service.AuthenticatedClientKindOAuth})
 	body := strings.NewReader("grant_type=refresh_token&refresh_token=" + uuid.NewString() + ".AAAA&client_id=cli&client_secret=S")

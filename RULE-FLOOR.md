@@ -1,4 +1,4 @@
-FLOOR: 59
+FLOOR: 60
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -46,18 +46,19 @@ FLOOR: 59
 | MFA-EVERY-LOGIN-1 | An MFA-enabled admin logging in without a code gets mfa_required and no cookies. | go-test | internal/handlers/auth_mfa_policy_test.go @ unit | - | 3dfd49389c4a |
 | RG1 | The System organization cannot be suspended or soft-deleted at the database layer. | - | NONE | blocked: TestRg1 in internal/postgres/model_update_teeth_test.go is go:build integration + live Postgres | - |
 | RG2 | The site_admin cannot be banned, demoted, or soft-deleted at the database layer. | - | NONE | blocked: TestRg2 in internal/postgres/model_update_teeth_test.go is go:build integration + live Postgres | - |
-| USER-ORG-1 | Every user belongs to exactly one organization. | - | NONE | - | - |
-| SA-SINGLETON-1 | There is exactly one site_admin per installation. | - | NONE | - | - |
-| SA-IN-SYSORG-1 | The site_admin belongs to the System organization. | - | NONE | - | - |
-| ORG-MOVE-1 | No actor may move a user across organizations. | - | NONE | - | - |
-| ORG-LIFECYCLE-1 | Organization lifecycle is infrastructure authority only. | - | NONE | - | - |
-| ORG-CREATE-403-1 | An org_user is refused organization creation with 403. | - | NONE | - | - |
-| ORG-RESTORE-1 | A soft-deleted organization 404s on read yet remains restorable. | - | NONE | - | - |
-| USER-PW-REQUIRED-1 | User creation without a password fails with a clear 4xx. | - | NONE | - | - |
-| USER-RESET-TOKEN-1 | A password reset with a bogus token is refused. | - | NONE | - | - |
-| USER-VERIFY-TOKEN-1 | Email verification with a bogus token is refused. | - | NONE | - | - |
+| USER-ORG-1 | Every user belongs to exactly one organization. | go-test | internal/service/burndown_rules_test.go @ unit | - | 4a42217b440a |
+| SA-SINGLETON-1 | There is exactly one site_admin per installation. | go-test | cmd/identuum-idp/bootstrap_test.go @ unit | - | 49670a09a4f2 |
+| SA-IN-SYSORG-1 | The site_admin belongs to the System organization. | go-test | cmd/identuum-idp/bootstrap_test.go @ unit | - | 094c9ac3636b |
+| ORG-MOVE-1 | No actor may move a user across organizations. | go-test | internal/service/burndown_rules_test.go @ unit | - | dc07a268184d |
+| ORG-LIFECYCLE-1 | Organization lifecycle is infrastructure authority only. | go-test | internal/handlers/identity_admin_batch_test.go @ unit | - | d35704f0cd6c |
+| ORG-CREATE-403-1 | An org_user is refused organization creation with 403. | go-test | internal/handlers/identity_admin_batch_test.go @ unit | - | 6769c9a718ef |
+| ORG-RESTORE-1 | A soft-deleted organization 404s on read yet remains restorable. | go-test | internal/handlers/identity_admin_batch_test.go @ unit | - | 86d8661015b4 |
+| USER-PW-REQUIRED-1 | User creation without a password fails with a clear 4xx. | go-test | internal/service/burndown_rules_test.go @ unit | - | 2515a32f857f |
+| USER-RESET-TOKEN-1 | A password reset with a bogus token is refused. | go-test | internal/service/password_reset_service_test.go @ unit | - | 9e846d66c467 |
+| USER-VERIFY-TOKEN-1 | Email verification with a bogus token is refused. | go-test | internal/service/email_verification_service_test.go @ unit | - | 001799e39a8b |
 | SECRET-ONCE-1 | A client secret is returned exactly once and never re-shown. | go-test | internal/service/oauth_admin_services_test.go @ unit | - | fa646c4eb832 |
 | PKCE-S256-1 | Discovery advertises S256 as the only PKCE method. | go-test | internal/api/oauth_discovery_test.go @ unit | - | c937e5e5d461 |
-| TOKEN-SPLIT-1 | The token endpoint refuses a user-session refresh token with invalid_grant. | - | NONE | - | - |
+| TOKEN-SPLIT-1 | The token endpoint refuses a user-session refresh token with invalid_grant. | go-test | internal/handlers/token_test.go @ unit | - | 7d116bcf83f6 |
 | MFA-BADCODE-1 | A bad TOTP code is refused. | go-test | internal/service/mfa_enrollment_service_test.go @ unit | - | 3b3e9c634b7d |
 | CLIENT-SCOPE-1 | An org_admin's client list is bound to their own organization only. | go-test | internal/handlers/clients_org_bound_test.go @ unit | - | dc8743424e1d |
+| SECRET-ROTATE-1 | A secret rotation returns the new plaintext exactly once and rotates the stored hash. | go-test | internal/service/oauth_admin_services_test.go @ unit | - | 389e549f5cc3 |
