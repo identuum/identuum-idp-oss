@@ -525,6 +525,7 @@ func TestDiscovery_SubjectTypesAndClaimsAdvertised(t *testing.T) {
 	}
 }
 
+// RULE: PKCE-S256-1
 func TestDiscovery_CodeChallengeMethodsS256Only(t *testing.T) {
 	body := fullChainDiscovery(t)
 	ms, _ := body["code_challenge_methods_supported"].([]any)

@@ -112,6 +112,7 @@ func TestClientService_RegisterPublicHasNoSecret(t *testing.T) {
 	}
 }
 
+// RULE: SECRET-ONCE-1
 func TestClientService_RegisterConfidentialReturnsSecretOnce(t *testing.T) {
 	svc := NewClientService(nil, newClientRepo())
 	client, plaintext, err := svc.RegisterClient(context.Background(), RegisterClientOptions{

@@ -56,8 +56,8 @@ FLOOR: 59
 | USER-PW-REQUIRED-1 | User creation without a password fails with a clear 4xx. | - | NONE | - | - |
 | USER-RESET-TOKEN-1 | A password reset with a bogus token is refused. | - | NONE | - | - |
 | USER-VERIFY-TOKEN-1 | Email verification with a bogus token is refused. | - | NONE | - | - |
-| SECRET-ONCE-1 | A client secret is returned exactly once and never re-shown. | - | NONE | - | - |
-| PKCE-S256-1 | Discovery advertises S256 as the only PKCE method. | - | NONE | - | - |
+| SECRET-ONCE-1 | A client secret is returned exactly once and never re-shown. | go-test | internal/service/oauth_admin_services_test.go @ unit | - | fa646c4eb832 |
+| PKCE-S256-1 | Discovery advertises S256 as the only PKCE method. | go-test | internal/api/oauth_discovery_test.go @ unit | - | c937e5e5d461 |
 | TOKEN-SPLIT-1 | The token endpoint refuses a user-session refresh token with invalid_grant. | - | NONE | - | - |
-| MFA-BADCODE-1 | A bad TOTP code is refused. | - | NONE | - | - |
+| MFA-BADCODE-1 | A bad TOTP code is refused. | go-test | internal/service/mfa_enrollment_service_test.go @ unit | - | 3b3e9c634b7d |
 | CLIENT-SCOPE-1 | An org_admin's client list is bound to their own organization only. | go-test | internal/handlers/clients_org_bound_test.go @ unit | - | dc8743424e1d |

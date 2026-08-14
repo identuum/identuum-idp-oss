@@ -548,6 +548,7 @@ func TestMFAEnrollment_VerifyAndConsume_HappyPath(t *testing.T) {
 	}
 }
 
+// RULE: MFA-BADCODE-1
 func TestMFAEnrollment_VerifyAndConsume_WrongCode(t *testing.T) {
 	svc, _, userRepo, user := newEnrollSvc(t)
 	secret, _ := generateBase32Secret(defaultMFAEnrollmentSecretBytes)
