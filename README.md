@@ -215,6 +215,15 @@ failed tool build is CANNOT-EVALUATE and fails `verify` — there is no
 skip. CI's `ci-verify` deliberately excludes the target (one-repo
 checkout; see the ci.yml header enumeration).
 
+The ledger's integration-profile rows (the DB-backed
+AdminPermissionsModel teeth, RG1/RG2) are verified statically by plain
+`verify` and EXECUTED by `make rulefloor-integration`, which
+`make integration-test` chains after the suite using the same DSN
+default. CI's integration job drives `make ci-integration-test` (the
+pure suite) for the same one-repo reason. A runtime skip inside the
+profile run is CANNOT-EVALUATE — the teeth either bite or the run
+fails loudly.
+
 ## Configuration
 
 Copy the example env file and edit local values:

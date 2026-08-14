@@ -83,7 +83,7 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
 .PHONY: clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
-.PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check
+.PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
 ## Runs wiki-freshness.sh --repo identuum-idp-oss --strict against the sibling
@@ -1213,10 +1213,42 @@ integration-inventory:
 ## of adding a watcher for it. It is also what identuum-idp-ce already does, so
 ## this removes a divergence rather than inventing a mechanism. Measured cost of
 ## the wider set on 2026-08-02: 21s, 45 packages, 0 failures.
-integration-test:
+## ci-integration-test: the pure DB-backed suite — exactly what CI's
+## integration job runs in its one-repo checkout. The developer-facing
+## integration-test target below CHAINS the sibling-coupled rulefloor
+## teeth on top; CI cannot (the ../rulefloor sibling is absent there, and
+## a missing sibling is CANNOT-EVALUATE, never a skip), so it drives this
+## target instead — see the ci.yml header enumeration.
+ci-integration-test:
 	@IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_DB_URL)}" \
 	IDENTUUM_IDP_ENCRYPTION_KEY="$${IDENTUUM_IDP_ENCRYPTION_KEY:-cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe}" \
 		go test -tags integration ./... -count=1 -v
+
+integration-test:
+	@$(MAKE) --no-print-directory ci-integration-test
+	@$(MAKE) --no-print-directory rulefloor-integration
+
+## rulefloor-integration: the DB-backed rule teeth. Runs every ledger row of
+## the integration profile (RG1/RG2 — the AdminPermissionsModel UPDATE teeth)
+## against the live database, using the same DSN default integration-test
+## exports. Plain `make verify` stays DB-free: those rows are verified
+## statically there, and their runtime truth is THIS target's job. Missing
+## sibling or failed tool build is CANNOT-EVALUATE = exit 2, never a skip,
+## and a runtime SKIP inside the profile run is CANNOT-EVALUATE too.
+rulefloor-integration:
+	@if [ ! -d "$(RULEFLOOR_DIR)" ]; then \
+		echo "rulefloor-integration: CANNOT-EVALUATE — no rulefloor checkout at $(RULEFLOOR_DIR)" >&2; \
+		exit 2; \
+	fi
+	@if [ ! -x "$(RULEFLOOR_DIR)/rulefloor" ]; then \
+		echo "rulefloor-integration: building $(RULEFLOOR_DIR)/rulefloor"; \
+		(cd "$(RULEFLOOR_DIR)" && go build -o rulefloor .) || { \
+			echo "rulefloor-integration: CANNOT-EVALUATE — go build of the rulefloor tool failed" >&2; \
+			exit 2; \
+		}; \
+	fi
+	@IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_DB_URL)}" \
+		"$(RULEFLOOR_DIR)/rulefloor" check --run-profile integration --tags integration
 
 ## validate: build + unit tests + staticcheck + integration build/test.
 ## Starts from a clean database (fast-clean removes stale volume data before run).

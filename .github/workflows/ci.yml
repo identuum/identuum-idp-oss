@@ -33,8 +33,14 @@
 #                                          THE-RULEFLOOR-GATE)
 #                     + the integration-tagged compile/lint that `verify`
 #                     itself does not exercise.
-#   2. integration  — `make integration-test` against a Postgres service
-#                     (e2e + DB-backed runtime + pkg/runtime teeth).
+#   2. integration  — `make ci-integration-test` against a Postgres service
+#                     (e2e + DB-backed runtime + pkg/runtime teeth). The
+#                     developer target `integration-test` additionally chains
+#                     the sibling-coupled `rulefloor-integration` (the
+#                     RULE-FLOOR.md integration-profile teeth); that step is
+#                     subtracted here for the same one-repo reason as the
+#                     rulefloor-check exclusion below, and this enumeration
+#                     must stay equal to what the Makefile subtracts.
 #   3. race         — `go test -race ./... -count=1`. CI-ONLY: the race
 #                     detector is deliberately NOT part of `make verify`.
 #
@@ -209,12 +215,15 @@ jobs:
 
       # Drives the Makefile target verbatim (e2e + DB-backed runtime +
       # pkg/runtime teeth). The DSN is supplied via env and is NOT echoed —
-      # `make integration-test` prefixes its recipe with @ and the Makefile
-      # respects IDENTUUM_IDP_TEST_DATABASE_URL when set.
-      - name: make integration-test
+      # the recipe is @-prefixed and the Makefile respects
+      # IDENTUUM_IDP_TEST_DATABASE_URL when set. ci-integration-test, not
+      # integration-test: the developer target also chains the
+      # sibling-coupled rulefloor-integration teeth, which cannot run in a
+      # one-repo checkout (see the header enumeration).
+      - name: make ci-integration-test
         env:
           IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss?sslmode=disable
-        run: make integration-test
+        run: make ci-integration-test
 
   race:
     name: Race Detector
