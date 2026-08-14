@@ -124,6 +124,7 @@ func TestAcquire_FirstInstanceWins(t *testing.T) {
 // TestAcquire_LoserRefusesToServe: a second instance facing a live
 // incumbent exhausts the window, records a P-018 fatal (NOT-SERVING),
 // and logs LOUDLY naming the incumbent. THIS is the boundary test.
+// RULE: LEASE-1
 func TestAcquire_LoserRefusesToServe(t *testing.T) {
 	store := &fakeStore{tryFn: func(int) (domain.InstanceLeaseOutcome, error) {
 		return heldByOther("incumbent-pod/abc"), nil

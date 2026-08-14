@@ -105,6 +105,7 @@ func TestValidate_ValidEdDSAAssertionAccepted(t *testing.T) {
 
 // ---------- alg policy ----------
 
+// RULE: PKJWT-ALGS-1
 func TestValidate_AlgNoneRejected(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	client := newJWKSClient(t, "cli-1", "k1", pub)

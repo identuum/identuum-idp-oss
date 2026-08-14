@@ -222,3 +222,69 @@ func TestRg2_SiteAdminCannotBeBannedDemotedOrSoftDeleted(t *testing.T) {
 		t.Fatalf("restore ordinary user: %v", err)
 	}
 }
+
+// Rg3 — the 0027 identity guards: the System organization's name, slug and id
+// are pinned at the database. Same posture as Rg1/Rg2: FAIL, never skip.
+// RULE: RG3
+func TestRg3_SystemOrgIdentityCannotBeChanged(t *testing.T) {
+	pool := modelTeethPool(t)
+	requireSentinels(t, pool)
+
+	mustRefuse(t, pool, "renaming the System organization",
+		`UPDATE organizations SET name = 'Hacked' WHERE id = $1`, systemOrgID)
+	mustRefuse(t, pool, "changing the System organization's slug",
+		`UPDATE organizations SET org_slug = 'hacked' WHERE id = $1`, systemOrgID)
+	// The id guard predates the model wording and names the sentinel rather
+	// than the model file, so it gets its own refusal check.
+	if _, err := pool.Exec(context.Background(),
+		`UPDATE organizations SET id = gen_random_uuid() WHERE id = $1`, systemOrgID); err == nil {
+		t.Error("changing the System organization's id SUCCEEDED")
+	} else if !strings.Contains(err.Error(), "reserved sentinel") {
+		t.Errorf("id change refused, but not by the sentinel guard: %v", err)
+	}
+
+	// CONTROL: the guard must be sentinel-specific — an ordinary organization
+	// stays renameable, and the control must have acted on a real row.
+	scratch := seedScratchOrg(t, pool)
+	tag, err := pool.Exec(context.Background(),
+		`UPDATE organizations SET name = 'Renamed OK' WHERE id = $1::uuid`, scratch)
+	if err != nil {
+		t.Fatalf("control rename refused: %v — the guard is not sentinel-specific", err)
+	}
+	if tag.RowsAffected() != 1 {
+		t.Fatalf("control matched %d rows, want 1", tag.RowsAffected())
+	}
+}
+
+// Rg4 — the 0027 structural caps: at most one LIVE site_admin row (partial
+// unique index) and no non-site_admin member of the System organization
+// (CHECK). These refusals come from the schema, not a trigger, so the error
+// names the constraint rather than the model file.
+// RULE: RG4
+func TestRg4_SchemaCapsSiteAdminsAndSystemOrgMembership(t *testing.T) {
+	pool := modelTeethPool(t)
+	requireSentinels(t, pool)
+	ctx := context.Background()
+
+	_, err := pool.Exec(ctx, `
+INSERT INTO users (id, email, organization_id, role, password_hash)
+VALUES (gen_random_uuid(), 'second-admin@system.local', $1, 'site_admin', 'x')`, systemOrgID)
+	if err == nil {
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE email = 'second-admin@system.local'`)
+		t.Fatal("a SECOND live site_admin row was accepted; uq_model_single_site_admin is not holding")
+	}
+	if !strings.Contains(err.Error(), "single_site_admin") {
+		t.Errorf("second site_admin refused, but not by the singleton index: %v", err)
+	}
+
+	_, err = pool.Exec(ctx, `
+INSERT INTO users (id, email, organization_id, role, password_hash)
+VALUES (gen_random_uuid(), 'intruder@system.local', $1, 'org_user', 'x')`, systemOrgID)
+	if err == nil {
+		_, _ = pool.Exec(ctx, `DELETE FROM users WHERE email = 'intruder@system.local'`)
+		t.Fatal("an org_user row inside the System organization was accepted; chk_model_system_org_members is not holding")
+	}
+	if !strings.Contains(err.Error(), "chk_model_system_org_members") {
+		t.Errorf("System-org intruder refused, but not by the membership CHECK: %v", err)
+	}
+}
