@@ -88,7 +88,7 @@ make fast-clean
 
 ## Migrations
 
-Database migrations are embedded in the binary and applied by the `identuum-idp migrate <url>` one-shot subcommand (the container entrypoint runs it automatically before serving; the integration test harness applies them too). The project includes 23 migration files (`migrations/0001`–`0023`) that create the necessary database schema.
+Database migrations are embedded in the binary and applied by the `identuum-idp migrate <url>` one-shot subcommand (the container entrypoint runs it automatically before serving; the integration test harness applies them too). The project includes 30 migration files (`migrations/0001`–`0030`) that create the necessary database schema.
 
 ## Starting the Service Locally
 

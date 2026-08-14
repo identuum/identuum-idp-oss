@@ -1,4 +1,4 @@
-FLOOR: 60
+FLOOR: 72
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -62,3 +62,15 @@ FLOOR: 60
 | MFA-BADCODE-1 | A bad TOTP code is refused. | go-test | internal/service/mfa_enrollment_service_test.go @ unit | - | 3b3e9c634b7d |
 | CLIENT-SCOPE-1 | An org_admin's client list is bound to their own organization only. | go-test | internal/handlers/clients_org_bound_test.go @ unit | - | dc8743424e1d |
 | SECRET-ROTATE-1 | A secret rotation returns the new plaintext exactly once and rotates the stored hash. | go-test | internal/service/oauth_admin_services_test.go @ unit | - | 389e549f5cc3 |
+| NO-FATAL-1 | A fatal wiring fault is recorded, never a panic: the process degrades to not-serving. | go-test | internal/service/classc_failsafe_test.go @ unit | - | 4637321cbe12 |
+| ROLE-ASSIGN-SCOPE-1 | Role assignment obeys the same tenant authority line as user creation. | go-test | internal/service/org_role_user_tenant_guard_test.go @ unit | - | 4fe2eef85e5b |
+| OIDC-STATE-1 | An upstream OIDC login state is single-use; replay is refused. | go-test | internal/service/oidc_callback_service_test.go @ unit | - | 9a61d77ed018 |
+| OIDC-JIT-GATE-1 | JIT provisioning refuses a non-allowlisted email domain before any account exists. | go-test | internal/service/oidc_callback_jit_test.go @ unit | - | 6726e50dc6af |
+| OIDC-TAKEOVER-1 | Upstream identity matching goes by external id before email; an email change cannot take over another account. | go-test | internal/service/oidc_callback_jit_test.go @ unit | - | 182ed2bb8666 |
+| RG3 | The DB refuses System-org rename, slug and id changes. | - | NONE | blocked: 0027 trigger guards; no teeth test yet — extend model_update_teeth_test.go | - |
+| RG4 | The DB caps live site_admins at one and restricts System-org membership to site_admin. | - | NONE | blocked: 0027 index+CHECK; no teeth test yet | - |
+| LEASE-1 | Exactly one instance serves at a time via the DB singleton lease; a lease-less instance answers 503. | - | NONE | blocked: lease tests are DB-backed runtime tests; candidate for the integration profile | - |
+| DOMAIN-UNIQUE-1 | Organization domains are globally unique with at most one primary per organization. | - | NONE | blocked: no OSS unit pin located; UI half armed as DOMAINS-PRIMARY-1 | - |
+| PKJWT-ALGS-1 | OSS private_key_jwt accepts only the documented assertion algorithms bound to client and audience. | - | NONE | blocked: no single pin located in the sweep | - |
+| ORG-DELETE-REVOKE-1 | Deleting an organization revokes its credentials at delete time. | - | NONE | blocked: no unit pin located in the sweep | - |
+| SOFTDEL-RESOLVE-1 | A soft-deleted client or identity provider never resolves, even when its organization is live. | - | NONE | blocked: no unit pin located in the sweep | - |

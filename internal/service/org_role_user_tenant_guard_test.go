@@ -108,6 +108,7 @@ func TestAssignRoleForActor_OrgAdminSameOrgAllowed(t *testing.T) {
 	}
 }
 
+// RULE: ROLE-ASSIGN-SCOPE-1
 func TestAssignRoleForActor_OrgAdminCrossOrgTargetForbidden(t *testing.T) {
 	svc, _, userRepo, rev := newGuardedOrgRoleSvc(t)
 	org := uuid.New()

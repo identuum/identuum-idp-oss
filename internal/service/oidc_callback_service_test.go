@@ -516,6 +516,7 @@ func TestOIDCCallback_MappedEmailVerificationBinding(t *testing.T) {
 
 // (state single-use) A replay of the same state fails: the first callback
 // atomically consumes (deletes) it, so the second ConsumeByState finds nothing.
+// RULE: OIDC-STATE-1
 func TestOIDCCallback_StateSingleUse(t *testing.T) {
 	h := newCallbackHarness(t)
 	*h.idToken = h.signEdDSA(t, h.priv, h.kid, h.validClaims())

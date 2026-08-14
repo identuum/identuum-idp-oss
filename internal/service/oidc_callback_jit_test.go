@@ -169,6 +169,7 @@ func (h *callbackHarness) callWithClaims(t *testing.T, mutate func(claims jwt.Ma
 
 // (allow-list reject) An email whose domain is not allow-listed is refused
 // (403) and NO user is created.
+// RULE: OIDC-JIT-GATE-1
 func TestOIDCCallback_JIT_NonAllowlistedDomainRejected(t *testing.T) {
 	h := newCallbackHarness(t)
 	h.providers.byID[h.pid].Config.EmailDomains = []string{"allowed.example"}
@@ -265,6 +266,7 @@ func TestOIDCCallback_JIT_MatchByExternalIDNoDuplicate(t *testing.T) {
 // their email resolves to THEIR account, not the account that now holds that
 // email; and a NEW external identity cannot hijack an email already bound to a
 // different external identity.
+// RULE: OIDC-TAKEOVER-1
 func TestOIDCCallback_JIT_NoEmailTakeover(t *testing.T) {
 	// Case A — ExternalID-first: returning user's changed email does not match another account.
 	t.Run("external id wins over changed email", func(t *testing.T) {

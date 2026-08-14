@@ -12,6 +12,7 @@ import (
 // component, so buildDeps surfaces it (NOT-SERVING) rather than crashing.
 // (Scenario (a) — valid deps → the service works — is covered by the
 // existing TestCreateUserSession_* / TestRotate_* suite.)
+// RULE: NO-FATAL-1
 func TestNewUserSessionService_NilRepoRecordsFatalFault(t *testing.T) {
 	rep := lifecycle.NewStartupReport()
 
