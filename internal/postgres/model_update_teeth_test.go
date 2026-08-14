@@ -114,6 +114,7 @@ func mustRefuse(t *testing.T, pool *pgxpool.Pool, what, sql string, args ...any)
 	}
 }
 
+// RULE: RG1
 func TestRg1_SystemOrganizationCannotBeSuspendedOrSoftDeleted(t *testing.T) {
 	pool := modelTeethPool(t)
 	requireSentinels(t, pool)
@@ -167,6 +168,7 @@ func TestRg1_SystemOrganizationCannotBeSuspendedOrSoftDeleted(t *testing.T) {
 	}
 }
 
+// RULE: RG2
 func TestRg2_SiteAdminCannotBeBannedDemotedOrSoftDeleted(t *testing.T) {
 	pool := modelTeethPool(t)
 	requireSentinels(t, pool)
