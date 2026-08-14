@@ -130,11 +130,12 @@ func TestRg1_SystemOrganizationCannotBeSuspendedOrSoftDeleted(t *testing.T) {
 	// CONTROL: the guard must be specific to the sentinel. If it refused every
 	// organization, the assertions above would pass while the product lost the
 	// ability to suspend a tenant at all — a green test hiding a broken feature.
-	var tenant string
-	if err := pool.QueryRow(context.Background(),
-		`SELECT id::text FROM organizations WHERE id <> $1 LIMIT 1`, systemOrgID).Scan(&tenant); err != nil {
-		t.Skipf("no tenant organization present to run the control against: %v", err)
-	}
+	// SELF-SEEDED (THE-STANDING-FLOOR): the control used to SELECT any
+	// existing tenant and SKIP when the database was fresh — but a skip
+	// under --run-profile is CANNOT-EVALUATE, and `make validate` runs on a
+	// fresh database by design. Seeding follows requireSentinels' logic:
+	// it makes the result identical on any stack.
+	tenant := seedScratchOrg(t, pool)
 	// ASSERT THE CONTROL ACTED ON A ROW. `err == nil` alone cannot tell
 	// "suspended a tenant" from "matched nothing" — the same no-rows-no-error
 	// hole requireSentinels was written for, one statement lower down.
@@ -202,11 +203,19 @@ func TestRg2_SiteAdminCannotBeBannedDemotedOrSoftDeleted(t *testing.T) {
 
 	// CONTROL: an ordinary user is still bannable. Without this, a guard that
 	// refused every UPDATE on every user would read as a pass here.
+	// SELF-SEEDED (THE-STANDING-FLOOR): same reasoning as Rg1's control —
+	// a fresh database has no ordinary user, and a skip is not a proof.
+	scratchOrg := seedScratchOrg(t, pool)
 	var other string
-	if err := pool.QueryRow(context.Background(),
-		`SELECT id::text FROM users WHERE id <> $1 AND deleted_at IS NULL LIMIT 1`, siteAdminID).Scan(&other); err != nil {
-		t.Skipf("no ordinary user present to run the control against: %v", err)
+	if err := pool.QueryRow(context.Background(), `
+INSERT INTO users (id, email, organization_id, role, password_hash)
+VALUES (gen_random_uuid(), 'control-user-' || substr(md5(random()::text), 1, 8) || '@scratch.test', $1::uuid, 'org_user', 'x')
+RETURNING id::text`, scratchOrg).Scan(&other); err != nil {
+		t.Fatalf("seed control user: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1::uuid`, other)
+	})
 	// ASSERT THE CONTROL ACTED ON A ROW — see the twin in Rg1. Measured:
 	// pointing this UPDATE at a row that does not exist left the test GREEN.
 	if tag, err := pool.Exec(context.Background(),

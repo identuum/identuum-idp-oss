@@ -391,6 +391,12 @@ verify:
 ci-verify:
 	@$(MAKE) --no-print-directory tracked-binary-check
 	@$(MAKE) --no-print-directory credential-transparency
+	# THE-STANDING-FLOOR: the IN-REPO static ledger floor. The full
+	# rulefloor-check is sibling-coupled and subtracted from this target;
+	# without this line CI ran NO ledger check at all. rulefloorlite is a
+	# deliberate subset (no hashes — see its header) that a one-repo
+	# checkout can always run.
+	go run ./tools/rulefloorlite
 	@$(MAKE) --no-print-directory image-base-check
 	@$(MAKE) --no-print-directory fmt-check
 	@$(MAKE) --no-print-directory vet

@@ -44,8 +44,8 @@ FLOOR: 72
 | AUTHCODE-REPLAY-1 | An authorization code is single-use; replay revokes what it minted. | go-test | internal/service/authcode_reuse_revocation_test.go @ unit | - | 6da8c2f64474 |
 | MFA-ADMIN-ENROLL-1 | An admin without MFA gets enrollment_required and no cookies. | go-test | internal/handlers/auth_mfa_policy_test.go @ unit | - | f1abf989ab94 |
 | MFA-EVERY-LOGIN-1 | An MFA-enabled admin logging in without a code gets mfa_required and no cookies. | go-test | internal/handlers/auth_mfa_policy_test.go @ unit | - | 3dfd49389c4a |
-| RG1 | The System organization cannot be suspended or soft-deleted at the database layer. | go-test | internal/postgres/model_update_teeth_test.go @ integration | blocked: TestRg1 in internal/postgres/model_update_teeth_test.go is go:build integration + live Postgres | bd59e986089f |
-| RG2 | The site_admin cannot be banned, demoted, or soft-deleted at the database layer. | go-test | internal/postgres/model_update_teeth_test.go @ integration | blocked: TestRg2 in internal/postgres/model_update_teeth_test.go is go:build integration + live Postgres | b651173dc65b |
+| RG1 | The System organization cannot be suspended or soft-deleted at the database layer. | go-test | internal/postgres/model_update_teeth_test.go @ integration | blocked: TestRg1 in internal/postgres/model_update_teeth_test.go is go:build integration + live Postgres | 48ccc6609a82 |
+| RG2 | The site_admin cannot be banned, demoted, or soft-deleted at the database layer. | go-test | internal/postgres/model_update_teeth_test.go @ integration | blocked: TestRg2 in internal/postgres/model_update_teeth_test.go is go:build integration + live Postgres | f436fd3a3786 |
 | USER-ORG-1 | Every user belongs to exactly one organization. | go-test | internal/service/burndown_rules_test.go @ unit | - | 4a42217b440a |
 | SA-SINGLETON-1 | There is exactly one site_admin per installation. | go-test | cmd/identuum-idp/bootstrap_test.go @ unit | - | 49670a09a4f2 |
 | SA-IN-SYSORG-1 | The site_admin belongs to the System organization. | go-test | cmd/identuum-idp/bootstrap_test.go @ unit | - | 094c9ac3636b |

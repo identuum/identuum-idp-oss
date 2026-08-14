@@ -30,7 +30,13 @@
 #                                          sibling is CANNOT-EVALUATE = FATAL,
 #                                          never a skip, so the target cannot
 #                                          run in a one-repo checkout at all —
-#                                          THE-RULEFLOOR-GATE)
+#                                          THE-RULEFLOOR-GATE. Since
+#                                          THE-STANDING-FLOOR, ci-verify runs
+#                                          the IN-REPO subset floor
+#                                          `go run ./tools/rulefloorlite`
+#                                          instead: strict parse, FLOOR,
+#                                          file+tag presence, .skip/.only on
+#                                          tagged spec lines — NO hashes)
 #                     + the integration-tagged compile/lint that `verify`
 #                     itself does not exercise.
 #   2. integration  — `make ci-integration-test` against a Postgres service
