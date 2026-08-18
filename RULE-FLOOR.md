@@ -1,5 +1,5 @@
 FLOOR: 74
-RED-PROOFS: 46
+RED-PROOFS: 54
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -31,18 +31,18 @@ RED-PROOFS: 46
 | SA-TENANT-SYSORG-1 | The System organization is not a tenant for delegation purposes. | go-test | internal/service/site_admin_tenant_write_test.go @ unit | mutation red-proved 2026-08-18: system-org exemption dropped from the tenant guard (false &&), watched FAIL (tenant rule leaked into the System organization), restored byte-identical | 8134de2b8c57 |
 | RG10 | Cross-org write probes are indistinguishable from a miss. | go-test | internal/handlers/rg10_no_existence_oracle_test.go @ unit | mutation red-proved 2026-08-18: ResetMFAForActor cross-org miss flipped errUserNotFound to ErrForbidden, watched FAIL (foreign 403 vs absent 404 - the oracle reopened), restored byte-identical | 4992c27d5a20 |
 | CONTACT-EMAIL-1 | The installer's typed address is stored as contact email, trimmed and optional. | go-test | internal/setup/rg15_login_identity_test.go @ unit | mutation red-proved 2026-08-18: siteAdminIdentity stopped trimming the contact address, watched FAIL (contact kept its whitespace), restored byte-identical | 72a17995a3af |
-| P0-REFRESH-1 | A reused refresh token is detected and revokes exactly its token family. | go-test | internal/service/refresh_token_family_test.go @ unit | - | 7a4254a50927 |
-| P0-JTI-1 | Bearer JTI revocation fails closed: a store error rejects the token. | go-test | internal/mw/bearer_revocation_test.go @ unit | - | ce337e4e2118 |
+| P0-REFRESH-1 | A reused refresh token is detected and revokes exactly its token family. | go-test | internal/service/refresh_token_family_test.go @ unit | mutation red-proved 2026-08-18: rotated-token reuse branch returns ErrRefreshTokenInvalidGrant instead of ErrRefreshTokenReuse, watched FAIL (replay of ta1 not detected as reuse), restored byte-identical | 7a4254a50927 |
+| P0-JTI-1 | Bearer JTI revocation fails closed: a store error rejects the token. | go-test | internal/mw/bearer_revocation_test.go @ unit | mutation red-proved 2026-08-18: BearerPrincipal resolver fail-closed branch neutralized (false &&), watched FAIL (session-store error admitted the token, status 200 not 401), restored byte-identical | ce337e4e2118 |
 | P0-CLIAUTH-1 | A client authenticates only with its exact registered token-endpoint method. | go-test | internal/service/oauth_client_auth_service_test.go @ unit | - | 7f2a12978f45 |
 | P0-TENANT-1 | Organization liveness decisions use the single IsOperational predicate. | go-test | internal/domain/domain_methods_test.go @ unit | mutation red-proved 2026-08-18: Organization.IsOperational dropped the DeletedAt==nil conjunct, watched FAIL (soft-deleted-but-active case returned true, want false), restored byte-identical | 2a32ce42024f |
-| P0-BEARER-1 | Resource APIs authenticate only via Authorization Bearer; no header is 401. | go-test | internal/mw/bearer_test.go @ unit | - | 7f54833e14d7 |
+| P0-BEARER-1 | Resource APIs authenticate only via Authorization Bearer; no header is 401. | go-test | internal/mw/bearer_test.go @ unit | mutation red-proved 2026-08-18: BearerPrincipal empty-header branch now calls VerifyBearerToken before falling through, watched FAIL (verifier called with no header, calls=1 want 0), restored byte-identical | 7f54833e14d7 |
 | AUTH-WRONGPW-1 | A wrong password is refused with the generic 401 invalid_credentials. | go-test | internal/handlers/auth_sessions_test.go @ unit | - | e9156be44ea7 |
 | USER-BAN-LOGIN-1 | A banned user's login collapses to invalid_credentials. | go-test | internal/service/local_login_service_test.go @ unit | - | 31678701a8dd |
-| INTROSPECT-REVOKED-1 | A revoked token introspects as active false. | go-test | internal/service/introspection_service_test.go @ unit | - | 2d153e4dc3ea |
-| INTROSPECT-AUTH-1 | Introspection refuses an unauthenticated client with 401. | go-test | internal/handlers/introspection_test.go @ unit | - | e612bc45fd7b |
+| INTROSPECT-REVOKED-1 | A revoked token introspects as active false. | go-test | internal/service/introspection_service_test.go @ unit | mutation red-proved 2026-08-18: Introspect revoked-jti flip-to-inactive neutralized (false &&), watched FAIL (revoked jti returned active:true), restored byte-identical | 2d153e4dc3ea |
+| INTROSPECT-AUTH-1 | Introspection refuses an unauthenticated client with 401. | go-test | internal/handlers/introspection_test.go @ unit | mutation red-proved 2026-08-18: respondInvalidClient status changed 401 to 400 on the client-auth reject path, watched FAIL (introspection client-auth rejection answered 400 not 401), restored byte-identical | e612bc45fd7b |
 | MFA-RECOVERY-1 | Recovery codes are stored hashed and each is accepted exactly once. | go-test | internal/service/mfa_at_rest_test.go @ unit | - | b1d4f226db31 |
-| RATE-TOKEN-1 | Past the per-IP limit the rate-limited endpoint answers 429. | go-test | internal/mw/rate_limit_test.go @ unit | - | 4b94877cb698 |
-| AUTHCODE-REPLAY-1 | An authorization code is single-use; replay revokes what it minted. | go-test | internal/service/authcode_reuse_revocation_test.go @ unit | - | 6da8c2f64474 |
+| RATE-TOKEN-1 | Past the per-IP limit the rate-limited endpoint answers 429. | go-test | internal/mw/rate_limit_test.go @ unit | mutation red-proved 2026-08-18: rate-limit gate forced to always pass (allow short-circuited true), watched FAIL (second over-limit request answered 200 not 429), restored byte-identical | 4b94877cb698 |
+| AUTHCODE-REPLAY-1 | An authorization code is single-use; replay revokes what it minted. | go-test | internal/service/authcode_reuse_revocation_test.go @ unit | mutation red-proved 2026-08-18: authcode read-side replay revokeOnReuse call neutralized (false &&), watched FAIL (replayed code did not revoke what the first exchange minted, revoker calls=0 want 1), restored byte-identical | 6da8c2f64474 |
 | MFA-ADMIN-ENROLL-1 | An admin without MFA gets enrollment_required and no cookies. | go-test | internal/handlers/auth_mfa_policy_test.go @ unit | - | f1abf989ab94 |
 | MFA-EVERY-LOGIN-1 | An MFA-enabled admin logging in without a code gets mfa_required and no cookies. | go-test | internal/handlers/auth_mfa_policy_test.go @ unit | - | 3dfd49389c4a |
 | RG1 | The System organization cannot be suspended or soft-deleted at the database layer. | go-test | internal/postgres/model_update_teeth_test.go @ integration | blocked: TestRg1 in internal/postgres/model_update_teeth_test.go is go:build integration + live Postgres | 48ccc6609a82 |
@@ -59,7 +59,7 @@ RED-PROOFS: 46
 | USER-VERIFY-TOKEN-1 | Email verification with a bogus token is refused. | go-test | internal/service/email_verification_service_test.go @ unit | mutation red-proved 2026-08-18: VerifyEmail bogus-token branch returns nil instead of ErrEmailVerificationInvalidToken, watched FAIL (bad token accepted), restored byte-identical | 001799e39a8b |
 | SECRET-ONCE-1 | A client secret is returned exactly once and never re-shown. | go-test | internal/service/oauth_admin_services_test.go @ unit | - | fa646c4eb832 |
 | PKCE-S256-1 | Discovery advertises S256 as the only PKCE method. | go-test | internal/api/oauth_discovery_test.go @ unit | - | c937e5e5d461 |
-| TOKEN-SPLIT-1 | The token endpoint refuses a user-session refresh token with invalid_grant. | go-test | internal/handlers/token_test.go @ unit | - | 7d116bcf83f6 |
+| TOKEN-SPLIT-1 | The token endpoint refuses a user-session refresh token with invalid_grant. | go-test | internal/handlers/token_test.go @ unit | mutation red-proved 2026-08-18: token endpoint refresh-grant invalid_grant mapping changed to invalid_request, watched FAIL (unknown user-session refresh token no longer answered invalid_grant), restored byte-identical | 7d116bcf83f6 |
 | MFA-BADCODE-1 | A bad TOTP code is refused. | go-test | internal/service/mfa_enrollment_service_test.go @ unit | - | 3b3e9c634b7d |
 | CLIENT-SCOPE-1 | An org_admin's client list is bound to their own organization only. | go-test | internal/handlers/clients_org_bound_test.go @ unit | - | dc8743424e1d |
 | SECRET-ROTATE-1 | A secret rotation returns the new plaintext exactly once and rotates the stored hash. | go-test | internal/service/oauth_admin_services_test.go @ unit | - | 389e549f5cc3 |
