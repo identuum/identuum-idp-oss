@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -48,6 +49,27 @@ type OrganizationsHandlerDeps struct {
 	// activation token (POST /:id/resend-activation). Nil-safe: when
 	// unwired the route fails closed with 503.
 	ActivationResender OrgActivationResender
+
+	// AdminCounter projects per-org admin state (is_claimed /
+	// can_assign_admin) onto the org payloads (PHANTOM-NO-ADMIN).
+	// Wired from the user repository. Nil-safe in a specific, loud
+	// way: when unwired the register call records a FATAL fault
+	// (P-018: not-serving, never a panic) and the handlers emit the
+	// admin-state fields as ABSENT — never false — so a missing
+	// counter can never masquerade as "no administrator".
+	AdminCounter OrgAdminCounter
+}
+
+// OrgAdminCounter is the narrow user-repository seam the organizations
+// surface needs to project admin state onto org payloads. Satisfied by
+// repository.UserRepository (both the pgx and cached implementations).
+type OrgAdminCounter interface {
+	// CountOrgAdminsByOrganizations returns, per org id, the number of
+	// live org_admin rows (not deleted, not banned).
+	CountOrgAdminsByOrganizations(ctx context.Context, orgIDs []uuid.UUID) (map[uuid.UUID]int, error)
+	// CountVerifiedOrgAdminsByOrganizations narrows that count to
+	// email-verified rows.
+	CountVerifiedOrgAdminsByOrganizations(ctx context.Context, orgIDs []uuid.UUID) (map[uuid.UUID]int, error)
 }
 
 // RegisterOrganizationsRoutes mounts /api/v1/organizations onto router.
@@ -102,6 +124,17 @@ func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDe
 	}
 	if deps.Audit == nil {
 		deps.Audit = audit.NoopService{}
+	}
+	if deps.AdminCounter == nil {
+		// PHANTOM-NO-ADMIN: without the admin counter the org payloads
+		// cannot carry admin state. Record a FATAL wiring fault (P-018:
+		// degrade to not-serving, never panic). The routes below stay
+		// mounted and emit is_claimed/can_assign_admin as ABSENT —
+		// never a false "no administrator".
+		deps.StartupReport.Fatal(
+			"organizations-admin-state",
+			"organizations admin-state projection unavailable: AdminCounter (user repository) is not wired",
+		)
 	}
 
 	g := router.Group("/api/v1/organizations")
@@ -260,6 +293,54 @@ type safeOrganization struct {
 	CreatedAt                   time.Time  `json:"created_at"`
 	UpdatedAt                   time.Time  `json:"updated_at"`
 	DeletedAt                   *time.Time `json:"deleted_at,omitempty"`
+
+	// Admin-state projection (PHANTOM-NO-ADMIN). Pointers + omitempty:
+	// when the counter is unwired or errors the fields are ABSENT so the
+	// UI renders "status unavailable" — a missing counter must never
+	// read as a false "no administrator". Wire names match the shared
+	// types.OrganizationInfo contract the UI already consumes.
+	IsClaimed      *bool `json:"is_claimed,omitempty"`
+	CanAssignAdmin *bool `json:"can_assign_admin,omitempty"`
+}
+
+// orgAdminState is the computed per-org admin-state projection.
+type orgAdminState struct {
+	hasAdmin  bool
+	canAssign bool
+}
+
+// adminStateForOrgs computes the projection for the given orgs from the
+// LIVE counts: hasAdmin = live org_admin rows > 0; canAssign = hasAdmin
+// with zero verified rows (the recovery-delegation state — assignment
+// is offered only while no verified admin blocks delegation). Returns
+// nil when the counter is unwired or errors; callers then emit the
+// fields as ABSENT, never false.
+func adminStateForOrgs(ctx context.Context, counter OrgAdminCounter, ids []uuid.UUID) map[uuid.UUID]orgAdminState {
+	if counter == nil || len(ids) == 0 {
+		return nil
+	}
+	admins, err := counter.CountOrgAdminsByOrganizations(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	verified, err := counter.CountVerifiedOrgAdminsByOrganizations(ctx, ids)
+	if err != nil {
+		return nil
+	}
+	out := make(map[uuid.UUID]orgAdminState, len(ids))
+	for _, id := range ids {
+		hasAdmin := admins[id] > 0
+		out[id] = orgAdminState{hasAdmin: hasAdmin, canAssign: hasAdmin && verified[id] == 0}
+	}
+	return out
+}
+
+// withAdminState returns s with the admin-state projection applied.
+func withAdminState(s safeOrganization, st orgAdminState) safeOrganization {
+	hasAdmin, canAssign := st.hasAdmin, st.canAssign
+	s.IsClaimed = &hasAdmin
+	s.CanAssignAdmin = &canAssign
+	return s
 }
 
 func toSafeOrganization(o *domain.Organization) safeOrganization {
@@ -324,8 +405,12 @@ func HandleListOrganizations(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 				})
 				return
 			}
+			row := toSafeOrganization(o)
+			if st, ok := adminStateForOrgs(c.Request.Context(), deps.AdminCounter, []uuid.UUID{o.ID})[o.ID]; ok {
+				row = withAdminState(row, st)
+			}
 			c.JSON(http.StatusOK, gin.H{
-				"organizations": []safeOrganization{toSafeOrganization(o)},
+				"organizations": []safeOrganization{row},
 				"total":         1,
 				"page":          page,
 				"page_size":     pageSize,
@@ -347,9 +432,18 @@ func HandleListOrganizations(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
+		ids := make([]uuid.UUID, 0, len(orgs))
+		for _, o := range orgs {
+			ids = append(ids, o.ID)
+		}
+		states := adminStateForOrgs(c.Request.Context(), deps.AdminCounter, ids)
 		out := make([]safeOrganization, 0, len(orgs))
 		for _, o := range orgs {
-			out = append(out, toSafeOrganization(o))
+			row := toSafeOrganization(o)
+			if st, ok := states[o.ID]; ok {
+				row = withAdminState(row, st)
+			}
+			out = append(out, row)
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"organizations": out,
@@ -410,7 +504,11 @@ func HandleGetOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		c.JSON(http.StatusOK, toSafeOrganization(o))
+		row := toSafeOrganization(o)
+		if st, ok := adminStateForOrgs(c.Request.Context(), deps.AdminCounter, []uuid.UUID{o.ID})[o.ID]; ok {
+			row = withAdminState(row, st)
+		}
+		c.JSON(http.StatusOK, row)
 	}
 }
 

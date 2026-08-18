@@ -952,6 +952,9 @@ func mountOrganizations(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.OrganizationActivationService != nil {
 		orgDeps.ActivationResender = resolved.OrganizationActivationService
 	}
+	if resolved.UserRepo != nil {
+		orgDeps.AdminCounter = resolved.UserRepo
+	}
 	handlers.RegisterOrganizationsRoutes(router, orgDeps)
 }
 
