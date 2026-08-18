@@ -1,5 +1,5 @@
 FLOOR: 74
-RED-PROOFS: 59
+RED-PROOFS: 62
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -65,9 +65,9 @@ RED-PROOFS: 59
 | SECRET-ROTATE-1 | A secret rotation returns the new plaintext exactly once and rotates the stored hash. | go-test | internal/service/oauth_admin_services_test.go @ unit | mutation red-proved 2026-08-18: RegenerateClientSecret dropped the ClientSecretHash reassignment (hash left stale), watched FAIL (hash did not rotate), restored byte-identical | 389e549f5cc3 |
 | NO-FATAL-1 | A fatal wiring fault is recorded, never a panic: the process degrades to not-serving. | go-test | internal/service/classc_failsafe_test.go @ unit | mutation red-proved 2026-08-18: NewUserSessionService nil-repo path replaced report.Fatal with panic(), watched FAIL (constructor panicked instead of recording a fatal fault), restored byte-identical | 4637321cbe12 |
 | ROLE-ASSIGN-SCOPE-1 | Role assignment obeys the same tenant authority line as user creation. | go-test | internal/service/org_role_user_tenant_guard_test.go @ unit | mutation red-proved 2026-08-18: AssignRoleToUserForActor cross-org target check neutralized (false &&), watched FAIL (cross-org role assign returned nil not ErrForbidden), restored byte-identical | 4fe2eef85e5b |
-| OIDC-STATE-1 | An upstream OIDC login state is single-use; replay is refused. | go-test | internal/service/oidc_callback_service_test.go @ unit | - | 9a61d77ed018 |
-| OIDC-JIT-GATE-1 | JIT provisioning refuses a non-allowlisted email domain before any account exists. | go-test | internal/service/oidc_callback_jit_test.go @ unit | - | 6726e50dc6af |
-| OIDC-TAKEOVER-1 | Upstream identity matching goes by external id before email; an email change cannot take over another account. | go-test | internal/service/oidc_callback_jit_test.go @ unit | - | 182ed2bb8666 |
+| OIDC-STATE-1 | An upstream OIDC login state is single-use; replay is refused. | go-test | internal/service/oidc_callback_service_test.go @ unit | mutation red-proved 2026-08-18: HandleCallback swapped the consuming ConsumeByState for the non-consuming Get, watched FAIL (state not consumed after first callback and replay accepted), restored byte-identical | 9a61d77ed018 |
+| OIDC-JIT-GATE-1 | JIT provisioning refuses a non-allowlisted email domain before any account exists. | go-test | internal/service/oidc_callback_jit_test.go @ unit | mutation red-proved 2026-08-18: resolveLocalUser email-domain allow-list gate neutralized (false &&), watched FAIL (off-allow-list email provisioned a user), restored byte-identical | 6726e50dc6af |
+| OIDC-TAKEOVER-1 | Upstream identity matching goes by external id before email; an email change cannot take over another account. | go-test | internal/service/oidc_callback_jit_test.go @ unit | mutation red-proved 2026-08-18: resolveLocalUser ExternalID-first match branch neutralized (false &&), watched FAIL (returning user resolved to victim by changed email instead of own account by ExternalID), restored byte-identical | 182ed2bb8666 |
 | RG3 | The DB refuses System-org rename, slug and id changes. | go-test | internal/postgres/model_update_teeth_test.go @ integration | mutation red-proved 2026-08-14: rename probe flipped to a permitted UPDATE, watched FAIL, restored | 128cb7987831 |
 | RG4 | The DB caps live site_admins at one and restricts System-org membership to site_admin. | go-test | internal/postgres/model_update_teeth_test.go @ integration | mutation red-proved 2026-08-14: expected constraint name broken, watched FAIL, restored | 1e479e82a585 |
 | LEASE-1 | Exactly one instance serves at a time via the DB singleton lease; a lease-less instance answers 503. | go-test | internal/lease/coordinator_test.go @ unit | mutation red-proved 2026-08-14: Acquire expectation inverted, watched FAIL, restored | aec9f1a0ec95 |
