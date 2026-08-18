@@ -1,4 +1,5 @@
-FLOOR: 73
+FLOOR: 74
+RED-PROOFS: 11
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -75,3 +76,4 @@ FLOOR: 73
 | ORG-DELETE-REVOKE-1 | Deleting an organization revokes its credentials at delete time. | go-test | internal/postgres/client_auth_boundary_test.go @ integration | mutation red-proved 2026-08-14: resolution predicate inverted, watched FAIL, restored | a4425c37d99d |
 | SOFTDEL-RESOLVE-1 | A soft-deleted client or identity provider never resolves, even when its organization is live. | go-test | internal/postgres/client_auth_boundary_test.go @ integration | mutation red-proved 2026-08-14: resolution predicate inverted, watched FAIL, restored | 3a006fadf036 |
 | ORG-ADMIN-STATE-1 | The organizations API's admin state reflects the live org_admin counts; an unwired counter is a fatal fault with the fields absent, never false. | go-test | internal/handlers/organizations_admin_state_test.go @ unit | red-proved 2026-08-18: pre-emission build watched FAIL (is_claimed ABSENT from payload) on list, get, and org_admin single-row; emission added, watched PASS | fa40b8abc0e5 |
+| WIRE-CONTRACT-ORG-1 | The org read surface's JSON key set (always + omitempty, with the tri-state admin pair absent-by-default) matches the pinned wire contract exactly. | go-test | internal/handlers/organizations_wire_contract_test.go @ unit | mutation red-proved 2026-08-18: is_claimed json tag flipped to was_claimed, watched FAIL (omitempty key set drifted), restored byte-identical, watched PASS | bcf994289cbf |

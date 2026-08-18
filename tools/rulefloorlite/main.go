@@ -3,12 +3,17 @@
 // pipeline runs no ledger check at all. It is a DELIBERATE SUBSET of
 // `rulefloor check`:
 //
-//   - strict parse of RULE-FLOOR.md (FLOOR line, header, six non-empty cells)
+//   - strict parse of RULE-FLOOR.md (FLOOR line, optional RED-PROOFS line,
+//     header, six non-empty cells)
 //   - row count >= FLOOR
+//   - once RED-PROOFS is adopted: the count of armed rows whose red-proof
+//     cell is not "-" must not sit below it (a proof emptied or a proven
+//     row deleted)
 //   - every armed row's check file exists
-//   - the row's tag is present in that file ("[ID]" for *.spec.ts,
-//     "// RULE: ID" for *_test.go)
-//   - a *.spec.ts line carrying the "[ID]" tag must not carry .skip( or .only(
+//   - the row's tag is present in that file ("[ID]" for *.spec.ts and
+//     *.test.ts, "// RULE: ID" for *_test.go)
+//   - a *.spec.ts / *.test.ts line carrying the "[ID]" tag must not carry
+//     .skip( or .only(
 //
 // NO HASH VERIFICATION, no body extraction, no test execution, no orphan
 // scan: hashing and extraction stay the rulefloor tool's alone, and this
@@ -45,7 +50,7 @@ func main() {
 }
 
 type liteRow struct {
-	id, check string
+	id, check, redProof string
 }
 
 // liteCheck returns per-row problems, or an error for parse faults.
@@ -55,6 +60,7 @@ func liteCheck(repo string) ([]string, error) {
 		return nil, err
 	}
 	floor := -1
+	redProofs := -1 // -1: header not adopted (legacy ledger)
 	var rows []liteRow
 	stage := 0
 	for i, raw := range strings.Split(string(data), "\n") {
@@ -75,6 +81,19 @@ func liteCheck(repo string) ([]string, error) {
 			floor = n
 			stage = 1
 		case 1, 2:
+			// The optional RED-PROOFS ratchet line sits between FLOOR and
+			// the table header (at most once, tool-maintained).
+			if num, ok := strings.CutPrefix(line, "RED-PROOFS: "); ok && stage == 1 {
+				if redProofs >= 0 {
+					return nil, fmt.Errorf("line %d: duplicate RED-PROOFS line", i+1)
+				}
+				n, err := strconv.Atoi(strings.TrimSpace(num))
+				if err != nil || n < 0 {
+					return nil, fmt.Errorf("line %d: invalid RED-PROOFS", i+1)
+				}
+				redProofs = n
+				continue
+			}
 			stage++ // header, separator — shape-checked by cell count below
 		default:
 			cells := strings.Split(line, "|")
@@ -87,8 +106,9 @@ func liteCheck(repo string) ([]string, error) {
 				}
 			}
 			rows = append(rows, liteRow{
-				id:    strings.TrimSpace(cells[1]),
-				check: strings.TrimSpace(cells[4]),
+				id:       strings.TrimSpace(cells[1]),
+				check:    strings.TrimSpace(cells[4]),
+				redProof: strings.TrimSpace(cells[5]),
 			})
 		}
 	}
@@ -98,6 +118,19 @@ func liteCheck(repo string) ([]string, error) {
 	var problems []string
 	if len(rows) < floor {
 		problems = append(problems, fmt.Sprintf("ledger: %d rows is below FLOOR %d", len(rows), floor))
+	}
+	if redProofs >= 0 {
+		measured := 0
+		for _, r := range rows {
+			if r.check != "NONE" && r.redProof != "-" {
+				measured++
+			}
+		}
+		if measured < redProofs {
+			problems = append(problems, fmt.Sprintf(
+				"ledger: %d red-proved armed rows is below RED-PROOFS %d (a proof was emptied or a proven row deleted)",
+				measured, redProofs))
+		}
 	}
 	for _, r := range rows {
 		if r.check == "NONE" {
@@ -116,7 +149,7 @@ func liteCheck(repo string) ([]string, error) {
 		}
 		src := string(body)
 		switch {
-		case strings.HasSuffix(file, ".spec.ts"):
+		case strings.HasSuffix(file, ".spec.ts"), strings.HasSuffix(file, ".test.ts"):
 			tag := "[" + r.id + "]"
 			found := false
 			for _, ln := range strings.Split(src, "\n") {

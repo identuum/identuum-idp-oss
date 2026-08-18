@@ -98,3 +98,90 @@ func TestLite_MalformedLedgerIsFatal(t *testing.T) {
 		t.Fatal("malformed ledger must be a parse fault, not a pass")
 	}
 }
+
+// ---- THE-RED-PROOF-FLOOR: RED-PROOFS header + *.test.ts kind ----
+
+const liteLedgerRatchet = `FLOOR: 3
+RED-PROOFS: 1
+
+| ID | one-sentence rule | enforced-by | check | red-proof | hash |
+|---|---|---|---|---|---|
+| L-1 | Spec rule. | playwright | e2e/a.spec.ts @ chromium | mutation watched FAIL, restored | abcdef012345 |
+| L-2 | Go rule. | go-test | a_test.go @ unit | - | abcdef012345 |
+| L-3 | Vitest rule. | vitest | src/__tests__/w.test.ts @ vitest | - | abcdef012345 |
+`
+
+func liteRatchetRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	write := func(rel, content string) {
+		t.Helper()
+		p := filepath.Join(repo, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("RULE-FLOOR.md", liteLedgerRatchet)
+	write("e2e/a.spec.ts", "test('holds [L-1]', async () => {});\n")
+	write("a_test.go", "package a\n\n// RULE: L-2\nfunc TestL2(t *testing.T) {}\n")
+	write("src/__tests__/w.test.ts", "it('wire read holds [L-3]', () => {});\n")
+	return repo
+}
+
+func TestLite_RatchetLedgerCleanPasses(t *testing.T) {
+	if p := mustProblems(t, liteRatchetRepo(t)); len(p) != 0 {
+		t.Fatalf("clean ratchet repo reported problems: %v", p)
+	}
+}
+
+func TestLite_RatchetFailureModes(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(t *testing.T, repo string)
+		want   string
+	}{
+		{"emptied proof drops below RED-PROOFS", func(t *testing.T, repo string) {
+			p := filepath.Join(repo, "RULE-FLOOR.md")
+			data, _ := os.ReadFile(p)
+			out := strings.Replace(string(data), "| mutation watched FAIL, restored |", "| - |", 1)
+			os.WriteFile(p, []byte(out), 0o644)
+		}, "below RED-PROOFS"},
+		{"vitest tag absent", func(t *testing.T, repo string) {
+			os.WriteFile(filepath.Join(repo, "src/__tests__/w.test.ts"), []byte("it('untagged', () => {});\n"), 0o644)
+		}, "absent from"},
+		{"vitest tagged line gains .skip", func(t *testing.T, repo string) {
+			os.WriteFile(filepath.Join(repo, "src/__tests__/w.test.ts"), []byte("it.skip('wire read holds [L-3]', () => {});\n"), 0o644)
+		}, ".skip/.only"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := liteRatchetRepo(t)
+			tc.mutate(t, repo)
+			problems := mustProblems(t, repo)
+			joined := strings.Join(problems, "\n")
+			if !strings.Contains(joined, tc.want) {
+				t.Fatalf("problems %v missing %q", problems, tc.want)
+			}
+		})
+	}
+}
+
+func TestLite_BadRedProofsLineIsFatal(t *testing.T) {
+	for name, mutate := range map[string]func(string) string{
+		"invalid value":  func(s string) string { return strings.Replace(s, "RED-PROOFS: 1", "RED-PROOFS: x", 1) },
+		"duplicate line": func(s string) string { return strings.Replace(s, "RED-PROOFS: 1", "RED-PROOFS: 1\nRED-PROOFS: 2", 1) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			repo := liteRatchetRepo(t)
+			p := filepath.Join(repo, "RULE-FLOOR.md")
+			data, _ := os.ReadFile(p)
+			os.WriteFile(p, []byte(mutate(string(data))), 0o644)
+			if _, err := liteCheck(repo); err == nil {
+				t.Fatal("bad RED-PROOFS line must be a parse fault, not a pass")
+			}
+		})
+	}
+}
