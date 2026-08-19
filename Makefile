@@ -1428,9 +1428,14 @@ oss-recover-site-admin:
 		echo "       Set it before running make oss-recover-site-admin (it is never echoed)."; \
 		exit 2; \
 	fi
+	@# Exec the binary DIRECTLY — no `sh -c`. The runtime image is distroless
+	@# (no shell), so `app sh -c '…'` failed with exec: "sh": executable file
+	@# not found, make exit 127 (RECOVERY-BINARY-PATH-1). recover-site-admin
+	@# with no positional URL reads the container's own IDENTUUM_IDP_DATABASE_URL
+	@# / IDENTUUM_IDP_OSS_DB (requirePositionalURL) — no DSN assembly, no shell.
 	@$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app exec \
 		-e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD \
-		app sh -c '/app/identuum-idp recover-site-admin "$$IDENTUUM_IDP_OSS_DB"'
+		app /app/identuum-idp recover-site-admin
 
 ## verify-no-panic: P-018 completion gate — fails if any non-exempt panic/log.Fatal/os.Exit exists
 ## in production Go source (internal/ pkg/ cmd/, excluding _test.go and comment lines).

@@ -162,12 +162,38 @@ This creates a site_admin user with:
 
 ### Recovery Process
 
-If you lose access to the bootstrap password, you can reset it:
+If you lose access to the bootstrap password, you can reset it.
+
+**From a repository checkout** (developer / demo stack):
 
 ```bash
 IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<choose-new-local-demo-password>' \
 make oss-recover-site-admin
 ```
+
+**Image-only (no repository)** — the runtime image is distroless (no shell
+inside it), so recovery execs the binary DIRECTLY. `recover-site-admin`
+with no database-url argument reads the container's own
+`IDENTUUM_IDP_DATABASE_URL` (the container already knows its database):
+
+```bash
+docker exec \
+  -e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<choose-new-password>' \
+  <container> /app/identuum-idp recover-site-admin
+```
+
+If your database URL is not in the container's environment, pass it as the
+single positional argument instead (it is never echoed):
+
+```bash
+docker exec \
+  -e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<choose-new-password>' \
+  <container> /app/identuum-idp recover-site-admin '<postgres-dsn>'
+```
+
+The same two forms apply to the `bootstrap` and `show-setup-code`
+subcommands. Do NOT wrap these in `sh -c` — there is no shell in the
+image.
 
 ## Health Check and Basic Verification
 
