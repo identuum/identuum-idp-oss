@@ -152,6 +152,23 @@ func (r *PgxKeyRepository) GetActiveSigningKeys(ctx context.Context) ([]domain.S
 	return mappers.ToDomainSigningKeys(keys), nil
 }
 
+// CountActiveSigningKeyRows counts signing_keys rows in an active/rotating
+// state WITHOUT decrypting them (SIGNING-KEY-SEAL-1). GetActiveSigningKeys
+// returns only the USABLE (decryptable) subset — comparing the two tells a
+// caller whether active keys exist that cannot be decrypted, which is a silent
+// brick: tokens cannot be signed and every login fails while /health, reading
+// only decryptable keys elsewhere, stays green.
+func (r *PgxKeyRepository) CountActiveSigningKeyRows(ctx context.Context) (int, error) {
+	var n int
+	err := r.db.QueryRow(ctx,
+		`SELECT count(*) FROM signing_keys WHERE state IN ('active', 'rotating')`,
+	).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count active signing keys: %w", err)
+	}
+	return n, nil
+}
+
 // GetAllSigningKeys returns all keys including deprecated
 // GetAllSigningKeys returns all keys including deprecated
 func (r *PgxKeyRepository) GetAllSigningKeys(ctx context.Context) ([]domain.SigningKey, error) {

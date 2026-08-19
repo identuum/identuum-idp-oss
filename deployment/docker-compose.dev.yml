@@ -92,12 +92,18 @@ services:
       IDENTUUM_IDP_OSS_DB: "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@postgres-idp-oss:5432/identuum_idp_oss?sslmode=disable"
       IDENTUUM_IDP_OSS_ISSUER: "http://localhost:7113"
       IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
-      # Optional at-rest AES key, overridable from the host env (never
-      # hardcoded). Empty by default → the entrypoint auto-generates one. This
-      # dev app has no /app/data volume, so the generated key is EPHEMERAL and
-      # regenerates on container recreate; export IDENTUUM_IDP_ENCRYPTION_KEY in
-      # your shell for a stable local key (e.g. so dev MFA enrollments survive).
-      IDENTUUM_IDP_ENCRYPTION_KEY: "${IDENTUUM_IDP_ENCRYPTION_KEY:-}"
+      # At-rest AES key, overridable from the host env. STABLE BY DEFAULT
+      # (SIGNING-KEY-SEAL-1): this dev app has no /app/data volume, so an empty
+      # key made the entrypoint mint a fresh key PER CONTAINER INSTANCE — any
+      # recreate then stranded every sealed row (signing keys, MFA secrets),
+      # which surfaced as an undecryptable ACTIVE signing key and a login that
+      # bounced back to /login. Defaulting to a FIXED, well-known, NON-SECRET
+      # dev key makes recreates reuse the same at-rest key so the seal class
+      # cannot fire on the dev box. It is a dev-only constant (the same value
+      # CI and the integration harness use) — NEVER use it in production; set a
+      # real IDENTUUM_IDP_ENCRYPTION_KEY there. Override it here from your host
+      # env at any time.
+      IDENTUUM_IDP_ENCRYPTION_KEY: "${IDENTUUM_IDP_ENCRYPTION_KEY:-cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe}"
 
 volumes:
   postgres-idp-oss-data-v18:

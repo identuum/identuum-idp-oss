@@ -852,6 +852,24 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 				logger.Error.WithFields(map[string]any{"error": sweepErr.Error()}).
 					Print("P3-5: signing-key re-encryption sweep failed (legacy plaintext rows remain; will re-encrypt on next rotation)")
 			}
+
+			// SIGNING-KEY-SEAL-1: make an undecryptable ACTIVE signing key a
+			// loud, health-visible failure instead of a log line under a green
+			// /health. If active/rotating rows exist but none are usable
+			// (decryptable), record a FATAL fault so /health reports
+			// NOT-SERVING with a named state and boot says so once.
+			activeRows, countErr := kr.CountActiveSigningKeyRows(ctx)
+			if countErr != nil {
+				logger.Error.WithFields(map[string]any{"error": countErr.Error()}).
+					Print("SIGNING-KEY-SEAL: could not count active signing keys; cannot evaluate seal state")
+			} else if activeRows > 0 {
+				usable, usableErr := kr.GetActiveSigningKeys(ctx)
+				if usableErr == nil && signingKeySealFault(activeRows, len(usable)) {
+					report.Fatal(signingKeySealFaultName, signingKeySealFaultDetail)
+					logger.Error.WithFields(map[string]any{"active_rows": activeRows}).
+						Print("SIGNING-KEY-SEAL: active signing key(s) are undecryptable under the current at-rest key — NOT SERVING (see /health)")
+				}
+			}
 		}
 	}
 
