@@ -116,19 +116,45 @@ wiki-fresh:
 ## No flag here may lower the tool's strictness.
 RULEFLOOR_DIR ?= ../rulefloor
 
-rulefloor-check:
-	@if [ ! -d "$(RULEFLOOR_DIR)" ]; then \
-		echo "rulefloor-check: CANNOT-EVALUATE — no rulefloor checkout at $(RULEFLOOR_DIR)" >&2; \
+# Resolve the rulefloor binary for the ledger gates: $RULEFLOOR_BIN if
+# set, else `rulefloor` on PATH (the brew binary), else build-and-run
+# the sibling checkout as LAST resort. Refuses anything older than
+# v0.2.0: the v0.1.0 binary cannot parse RED-PROOFS ledgers and dies
+# with a misleading "line 2: malformed header" — the fix is
+# `brew upgrade rulefloor`. Prints the resolved path + version; a
+# resolution or version failure is CANNOT-EVALUATE (exit 2), never a
+# skip. Sets $$RF for the invocation that follows.
+define RULEFLOOR_RESOLVE
+	if [ -n "$$RULEFLOOR_BIN" ]; then RF="$$RULEFLOOR_BIN"; \
+	elif command -v rulefloor >/dev/null 2>&1; then RF="$$(command -v rulefloor)"; \
+	elif [ ! -d "$(RULEFLOOR_DIR)" ]; then \
+		echo "$@: CANNOT-EVALUATE — no rulefloor binary (set RULEFLOOR_BIN, 'brew install rulefloor', or clone $(RULEFLOOR_DIR))" >&2; \
 		exit 2; \
-	fi
-	@if [ ! -x "$(RULEFLOOR_DIR)/rulefloor" ]; then \
-		echo "rulefloor-check: building $(RULEFLOOR_DIR)/rulefloor"; \
-		(cd "$(RULEFLOOR_DIR)" && go build -o rulefloor .) || { \
-			echo "rulefloor-check: CANNOT-EVALUATE — go build of the rulefloor tool failed" >&2; \
+	else \
+		if [ ! -x "$(RULEFLOOR_DIR)/rulefloor" ]; then \
+			echo "$@: building $(RULEFLOOR_DIR)/rulefloor (sibling fallback)"; \
+			(cd "$(RULEFLOOR_DIR)" && go build -o rulefloor .) || { \
+				echo "$@: CANNOT-EVALUATE — go build of the rulefloor tool failed" >&2; \
+				exit 2; \
+			}; \
+		fi; \
+		RF="$(RULEFLOOR_DIR)/rulefloor"; \
+	fi; \
+	RFV="$$("$$RF" --version 2>/dev/null | awk '{print $$2}')"; \
+	case "$$RFV" in \
+		dev) ;; \
+		v*) if [ "$$(printf 'v0.2.0\n%s\n' "$$RFV" | sort -V | head -1)" != "v0.2.0" ]; then \
+			echo "$@: CANNOT-EVALUATE — rulefloor $$RFV is older than v0.2.0 and cannot read RED-PROOFS ledgers; run: brew upgrade rulefloor" >&2; \
 			exit 2; \
-		}; \
-	fi
-	@"$(RULEFLOOR_DIR)/rulefloor" check --repo .
+		fi ;; \
+		*) echo "$@: CANNOT-EVALUATE — could not determine rulefloor version from $$RF" >&2; exit 2 ;; \
+	esac; \
+	echo "$@: rulefloor $$RFV at $$RF"
+endef
+
+rulefloor-check:
+	@$(RULEFLOOR_RESOLVE); \
+	"$$RF" check --repo .
 
 ## repo-green: the commit floor — build + vet + test, as ONE named check.
 ##
@@ -1242,19 +1268,9 @@ integration-test:
 ## sibling or failed tool build is CANNOT-EVALUATE = exit 2, never a skip,
 ## and a runtime SKIP inside the profile run is CANNOT-EVALUATE too.
 rulefloor-integration:
-	@if [ ! -d "$(RULEFLOOR_DIR)" ]; then \
-		echo "rulefloor-integration: CANNOT-EVALUATE — no rulefloor checkout at $(RULEFLOOR_DIR)" >&2; \
-		exit 2; \
-	fi
-	@if [ ! -x "$(RULEFLOOR_DIR)/rulefloor" ]; then \
-		echo "rulefloor-integration: building $(RULEFLOOR_DIR)/rulefloor"; \
-		(cd "$(RULEFLOOR_DIR)" && go build -o rulefloor .) || { \
-			echo "rulefloor-integration: CANNOT-EVALUATE — go build of the rulefloor tool failed" >&2; \
-			exit 2; \
-		}; \
-	fi
-	@IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_DB_URL)}" \
-		"$(RULEFLOOR_DIR)/rulefloor" check --run-profile integration --tags integration
+	@$(RULEFLOOR_RESOLVE); \
+	IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_DB_URL)}" \
+		"$$RF" check --run-profile integration --tags integration
 
 ## validate: build + unit tests + staticcheck + integration build/test.
 ## Starts from a clean database (fast-clean removes stale volume data before run).

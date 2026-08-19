@@ -207,13 +207,14 @@ The full one-shot validation chain (clean DB → up → integration tests
 ### Rule ledger (RULE-FLOOR.md)
 
 `make verify` includes `make rulefloor-check`, which verifies the
-machine-checked rule ledger at the repo root with the sibling
-`../rulefloor` CLI. Bootstrap: clone the `rulefloor` repo next to this
-checkout; the Make target builds the binary on first use (`go build`,
-stdlib only). A missing sibling or a failed tool build is
-CANNOT-EVALUATE and fails `verify` — there is no skip. CI's `ci-verify`
-deliberately excludes the target (one-repo checkout; see the ci.yml
-header enumeration). Integration-profile rows are verified statically by
+machine-checked rule ledger at the repo root with the rulefloor CLI,
+resolved in order: `$RULEFLOOR_BIN` if set, `rulefloor` on PATH
+(`brew install rulefloor`), then building the sibling `../rulefloor`
+checkout as last resort. Binaries older than v0.2.0 are refused — they
+cannot read RED-PROOFS ledgers (`brew upgrade rulefloor`). No
+resolvable binary is CANNOT-EVALUATE and fails `verify` — there is no
+skip. CI's `ci-verify` deliberately excludes the target (one-repo
+checkout; see the ci.yml header enumeration). Integration-profile rows are verified statically by
 plain `verify` and EXECUTED by `make rulefloor-integration`, which
 `make integration-test` chains after the suite.
 
