@@ -252,6 +252,7 @@
         "internal/mappers/**",
         "internal/metrics/**",
         "internal/repository/**",
+        "internal/testsupport/**",
         "internal/utils/**",
         "logger/**",
         "migrations/**",
@@ -304,6 +305,7 @@
         "internal/service/**",
         "internal/setup/**",
         "internal/startup/**",
+        "internal/testsupport/**",
         "internal/utils/**",
         "logger/**",
         "ratelimit/**"
@@ -486,7 +488,8 @@
       "may_import": [
         "github.com/stretchr/**",
         "internal/postgres/**",
-        "internal/runtime/**"
+        "internal/runtime/**",
+        "internal/testsupport/**"
       ]
     },
     {
