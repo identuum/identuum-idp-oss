@@ -208,21 +208,20 @@ The full one-shot validation chain (clean DB → up → integration tests
 
 `make verify` includes `make rulefloor-check`, which verifies the
 machine-checked rule ledger at the repo root with the sibling
-`../rulefloor` CLI (the ledger's only writer). Bootstrap: clone the
-`rulefloor` repo next to this checkout; the Make target builds the
-binary on first use (`go build`, stdlib only). A missing sibling or a
-failed tool build is CANNOT-EVALUATE and fails `verify` — there is no
-skip. CI's `ci-verify` deliberately excludes the target (one-repo
-checkout; see the ci.yml header enumeration).
+`../rulefloor` CLI. Bootstrap: clone the `rulefloor` repo next to this
+checkout; the Make target builds the binary on first use (`go build`,
+stdlib only). A missing sibling or a failed tool build is
+CANNOT-EVALUATE and fails `verify` — there is no skip. CI's `ci-verify`
+deliberately excludes the target (one-repo checkout; see the ci.yml
+header enumeration). Integration-profile rows are verified statically by
+plain `verify` and EXECUTED by `make rulefloor-integration`, which
+`make integration-test` chains after the suite.
 
-The ledger's integration-profile rows (the DB-backed
-AdminPermissionsModel teeth, RG1/RG2) are verified statically by plain
-`verify` and EXECUTED by `make rulefloor-integration`, which
-`make integration-test` chains after the suite using the same DSN
-default. CI's integration job drives `make ci-integration-test` (the
-pure suite) for the same one-repo reason. A runtime skip inside the
-profile run is CANNOT-EVALUATE — the teeth either bite or the run
-fails loudly.
+How the ledger works — the format, commands, exit codes, guarantees —
+is the tool's documentation (`../rulefloor/README.md`). What this
+project's profile names mean, the red-proof text format we write, and
+the burndown method are project POLICY:
+[docs/RULE-FLOOR-CONVENTIONS.md](docs/RULE-FLOOR-CONVENTIONS.md).
 
 ## Configuration
 
