@@ -88,7 +88,13 @@ type CompleteOutput struct {
 	State            string    `json:"state"`
 	OrganizationID   uuid.UUID `json:"organization_id"`
 	OrganizationName string    `json:"organization_name"`
-	AdminEmail       string    `json:"admin_email"`
+	// AdminEmail is the operator's typed address (demoted to contact detail).
+	AdminEmail string `json:"admin_email"`
+	// LoginEmail is the PINNED site_admin login — the identity the operator
+	// must actually log in as (site_admin@system.local), which is NOT the
+	// address they typed (WIZARD-SPLIT-BRAIN-1: the completion screen has to
+	// state who to log in as, or the next login uses the wrong identity).
+	LoginEmail string `json:"login_email"`
 }
 
 // Deps bundles every collaborator. The Service is intentionally
@@ -341,11 +347,13 @@ func (s *Service) Complete(ctx context.Context, dataDir string, in CompleteInput
 		s.warnTokenFileSweepFailed(dataDir, err)
 	}
 
+	login, _ := siteAdminIdentity(in.AdminEmail)
 	return &CompleteOutput{
 		State:            domain.SetupStatusComplete,
 		OrganizationID:   orgID,
 		OrganizationName: orgName,
 		AdminEmail:       in.AdminEmail,
+		LoginEmail:       login,
 	}, nil
 }
 
@@ -463,7 +471,19 @@ func (s *Service) ensureSiteAdmin(ctx context.Context, orgID uuid.UUID, in Compl
 	existing, err := s.deps.UserRepo.GetByEmailAndOrgID(ctx, systemOrgID, login)
 	switch {
 	case err == nil && existing != nil:
-		// site_admin already present from a partial prior run: nothing to do.
+		// WIZARD-SPLIT-BRAIN-1: a site_admin already exists. The wizard used
+		// to return nil here — silently DISCARDING the operator's submitted
+		// password and completing anyway, so the next login said "Invalid
+		// credentials". That happened whenever a prior run (or devseed) left a
+		// site_admin behind. ADOPT-AND-RESET instead: the operator's submitted
+		// password becomes authoritative, so setup completes with exactly the
+		// credentials the operator just typed. Never silently discard.
+		pw := in.AdminPassword
+		if _, uerr := s.deps.UserRepo.Update(ctx, existing.ID, systemOrgID, repository.UpdateUserOptions{
+			Password: &pw,
+		}); uerr != nil {
+			return fmt.Errorf("setup complete: adopt-and-reset existing site_admin: %w", uerr)
+		}
 		return nil
 	case errors.Is(err, domain.ErrUserNotFound):
 		// fall through

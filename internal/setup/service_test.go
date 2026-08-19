@@ -175,7 +175,18 @@ func (m *memUserRepo) GetByExternalID(_ context.Context, _ uuid.UUID, _ string) 
 func (m *memUserRepo) GetByIDWithOrg(_ context.Context, _ uuid.UUID) (*domain.User, error) {
 	return nil, domain.ErrUserNotFound
 }
-func (m *memUserRepo) Update(_ context.Context, _ uuid.UUID, _ uuid.UUID, _ repository.UpdateUserOptions) (*domain.User, error) {
+func (m *memUserRepo) Update(_ context.Context, id uuid.UUID, orgID uuid.UUID, opts repository.UpdateUserOptions) (*domain.User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, u := range m.users {
+		if u.ID == id && u.OrganizationID == orgID {
+			if opts.Password != nil {
+				u.PasswordHash = *opts.Password
+			}
+			out := *u
+			return &out, nil
+		}
+	}
 	return nil, domain.ErrUserNotFound
 }
 func (m *memUserRepo) Delete(_ context.Context, _, _ uuid.UUID) error   { return nil }
@@ -666,6 +677,78 @@ func TestComplete_ResumesAfterPartialSiteAdmin(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("expected exactly 1 site_admin, got %d", count)
+	}
+}
+
+// WIZARD-SPLIT-BRAIN-1: when a site_admin already exists (e.g. devseed created
+// it, or a prior run), the wizard must NOT silently discard the operator's
+// submitted password and complete anyway — that left the next login saying
+// "Invalid credentials". It ADOPTS-AND-RESETS: the operator's password becomes
+// authoritative on the existing row.
+// RULE: WIZARD-ADOPT-1
+func TestComplete_AdoptsAndResetsExistingSiteAdmin(t *testing.T) {
+	h := newHarness(t)
+	banner, _ := h.svc.Initialize(context.Background(), h.dataDir)
+
+	// A site_admin already exists under the PINNED login with a DIFFERENT
+	// (old) password — the split-brain the wizard used to eat.
+	systemOrgID, _ := uuid.Parse(domain.SystemOrgID)
+	siteAdminID, _ := uuid.Parse(domain.SiteAdminID)
+	h.userRepo.users = append(h.userRepo.users, &domain.User{
+		ID:             siteAdminID,
+		OrganizationID: systemOrgID,
+		Email:          domain.SiteAdminEmail,
+		PasswordHash:   "old-pre-existing-hash",
+		Role:           domain.RoleSiteAdmin,
+		AuthSource:     domain.AuthSourceLocal,
+		EmailVerified:  true,
+	})
+
+	in := validCompleteInput(banner.SetupToken)
+	if _, err := h.svc.Complete(context.Background(), h.dataDir, in); err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+
+	// The operator's submitted password must have been adopted onto the
+	// existing site_admin — never left as the old hash (silent discard).
+	var found *domain.User
+	for _, u := range h.userRepo.users {
+		if u.ID == siteAdminID {
+			found = u
+		}
+	}
+	if found == nil {
+		t.Fatal("site_admin row vanished")
+	}
+	if found.PasswordHash == "old-pre-existing-hash" {
+		t.Fatal("wizard silently discarded the operator's password — the old hash survived (split-brain)")
+	}
+	if found.PasswordHash != in.AdminPassword {
+		t.Fatalf("site_admin password = %q, want the operator's submitted password adopted", found.PasswordHash)
+	}
+}
+
+// WIZARD-SPLIT-BRAIN-1: the completion result must state the LOGIN identity —
+// the pinned site_admin@system.local, NOT the operator's typed address — so
+// the completion screen can tell the operator who to log in as. Reporting only
+// the typed address would send them to log in with an identity that is not the
+// account's login.
+// RULE: WIZARD-COMPLETE-LOGIN-1
+func TestComplete_ReportsPinnedLoginIdentity(t *testing.T) {
+	h := newHarness(t)
+	banner, _ := h.svc.Initialize(context.Background(), h.dataDir)
+
+	in := validCompleteInput(banner.SetupToken) // AdminEmail: owner@acme.example
+	out, err := h.svc.Complete(context.Background(), h.dataDir, in)
+	if err != nil {
+		t.Fatalf("Complete: %v", err)
+	}
+	if out.LoginEmail != domain.SiteAdminEmail {
+		t.Fatalf("LoginEmail = %q, want the pinned login %q — the completion screen must state the real login identity",
+			out.LoginEmail, domain.SiteAdminEmail)
+	}
+	if out.LoginEmail == in.AdminEmail {
+		t.Fatal("LoginEmail must be the pinned login, not the operator's typed address")
 	}
 }
 

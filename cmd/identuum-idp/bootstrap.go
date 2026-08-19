@@ -46,6 +46,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -178,6 +179,41 @@ func loadBootstrapOptions(getenv func(string) string) (bootstrapOptions, error) 
 type bootstrapDeps struct {
 	Keys  repository.KeyRepository
 	Users repository.UserRepository
+	// Setup marks the appliance setup-state row complete once the site_admin
+	// + signing key exist (WIZARD-SPLIT-BRAIN-1). Optional: nil skips the step
+	// (older tests), but a bootstrapped database that leaves state
+	// setup_required while a site_admin exists is exactly the split-brain the
+	// setup wizard then chokes on. PgxSetupStateRepository satisfies it.
+	Setup setupCompleter
+}
+
+// setupCompleter is the narrow slice of the setup-state repository bootstrap
+// needs: ensure the singleton row, then mark it complete.
+type setupCompleter interface {
+	EnsureRow(ctx context.Context) error
+	MarkComplete(ctx context.Context, at time.Time) error
+}
+
+// finishBootstrap marks the setup-state row complete so a bootstrapped
+// database is COHERENT — state setup_complete AND a site_admin present, never
+// the disagreement that let the wizard silently discard credentials
+// (WIZARD-SPLIT-BRAIN-1). Nil Setup (or a mark failure) never fails bootstrap:
+// the privileged rows already exist, so the rc is unchanged; a failure is a
+// loud warning the operator can resolve by re-running or via the wizard.
+func finishBootstrap(ctx context.Context, deps bootstrapDeps, stdout, stderr io.Writer) int {
+	if deps.Setup == nil {
+		return 0
+	}
+	if err := deps.Setup.EnsureRow(ctx); err != nil {
+		fmt.Fprintln(stderr, "identuum-idp: bootstrap: WARN could not ensure setup-state row:", err)
+		return 0
+	}
+	if err := deps.Setup.MarkComplete(ctx, time.Now().UTC()); err != nil {
+		fmt.Fprintln(stderr, "identuum-idp: bootstrap: WARN could not mark setup complete (site_admin exists but state stays setup_required — the wizard would then face an existing admin):", err)
+		return 0
+	}
+	fmt.Fprintln(stdout, "identuum-idp: bootstrap: setup state marked complete (no split-brain)")
+	return 0
 }
 
 // bootstrapCore is the pure state machine. It is idempotent on both
@@ -258,7 +294,7 @@ func bootstrapCore(ctx context.Context, deps bootstrapDeps, opts bootstrapOption
 	switch {
 	case err == nil && existing != nil:
 		fmt.Fprintf(stdout, "identuum-idp: bootstrap: site_admin already present (id=%s, email=%s) — skip create\n", existing.ID, existing.Email)
-		return 0
+		return finishBootstrap(ctx, deps, stdout, stderr)
 	case errors.Is(err, domain.ErrUserNotFound):
 		// fall through to create
 	case err != nil:
@@ -293,7 +329,7 @@ func bootstrapCore(ctx context.Context, deps bootstrapDeps, opts bootstrapOption
 			// there. Only then is a concurrent creator the real explanation.
 			if confirmed, lookupErr := deps.Users.GetByEmailAndOrgID(ctx, systemOrgID, opts.Email); lookupErr == nil && confirmed != nil {
 				fmt.Fprintf(stdout, "identuum-idp: bootstrap: site_admin row created concurrently (id=%s, email=%s) — treating as success\n", confirmed.ID, confirmed.Email)
-				return 0
+				return finishBootstrap(ctx, deps, stdout, stderr)
 			}
 			fmt.Fprintf(stderr, "identuum-idp: bootstrap: cannot create site_admin %s — the sentinel id %s "+
 				"is already held by a DIFFERENT row, and %s itself does not exist. This database was "+
@@ -307,7 +343,7 @@ func bootstrapCore(ctx context.Context, deps bootstrapDeps, opts bootstrapOption
 		return 1
 	}
 	fmt.Fprintf(stdout, "identuum-idp: bootstrap: created site_admin (id=%s, email=%s)\n", created.ID, created.Email)
-	return 0
+	return finishBootstrap(ctx, deps, stdout, stderr)
 }
 
 // runBootstrap is the CLI entrypoint for the 'bootstrap' subcommand.
@@ -351,5 +387,6 @@ func runBootstrap(ctx context.Context, databaseURL string, stdout, stderr io.Wri
 	return bootstrapCore(ctx, bootstrapDeps{
 		Keys:  repos.Key,
 		Users: repos.User,
+		Setup: postgres.NewPgxSetupStateRepository(pool),
 	}, opts, stdout, stderr)
 }

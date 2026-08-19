@@ -475,3 +475,40 @@ func TestResolveSigningKeyCipher_FileFallback(t *testing.T) {
 		}
 	})
 }
+
+// fakeSetupCompleter records whether bootstrap marked the setup-state row
+// complete (WIZARD-SPLIT-BRAIN-1).
+type fakeSetupCompleter struct {
+	ensured  bool
+	complete bool
+}
+
+func (f *fakeSetupCompleter) EnsureRow(_ context.Context) error { f.ensured = true; return nil }
+func (f *fakeSetupCompleter) MarkComplete(_ context.Context, _ time.Time) error {
+	f.complete = true
+	return nil
+}
+
+// WIZARD-SPLIT-BRAIN-1: bootstrap creates a site_admin + signing key, so it
+// MUST leave the setup-state row COMPLETE — a bootstrapped database that stays
+// setup_required while a site_admin exists is the split-brain the wizard then
+// silently discards credentials into. devseed calls bootstrap, so this is what
+// stops devseed manufacturing that state.
+// RULE: BOOTSTRAP-SETUP-COHERENT-1
+func TestBootstrapCore_MarksSetupComplete(t *testing.T) {
+	t.Parallel()
+
+	setup := &fakeSetupCompleter{}
+	deps := bootstrapDeps{
+		Keys:  &memKeyRepo{},
+		Users: &memUserRepo{},
+		Setup: setup,
+	}
+	var stdout, stderr bytes.Buffer
+	if rc := bootstrapCore(context.Background(), deps, newTestOpts(), &stdout, &stderr); rc != 0 {
+		t.Fatalf("expected rc=0, got %d (stderr=%s)", rc, stderr.String())
+	}
+	if !setup.complete {
+		t.Fatal("bootstrap created a site_admin but did NOT mark setup complete — this is the split-brain devseed manufactured (state setup_required + site_admin present)")
+	}
+}
