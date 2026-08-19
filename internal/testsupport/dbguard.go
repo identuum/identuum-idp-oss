@@ -19,7 +19,7 @@ import (
 const AllowNonTestDBEnv = "IDENTUUM_IDP_ALLOW_NON_TEST_DB"
 
 // databaseName extracts the database name from a Postgres DSN, both the URL
-// form (postgres://user:pw@host:port/DBNAME?opts) and the keyword form
+// form (postgres://HOST:PORT/DBNAME?opts, with any userinfo) and the keyword form
 // (host=… dbname=DBNAME …). Returns "" when it cannot be determined.
 func databaseName(dsn string) string {
 	trimmed := strings.TrimSpace(dsn)

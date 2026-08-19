@@ -11,8 +11,8 @@ import (
 // escape is set. Hermetic: no database, no network.
 // RULE: TEST-DB-GUARD-1
 func TestRequireTestDatabaseRefusesNonTestDSN(t *testing.T) {
-	const devDSN = "postgres://idp_oss_user:pw@127.0.0.1:5513/identuum_idp_oss?sslmode=disable"
-	const testDSN = "postgres://idp_oss_user:pw@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable"
+	const devDSN = "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss?sslmode=disable"
+	const testDSN = "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable"
 
 	// A live dev database (no _test suffix) is REFUSED, and the message names
 	// the offending database so the operator can see what was blocked.
