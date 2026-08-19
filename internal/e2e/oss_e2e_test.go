@@ -38,6 +38,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	"github.com/identuum/identuum-idp-oss/internal/server"
+	"github.com/identuum/identuum-idp-oss/internal/testsupport"
 )
 
 // e2eSigningKeyCipher returns a throwaway P3-5 at-rest cipher for the e2e
@@ -60,6 +61,9 @@ func testDBURL(t *testing.T) string {
 	t.Helper()
 	for _, env := range []string{"IDENTUUM_IDP_TEST_DATABASE_URL", "IDENTUUM_IDP_DATABASE_URL"} {
 		if v := os.Getenv(env); v != "" {
+			if err := testsupport.RequireTestDatabase(v); err != nil {
+				t.Fatal(err)
+			}
 			return v
 		}
 	}

@@ -3,6 +3,8 @@ package runtime
 import (
 	"os"
 	"testing"
+
+	"github.com/identuum/identuum-idp-oss/internal/testsupport"
 )
 
 // testDBURL is the single gate for the DB-backed runtime tests (P2-24).
@@ -27,6 +29,9 @@ func testDBURL(t *testing.T) string {
 				"(P2-24). Fix the Postgres service or unset the require flag.")
 		}
 		t.Skip("IDENTUUM_IDP_TEST_DATABASE_URL not set; skipping DB-backed runtime test")
+	}
+	if err := testsupport.RequireTestDatabase(dbURL); err != nil {
+		t.Fatal(err)
 	}
 	return dbURL
 }

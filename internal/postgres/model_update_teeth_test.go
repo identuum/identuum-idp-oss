@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/identuum/identuum-idp-oss/internal/testsupport"
 )
 
 // Rg1 / Rg2 — the UPDATE-shaped brick vectors, asserted against a live schema.
@@ -28,6 +30,9 @@ func modelTeethDBURL(t *testing.T) string {
 	t.Helper()
 	for _, env := range []string{"IDENTUUM_IDP_TEST_DATABASE_URL", "IDENTUUM_IDP_DATABASE_URL"} {
 		if v := os.Getenv(env); v != "" {
+			if err := testsupport.RequireTestDatabase(v); err != nil {
+				t.Fatal(err)
+			}
 			return v
 		}
 	}

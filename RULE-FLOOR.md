@@ -1,5 +1,5 @@
-FLOOR: 74
-RED-PROOFS: 74
+FLOOR: 75
+RED-PROOFS: 75
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -77,3 +77,4 @@ RED-PROOFS: 74
 | SOFTDEL-RESOLVE-1 | A soft-deleted client or identity provider never resolves, even when its organization is live. | go-test | internal/postgres/client_auth_boundary_test.go @ integration | 2026-08-18 mutated GetClientByClientID query: client tombstone predicate 'oc.deleted_at IS NULL' -> TRUE; TestSoftDeletedClientDoesNotResolve FAIL 'a soft-deleted client RESOLVED at auth time'; source restored byte-identical, green | 3a006fadf036 |
 | ORG-ADMIN-STATE-1 | The organizations API's admin state reflects the live org_admin counts; an unwired counter is a fatal fault with the fields absent, never false. | go-test | internal/handlers/organizations_admin_state_test.go @ unit | red-proved 2026-08-18: pre-emission build watched FAIL (is_claimed ABSENT from payload) on list, get, and org_admin single-row; emission added, watched PASS | fa40b8abc0e5 |
 | WIRE-CONTRACT-ORG-1 | The org read surface's JSON key set (always + omitempty, with the tri-state admin pair absent-by-default) matches the pinned wire contract exactly. | go-test | internal/handlers/organizations_wire_contract_test.go @ unit | mutation red-proved 2026-08-18: is_claimed json tag flipped to was_claimed, watched FAIL (omitempty key set drifted), restored byte-identical, watched PASS | bcf994289cbf |
+| TEST-DB-GUARD-1 | The DB-backed test harness refuses any DSN whose database name does not end in _test, unless the disposable-DB escape is set. | go-test | internal/testsupport/dbguard_test.go @ unit | 2026-08-19 mutated internal/testsupport/dbguard.go RequireTestDatabase: suffix check short-circuited to always-true so a non-_test DSN was accepted; TestRequireTestDatabaseRefusesNonTestDSN FAIL 'dev DSN (identuum_idp_oss) must be REFUSED'; reverted byte-identical, green | 0d748929ea13 |

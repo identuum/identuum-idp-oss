@@ -36,6 +36,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	internalruntime "github.com/identuum/identuum-idp-oss/internal/runtime"
+	"github.com/identuum/identuum-idp-oss/internal/testsupport"
 	pkgruntime "github.com/identuum/identuum-idp-oss/pkg/runtime"
 )
 
@@ -143,6 +144,9 @@ func TestStart_CalledTwice_Errors(t *testing.T) {
 	dbURL := os.Getenv("IDENTUUM_IDP_TEST_DATABASE_URL")
 	if dbURL == "" {
 		t.Skip("IDENTUUM_IDP_TEST_DATABASE_URL not set; skipping DB-backed restart-guard test")
+	}
+	if err := testsupport.RequireTestDatabase(dbURL); err != nil {
+		t.Fatal(err)
 	}
 	migratePkgTestSchema(t, dbURL)
 	t.Setenv("IDENTUUM_IDP_ENCRYPTION_KEY", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")

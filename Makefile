@@ -74,16 +74,23 @@ DEV_APP_PORT ?= 7113
 DEV_HEALTH_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/health
 DEV_COMPONENT_URL ?= http://127.0.0.1:7113/api/v1/component
 
-# DB URL for integration tests — matches compose DB defaults.
-# Override by exporting IDENTUUM_IDP_TEST_DATABASE_URL before calling make.
+# DB URL for the DEV STACK / app — the human's live database. NOT used by the
+# integration suites (TEST-DB-ISOLATION-1): those TRUNCATE and replay setup, so
+# they must never point here. Override by exporting it before calling make.
 OSS_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss?sslmode=disable
+
+# DB URL for the INTEGRATION SUITES — a dedicated *_test database, separate from
+# the dev DB (TEST-DB-ISOLATION-1). The harness refuses any DSN whose database
+# name does not end in "_test" (internal/testsupport.RequireTestDatabase),
+# absent IDENTUUM_IDP_ALLOW_NON_TEST_DB. Create it once with `make test-db`.
+OSS_TEST_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable
 
 # WIKI_TOOLS — the shared gate scripts live in the sibling wiki repo.
 WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
 .PHONY: clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
-.PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test
+.PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
 ## Runs wiki-freshness.sh --repo identuum-idp-oss --strict against the sibling
@@ -1224,7 +1231,9 @@ integration-inventory:
 ## teeth (issuer-confinement, metrics listener, P3-5 key-encryption-at-rest,
 ## setup-state repository). All share one Postgres; see the per-test isolation
 ## notes (e.g. IDENTUUM_IDP_ALLOW_MULTI_REPLICA, the setup-state row-lock tx).
-## DB URL is read from IDENTUUM_IDP_TEST_DATABASE_URL env (if set) or OSS_DB_URL default.
+## DB URL is read from IDENTUUM_IDP_TEST_DATABASE_URL env (if set) or the
+## OSS_TEST_DB_URL default (the dedicated *_test database — NEVER the dev DB;
+## TEST-DB-ISOLATION-1). The harness refuses a non-_test DSN.
 ## Encryption key is read from IDENTUUM_IDP_ENCRYPTION_KEY env (if set) or the TEST-ONLY
 ## default below (64-hex AES-256-GCM key — cafebabe×8; NEVER use in production).
 ## Neither the URL nor the key is echoed (@ prefix).
@@ -1251,12 +1260,25 @@ integration-inventory:
 ## teeth on top; CI cannot (the ../rulefloor sibling is absent there, and
 ## a missing sibling is CANNOT-EVALUATE, never a skip), so it drives this
 ## target instead — see the ci.yml header enumeration.
+## test-db: create + migrate the dedicated integration database
+## (identuum_idp_oss_test on the dev Postgres), separate from the human's dev
+## DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it
+## already exists, then migrations are (re-)applied. Never touches OSS_DB_URL.
+test-db:
+	@echo "test-db: ensuring $(OSS_TEST_DB_URL) exists + migrated"
+	@PGPASSWORD=dev-idp_oss_user-not-a-secret psql -h 127.0.0.1 -p 5513 -U idp_oss_user -d postgres -tAc \
+		"SELECT 1 FROM pg_database WHERE datname='identuum_idp_oss_test'" | grep -q 1 || \
+		PGPASSWORD=dev-idp_oss_user-not-a-secret createdb -h 127.0.0.1 -p 5513 -U idp_oss_user identuum_idp_oss_test
+	@$(MAKE) --no-print-directory build-binary
+	@./bin/identuum-idp migrate "$(OSS_TEST_DB_URL)"
+
 ci-integration-test:
-	@IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_DB_URL)}" \
+	@IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}" \
 	IDENTUUM_IDP_ENCRYPTION_KEY="$${IDENTUUM_IDP_ENCRYPTION_KEY:-cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe}" \
 		go test -tags integration ./... -count=1 -v
 
 integration-test:
+	@$(MAKE) --no-print-directory test-db
 	@$(MAKE) --no-print-directory ci-integration-test
 	@$(MAKE) --no-print-directory rulefloor-integration
 
@@ -1269,7 +1291,7 @@ integration-test:
 ## and a runtime SKIP inside the profile run is CANNOT-EVALUATE too.
 rulefloor-integration:
 	@$(RULEFLOOR_RESOLVE); \
-	IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_DB_URL)}" \
+	IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}" \
 		"$$RF" check --run-profile integration --tags integration
 
 ## validate: build + unit tests + staticcheck + integration build/test.

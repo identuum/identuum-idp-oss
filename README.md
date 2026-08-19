@@ -194,7 +194,13 @@ make verify
 # Start a throwaway local Postgres on 127.0.0.1:5513.
 make fast-up
 
-# Run the build-tagged integration suite against it.
+# Run the build-tagged integration suite. It runs against a DEDICATED
+# `identuum_idp_oss_test` database (created + migrated by `make test-db`,
+# which `integration-test` invokes first), NEVER the dev database: these
+# suites TRUNCATE and replay setup, and the harness REFUSES any DSN whose
+# database name does not end in `_test` (TEST-DB-ISOLATION-1). Point it
+# elsewhere with IDENTUUM_IDP_TEST_DATABASE_URL, or set
+# IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 for a genuinely disposable database.
 make integration-test
 
 # Tear it down.
