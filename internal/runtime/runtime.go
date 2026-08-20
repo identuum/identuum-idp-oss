@@ -1300,6 +1300,11 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// L-2 read half: the pgx audit repo backs GET /api/v1/audit/events.
 	deps.AuditReader = repos.Audit
 
+	// THE-HEALTH-DETAILS: the pool's liveness backs the `database` component of
+	// GET /api/v1/health/details. Wired only on this DB-backed path, so a
+	// no-DB scaffold leaves DBPinger nil and the component absent.
+	deps.DBPinger = pool.Ping
+
 	// P2-12: the four previously-unswept expiring tables, handed to the
 	// cleanup driver in Start. Each repo satisfies service.ExpiredRowSweeper.
 	sweepers := &retentionSweepers{

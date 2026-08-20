@@ -88,6 +88,11 @@ type OSSRouterDeps struct {
 	// nil leaves the route mounted as a P-018 service-missing fallback.
 	AuditReader handlers.AuditReader
 
+	// DBPinger, when wired, is the Postgres liveness check surfaced as the
+	// `database` component of GET /api/v1/health/details (THE-HEALTH-DETAILS).
+	// nil (no-DB scaffold) makes that component ABSENT — never zero-faked.
+	DBPinger func(ctx context.Context) error
+
 	// TokenVerifier, when non-nil, is wired in front of every
 	// route group so an incoming `Authorization: Bearer <jwt>` is
 	// translated into a populated principal. Routes that require
@@ -610,6 +615,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	mountOrganizationProtocolSettings(router, resolved)
 	mountOrganizationIdentityProvider(router, resolved)
 	mountAuditRoutes(router, resolved)
+	mountSystemHealthRoutes(router, resolved)
 	mountOrganizationDomains(router, resolved)
 	mountOrganizationLookup(router, resolved)
 	mountRBAC(router, resolved)
@@ -1007,6 +1013,20 @@ func mountAuditRoutes(router gin.IRouter, resolved OSSRouterDeps) {
 	handlers.RegisterAuditRoutes(router, handlers.AuditHandlerDeps{
 		AuditReader:   resolved.AuditReader,
 		Audit:         resolved.Audit,
+		StartupReport: resolved.StartupReport,
+	})
+}
+
+// mountSystemHealthRoutes mounts the site_admin runtime-info surface, GET
+// /api/v1/health/details (THE-HEALTH-DETAILS). Always mounted (site_admin
+// gated); the `database` component is present only when a DB pinger is wired,
+// `audit_system` only when the audit reader is wired, and `redis` is always
+// absent on OSS.
+func mountSystemHealthRoutes(router gin.IRouter, resolved OSSRouterDeps) {
+	handlers.RegisterSystemHealthRoutes(router, handlers.SystemHealthDeps{
+		Version:       resolved.Version,
+		DBPinger:      resolved.DBPinger,
+		AuditWired:    resolved.AuditReader != nil,
 		StartupReport: resolved.StartupReport,
 	})
 }

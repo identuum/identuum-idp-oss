@@ -1,5 +1,5 @@
-FLOOR: 80
-RED-PROOFS: 80
+FLOOR: 81
+RED-PROOFS: 81
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -83,3 +83,4 @@ RED-PROOFS: 80
 | BOOTSTRAP-SETUP-COHERENT-1 | Bootstrap marks the setup-state row complete after creating the site_admin, so a bootstrapped database is coherent and cannot be a wizard split-brain. | go-test | cmd/identuum-idp/bootstrap_test.go @ unit | 2026-08-19 mutated cmd/identuum-idp/bootstrap.go finishBootstrap to return 0 before marking setup complete; TestBootstrapCore_MarksSetupComplete FAIL 'bootstrap created a site_admin but did NOT mark setup complete'; restored via edit byte-identical, green | ae17374b8d55 |
 | WIZARD-COMPLETE-LOGIN-1 | The setup completion result states the pinned site_admin login identity, not the operator's typed address. | go-test | internal/setup/service_test.go @ unit | 2026-08-19 mutated internal/setup/service.go Complete: CompleteOutput.LoginEmail set to in.AdminEmail (typed address) instead of the pinned siteAdminIdentity login; TestComplete_ReportsPinnedLoginIdentity FAIL 'LoginEmail = owner@acme.example, want site_admin@system.local'; restored via edit, green | 02f45bf7a489 |
 | SETUP-COHERENCE-1 | The database refuses to mark setup complete unless a live site_admin exists, so setup-state and site_admin existence cannot disagree. | go-test | internal/postgres/setup_coherence_teeth_test.go @ integration | 2026-08-19 mutated migration 0031 model_setup_complete_requires_site_admin (IF FALSE AND on the guard), re-applied live via psql; TestSetupCompleteRequiresSiteAdmin FAIL 'marking setup complete with NO site_admin SUCCEEDED'; migration restored via edit, function re-applied, green | 414c345ca307 |
+| WIRE-CONTRACT-HEALTH-1 | GET /api/v1/health/details emits exactly status+version always, database/audit_system/redis omitempty, with redis and audit queue_depth absent on OSS, and leaks no DSN/key/session material. | go-test | internal/handlers/system_health_wire_contract_test.go @ unit | 2026-08-20 mutated internal/handlers/system_health.go handleSystemHealthDetails: zero-faked resp.Redis with a 'unavailable' component; TestWireContractHealth_JSONKeySetIsPinned FAIL 'redis must be ABSENT on OSS (no Redis dependency)'; restored via edit byte-identical, green | 2c6d7842a9ac |
