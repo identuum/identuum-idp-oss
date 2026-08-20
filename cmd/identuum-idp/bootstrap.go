@@ -57,34 +57,56 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
+// At-rest key SOURCE names reported by resolveAtRestKey. These are the
+// NAMED STATES the doctor subcommand prints (OPERATOR-UX-1) — key material
+// itself is never returned to a caller that prints, and never printed.
+const (
+	atRestKeySourceEnv       = "env"        // IDENTUUM_IDP_ENCRYPTION_KEY
+	atRestKeySourceEnvCompat = "env-compat" // AUTH_SERVICE_ENCRYPTION_KEY
+	atRestKeySourceKeyFile   = "key-file"   // $IDENTUUM_IDP_DATA_DIR/encryption-key
+	atRestKeySourceAbsent    = "absent"     // nothing anywhere
+)
+
+// resolveAtRestKey applies the at-rest AES key precedence and reports WHICH
+// source supplied it: IDENTUUM_IDP_ENCRYPTION_KEY (preferred), then
+// AUTH_SERVICE_ENCRYPTION_KEY (compat), then the key file the appliance
+// persisted in the data volume — the SAME precedence
+// appliance.ResolveEncryptionKey applies at serve time. The file fallback is
+// what makes `docker exec <container> identuum-idp recover-site-admin` work
+// against the distroless runtime image on an appliance whose key was generated
+// at first boot and lives only in the file: there is no shell in that image to
+// load it into the environment first, and recover is exactly the break-glass
+// command that must work on a sick appliance.
+//
+// Injectable getenv/readFile keep the precedence unit-testable; production
+// passes os.Getenv / os.ReadFile. The returned hexKey is a SECRET — callers
+// must never print it.
+func resolveAtRestKey(getenv func(string) string, readFile func(string) ([]byte, error)) (hexKey, source string) {
+	if v := strings.TrimSpace(getenv("IDENTUUM_IDP_ENCRYPTION_KEY")); v != "" {
+		return v, atRestKeySourceEnv
+	}
+	if v := strings.TrimSpace(getenv("AUTH_SERVICE_ENCRYPTION_KEY")); v != "" {
+		return v, atRestKeySourceEnvCompat
+	}
+	dataDir := strings.TrimSpace(getenv("IDENTUUM_IDP_DATA_DIR"))
+	if dataDir == "" {
+		dataDir = "/app/data"
+	}
+	if raw, err := readFile(filepath.Join(dataDir, "encryption-key")); err == nil {
+		if v := strings.TrimSpace(string(raw)); v != "" {
+			return v, atRestKeySourceKeyFile
+		}
+	}
+	return "", atRestKeySourceAbsent
+}
+
 // resolveSigningKeyCipher builds the at-rest CryptoService bootstrap uses to
-// encrypt the signing key it creates (P3-5). The AES key is read from
-// IDENTUUM_IDP_ENCRYPTION_KEY (preferred) or AUTH_SERVICE_ENCRYPTION_KEY
-// (compat) — the same mandatory 32-byte-hex key the serving runtime uses.
-// FAIL-CLOSED: bootstrap MUST encrypt the private key it writes, so a missing
-// or invalid key is a hard error rather than a plaintext fallback.
+// encrypt the signing key it creates (P3-5). The AES key precedence lives in
+// resolveAtRestKey. FAIL-CLOSED: bootstrap MUST encrypt the private key it
+// writes, so a missing or invalid key is a hard error rather than a plaintext
+// fallback.
 func resolveSigningKeyCipher() (postgres.PrivateKeyCipher, error) {
-	hexKey := strings.TrimSpace(os.Getenv("IDENTUUM_IDP_ENCRYPTION_KEY"))
-	if hexKey == "" {
-		hexKey = strings.TrimSpace(os.Getenv("AUTH_SERVICE_ENCRYPTION_KEY"))
-	}
-	if hexKey == "" {
-		// Fall back to the key the appliance persisted in the data volume —
-		// the SAME precedence appliance.ResolveEncryptionKey applies at serve
-		// time. This is what makes `docker exec <container> identuum-idp
-		// recover-site-admin` work against the distroless runtime image on an
-		// appliance whose key was generated at first boot and lives only in
-		// the file: there is no shell in that image to load it into the
-		// environment first, and recover is exactly the break-glass command
-		// that must work on a sick appliance.
-		dataDir := strings.TrimSpace(os.Getenv("IDENTUUM_IDP_DATA_DIR"))
-		if dataDir == "" {
-			dataDir = "/app/data"
-		}
-		if raw, err := os.ReadFile(filepath.Join(dataDir, "encryption-key")); err == nil {
-			hexKey = strings.TrimSpace(string(raw))
-		}
-	}
+	hexKey, _ := resolveAtRestKey(os.Getenv, os.ReadFile)
 	if hexKey == "" {
 		return nil, fmt.Errorf("no at-rest encryption key: set IDENTUUM_IDP_ENCRYPTION_KEY, " +
 			"or run where the appliance data volume is mounted ($IDENTUUM_IDP_DATA_DIR/encryption-key; " +

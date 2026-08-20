@@ -59,7 +59,16 @@ type setupStateLoader func(ctx context.Context) (*domain.SetupState, error)
 func showSetupCodeCommand(ctx context.Context, dataDir, databaseURLFlag string, getenv func(string) string, stdout, stderr io.Writer) int {
 	databaseURL := strings.TrimSpace(databaseURLFlag)
 	if databaseURL == "" && getenv != nil {
-		databaseURL = strings.TrimSpace(getenv(envShowSetupCodeDatabaseURL))
+		// Same precedence as requirePositionalURL (DSN-DEFAULT-1): the canonical
+		// env var first, then the compose-shaped IDENTUUM_IDP_OSS_DB — so this
+		// subcommand too is one flag-less `docker exec` on a container that
+		// already knows its own database.
+		for _, env := range []string{envShowSetupCodeDatabaseURL, "IDENTUUM_IDP_OSS_DB"} {
+			if v := strings.TrimSpace(getenv(env)); v != "" {
+				databaseURL = v
+				break
+			}
+		}
 	}
 	if databaseURL == "" {
 		fmt.Fprintln(stderr, "identuum-idp: show-setup-code: database URL required — set the IDENTUUM_IDP_DATABASE_URL env var or pass --database-url <url>")

@@ -227,6 +227,27 @@ func TestShowSetupCodeCommand_MissingDatabaseURLConfigurationError(t *testing.T)
 	}
 }
 
+// show-setup-code follows the shared one-shot DSN precedence (DSN-DEFAULT-1):
+// IDENTUUM_IDP_OSS_DB fills an absent flag when the canonical var is unset.
+// Proven by the rc: the OSS_DB URL is picked up (unreachable → rc 1, pool
+// open failed), never the rc-2 "URL required" refusal.
+func TestShowSetupCodeCommand_OSSDBEnvFallback(t *testing.T) {
+	dir := t.TempDir()
+	seedTokenFile(t, dir, "DOES-NOT-MATTER")
+	getenv := func(k string) string {
+		if k == "IDENTUUM_IDP_OSS_DB" {
+			return "postgres://u:dev-u-not-a-secret@127.0.0.1:1/idp?connect_timeout=1"
+		}
+		return ""
+	}
+
+	var stdout, stderr bytes.Buffer
+	rc := showSetupCodeCommand(context.Background(), dir, "", getenv, &stdout, &stderr)
+	if rc != 1 {
+		t.Errorf("rc = %d; want 1 (pool open against the OSS_DB env URL), not the rc-2 URL-required refusal; stderr=%q", rc, stderr.String())
+	}
+}
+
 func TestShowSetupCodeCommand_DatabaseURLNeverEchoedToStderr(t *testing.T) {
 	// We use a malformed URL so the pool open fails fast; the redaction
 	// guarantee is that the URL substring never appears in stderr.

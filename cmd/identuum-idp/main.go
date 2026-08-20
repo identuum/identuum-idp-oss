@@ -5,11 +5,19 @@
 // docs/audit/release-readiness/oss-cli-flag-audit.md):
 //
 //	identuum-idp                     # serve the full OSS IdP (default action)
-//	identuum-idp migrate <url>       # apply embedded migrations, then a sanity check
-//	identuum-idp bootstrap <url>     # one-shot: ensure a signing key + create site_admin
-//	identuum-idp recover-site-admin <url>  # one-shot: reset the site_admin password + MFA
+//	identuum-idp migrate [url]       # apply embedded migrations, then a sanity check
+//	identuum-idp bootstrap [url]     # one-shot: ensure a signing key + create site_admin
+//	identuum-idp recover-site-admin [url]  # one-shot: reset the site_admin password + MFA
 //	identuum-idp show-setup-code <data-dir># print the appliance setup code while setup_required
+//	identuum-idp doctor [url]        # READ-ONLY diagnosis with named states (exit 0 healthy)
+//	identuum-idp factory-reset --i-understand-this-destroys-all-data [url]
+//	                                 # DESTROY all data; refused without the flag
 //	identuum-idp --version           # print the build version and exit
+//
+// One-shot subcommands taking [url] fall back to IDENTUUM_IDP_DATABASE_URL,
+// then IDENTUUM_IDP_OSS_DB, when the argument is absent (DSN-DEFAULT-1) — so
+// on a container that knows its own database each is one flag-less
+// `docker exec`. The URL is never printed.
 //
 // The default action (no subcommand) starts the full OSS IdP: the Gin
 // route surface, the OSS service layer, OAuth/OIDC, local auth, MFA,
@@ -101,6 +109,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runRecoverSiteAdmin(context.Background(), url, stdout, stderr)
 		case "show-setup-code":
 			return dispatchShowSetupCode(rest, stdout, stderr)
+		case "doctor":
+			return dispatchDoctor(context.Background(), rest, stdout, stderr)
+		case "factory-reset":
+			return dispatchFactoryReset(context.Background(), rest, stdout, stderr)
 		case "appliance":
 			// The container entrypoint (P2-19c): prepare, migrate, drop
 			// privileges, serve — in ONE process, because a distroless
@@ -255,6 +267,15 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  recover-site-admin <database-url>  reset the site_admin password + MFA")
 	fmt.Fprintln(w, "                                     (reads IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD)")
 	fmt.Fprintln(w, "  show-setup-code <data-dir>         print the setup code while setup_required")
+	fmt.Fprintln(w, "  doctor [database-url]              READ-ONLY diagnosis: named states for version,")
+	fmt.Fprintln(w, "                                     db, at-rest key, setup, signing-key seal;")
+	fmt.Fprintln(w, "                                     exit 0 healthy, non-zero names the failing state")
+	fmt.Fprintln(w, "  factory-reset --i-understand-this-destroys-all-data [database-url]")
+	fmt.Fprintln(w, "                                     DESTROY all data and return the database to")
+	fmt.Fprintln(w, "                                     factory state (refused without the flag)")
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "  Subcommands taking [database-url] fall back to IDENTUUM_IDP_DATABASE_URL,")
+	fmt.Fprintln(w, "  then IDENTUUM_IDP_OSS_DB, when the argument is absent (the URL is never printed).")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  --version                          print the build version and exit")
 }

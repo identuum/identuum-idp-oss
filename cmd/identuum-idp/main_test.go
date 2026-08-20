@@ -135,6 +135,7 @@ func TestRun_MigrateSubcommand_RequiresURL(t *testing.T) {
 // OSS_DB). This is what lets `docker exec <container> identuum-idp bootstrap`
 // work against the distroless runtime image, which has no shell to expand the
 // container's env into an argument.
+// RULE: DSN-DEFAULT-1
 func TestRequirePositionalURL_EnvFallback(t *testing.T) {
 	discard := &bytes.Buffer{}
 
