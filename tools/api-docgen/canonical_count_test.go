@@ -78,7 +78,7 @@ import (
 // 130 → 131: added the audit-log read route GET /api/v1/audit/events
 // (site_admin unscoped OR org_admin own-org with audit:read) — the L-2
 // read half over the audit_events table.
-const CanonicalEndpointCount = 131
+const CanonicalEndpointCount = 132
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

@@ -658,6 +658,19 @@ paths:
           description: "Component discovery: safe OSS product/API capability facts."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/health/details":
+    get:
+      operationId: "identuum-idp-oss.top-level.handle_system_health_details"
+      summary: "Site-admin runtime info: overall status, build version, and the liveness of the dependencies OSS actually has (database, audit log). Fields OSS cannot know (Redis, an audit queue depth) are ABSENT, never zero-faked. No URLs, credentials, or session material."
+      tags:
+        - "top-level"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Site-admin runtime info: overall status, build version, and the liveness of the dependencies OSS actually has (database, audit log). Fields OSS cannot know (Redis, an audit queue depth) are ABSENT, never zero-faked. No URLs, credentials, or session material."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/keys":
     get:
       operationId: "identuum-idp-oss.keys.list_signing_keys"
