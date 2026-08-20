@@ -5,6 +5,41 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## `v0.3.5`
+
+Security release. **`v0.3.4` was tagged but never published**: its image was
+built by a `golang:1.26.5` builder while the host toolchain (and every
+host-side scan) was already 1.26.6, so the image alone carried the 1.26.5
+standard library — and the publish workflow's Trivy gate stopped it with 8
+HIGH `gobinary` findings before GHCR login ever ran (run 32392773901; nothing
+was pushed). The `v0.3.4` tag is public and stays (public tags are never
+rewritten); the shipped release is `v0.3.5`, which is `v0.3.4`'s content plus
+the fixed toolchain. All functional changes listed under `v0.3.4` below ship
+first in `v0.3.5`.
+
+### Security
+
+- **Builder toolchain bumped to Go 1.26.6** (`deployment/Dockerfile.local`
+  builder now `golang:1.26.6-bookworm`, digest-pinned; `go.mod` `go 1.26.6`;
+  no dependency changes — `go mod tidy -diff` empty). This closes the 8 HIGH
+  stdlib CVEs the v0.3.4 image carried, all fixed in Go 1.26.6:
+  - CVE-2026-33818 — `encoding/asn1`: DoS via excessive recursion
+  - CVE-2026-39821 — `net/http` / `golang.org/x/net/idna` (via stdlib): privilege escalation
+  - CVE-2026-46600 — `golang.org/x/net/dns/dnsmessage` (via stdlib): DoS
+  - CVE-2026-56853 — `net/http`: unencrypted HTTP/2 (h2c) DoS
+  - CVE-2026-56858 — `html/template`: XSS via pathological input
+  - CVE-2026-56859 — `encoding/xml`: DoS via decoding recursion depth
+  - CVE-2026-56860 — `net/url`: DoS from quadratic complexity
+  - CVE-2026-56862 — `crypto/tls`: DoS via indefinite KeyUpdate
+  Verified locally with the publish gate's own scanner shape
+  (`trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1`):
+  exit 0, `gobinary` 0 findings on the rebuilt image (the v0.3.4-toolchain
+  image reproduces 8 HIGH under the same scan).
+- **TOOLCHAIN-PARITY-1** — a unit test now parses the Dockerfile builder's Go
+  version and `go.mod`'s `go` directive and fails on any skew (digest pin
+  required), so a host/image toolchain divergence can never again pass every
+  host-side gate while shipping a stale stdlib in the image.
+
 ## `v0.3.4`
 
 Operator-experience release: one-command appliance lifecycle operations,
