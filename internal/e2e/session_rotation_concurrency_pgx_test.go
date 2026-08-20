@@ -44,6 +44,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
@@ -57,6 +58,7 @@ import (
 type rotationTestFixture struct {
 	svc     *service.UserSessionService
 	repos   *postgres.Repositories
+	pool    *pgxpool.Pool // for direct DB-state manipulation in tests (e.g. aging prev_rotated_at)
 	userID  uuid.UUID
 	orgID   uuid.UUID
 	session *domain.Session
@@ -126,6 +128,7 @@ func newRotationTestFixture(t *testing.T, ctx context.Context) *rotationTestFixt
 	return &rotationTestFixture{
 		svc:     svc,
 		repos:   repos,
+		pool:    pool,
 		userID:  createdUser.ID,
 		orgID:   createdUser.OrganizationID,
 		session: issued.Session,
@@ -259,6 +262,7 @@ func TestE2E_OSS_SessionRotation_ConcurrentStorm(t *testing.T) {
 // benign-racer-grace-window policies must NOT weaken: the security
 // property is that a stale validator presented after grace still
 // revokes the family, exactly as before P0-12b.
+// RULE: SESSION-REPLAY-THEFT-1
 func TestE2E_OSS_SessionRotation_ReplayIsTheft(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -279,12 +283,30 @@ func TestE2E_OSS_SessionRotation_ReplayIsTheft(t *testing.T) {
 		t.Fatal("first rotation returned empty token")
 	}
 
-	// P0-12b: wait OUT the grace window before replaying. sessionRotationGraceWindow
-	// (internal/service/user_session_service.go) is 10s; sleeping 11s here proves
-	// the OLD-predecessor path, not the benign-racer path this same replay would
-	// hit if attempted immediately (see TestE2E_OSS_SessionRotation_ReplayWithinGraceIsBenign
-	// below, which proves that side of the same fork deliberately).
-	time.Sleep(11 * time.Second)
+	// P0-12b / TIMING-MARGIN-1: age the predecessor OUT of the grace window
+	// before replaying — anchored to a SINGLE clock, with NO wall-clock sleep.
+	// The service classifies a predecessor replay as benign-vs-reuse by
+	// s.now() MINUS session.prev_rotated_at, where s.now() is the backend/host
+	// clock (time.Now, in-process here). But RotateToken stamps prev_rotated_at
+	// from the DB clock (now()). The original time.Sleep(11s) therefore
+	// straddled two clocks: a few seconds of host-vs-VM drift could leave
+	// s.now()-prev_rotated_at below the 10s sessionRotationGraceWindow and
+	// misclassify this replay as a benign racer — the test would fail on clock
+	// skew alone, not on any product regression (that is exactly the
+	// TIMING-MARGIN-1 flake). Backdating prev_rotated_at with a BACKEND-clock
+	// timestamp well past grace makes the subtraction host-minus-host: no VM
+	// offset can change the verdict, and the real-time wait is gone. Only
+	// prev_rotated_at moves; prev_validator_hash stays set, so
+	// chk_sessions_prev_validator_paired holds. The grace window is 10s; -30s
+	// is a generous margin whose size is irrelevant to drift-immunity because
+	// both operands now come from the same clock. This immediate,
+	// single-clock aging IS the skew regression test.
+	agedPrevRotatedAt := time.Now().UTC().Add(-30 * time.Second)
+	if _, err := fx.pool.Exec(ctx,
+		`UPDATE sessions SET prev_rotated_at = $1 WHERE id = $2`,
+		agedPrevRotatedAt, fx.session.ID); err != nil {
+		t.Fatalf("age prev_rotated_at past the grace window: %v", err)
+	}
 
 	// Replay the consumed predecessor (token0), now well past grace. Same
 	// stable selector, stale validator, too old to be a benign racer →
