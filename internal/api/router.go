@@ -1176,6 +1176,12 @@ func mountAuthSessions(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.RefreshTokenService != nil {
 		authDeps.RefreshTokenRevoker = resolved.RefreshTokenService
 	}
+	if resolved.UserRepo != nil {
+		// Self-service POST /api/v1/auth/change-password (THE-V036-PASSWORD).
+		// Min-length 0 ⇒ the service's own default floor (8, mirroring
+		// password reset). R2 parked: no session/refresh revocation wired.
+		authDeps.ChangePassword = service.NewChangePasswordService(resolved.UserRepo, 0)
+	}
 	handlers.RegisterAuthSessionRoutes(router, authDeps)
 }
 
