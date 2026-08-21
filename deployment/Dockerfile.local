@@ -1,10 +1,10 @@
 # identuum-idp-oss local-demo image.
 #
 # Multi-stage build:
-#   builder  — golang:1.26.6-bookworm (Debian) compiles cmd/identuum-idp with
+#   builder  — golang:1.27.0-bookworm (Debian) compiles cmd/identuum-idp with
 #              embedded migrations and embedded api-docgen testdata. Pinned to
-#              the EXACT Go version go.mod requires (go 1.26.6) BY DIGEST, not a
-#              floating `1.26` tag, so the toolchain is reproducible. A Debian
+#              the EXACT Go version go.mod requires (go 1.27.0) BY DIGEST, not a
+#              floating `1.27` tag, so the toolchain is reproducible. A Debian
 #              builder is used (not alpine) to keep the whole file Alpine-free
 #              per owner policy; CGO is off so the base libc is irrelevant.
 #   prep     — the same Debian image, used ONCE to materialise the things a
@@ -58,12 +58,12 @@
 #   docker compose -f deployment/docker-compose.dev.yml --profile app build
 # (compose handles the context automatically).
 
-# Builder — exact Go version (go.mod: go 1.26.6), Debian-based, digest-pinned.
+# Builder — exact Go version (go.mod: go 1.27.0), Debian-based, digest-pinned.
 # GO-TOOLCHAIN-SKEW-1: this version MUST equal go.mod's `go` directive —
 # TOOLCHAIN-PARITY-1 (cmd/identuum-idp) fails the build on any skew. The
 # 1.26.5 pin shipped 8 HIGH stdlib CVEs into the v0.3.4 image while the
 # host toolchain (1.26.6) kept every host-side scan green.
-FROM golang:1.26.6-bookworm@sha256:116d58cbd88c1297624acc6e967a060012422bacf9930927e23fb719189c6f36 AS builder
+FROM golang:1.27.0-bookworm@sha256:484ef6066fa69acb059fdfeda7ba2b8f7391f2ef6abc6f9b8411e669ebd56466 AS builder
 
 # CGO disabled for a pure-static binary; no glibc dependency means the runtime
 # stage does not link the base libc.

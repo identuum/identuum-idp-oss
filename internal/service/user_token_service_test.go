@@ -47,19 +47,19 @@ func newUserAndSession(t *testing.T) (*domain.User, *domain.Session) {
 	sid := uuid.New()
 	role := domain.RoleOrgUser
 	return &domain.User{
-			ID:             uid,
-			OrganizationID: orgID,
-			Email:          "alice@example.com",
-			Role:           role,
-		}, &domain.Session{
-			ID:        sid,
-			UserID:    uid,
-			CreatedAt: time.Now().Add(-time.Minute),
-			ExpiresAt: time.Now().Add(time.Hour),
-			IsValid:   true,
-			Acr:       "0",
-			Amr:       []string{"pwd"},
-		}
+		ID:             uid,
+		OrganizationID: orgID,
+		Email:          "alice@example.com",
+		Role:           role,
+	}, &domain.Session{
+		ID:        sid,
+		UserID:    uid,
+		CreatedAt: time.Now().Add(-time.Minute),
+		ExpiresAt: time.Now().Add(time.Hour),
+		IsValid:   true,
+		Acr:       "0",
+		Amr:       []string{"pwd"},
+	}
 }
 
 // ---------- Construction ----------

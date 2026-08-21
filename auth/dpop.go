@@ -1,7 +1,6 @@
 package auth
 
 import (
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -11,7 +10,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/big"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -243,15 +241,14 @@ func publicKeyFromJWK(jwk map[string]interface{}, alg string) (interface{}, stri
 		uncompressed[0] = 0x04
 		copy(uncompressed[1:1+expected], xBytes)
 		copy(uncompressed[1+expected:], yBytes)
-		if _, err := ecdh.P256().NewPublicKey(uncompressed); err != nil {
+		// ecdsa.ParseUncompressedPublicKey (Go 1.25+) validates the point is
+		// on-curve AND constructs the ecdsa.PublicKey golang-jwt expects for
+		// ES256 — replacing the crypto/ecdh probe plus the manual X/Y
+		// construction, which Go 1.26 deprecated.
+		pub, err := ecdsa.ParseUncompressedPublicKey(curve, uncompressed)
+		if err != nil {
 			return nil, "", fmt.Errorf("x/y not on curve P-256: %w", err)
 		}
-		// ecdsa.PublicKey (from crypto/ecdsa) is what golang-jwt expects for
-		// ES256 signature verification — construct it from the validated
-		// coordinates rather than going through crypto/ecdh's opaque type.
-		x := new(big.Int).SetBytes(xBytes)
-		y := new(big.Int).SetBytes(yBytes)
-		pub := &ecdsa.PublicKey{Curve: curve, X: x, Y: y}
 		jkt, err := jwkThumbprintECP256(xStr, yStr)
 		if err != nil {
 			return nil, "", err

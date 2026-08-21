@@ -31,7 +31,6 @@ package service
 import (
 	"context"
 	"crypto"
-	"crypto/ecdh"
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
@@ -463,21 +462,22 @@ func clientAssertionPublicKeyFromJWK(jwk map[string]interface{}) (crypto.PublicK
 }
 
 // ecJWKToPublicKeyAssertion converts an EC JWK (P-256 / P-384) to
-// an ecdsa.PublicKey, rejecting P-521 and other curves. On-curve
-// validation uses crypto/ecdh; coordinates are left-padded to the
-// expected field-element length.
+// an ecdsa.PublicKey, rejecting P-521 and other curves. Coordinates are
+// left-padded to the expected field-element length; on-curve validation
+// AND construction both go through ecdsa.ParseUncompressedPublicKey
+// (Go 1.25+), which rejects off-curve points and the point at infinity —
+// the manual X/Y construction it replaces was deprecated in Go 1.26.
 func ecJWKToPublicKeyAssertion(crv string, xBytes, yBytes []byte) (*ecdsa.PublicKey, error) {
 	type ecCurve struct {
-		curve     elliptic.Curve
-		coordLen  int
-		newECDHFn func([]byte) (*ecdh.PublicKey, error)
+		curve    elliptic.Curve
+		coordLen int
 	}
 	var ec ecCurve
 	switch crv {
 	case "P-256":
-		ec = ecCurve{elliptic.P256(), 32, ecdh.P256().NewPublicKey}
+		ec = ecCurve{elliptic.P256(), 32}
 	case "P-384":
-		ec = ecCurve{elliptic.P384(), 48, ecdh.P384().NewPublicKey}
+		ec = ecCurve{elliptic.P384(), 48}
 	default:
 		return nil, fmt.Errorf("EC key with unsupported crv: %q (P-256 and P-384 supported)", crv)
 	}
@@ -489,14 +489,11 @@ func ecJWKToPublicKeyAssertion(crv string, xBytes, yBytes []byte) (*ecdsa.Public
 	copy(xPadded[ec.coordLen-len(xBytes):], xBytes)
 	copy(yPadded[ec.coordLen-len(yBytes):], yBytes)
 	uncompressed := append(append([]byte{0x04}, xPadded...), yPadded...)
-	if _, err := ec.newECDHFn(uncompressed); err != nil {
+	pub, err := ecdsa.ParseUncompressedPublicKey(ec.curve, uncompressed)
+	if err != nil {
 		return nil, fmt.Errorf("EC/%s key: %w", crv, err)
 	}
-	return &ecdsa.PublicKey{
-		Curve: ec.curve,
-		X:     new(big.Int).SetBytes(xPadded),
-		Y:     new(big.Int).SetBytes(yPadded),
-	}, nil
+	return pub, nil
 }
 
 // extractAssertionAudience reads the standard `aud` claim,

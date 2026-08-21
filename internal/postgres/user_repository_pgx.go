@@ -613,7 +613,6 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 	if orgID != uuid.Nil {
 		whereClause += fmt.Sprintf(" AND organization_id = $%d", argIndex)
 		args = append(args, orgID)
-		argIndex++
 	}
 
 	// §1.15 race gate: concurrent invitation consumption loses the race at SQL,

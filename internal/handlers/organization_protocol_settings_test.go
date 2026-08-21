@@ -617,10 +617,10 @@ func TestOrgProtoAdmin_DCRRouteObservesOrgAdminPut(t *testing.T) {
 // allow-list AND the handler — otherwise the audit consumer
 // silently grows a field the security review never saw.
 var expectedSafeAuditKeys = map[string]struct{}{
-	"target_organization_id":                  {},
-	"actor_kind":                              {},
-	"actor_role":                              {},
-	"actor_organization_id":                   {},
+	"target_organization_id": {},
+	"actor_kind":             {},
+	"actor_role":             {},
+	"actor_organization_id":  {},
 	"old_dynamic_client_registration_enabled": {},
 	"old_scim_enabled":                        {},
 	"new_dynamic_client_registration_enabled": {},

@@ -5,6 +5,50 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## `v0.3.6`
+
+Feature release: self-service password change, end to end. Measured delta
+`v0.3.5..HEAD`: 4 commits, 12 files changed, +699/−14; no migrations, no
+dependency changes.
+
+### Added
+
+- **`POST /api/v1/auth/change-password`** — authenticated self-service
+  password change. The target is always the caller's own account (no user
+  id on the wire); the CURRENT password must verify; the new password is
+  validated against the per-org password policy. Responses: `204` on
+  success; `400 weak_password` with a safe displayable `message` on a
+  policy violation; `403 invalid_current_password` — deliberately OPAQUE
+  across wrong-password, federated (non-local) account, and
+  no-local-hash; `401` for stale principals. Audit row `password_changed`
+  with identifier-shaped metadata. This makes the UI's account-settings
+  rotation (which always called this route) work against OSS.
+- **Session revocation on password change (R2)** — a successful change
+  revokes every OTHER session (revocation reason `password_changed`) and
+  ALL OAuth refresh tokens; the session that made the change stays valid.
+  The audit row records `other_sessions_revoked`,
+  `session_revocation_clean`, `current_session_preserved`, and
+  `refresh_tokens_revoked_count`.
+
+### Changed
+
+- **Toolchain: Go 1.27.0** (owner-directed) — `go.mod` and the image
+  builder move together to `golang:1.27.0-bookworm` (digest-pinned;
+  TOOLCHAIN-PARITY-1 enforces the pair). No dependency changes
+  (`go mod tidy -diff` empty). Two v0.3.3-era test files were reflowed by
+  go1.27's gofmt (formatting only; neither is ledger-pinned). The two EC
+  JWK→key sites (DPoP proofs, private_key_jwt assertions) now construct
+  keys via `ecdsa.ParseUncompressedPublicKey` — same on-curve validation
+  and behavior, replacing the `ecdsa.PublicKey.X/.Y` construction Go 1.26
+  deprecated; one dead assignment removed (both flagged by the go1.27-era
+  staticcheck).
+- **Customer compose pins refreshed** — the appliance file now pulls
+  `identuum-idp-oss:v0.3.5` and `identuum-ui:v0.2.0`, each pinned by its
+  published digest so tags cannot be silently retargeted.
+- **Test infrastructure** (no runtime surface): the integration gate now
+  serializes test packages (`go test -p 1`) — the DB-backed packages share
+  one `*_test` database and raced under default package parallelism.
+
 ## `v0.3.5`
 
 Security release. **`v0.3.4` was tagged but never published**: its image was
