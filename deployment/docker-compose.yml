@@ -102,13 +102,13 @@ services:
   identuum-idp:
     # Customer-facing image. Pulled from the official registry by
     # `docker compose up -d`. The image tag matches the current published
-    # release (v0.3.5, publish run 32404695604), PINNED BY DIGEST so the tag
-    # cannot be silently retargeted. Maintainers who need to rebuild from
-    # local source use deployment/docker-compose.build.yml as an overlay.
-    # (v0.3.4 was tagged but its image never published — stopped by the
-    # publish workflow's Trivy gate; v0.3.5 is that content on the fixed
-    # Go 1.26.6 toolchain.)
-    image: ghcr.io/identuum/identuum-idp-oss:v0.3.5@sha256:9e0ef7ca274f0dec0c50d7f4e780cb039dbd455ba18f3146956a4d9189af20fb
+    # release (v0.3.6, publish run 32499690496 — self-service change-password
+    # + R2 other-session revocation, on the Go 1.27.0 toolchain), PINNED BY
+    # DIGEST so the tag cannot be silently retargeted. Maintainers who need
+    # to rebuild from local source use deployment/docker-compose.build.yml
+    # as an overlay. (v0.3.4 was tagged but its image never published —
+    # stopped by the publish workflow's Trivy gate.)
+    image: ghcr.io/identuum/identuum-idp-oss:v0.3.6@sha256:0f4cb75beed46a470bdc3d0534c3eaebf90a3530de707a6483cea345bd11217b
     container_name: identuum-idp-oss
     restart: unless-stopped
     depends_on:

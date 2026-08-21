@@ -8,7 +8,8 @@ follows [Semantic Versioning](https://semver.org/).
 ## `v0.3.6`
 
 Feature release: self-service password change, end to end. Measured delta
-`v0.3.5..HEAD`: 4 commits, 12 files changed, +699/−14; no migrations, no
+`v0.3.5..v0.3.6`: 5 commits, 21 files changed, +832/−62 (the release-prep
+commit itself carries the Go 1.27.0 toolchain move); no migrations, no
 dependency changes.
 
 ### Added
