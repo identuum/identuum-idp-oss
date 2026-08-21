@@ -240,22 +240,35 @@ func TestRBAC_MeRolesUnauthenticated401(t *testing.T) {
 }
 
 func TestRBAC_MeRolesAnyAuthenticatedAllowed(t *testing.T) {
-	p := &domain.Principal{Role: domain.RoleOrgUser, UserID: uuid.New(), OrganizationID: uuid.New()}
-	eng := newRBACEngine(t, p, features.OpenGate{})
-	role := &domain.OrgRole{ID: uuid.New(), OrgID: p.OrganizationID, Name: "Mine"}
-	_ = eng.repo.Create(context.Background(), role)
-	_ = eng.repo.AssignRoleToUser(context.Background(), p.UserID, role.ID, uuid.New())
-	rec := rbacReq(t, eng, http.MethodGet, "/api/v1/me/roles", nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, body=%q", rec.Code, rec.Body.String())
-	}
-	var body struct {
-		Roles []safeOrgRole `json:"roles"`
-		Count int           `json:"count"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &body)
-	if body.Count != 1 || body.Roles[0].ID != role.ID {
-		t.Errorf("unexpected body: %+v", body)
+	// Both non-site roles WITNESSED (manual-matrix authz.3 + authz.5): the
+	// route is auth-gated but role-agnostic, and each role's 200 is run,
+	// not argued from the gate's shape.
+	for _, tc := range []struct {
+		name string
+		role domain.UserRole
+	}{
+		{"org_user", domain.RoleOrgUser},
+		{"org_admin", domain.RoleOrgAdmin},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &domain.Principal{Role: tc.role, UserID: uuid.New(), OrganizationID: uuid.New()}
+			eng := newRBACEngine(t, p, features.OpenGate{})
+			role := &domain.OrgRole{ID: uuid.New(), OrgID: p.OrganizationID, Name: "Mine"}
+			_ = eng.repo.Create(context.Background(), role)
+			_ = eng.repo.AssignRoleToUser(context.Background(), p.UserID, role.ID, uuid.New())
+			rec := rbacReq(t, eng, http.MethodGet, "/api/v1/me/roles", nil)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, body=%q", rec.Code, rec.Body.String())
+			}
+			var body struct {
+				Roles []safeOrgRole `json:"roles"`
+				Count int           `json:"count"`
+			}
+			_ = json.Unmarshal(rec.Body.Bytes(), &body)
+			if body.Count != 1 || body.Roles[0].ID != role.ID {
+				t.Errorf("unexpected body: %+v", body)
+			}
+		})
 	}
 }
 

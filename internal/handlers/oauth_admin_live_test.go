@@ -557,3 +557,45 @@ func TestLive_ScopeTemplateUpdateAndDelete(t *testing.T) {
 	}
 	_ = time.Second
 }
+
+// THE-PROTOCOL-COVERAGE (manual-matrix clients.4): PUT /api/v1/clients/:id
+// persists the update and audits it. Create/regenerate/delete each had a
+// live witness; the plain update leg had none at any layer (measured:
+// no handler or service test exercised ClientService.Update).
+func TestLive_ClientUpdatePersistsAndAudits(t *testing.T) {
+	eng := newLiveEngine(t, siteAdminPrincipal())
+	create := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
+		"name":          "Before",
+		"redirect_uris": []string{"https://example.com/cb"},
+		"is_public":     true,
+	})
+	var created struct {
+		Client map[string]any `json:"client"`
+	}
+	_ = json.Unmarshal(create.Body.Bytes(), &created)
+	id := created.Client["id"].(string)
+
+	rec := doJSON(t, eng, http.MethodPut, "/api/v1/clients/"+id, map[string]any{
+		"name": "After",
+	})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want 200 (body=%q)", rec.Code, rec.Body.String())
+	}
+	// The rename must PERSIST: read it back (GET returns the safeClient
+	// unwrapped, unlike create's {"client": ...} envelope).
+	get := doJSON(t, eng, http.MethodGet, "/api/v1/clients/"+id, nil)
+	var got map[string]any
+	_ = json.Unmarshal(get.Body.Bytes(), &got)
+	if got["name"] != "After" {
+		t.Fatalf("update did not persist: name = %v, want After", got["name"])
+	}
+	var updFound bool
+	for _, e := range eng.rec.Events() {
+		if e.Action == "client.updated" {
+			updFound = true
+		}
+	}
+	if !updFound {
+		t.Errorf("expected client.updated audit event")
+	}
+}
