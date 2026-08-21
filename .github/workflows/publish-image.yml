@@ -73,7 +73,7 @@ jobs:
       LOCAL_IMAGE: identuum-idp-oss:verify
     steps:
       - name: Checkout the requested version tag
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Build the TAG the operator requested, not the ref the workflow was
           # dispatched from. fetch-depth: 0 brings tags so the next step can
@@ -122,16 +122,16 @@ jobs:
       - name: Set up QEMU
         # Required so the linux/arm64 stage can cross-compile on the linux/amd64
         # GitHub-hosted runner.
-        uses: docker/setup-qemu-action@49b3bc8e6bdd4a60e6116a5414239cba5943d3cf # v3.2.0
+        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
 
       - name: Build amd64 image for verification (no push)
         # Single-arch build LOADED into the runner's docker so the following
         # steps can scan + smoke-verify the exact artifact before anything is
         # published. buildx layer cache makes the later multi-arch build cheap.
-        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: deployment/Dockerfile.local
@@ -168,14 +168,14 @@ jobs:
       - name: Log in to GHCR
         # Login happens ONLY after verification + scan pass, so a failed check
         # never reaches an authenticated push.
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push (multi-arch, provenance + SBOM)
-        uses: docker/build-push-action@4f58ea79222b3b9dc2c8bbdd6debcef730109a75 # v6.9.0
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: deployment/Dockerfile.local
