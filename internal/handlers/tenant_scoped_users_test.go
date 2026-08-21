@@ -461,3 +461,30 @@ func TestOrganizationsList_SiteAdminSeesAll(t *testing.T) {
 		t.Errorf("site_admin total = %d, want 2", body.Total)
 	}
 }
+
+// THE-REFUSAL-COVERAGE (manual-matrix authz.4): an org_user attempting to
+// CREATE AN ORGANIZATION is refused with 403 by the siteOnly
+// RequireSiteAdmin gate, and no organization row is written. This was the
+// one subset check no instrument witnessed directly — TRIO-USER-1 probes
+// create-USER, and the scope-emptiness control only implied this route's
+// refusal.
+// RULE: AUTHZ-ORGCREATE-1
+func TestOrganizationsCreate_OrgUserForbidden(t *testing.T) {
+	org := uuid.New()
+	eng := newTenantEngine(t, &domain.Principal{
+		UserID:         uuid.New(),
+		OrganizationID: org,
+		Role:           domain.RoleOrgUser,
+		Scope:          domain.SessionScopesForRole(domain.RoleOrgUser),
+	})
+	before := len(eng.orgRepo.rows)
+	rec := tenantReq(t, eng, http.MethodPost, "/api/v1/organizations", map[string]any{
+		"name": "Escalation Org", "domain": "esc.test", "slug": "esc-test",
+	})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("org_user create-organization = %d, want 403 (body=%q)", rec.Code, rec.Body.String())
+	}
+	if got := len(eng.orgRepo.rows); got != before {
+		t.Fatalf("a refused create must write no organization row; repo grew %d -> %d", before, got)
+	}
+}
