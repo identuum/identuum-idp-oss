@@ -308,6 +308,17 @@ func TestE2E_OSS_SessionRotation_ReplayIsTheft(t *testing.T) {
 		t.Fatalf("age prev_rotated_at past the grace window: %v", err)
 	}
 
+	// PREMISE (non-emptiness): there must BE an active family to revoke —
+	// otherwise the "no active sessions remain" check below passes
+	// vacuously against a fixture that never had live sessions.
+	preReuse, err := fx.repos.Session.ListActiveByUserID(ctx, fx.userID)
+	if err != nil {
+		t.Fatalf("ListActiveByUserID before replay: %v", err)
+	}
+	if len(preReuse) == 0 {
+		t.Fatal("PREMISE broken: no active sessions before the replay — family-revocation check would be vacuous")
+	}
+
 	// Replay the consumed predecessor (token0), now well past grace. Same
 	// stable selector, stale validator, too old to be a benign racer →
 	// refresh-token reuse.

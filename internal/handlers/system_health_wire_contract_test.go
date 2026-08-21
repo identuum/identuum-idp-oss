@@ -108,6 +108,12 @@ func TestWireContractHealth_JSONKeySetIsPinned(t *testing.T) {
 	if got := sortedKeysOf(full.AuditSystem); !reflect.DeepEqual(got, []string{"status"}) {
 		t.Fatalf("audit_system must carry status only (queue_depth absent on OSS): got %v", got)
 	}
+	// PREMISE (non-emptiness): the absence checks below — no "redis", no
+	// leaked material — pass vacuously against an empty body. Prove there
+	// is a body to search first.
+	if len(body) == 0 {
+		t.Fatal("PREMISE broken: empty health body — absence checks below would be vacuous")
+	}
 	if strings.Contains(string(body), "redis") {
 		t.Fatalf("redis must be ABSENT on OSS (no Redis dependency); body=%s", body)
 	}

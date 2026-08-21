@@ -114,14 +114,29 @@ func TestAssignRoleForActor_OrgAdminCrossOrgTargetForbidden(t *testing.T) {
 	org := uuid.New()
 	actor := &domain.Principal{Role: domain.RoleOrgAdmin, OrganizationID: org, UserID: uuid.New()}
 	role, _ := svc.CreateRoleForActor(context.Background(), actor, org, "X", "")
+
+	// PREMISE (non-emptiness): fire the revoker once via a legal same-org
+	// assign to prove this fixture's revoker is actually wired — otherwise
+	// the "revoker not fired on rejection" check below passes vacuously
+	// against an unwired stub.
+	control := uuid.New()
+	seedTargetUser(t, userRepo, control, org, domain.RoleOrgUser)
+	if err := svc.AssignRoleToUserForActor(context.Background(), actor, control, role.ID); err != nil {
+		t.Fatalf("premise same-org assign: %v", err)
+	}
+	if len(rev.Calls()) == 0 {
+		t.Fatal("PREMISE broken: revoker not wired — rejection check would be vacuous")
+	}
+	base := len(rev.Calls())
+
 	target := uuid.New()
 	seedTargetUser(t, userRepo, target, uuid.New(), domain.RoleOrgUser) // different org
 	err := svc.AssignRoleToUserForActor(context.Background(), actor, target, role.ID)
 	if !errors.Is(err, domain.ErrForbidden) {
 		t.Errorf("cross-org target = %v, want ErrForbidden", err)
 	}
-	if len(rev.Calls()) != 0 {
-		t.Errorf("revoker fired on rejection; calls=%d", len(rev.Calls()))
+	if len(rev.Calls()) != base {
+		t.Errorf("revoker fired on rejection; calls went %d -> %d", base, len(rev.Calls()))
 	}
 }
 

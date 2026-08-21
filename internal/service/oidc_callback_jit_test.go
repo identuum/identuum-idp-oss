@@ -171,6 +171,20 @@ func (h *callbackHarness) callWithClaims(t *testing.T, mutate func(claims jwt.Ma
 // (403) and NO user is created.
 // RULE: OIDC-JIT-GATE-1
 func TestOIDCCallback_JIT_NonAllowlistedDomainRejected(t *testing.T) {
+	// PREMISE (non-emptiness): prove on a twin harness — same allow-list,
+	// PERMITTED email — that the JIT success path actually lands users in
+	// users.byID; otherwise the absence assertion below passes vacuously
+	// against a store the service never writes to.
+	ctrl := newCallbackHarness(t)
+	ctrl.providers.byID[ctrl.pid].Config.EmailDomains = []string{"allowed.example"}
+	ctrl.providers.byID[ctrl.pid].Config.AllowExternalDomains = false
+	if _, err := ctrl.callWithClaims(t, func(c jwt.MapClaims) { c["email"] = "ok@allowed.example" }); err != nil {
+		t.Fatalf("premise control call: %v", err)
+	}
+	if len(ctrl.users.byID) == 0 {
+		t.Fatal("PREMISE broken: JIT success path landed no user in users.byID — refusal check would be vacuous")
+	}
+
 	h := newCallbackHarness(t)
 	h.providers.byID[h.pid].Config.EmailDomains = []string{"allowed.example"}
 	h.providers.byID[h.pid].Config.AllowExternalDomains = false

@@ -521,6 +521,13 @@ func TestOIDCCallback_StateSingleUse(t *testing.T) {
 	h := newCallbackHarness(t)
 	*h.idToken = h.signEdDSA(t, h.priv, h.kid, h.validClaims())
 
+	// PREMISE (non-emptiness): there must BE a seeded state to consume —
+	// otherwise the emptiness check below passes vacuously against a
+	// harness that never armed a state row.
+	if len(h.states.byState) == 0 {
+		t.Fatal("PREMISE broken: no seeded OIDC state — consumption check would be vacuous")
+	}
+
 	if _, err := h.call(); err != nil {
 		t.Fatalf("first callback: %v", err)
 	}
