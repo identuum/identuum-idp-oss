@@ -143,16 +143,16 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// Self-service password change (THE-V036-PASSWORD). Same authority
 		// shape as the /me/mfa surface: mw.RequireAuthenticated gates entry,
 		// mw.PrincipalFromContext supplies the user_id, no user_id on the
-		// wire. R2 (post-change session revocation) is PARKED by owner
-		// ruling — the handler touches neither sessions nor refresh tokens.
+		// wire. R2 (ruled 2026-08-21): a successful change revokes all OTHER
+		// sessions + all OAuth refresh tokens; the changing session stays.
 		// docgen:endpoint
 		// docgen:surface=auth
 		// docgen:method=POST
 		// docgen:path=/api/v1/auth/change-password
-		// docgen:summary=Self-service password change. Verifies the authenticated user's CURRENT password, validates the new password against the per-org password policy, and updates the stored hash. The target is always the caller's own account — no user id is on the wire. Sessions and refresh tokens are NOT revoked (R2 parked); passwords and hashes never appear in any response or audit metadata.
+		// docgen:summary=Self-service password change. Verifies the authenticated user's CURRENT password, validates the new password against the per-org password policy, and updates the stored hash. The target is always the caller's own account — no user id is on the wire. On success every OTHER session and all OAuth refresh tokens are revoked; the session making the change stays valid (R2). Passwords and hashes never appear in any response or audit metadata.
 		// docgen:tier=oss
 		// docgen:auth=authenticated
-		// docgen:notes=Request body {current_password, new_password}. 204 No Content on success. 400 invalid_request on a malformed/empty body; 400 weak_password with a safe displayable `message` on a policy violation (the only envelope whose message the UI shows verbatim). 403 invalid_current_password is OPAQUE — wrong password, federated (non-local) account, and no-local-hash all collapse into it. 401 unauthorized for missing/stale/banned/soft-deleted principals. Audit row `password_changed` carries identifier-shaped metadata only.
+		// docgen:notes=Request body {current_password, new_password}. 204 No Content on success. 400 invalid_request on a malformed/empty body; 400 weak_password with a safe displayable `message` on a policy violation (the only envelope whose message the UI shows verbatim). 403 invalid_current_password is OPAQUE — wrong password, federated (non-local) account, and no-local-hash all collapse into it. 401 unauthorized for missing/stale/banned/soft-deleted principals. Post-success the R2 fan-out revokes every other session (reason password_changed, current session preserved via the principal's session id; a session-less principal revokes ALL sessions) and all OAuth refresh tokens, warn-and-continue. Audit row `password_changed` carries identifier-shaped metadata incl. other_sessions_revoked / session_revocation_clean / current_session_preserved / refresh_tokens_revoked_count.
 		// docgen:status=204
 		router.POST("/api/v1/auth/change-password", mw.RequireAuthenticated(), HandleChangePassword(deps))
 	}

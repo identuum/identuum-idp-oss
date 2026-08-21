@@ -279,14 +279,14 @@ paths:
   "/api/v1/auth/change-password":
     post:
       operationId: "identuum-idp-oss.auth.change_password"
-      summary: "Self-service password change. Verifies the authenticated user's CURRENT password, validates the new password against the per-org password policy, and updates the stored hash. The target is always the caller's own account — no user id is on the wire. Sessions and refresh tokens are NOT revoked (R2 parked); passwords and hashes never appear in any response or audit metadata."
+      summary: "Self-service password change. Verifies the authenticated user's CURRENT password, validates the new password against the per-org password policy, and updates the stored hash. The target is always the caller's own account — no user id is on the wire. On success every OTHER session and all OAuth refresh tokens are revoked; the session making the change stays valid (R2). Passwords and hashes never appear in any response or audit metadata."
       tags:
         - "auth"
       security:
         - cookieAuth: []
       responses:
         "204":
-          description: "Self-service password change. Verifies the authenticated user's CURRENT password, validates the new password against the per-org password policy, and updates the stored hash. The target is always the caller's own account — no user id is on the wire. Sessions and refresh tokens are NOT revoked (R2 parked); passwords and hashes never appear in any response or audit metadata."
+          description: "Self-service password change. Verifies the authenticated user's CURRENT password, validates the new password against the per-org password policy, and updates the stored hash. The target is always the caller's own account — no user id is on the wire. On success every OTHER session and all OAuth refresh tokens are revoked; the session making the change stays valid (R2). Passwords and hashes never appear in any response or audit metadata."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/claim":

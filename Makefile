@@ -1273,9 +1273,19 @@ test-db:
 	@./bin/identuum-idp migrate "$(OSS_TEST_DB_URL)"
 
 ci-integration-test:
+	@# -p 1 serializes PACKAGES. The DB-backed integration packages
+	@# (internal/e2e, internal/postgres, internal/runtime, …) all share the ONE
+	@# $(OSS_TEST_DB_URL) database, and internal/e2e's setup-replay suite
+	@# TRUNCATEs shared tables while internal/postgres seeds orgs/clients —
+	@# under go test's default package parallelism they race: measured
+	@# 2026-08-21, one run lost a just-seeded client row mid-test
+	@# ("no rows in result set") and the next counted foreign orgs in the
+	@# setup-flow assertion ("non-system org count = 3; want 1"), a different
+	@# victim each run. Within-package ordering was never parallel; -p 1 makes
+	@# the cross-package ordering match it.
 	@IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}" \
 	IDENTUUM_IDP_ENCRYPTION_KEY="$${IDENTUUM_IDP_ENCRYPTION_KEY:-cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe}" \
-		go test -tags integration ./... -count=1 -v
+		go test -tags integration -p 1 ./... -count=1 -v
 
 integration-test:
 	@$(MAKE) --no-print-directory test-db

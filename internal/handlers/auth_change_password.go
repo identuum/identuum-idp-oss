@@ -16,10 +16,15 @@ package handlers
 //   - any other non-2xx → the UI shows the generic "check your current
 //     password" message, so the wrong-current refusal is 403 (never 400)
 //
-// R2 — SESSION REVOCATION PARKED (owner ruling DECIDE-LATER, 2026-08-20):
-// this handler and its service touch NEITHER sessions NOR refresh tokens.
-// A pre-existing session keeps authenticating after the change until R2
-// is decided and lands as its own slice.
+// R2 — RULED 2026-08-21: a successful password change REVOKES all the
+// user's OTHER sessions and ALL OAuth refresh tokens; the session making
+// the change STAYS VALID. The fan-out reuses the measured primitives:
+// the revoke-others loop (ListActiveUserSessions + RevokeSession, skipping
+// principal.SessionID — the same shape as /me/sessions/revoke-others) and
+// RefreshTokenRevoker.RevokeAllForUser. Revocation runs AFTER the hash
+// commit and is warn-and-continue (the mfa-disable contract): the password
+// HAS changed at that point, so a revocation hiccup must not make the UI
+// claim the change failed — the audit row records exactly what happened.
 
 import (
 	"errors"
@@ -34,6 +39,10 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
+
+// changePasswordRevokeReason is the revocation reason stamped on every
+// OTHER session killed by a successful password change (R2).
+const changePasswordRevokeReason = "password_changed"
 
 // changePasswordRequest is the on-the-wire shape. Only these two fields
 // are read; any other key is ignored.
@@ -84,10 +93,53 @@ func HandleChangePassword(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			}
 			return
 		}
+		// R2 fan-out (ruled 2026-08-21): revoke every OTHER session — the
+		// changing session stays valid — plus ALL OAuth refresh tokens.
+		// Warn-and-continue: the hash is already rotated, so failures are
+		// recorded in the audit metadata rather than failing the response.
+		revokedSessions := 0
+		sessionsClean := true
+		if deps.UserSession != nil && principal.SessionID != uuid.Nil {
+			sessions, listErr := deps.UserSession.ListActiveUserSessions(c.Request.Context(), principal.UserID)
+			if listErr != nil {
+				sessionsClean = false
+			} else {
+				for _, s := range sessions {
+					if s == nil || s.UserID != principal.UserID || s.ID == principal.SessionID {
+						continue
+					}
+					if err := deps.UserSession.RevokeSession(c.Request.Context(), s.ID, changePasswordRevokeReason); err != nil {
+						sessionsClean = false
+						continue
+					}
+					revokedSessions++
+				}
+			}
+		} else if principal.SessionID == uuid.Nil {
+			// A session-less principal (pure token) has nothing to preserve:
+			// revoke ALL sessions via the existing best-effort seam.
+			if err := deps.SessionRevoker.RevokeUserSessions(c.Request.Context(), principal.UserID,
+				changePasswordRevokeReason, map[string]any{
+					"organization_id": principal.OrganizationID.String(),
+				}); err != nil {
+				sessionsClean = false
+			}
+		}
+		refreshCount, refreshErr := deps.RefreshTokenRevoker.RevokeAllForUser(c.Request.Context(), principal.UserID)
 		c.Status(http.StatusNoContent)
 		// Audit: identifier-shaped metadata only. The passwords, hashes, and
-		// bearer material NEVER appear here. R2 parked — deliberately no
-		// sessions_revoked / refresh_tokens_revoked keys: nothing was revoked.
+		// bearer material NEVER appear here.
+		auditMeta := map[string]any{
+			"user_id":                   principal.UserID.String(),
+			"organization_id":           principal.OrganizationID.String(),
+			"self_service":              true,
+			"other_sessions_revoked":    revokedSessions,
+			"session_revocation_clean":  sessionsClean,
+			"current_session_preserved": principal.SessionID != uuid.Nil,
+		}
+		if refreshErr == nil {
+			auditMeta["refresh_tokens_revoked_count"] = refreshCount
+		}
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:         string(domain.AuditPasswordChanged),
 			Outcome:        "success",
@@ -96,11 +148,7 @@ func HandleChangePassword(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			OrganizationID: principal.OrganizationID,
 			IPAddress:      c.ClientIP(),
 			UserAgent:      c.Request.UserAgent(),
-			Metadata: map[string]any{
-				"user_id":         principal.UserID.String(),
-				"organization_id": principal.OrganizationID.String(),
-				"self_service":    true,
-			},
+			Metadata:       auditMeta,
 		})
 	}
 }

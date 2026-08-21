@@ -18,11 +18,11 @@ package service
 //     minimum-length floor mirrors the password-reset default (8).
 //   - On success ONLY the password hash is updated.
 //
-// R2 — SESSION REVOCATION IS DELIBERATELY PARKED (owner ruling
-// DECIDE-LATER, 2026-08-20): unlike ResetPassword (P0-9), this service
-// touches NEITHER sessions NOR refresh tokens. When R2 is decided, the
-// revocation fan-out (and its rule) lands as its own slice; nothing here
-// pre-empts that decision.
+// R2 — RULED 2026-08-21: a successful change revokes all the user's OTHER
+// sessions and OAuth refresh tokens; the changing session stays valid. The
+// fan-out lives in the HANDLER (HandleChangePassword), which owns the
+// principal's SessionID — this service stays hash-only by design so the
+// keep-current decision sits next to the identity that knows "current".
 
 import (
 	"context"
@@ -73,7 +73,8 @@ func NewChangePasswordService(users repository.UserRepository, minPasswordLength
 }
 
 // ChangeOwnPassword performs the self-service rotation for userID.
-// Sessions and refresh tokens are NOT touched (R2 parked — see file header).
+// Hash-only by design — the R2 revocation fan-out is the handler's (it
+// holds the current-session identity); see the file header.
 func (s *ChangePasswordService) ChangeOwnPassword(ctx context.Context, userID uuid.UUID, currentPassword, newPassword string) error {
 	if userID == uuid.Nil {
 		return ErrChangePasswordUnauthorized
