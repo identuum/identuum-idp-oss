@@ -1278,10 +1278,12 @@ integration-inventory:
 ## the wider set on 2026-08-02: 21s, 45 packages, 0 failures.
 ## ci-integration-test: the pure DB-backed suite — exactly what CI's
 ## integration job runs in its one-repo checkout. The developer-facing
-## integration-test target below CHAINS the rulefloor-integration teeth
-## on top; those stay local for now (recorded residue of
-## THE-TOOLING-UPGRADE), so CI drives this target instead — see the
-## ci.yml header enumeration.
+## integration-test target below CHAINS test-db (createdb + migrate
+## bootstrap) and the rulefloor-integration teeth around it; CI runs
+## the SAME teeth as their own step after this target (THE-CI-TEETH,
+## with the pinned rulefloor install), and only test-db stays local —
+## the CI service container provides the database. See the ci.yml
+## header enumeration.
 ## test-db: create + migrate the dedicated integration database
 ## (identuum_idp_oss_test on the dev Postgres), separate from the human's dev
 ## DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it

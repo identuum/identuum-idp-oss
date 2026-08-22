@@ -38,14 +38,14 @@
 #                     + the integration-tagged compile/lint that `verify`
 #                     itself does not exercise.
 #   2. integration  — `make ci-integration-test` against a Postgres service
-#                     (e2e + DB-backed runtime + pkg/runtime teeth). The
-#                     developer target `integration-test` additionally chains
-#                     `rulefloor-integration` (the RULE-FLOOR.md
-#                     integration-profile teeth); that step stays subtracted
-#                     here — executing DB-profile teeth in CI is recorded
-#                     residue of THE-TOOLING-UPGRADE, not silent drift — and
-#                     this enumeration must stay equal to what the Makefile
-#                     subtracts.
+#                     (e2e + DB-backed runtime + pkg/runtime teeth), then
+#                     `make rulefloor-integration` (THE-CI-TEETH): the
+#                     RULE-FLOOR.md DB-profile teeth execute here too, with
+#                     the same pinned rulefloor install as the verify job.
+#                     Nothing of the developer `integration-test` chain is
+#                     subtracted anymore except `test-db` (createdb +
+#                     migrate bootstrap — the service container provides
+#                     the database and the suites migrate themselves).
 #   3. race         — `go test -race ./... -count=1`. CI-ONLY: the race
 #                     detector is deliberately NOT part of `make verify`.
 #
@@ -107,16 +107,21 @@ jobs:
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: dev-ci-not-a-secret
-          POSTGRES_DB: identuum_ci
+          # THE-CI-TEETH: must end in _test — testsupport.RequireTestDatabase
+          # refuses any other name (these suites TRUNCATE), and the escape
+          # env IDENTUUM_IDP_ALLOW_NON_TEST_DB is deliberately NEVER set in
+          # CI. Measured before the rename: every DB-backed runtime test
+          # FAILED with the refusal against "identuum_ci".
+          POSTGRES_DB: identuum_ci_test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ci -d identuum_ci"
+          --health-cmd "pg_isready -U ci -d identuum_ci_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:5432/identuum_ci?sslmode=disable
+      IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:5432/identuum_ci_test?sslmode=disable
       IDENTUUM_IDP_REQUIRE_DB_TESTS: "1"
       # The single-replica lease contends when tests share one DB; the runtime
       # tests set this themselves locally, and CI matches (A-2a memory note).
@@ -206,11 +211,15 @@ jobs:
         env:
           POSTGRES_USER: idp_oss_user
           POSTGRES_PASSWORD: dev-idp_oss_user-not-a-secret
-          POSTGRES_DB: identuum_idp_oss
+          # THE-CI-TEETH: must end in _test (testsupport.RequireTestDatabase
+          # refuses any other name; measured — the old "identuum_idp_oss"
+          # failed every guarded test AND collided with the live dev DB's
+          # name). Matches the local convention (OSS_TEST_DB_URL).
+          POSTGRES_DB: identuum_idp_oss_test
         ports:
           - 5513:5432
         options: >-
-          --health-cmd "pg_isready -U idp_oss_user -d identuum_idp_oss"
+          --health-cmd "pg_isready -U idp_oss_user -d identuum_idp_oss_test"
           --health-interval 3s
           --health-timeout 5s
           --health-retries 15
@@ -234,13 +243,25 @@ jobs:
       # pkg/runtime teeth). The DSN is supplied via env and is NOT echoed —
       # the recipe is @-prefixed and the Makefile respects
       # IDENTUUM_IDP_TEST_DATABASE_URL when set. ci-integration-test, not
-      # integration-test: the developer target also chains the
-      # rulefloor-integration teeth, which stay local for now (recorded
-      # residue of THE-TOOLING-UPGRADE — see the header enumeration).
+      # integration-test: the developer target additionally runs test-db
+      # (createdb — the service container already provides the database).
       - name: make ci-integration-test
         env:
-          IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss?sslmode=disable
+          IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss_test?sslmode=disable
         run: make ci-integration-test
+
+      # THE-CI-TEETH: the DB-profile ledger teeth now run in CI too —
+      # the same pinned install as the verify job, then the same
+      # `make rulefloor-integration` developers run (check --run-profile
+      # integration --tags integration). Runs AFTER ci-integration-test:
+      # the suites have already migrated the service database by then.
+      - name: Install rulefloor
+        run: go install github.com/ozgurcd/rulefloor@v0.3.0
+
+      - name: make rulefloor-integration
+        env:
+          IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss_test?sslmode=disable
+        run: make rulefloor-integration
 
   race:
     name: Race Detector
