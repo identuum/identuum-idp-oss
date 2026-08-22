@@ -37,9 +37,11 @@ func readDockerfile(t *testing.T) string {
 // directivesOnly strips comment lines.
 //
 // The first version of these tests matched the WHOLE file and failed on its
-// own documentation: the header described the image as "Alpine-free" (it now
-// cites IMG-NONALPINE by name instead) and the ENTRYPOINT comment explains
-// why there is "No tini". Both are the file
+// own documentation: the header's prose said the image avoided Alpine
+// entirely (it now cites IMG-NONALPINE by name instead — the old wording is
+// itself a shape image-policy-restate-check rejects, so it is not repeated
+// here) and the ENTRYPOINT comment explains why there is "No tini". Both are
+// the file
 // saying it does NOT do the thing, and matching them made the gate assert the
 // opposite of what it means. A gate that fires on prose describing the correct
 // state is worse than no gate — it trains you to weaken it.

@@ -785,14 +785,27 @@ image-base-parity:
 ## golang:1.27.0-bookworm. Prose drifts; references do not: every site
 ## other than the canonical block cites IMG-NONALPINE by name.
 ##
-## The phrase list is the MEASURED restatement shapes from that defect,
-## not a bare-word `alpine` scan — the image-base-check header above and
-## the appliance image test both record why bare-word matching fails on
-## this repo's own documentation. HONEST LIMIT, stated plainly: a scan
+## The phrase list is the MEASURED restatement shapes, not a bare-word
+## `alpine` scan — the image-base-check header above and the appliance
+## image test both record why bare-word matching fails on this repo's
+## own documentation. FOUR shapes shipped, and the list covers all four
+## (THE-RESTATE-COVERAGE, 2026-08-22 — the first cut carried only the
+## ci.yml shape, so reintroducing the Dockerfile's or the test's
+## "Alpine-free" restatement passed green; measured against 7517de8):
+## the ci.yml defining sentence, the canonical text's own "musl-free",
+## and the "Alpine-free" wording both Dockerfile.local and the appliance
+## image test used to carry.
+##
+## THE QUOTATION DECISION, on the record: adding "Alpine-free" turned
+## this gate red on the appliance test's truthful description of the OLD
+## header. The comment was reworded to stop carrying the phrase — NO
+## path is excluded from this scan; a named exclusion is a standing hole
+## in the gate, a rewording is not. HONEST LIMIT, stated plainly: a scan
 ## cannot tell a quotation from a restatement, nor catch a paraphrase
-## that avoids these phrases; it catches the shape that actually shipped.
+## that avoids these phrases; it catches the shapes that actually
+## shipped.
 image-policy-restate-check:
-	@out="$$(git grep -n -I -E 'no [Aa]lpine anywhere|image-base policy|musl-free' -- ':!Makefile' 2>/dev/null || true)"; \
+	@out="$$(git grep -n -I -E 'no [Aa]lpine anywhere|image-base policy|musl-free|[Aa]lpine-free' -- ':!Makefile' 2>/dev/null || true)"; \
 	if [ -n "$$out" ]; then \
 		echo "IMAGE POLICY RESTATED OUTSIDE ITS CANONICAL SITE (IMG-NONALPINE):"; \
 		echo "$$out"; \
