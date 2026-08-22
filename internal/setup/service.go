@@ -116,8 +116,8 @@ type Deps struct {
 	// writer; tests pass a buffer. Nil is safe — the warning is dropped.
 	// The DB state is already 'setup_complete' and the hash is cleared
 	// before this is called, so the warning is the only signal a stale
-	// plaintext file is sitting on disk. --show-setup-code remains safe
-	// because it consults the DB first.
+	// plaintext file is sitting on disk. The show-setup-code subcommand
+	// remains safe because it consults the DB first.
 	Logf func(format string, args ...any)
 }
 
@@ -341,8 +341,9 @@ func (s *Service) Complete(ctx context.Context, dataDir string, in CompleteInput
 	// Step 6: delete token file. Non-fatal — the DB state is already
 	// 'setup_complete' and the hash is cleared. A leftover plaintext
 	// file is reported via a loud warning so the operator can clean it
-	// up by hand; --show-setup-code refuses to print it because it
-	// consults the DB first (see cmd/identuum-idp/setup_show_code.go).
+	// up by hand; the show-setup-code subcommand refuses to print it
+	// because it consults the DB first (see
+	// cmd/identuum-idp/setup_show_code.go).
 	if err := DeleteTokenFile(dataDir); err != nil {
 		s.warnTokenFileSweepFailed(dataDir, err)
 	}

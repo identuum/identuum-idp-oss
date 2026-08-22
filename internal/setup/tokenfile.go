@@ -22,8 +22,8 @@ var ErrUnsafeDataDir = errors.New("setup: data directory is world-writable; refu
 
 // TokenFilePath returns the absolute-or-relative path to the setup-token
 // file inside the supplied data directory. Exported so /api/setup/status
-// callers, --show-setup-code, and the boot banner all point at the same
-// location.
+// callers, the show-setup-code subcommand, and the boot banner all point
+// at the same location.
 func TokenFilePath(dataDir string) string {
 	return filepath.Join(dataDir, tokenFileName)
 }

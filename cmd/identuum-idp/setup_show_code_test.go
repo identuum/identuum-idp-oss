@@ -1,6 +1,6 @@
 package main
 
-// Unit tests for the appliance --show-setup-code support command after
+// Unit tests for the appliance show-setup-code subcommand after
 // the 2026-06-13 hardening pass. The command is now DB-aware: the
 // database is the authority for "is setup complete?", and a stale
 // $DATA_DIR/setup-token.txt left behind after completion must NOT cause
