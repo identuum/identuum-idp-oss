@@ -6,11 +6,11 @@
 #
 #   1. verify       — `make ci-verify` (= `make verify` minus the two
 #                     LOCAL-ONLY gograph lines, minus govulncheck which has
-#                     its own job, and minus the FOUR sibling-coupled targets
+#                     its own job, and minus the THREE wiki-coupled targets
 #                     that cannot fire here because CI checks out one repo
-#                     and the sibling checkouts (wiki, rulefloor) are absent
-#                     — enumerated, and this list must stay equal to what
-#                     the Makefile subtracts:
+#                     and the ../wiki sibling is absent — enumerated, and
+#                     this list must stay equal to what the Makefile
+#                     subtracts:
 #                       - repo-green      ($(WIKI_TOOLS)/repo-green-gate.sh;
 #                                          its four floors — fmt, build,
 #                                          test, vet — are explicit ci-verify
@@ -25,33 +25,33 @@
 #                       - wiki-fresh      (self-skips when ../wiki is absent;
 #                                          the call could only ever print
 #                                          SKIPPED)
-#                       - rulefloor-check (../rulefloor sibling CLI verifying
-#                                          RULE-FLOOR.md; locally a missing
-#                                          sibling is CANNOT-EVALUATE = FATAL,
-#                                          never a skip, so the target cannot
-#                                          run in a one-repo checkout at all —
-#                                          THE-RULEFLOOR-GATE. Since
-#                                          THE-STANDING-FLOOR, ci-verify runs
-#                                          the IN-REPO subset floor
-#                                          `go run ./tools/rulefloorlite`
-#                                          instead: strict parse, FLOOR,
-#                                          file+tag presence, .skip/.only on
-#                                          tagged spec lines — NO hashes)
+#                     rulefloor-check is NO LONGER subtracted: since
+#                     THE-TOOLING-UPGRADE the verify job installs the real
+#                     rulefloor binary (`go install
+#                     github.com/ozgurcd/rulefloor@v0.3.0`) and ci-verify
+#                     runs the same `make rulefloor-check` developers run —
+#                     hashes, extractor-owned discovery, orphan scan. The
+#                     tools/rulefloorlite subset it replaces reimplemented
+#                     extraction with pre-v0.3.0 string-marker semantics,
+#                     measurably diverged from the real extractor, and is
+#                     deleted.
 #                     + the integration-tagged compile/lint that `verify`
 #                     itself does not exercise.
 #   2. integration  — `make ci-integration-test` against a Postgres service
 #                     (e2e + DB-backed runtime + pkg/runtime teeth). The
 #                     developer target `integration-test` additionally chains
-#                     the sibling-coupled `rulefloor-integration` (the
-#                     RULE-FLOOR.md integration-profile teeth); that step is
-#                     subtracted here for the same one-repo reason as the
-#                     rulefloor-check exclusion below, and this enumeration
-#                     must stay equal to what the Makefile subtracts.
+#                     `rulefloor-integration` (the RULE-FLOOR.md
+#                     integration-profile teeth); that step stays subtracted
+#                     here — executing DB-profile teeth in CI is recorded
+#                     residue of THE-TOOLING-UPGRADE, not silent drift — and
+#                     this enumeration must stay equal to what the Makefile
+#                     subtracts.
 #   3. race         — `go test -race ./... -count=1`. CI-ONLY: the race
 #                     detector is deliberately NOT part of `make verify`.
 #
-# gograph is a developer-local tool with no CI install path; `ci-verify`
-# documents that omission. grype and tidy-diff RUN in CI via `ci-verify` —
+# gograph stays a developer-local tool by decision (owner-distributed via
+# the brew cask; CI does not install it); `ci-verify` documents that
+# omission. grype and tidy-diff RUN in CI via `ci-verify` —
 # previously they were developer-only. govulncheck also runs in CI, but as its
 # OWN JOB rather than inside `ci-verify`, so a vulnerability database that moves
 # under an unchanged tree turns that job red without taking the build/test
@@ -128,10 +128,21 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # ci-verify runs staticcheck and grype — install them first. govulncheck
-      # is NOT installed here: it has its own job.
+      # ci-verify runs staticcheck, grype, and the RULE-FLOOR.md ledger gate —
+      # install their binaries first. govulncheck is NOT installed here: it
+      # has its own job.
       - name: Install staticcheck
         run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Install rulefloor
+        # Pinned module version — the ledger gate's extractor semantics are
+        # version-bound (v0.3.0 machine interfaces, extractor-owned
+        # discovery). Bump deliberately, never implicitly. The installed
+        # binary self-reports "dev" (no ldflags stamp under go install); the
+        # @v0.3.0 pin is what carries the version guarantee here, and the
+        # Makefile's RULEFLOOR_RESOLVE accepts a binary that answers
+        # `version --json`.
+        run: go install github.com/ozgurcd/rulefloor@v0.3.0
 
       - name: Install grype
         # Pinned to a tagged release — BOTH the install script ref and the
@@ -224,8 +235,8 @@ jobs:
       # the recipe is @-prefixed and the Makefile respects
       # IDENTUUM_IDP_TEST_DATABASE_URL when set. ci-integration-test, not
       # integration-test: the developer target also chains the
-      # sibling-coupled rulefloor-integration teeth, which cannot run in a
-      # one-repo checkout (see the header enumeration).
+      # rulefloor-integration teeth, which stay local for now (recorded
+      # residue of THE-TOOLING-UPGRADE — see the header enumeration).
       - name: make ci-integration-test
         env:
           IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss?sslmode=disable

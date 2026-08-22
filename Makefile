@@ -124,37 +124,56 @@ wiki-fresh:
 RULEFLOOR_DIR ?= ../rulefloor
 
 # Resolve the rulefloor binary for the ledger gates: $RULEFLOOR_BIN if
-# set, else `rulefloor` on PATH (the brew binary), else build-and-run
-# the sibling checkout as LAST resort. Refuses anything older than
-# v0.2.0: the v0.1.0 binary cannot parse RED-PROOFS ledgers and dies
-# with a misleading "line 2: malformed header" — the fix is
-# `brew upgrade rulefloor`. Prints the resolved path + version; a
-# resolution or version failure is CANNOT-EVALUATE (exit 2), never a
-# skip. Sets $$RF for the invocation that follows.
+# set (explicit operator choice — an unsuitable one is FATAL), else
+# `rulefloor` on PATH, else build-and-run the sibling checkout as LAST
+# resort. Suitability is probed through the machine interface
+# `version --json` (rulefloor.version.v1, v0.3.0+): older binaries have
+# no machine interfaces and are refused — this floor rose from v0.2.0
+# to v0.3.0 the day the probe moved off human-readable `--version`
+# output (THE-TOOLING-UPGRADE). A PATH binary that fails the probe
+# FALLS THROUGH to the sibling instead of failing outright, so a stale
+# brew binary cannot mask a good sibling checkout; a sibling binary
+# that fails the probe is rebuilt once. "dev" builds (sibling or
+# go-install) pass by answering the probe. Resolution failure is
+# CANNOT-EVALUATE (exit 2), never a skip. Sets $$RF for the invocation
+# that follows.
 define RULEFLOOR_RESOLVE
+	RF=""; \
 	if [ -n "$$RULEFLOOR_BIN" ]; then RF="$$RULEFLOOR_BIN"; \
-	elif command -v rulefloor >/dev/null 2>&1; then RF="$$(command -v rulefloor)"; \
-	elif [ ! -d "$(RULEFLOOR_DIR)" ]; then \
-		echo "$@: CANNOT-EVALUATE — no rulefloor binary (set RULEFLOOR_BIN, 'brew install rulefloor', or clone $(RULEFLOOR_DIR))" >&2; \
-		exit 2; \
 	else \
-		if [ ! -x "$(RULEFLOOR_DIR)/rulefloor" ]; then \
-			echo "$@: building $(RULEFLOOR_DIR)/rulefloor (sibling fallback)"; \
-			(cd "$(RULEFLOOR_DIR)" && go build -o rulefloor .) || { \
-				echo "$@: CANNOT-EVALUATE — go build of the rulefloor tool failed" >&2; \
-				exit 2; \
-			}; \
+		if command -v rulefloor >/dev/null 2>&1; then \
+			CAND="$$(command -v rulefloor)"; \
+			CV="$$("$$CAND" version --json 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"; \
+			case "$$CV" in \
+				dev) RF="$$CAND" ;; \
+				v*) if [ "$$(printf 'v0.3.0\n%s\n' "$$CV" | sort -V | head -1)" = "v0.3.0" ]; then RF="$$CAND"; \
+					else echo "$@: rulefloor $$CV on PATH predates v0.3.0 machine interfaces; trying the sibling"; fi ;; \
+				*) echo "$@: rulefloor on PATH does not answer 'version --json'; trying the sibling" ;; \
+			esac; \
 		fi; \
-		RF="$(RULEFLOOR_DIR)/rulefloor"; \
+		if [ -z "$$RF" ]; then \
+			if [ ! -d "$(RULEFLOOR_DIR)" ]; then \
+				echo "$@: CANNOT-EVALUATE — no rulefloor v0.3.0+ (set RULEFLOOR_BIN, 'brew upgrade rulefloor', 'go install github.com/ozgurcd/rulefloor@v0.3.0', or clone $(RULEFLOOR_DIR))" >&2; \
+				exit 2; \
+			fi; \
+			if [ -x "$(RULEFLOOR_DIR)/rulefloor" ] && "$(RULEFLOOR_DIR)/rulefloor" version --json >/dev/null 2>&1; then :; else \
+				echo "$@: building $(RULEFLOOR_DIR)/rulefloor (sibling fallback)"; \
+				(cd "$(RULEFLOOR_DIR)" && go build -o rulefloor .) || { \
+					echo "$@: CANNOT-EVALUATE — go build of the rulefloor tool failed" >&2; \
+					exit 2; \
+				}; \
+			fi; \
+			RF="$(RULEFLOOR_DIR)/rulefloor"; \
+		fi; \
 	fi; \
-	RFV="$$("$$RF" --version 2>/dev/null | awk '{print $$2}')"; \
+	RFV="$$("$$RF" version --json 2>/dev/null | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')"; \
 	case "$$RFV" in \
 		dev) ;; \
-		v*) if [ "$$(printf 'v0.2.0\n%s\n' "$$RFV" | sort -V | head -1)" != "v0.2.0" ]; then \
-			echo "$@: CANNOT-EVALUATE — rulefloor $$RFV is older than v0.2.0 and cannot read RED-PROOFS ledgers; run: brew upgrade rulefloor" >&2; \
+		v*) if [ "$$(printf 'v0.3.0\n%s\n' "$$RFV" | sort -V | head -1)" != "v0.3.0" ]; then \
+			echo "$@: CANNOT-EVALUATE — rulefloor $$RFV predates v0.3.0 machine interfaces (rulefloor.version.v1); upgrade it" >&2; \
 			exit 2; \
 		fi ;; \
-		*) echo "$@: CANNOT-EVALUATE — could not determine rulefloor version from $$RF" >&2; exit 2 ;; \
+		*) echo "$@: CANNOT-EVALUATE — $$RF does not answer 'version --json' (needs rulefloor v0.3.0+)" >&2; exit 2 ;; \
 	esac; \
 	echo "$@: rulefloor $$RFV at $$RF"
 endef
@@ -327,8 +346,9 @@ verify:
 ## THIRD was spelled out twenty lines down — a count that did not match its own
 ## enumeration, agent-rules.md SS G-bis:313, in the file that lists the gates.)
 ##
-## gograph is a LOCAL-ONLY developer tool with no CI install path, so its
-## `capabilities` + `build` steps cannot run here at all.
+## gograph stays a LOCAL-ONLY developer tool by decision (owner-distributed
+## via the brew cask; CI does not install it), so its `capabilities` +
+## `build` steps do not run here.
 ##
 ## govulncheck is omitted for a different reason: CI runs it as its own JOB.
 ## A vulnerability database moves under a tree that has not moved, so a red scan
@@ -424,12 +444,14 @@ verify:
 ci-verify:
 	@$(MAKE) --no-print-directory tracked-binary-check
 	@$(MAKE) --no-print-directory credential-transparency
-	# THE-STANDING-FLOOR: the IN-REPO static ledger floor. The full
-	# rulefloor-check is sibling-coupled and subtracted from this target;
-	# without this line CI ran NO ledger check at all. rulefloorlite is a
-	# deliberate subset (no hashes — see its header) that a one-repo
-	# checkout can always run.
-	go run ./tools/rulefloorlite
+	# THE-TOOLING-UPGRADE: CI runs the REAL rulefloor check. The homegrown
+	# tools/rulefloorlite subset is DELETED — it reimplemented extraction
+	# with pre-v0.3.0 string-marker semantics and measurably diverged from
+	# the real extractor (a marker inside a Go string literal satisfied
+	# lite and failed rulefloor v0.3.0), and it never verified hashes.
+	# CI installs the binary with `go install github.com/ozgurcd/rulefloor@v0.3.0`
+	# (see ci.yml); locally RULEFLOOR_RESOLVE falls back to PATH/sibling.
+	@$(MAKE) --no-print-directory rulefloor-check
 	@$(MAKE) --no-print-directory image-base-check
 	@$(MAKE) --no-print-directory fmt-check
 	@$(MAKE) --no-print-directory vet
@@ -1256,10 +1278,10 @@ integration-inventory:
 ## the wider set on 2026-08-02: 21s, 45 packages, 0 failures.
 ## ci-integration-test: the pure DB-backed suite — exactly what CI's
 ## integration job runs in its one-repo checkout. The developer-facing
-## integration-test target below CHAINS the sibling-coupled rulefloor
-## teeth on top; CI cannot (the ../rulefloor sibling is absent there, and
-## a missing sibling is CANNOT-EVALUATE, never a skip), so it drives this
-## target instead — see the ci.yml header enumeration.
+## integration-test target below CHAINS the rulefloor-integration teeth
+## on top; those stay local for now (recorded residue of
+## THE-TOOLING-UPGRADE), so CI drives this target instead — see the
+## ci.yml header enumeration.
 ## test-db: create + migrate the dedicated integration database
 ## (identuum_idp_oss_test on the dev Postgres), separate from the human's dev
 ## DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it

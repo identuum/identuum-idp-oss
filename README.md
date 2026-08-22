@@ -214,15 +214,18 @@ The full one-shot validation chain (clean DB → up → integration tests
 
 `make verify` includes `make rulefloor-check`, which verifies the
 machine-checked rule ledger at the repo root with the rulefloor CLI,
-resolved in order: `$RULEFLOOR_BIN` if set, `rulefloor` on PATH
-(`brew install rulefloor`), then building the sibling `../rulefloor`
-checkout as last resort. Binaries older than v0.2.0 are refused — they
-cannot read RED-PROOFS ledgers (`brew upgrade rulefloor`). No
-resolvable binary is CANNOT-EVALUATE and fails `verify` — there is no
-skip. CI's `ci-verify` deliberately excludes the target (one-repo
-checkout; see the ci.yml header enumeration). Integration-profile rows are verified statically by
+resolved in order: `$RULEFLOOR_BIN` if set, `rulefloor` on PATH, then
+building the sibling `../rulefloor` checkout as last resort. Candidates
+are probed through the machine interface `version --json`
+(rulefloor.version.v1) — v0.3.0 or newer only; a stale PATH binary
+falls through to the sibling. No resolvable binary is CANNOT-EVALUATE
+and fails `verify` — there is no skip. CI's `ci-verify` runs the SAME
+target: the verify job installs the pinned tool
+(`go install github.com/ozgurcd/rulefloor@v0.3.0`; see ci.yml).
+Integration-profile rows are verified statically by
 plain `verify` and EXECUTED by `make rulefloor-integration`, which
-`make integration-test` chains after the suite.
+`make integration-test` chains after the suite. The tool's feature set
+is discovered, never assumed: `rulefloor capabilities --json`.
 
 How the ledger works — the format, commands, exit codes, guarantees —
 is the tool's documentation (`../rulefloor/README.md`). What this

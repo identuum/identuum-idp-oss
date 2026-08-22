@@ -13,9 +13,12 @@ disposition).
 
 ## (a) Profile vocabulary — what each name means in THIS project
 
-A profile name is opaque to the tool (single exception: `unit` on go-test
-rows, which plain `check` executes). Everything below is identuum's own
-vocabulary, measured from the ledgers.
+A profile name is opaque to the tool. Which test kinds the tool can
+statically validate or execute is the TOOL's fact, not this document's:
+discover it with `rulefloor capabilities --json` (per-kind
+`static_validation` / `execution` flags) instead of trusting any list
+written here. Everything below is identuum's own vocabulary, measured
+from the ledgers.
 
 ### identuum-idp-oss (go-test rows)
 
