@@ -5,8 +5,9 @@
 #              embedded migrations and embedded api-docgen testdata. Pinned to
 #              the EXACT Go version go.mod requires (go 1.27.0) BY DIGEST, not a
 #              floating `1.27` tag, so the toolchain is reproducible. A Debian
-#              builder is used (not alpine) to keep the whole file Alpine-free
-#              per owner policy; CGO is off so the base libc is irrelevant.
+#              builder is used (not alpine) per IMG-NONALPINE — canonical text
+#              beside image-base-check in the Makefile; CGO is off so the base
+#              libc is irrelevant.
 #   prep     — the same Debian image, used ONCE to materialise the things a
 #              distroless runtime cannot create for itself: the passwd/group
 #              entries and the data directory with its ownership and mode.

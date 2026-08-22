@@ -99,11 +99,17 @@ jobs:
     # misconfigured, or silently dropped — the job goes red instead of the
     # suite quietly shrinking back to skips.
     #
-    # postgres:18 (Debian), NOT -alpine: the image-base policy is no Alpine
-    # anywhere except the Go builder.
+    # postgres:18-alpine: Postgres SERVICE images are exempt under
+    # IMG-NONALPINE (owner decision — canonical text beside
+    # image-base-check in the Makefile; cite it by name, never restate
+    # it). Matches the integration job below and both compose files.
+    # THE-IMAGE-POLICY-TRUTH (2026-08-22): this job alone pinned Debian
+    # postgres, justified by a wider restatement of the policy that the
+    # owner decision never made and this file's own integration job
+    # contradicted.
     services:
       postgres:
-        image: postgres:18
+        image: postgres:18-alpine
         env:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: dev-ci-not-a-secret

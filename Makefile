@@ -319,6 +319,7 @@ verify:
 	@$(MAKE) --no-print-directory doccomment-check
 	@$(MAKE) --no-print-directory r-suite
 	@$(MAKE) --no-print-directory image-base-parity
+	@$(MAKE) --no-print-directory image-policy-restate-check
 	@$(MAKE) --no-print-directory clock-fuse-report
 	@$(MAKE) --no-print-directory clock-fuse-gate
 	@$(MAKE) --no-print-directory tagged-vet
@@ -459,6 +460,7 @@ ci-verify:
 	@$(MAKE) --no-print-directory doccomment-check
 	@$(MAKE) --no-print-directory r-suite
 	@$(MAKE) --no-print-directory image-base-parity
+	@$(MAKE) --no-print-directory image-policy-restate-check
 	@$(MAKE) --no-print-directory clock-fuse-report
 	@$(MAKE) --no-print-directory tagged-vet
 	@$(MAKE) --no-print-directory integration-inventory
@@ -770,6 +772,31 @@ image-base-parity:
 		echo "  got    md5 $$got"; \
 		echo "This repo's image-base-check no longer matches the copy shared with identuum-idp-oss, identuum-idp-ce, identuum-ag-ce and identuum-ui."; \
 		echo "Either restore this copy, or update the block AND IMAGE_BASE_MD5 in all four."; \
+		exit 1; \
+	fi
+
+## image-policy-restate-check: IMG-NONALPINE is stated in ONE place — the
+## canonical text beside image-base-check above. THE-IMAGE-POLICY-TRUTH
+## (2026-08-22): ci.yml carried a WIDER restatement — "the image-base
+## policy is no Alpine anywhere except the Go builder" — false under the
+## owner decision (the Postgres SERVICE image is exempt), contradicted by
+## the postgres:18-alpine pin in the SAME file, and naming a Go-builder
+## carve-out that stopped existing when the builder moved to
+## golang:1.27.0-bookworm. Prose drifts; references do not: every site
+## other than the canonical block cites IMG-NONALPINE by name.
+##
+## The phrase list is the MEASURED restatement shapes from that defect,
+## not a bare-word `alpine` scan — the image-base-check header above and
+## the appliance image test both record why bare-word matching fails on
+## this repo's own documentation. HONEST LIMIT, stated plainly: a scan
+## cannot tell a quotation from a restatement, nor catch a paraphrase
+## that avoids these phrases; it catches the shape that actually shipped.
+image-policy-restate-check:
+	@out="$$(git grep -n -I -E 'no [Aa]lpine anywhere|image-base policy|musl-free' -- ':!Makefile' 2>/dev/null || true)"; \
+	if [ -n "$$out" ]; then \
+		echo "IMAGE POLICY RESTATED OUTSIDE ITS CANONICAL SITE (IMG-NONALPINE):"; \
+		echo "$$out"; \
+		echo "The policy text lives beside image-base-check in the Makefile. Cite IMG-NONALPINE by name; never restate the rule."; \
 		exit 1; \
 	fi
 
