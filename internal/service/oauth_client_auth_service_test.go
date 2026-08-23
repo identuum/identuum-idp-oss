@@ -291,6 +291,10 @@ func TestAPIResourceService_AuthenticateAPIResource_EmptySecretRejected(t *testi
 	}
 }
 
+// An API resource authenticates only by constant-time match of its active
+// audience-bound secret; a wrong secret is refused with the one opaque
+// credentials error.
+// RULE: APIRES-AUTH-1
 func TestAPIResourceService_AuthenticateAPIResource_WrongSecretRejected(t *testing.T) {
 	repo := newAPIResourceRepo()
 	svc := NewAPIResourceService(nil, repo)
