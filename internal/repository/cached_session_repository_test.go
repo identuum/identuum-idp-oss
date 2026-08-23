@@ -437,3 +437,78 @@ func TestCachedSessionRepository_RevokeByOrganizationID_ListError_FailOpen(t *te
 
 	mockRepo.AssertExpectations(t)
 }
+
+// Revoking a session — singly, per user, or per organization — evicts its
+// cached validation entry, so a revoked session never validates from the
+// cache and the next validation consults the database. The seeding goes
+// THROUGH the public validation read (miss → delegate → cached; second read
+// is a proven hit), so the assertion is about what the serving path returns,
+// not merely which keys exist.
+// RULE: SESSION-CACHE-REVOKE-1
+func TestCachedSessionRepository_RevokedNeverValidatesFromCache(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	rc, err := cache.NewRedisClient(mr.Addr(), "")
+	require.NoError(t, err)
+
+	mockRepo := new(mockAdminSessionRepository)
+	repo := NewCachedSessionRepository(mockRepo, rc)
+	ctx := context.Background()
+
+	// seed caches the session's validation snapshot through the public read
+	// path and proves the second read is served from cache (the delegate
+	// expectation is .Once — a second delegate call would fail the mock).
+	seed := func(s *domain.Session) {
+		info := &domain.SessionValidationInfo{Session: s}
+		mockRepo.On("GetSessionWithUserAndOrgStatus", ctx, s.ID).Return(info, nil).Once()
+		got, seedErr := repo.GetSessionWithUserAndOrgStatus(ctx, s.ID)
+		require.NoError(t, seedErr)
+		require.Equal(t, s.ID, got.Session.ID)
+		got, seedErr = repo.GetSessionWithUserAndOrgStatus(ctx, s.ID)
+		require.NoError(t, seedErr)
+		require.Equal(t, s.ID, got.Session.ID)
+		require.True(t, mr.Exists(repo.validationKey(s.ID)))
+	}
+
+	// 1) Single-session Revoke.
+	s1 := &domain.Session{ID: uuid.New()}
+	seed(s1)
+	mockRepo.On("Revoke", ctx, s1.ID, uuid.Nil, "test_revoke").Return(nil).Once()
+	require.NoError(t, repo.Revoke(ctx, s1.ID, uuid.Nil, "test_revoke"))
+	assert.False(t, mr.Exists(repo.validationKey(s1.ID)),
+		"revoked session must not validate from cache: Revoke left the cached validation entry behind")
+	// The NEXT validation must consult the database, not a cache remnant.
+	mockRepo.On("GetSessionWithUserAndOrgStatus", ctx, s1.ID).
+		Return((*domain.SessionValidationInfo)(nil), fmt.Errorf("session revoked")).Once()
+	_, err = repo.GetSessionWithUserAndOrgStatus(ctx, s1.ID)
+	assert.Error(t, err, "post-revoke validation must consult the database, not a cache remnant")
+
+	// 2) RevokeByUserID evicts every active session's entry.
+	userID := uuid.New()
+	s2 := &domain.Session{ID: uuid.New(), UserID: userID}
+	s3 := &domain.Session{ID: uuid.New(), UserID: userID}
+	seed(s2)
+	seed(s3)
+	mockRepo.On("ListActiveByUserID", ctx, userID).Return([]*domain.Session{s2, s3}, nil).Once()
+	mockRepo.On("RevokeByUserID", ctx, userID, "password_changed").Return(nil).Once()
+	require.NoError(t, repo.RevokeByUserID(ctx, userID, "password_changed"))
+	assert.False(t, mr.Exists(repo.validationKey(s2.ID)),
+		"user-revoked session must not validate from cache (s2 entry survived RevokeByUserID)")
+	assert.False(t, mr.Exists(repo.validationKey(s3.ID)),
+		"user-revoked session must not validate from cache (s3 entry survived RevokeByUserID)")
+
+	// 3) RevokeByOrganizationID evicts every org session's entry.
+	orgID := uuid.New()
+	s4 := &domain.Session{ID: uuid.New()}
+	seed(s4)
+	pg := Pagination{PageSize: 500, Offset: 0}
+	mockRepo.On("ListByOrganizationID", ctx, orgID, pg).Return([]*domain.Session{s4}, 1, nil).Once()
+	mockRepo.On("RevokeByOrganizationID", ctx, orgID, "org_deleted").Return(nil).Once()
+	require.NoError(t, repo.RevokeByOrganizationID(ctx, orgID, "org_deleted"))
+	assert.False(t, mr.Exists(repo.validationKey(s4.ID)),
+		"org-revoked session must not validate from cache (entry survived RevokeByOrganizationID)")
+
+	mockRepo.AssertExpectations(t)
+}
