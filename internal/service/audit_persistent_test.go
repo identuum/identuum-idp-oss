@@ -80,6 +80,7 @@ func TestPersistentAuditService_MapsZeroValuesToNull(t *testing.T) {
 }
 
 // Non-zero values map through to non-nil pointers; metadata is the same map.
+// RULE: AUDIT-PERSIST-1
 func TestPersistentAuditService_PreservesValuesAndMetadata(t *testing.T) {
 	ins := &captureInserter{}
 	svc := NewPersistentAuditService(ins)

@@ -11,10 +11,16 @@ import (
 // TestNoopService_RecordZeroEvent verifies the no-op implementation
 // accepts a zero-value event and returns nil — the safest baseline
 // for callers that forget to populate fields.
+// RULE: AUDIT-NOOP-1
 func TestNoopService_RecordZeroEvent(t *testing.T) {
 	var svc Service = NoopService{}
 	if err := svc.Record(context.Background(), Event{}); err != nil {
 		t.Errorf("NoopService.Record(zero) = %v, want nil", err)
+	}
+	// Direct concrete call so the no-op contract is pinned on NoopService.Record
+	// itself: it discards the event and always returns nil.
+	if err := (NoopService{}).Record(context.Background(), Event{}); err != nil {
+		t.Errorf("NoopService{}.Record (concrete) = %v, want nil", err)
 	}
 }
 
@@ -51,6 +57,7 @@ func TestNoopService_RecordRepresentativeEvent(t *testing.T) {
 
 // TestRecorder_CapturesInOrder pins the test recorder's basic
 // contract.
+// RULE: AUDIT-MEMORY-1
 func TestRecorder_CapturesInOrder(t *testing.T) {
 	var rec Recorder
 	for i, action := range []string{"a", "b", "c"} {

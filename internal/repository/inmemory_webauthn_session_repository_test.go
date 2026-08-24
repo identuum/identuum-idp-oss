@@ -109,6 +109,7 @@ func TestConsume_MissingAndExpiredSentinels(t *testing.T) {
 // SessionData; every other gets the not-found sentinel. Many rounds per
 // invocation for teeth; run under -race, 5× (see report). TEETH: revert
 // Consume to a non-atomic get-then-delete and this reports >1 winner.
+// RULE: WEBAUTHN-CONSUME-1
 func TestConsume_ConcurrentSingleUse(t *testing.T) {
 	const goroutines = 64
 	const rounds = 50
