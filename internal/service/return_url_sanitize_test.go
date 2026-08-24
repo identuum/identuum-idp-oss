@@ -6,7 +6,9 @@ import "testing"
 // an exact coverage edge with a DIRECT call: only a same-site relative path is
 // honored verbatim, while an absolute URL, a protocol-relative URL, a backslash-
 // bearing value, or an empty string collapses to the default. This is the
-// service twin of the handler guard pinned by OPEN-REDIRECT-RELATIVE-1.
+// service-side twin of the handler guard OPEN-REDIRECT-RELATIVE-1 pins in the
+// handlers package; this rule pins the service function itself.
+// RULE: RETURN-URL-SANITIZE-1
 func TestSanitizeReturnURL_RelativeOnly(t *testing.T) {
 	if got := sanitizeReturnURL("/dashboard"); got != "/dashboard" {
 		t.Errorf("a same-site relative path must be honored verbatim, got %q", got)

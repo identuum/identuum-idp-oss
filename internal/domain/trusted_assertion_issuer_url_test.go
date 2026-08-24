@@ -2,16 +2,18 @@ package domain
 
 import "testing"
 
-// TestValidateIssuerURL_Direct gives the domain-side issuer guard an exact
-// coverage edge with a DIRECT call: an issuer is accepted only when it is an
-// http or https URL with a non-empty host; empty, unparseable, non-http(s), and
-// host-less values are refused. This is the domain twin of the service-side
-// upstream-URL guard pinned by UPSTREAM-URL-HTTPS-1.
-func TestValidateIssuerURL_Direct(t *testing.T) {
+// TestTrustedAssertionURLGuards_Direct pins BOTH domain-side upstream-URL guards
+// with DIRECT calls so each has an exact coverage edge under an armed rule:
+// validateIssuerURL accepts only an http or https URL with a non-empty host,
+// and validateJWKSURL accepts only an https URL with a non-empty host; empty,
+// unparseable, non-http(s)/https, and host-less values are refused before
+// either becomes a trust anchor for assertion signature verification.
+// RULE: TRUSTED-ISSUER-URL-1
+func TestTrustedAssertionURLGuards_Direct(t *testing.T) {
+	// Issuer guard: http OR https, with a non-empty host.
 	if err := validateIssuerURL("https://idp.example.com/realms/x"); err != nil {
 		t.Errorf("a well-formed https issuer must be accepted, got %v", err)
 	}
-	// http is permitted for the issuer (the guard accepts http OR https).
 	if err := validateIssuerURL("http://idp.example.com"); err != nil {
 		t.Errorf("an http issuer must be accepted by the issuer guard, got %v", err)
 	}
@@ -26,12 +28,8 @@ func TestValidateIssuerURL_Direct(t *testing.T) {
 			t.Errorf("issuer %q must be refused (http/https + host required), got nil", bad)
 		}
 	}
-}
 
-// TestValidateJWKSURL_Direct gives the domain-side jwks_url guard an exact
-// coverage edge with a DIRECT call: unlike the issuer guard it is https-ONLY,
-// and still requires a non-empty host. Domain twin of UPSTREAM-URL-HTTPS-1.
-func TestValidateJWKSURL_Direct(t *testing.T) {
+	// JWKS guard: https ONLY, with a non-empty host.
 	if err := validateJWKSURL("https://idp.example.com/jwks"); err != nil {
 		t.Errorf("a well-formed https jwks_url must be accepted, got %v", err)
 	}
