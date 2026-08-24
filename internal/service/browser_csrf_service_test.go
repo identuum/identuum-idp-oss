@@ -88,6 +88,7 @@ func TestCSRF_VerifyMismatchRejected(t *testing.T) {
 	}
 }
 
+// RULE: CSRF-VERIFY-1
 func TestCSRF_VerifyForgedTagRejected(t *testing.T) {
 	svc := newCSRFHarness(t)
 	// Hand-craft a token whose tag will not verify under the
