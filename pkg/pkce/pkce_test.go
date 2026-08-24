@@ -9,6 +9,7 @@ import (
 // TestVerify is table-driven and anchored on the RFC 7636 §4.6 worked
 // example. The remaining rows pin the false-returning edges: a mismatched
 // challenge, an empty verifier, and an empty challenge.
+// RULE: PKCE-VERIFY-1
 func TestVerify(t *testing.T) {
 	// RFC 7636 Appendix B / §4.6 vector.
 	const (
