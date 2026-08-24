@@ -62,4 +62,21 @@ func TestUpstreamURLGuards_HTTPSAndHostRequired(t *testing.T) {
 	if err := fetcher.validateJWKSURI("https://jwks.example.com/keys"); err != nil {
 		t.Errorf("a well-formed https jwks_uri must pass the pre-check, got %v", err)
 	}
+
+	// The OIDC discovery-document validator: parseAndValidate enforces issuer
+	// consistency (OIDC Discovery §4.3) and https-only required endpoints via
+	// isAllowedURL. Direct call so this SSRF-shaped guard resolves to an EXACT
+	// coverage edge rather than being carried by reasoning.
+	disc := NewOIDCDiscoveryService(OIDCDiscoveryOptions{})
+	goodBody := []byte(`{"issuer":"https://idp.example.com","authorization_endpoint":"https://idp.example.com/auth","token_endpoint":"https://idp.example.com/token","jwks_uri":"https://idp.example.com/jwks"}`)
+	if doc, err := disc.parseAndValidate(goodBody, "https://idp.example.com"); err != nil || doc == nil {
+		t.Errorf("a consistent https discovery doc must validate, got doc=%v err=%v", doc, err)
+	}
+	if _, err := disc.parseAndValidate(goodBody, "https://attacker.example.com"); err == nil {
+		t.Errorf("an issuer mismatch must be refused (OIDC Discovery §4.3)")
+	}
+	httpBody := []byte(`{"issuer":"https://idp.example.com","authorization_endpoint":"http://idp.example.com/auth","token_endpoint":"https://idp.example.com/token","jwks_uri":"https://idp.example.com/jwks"}`)
+	if _, err := disc.parseAndValidate(httpBody, "https://idp.example.com"); err == nil {
+		t.Errorf("a plaintext-http discovery endpoint must be refused")
+	}
 }
