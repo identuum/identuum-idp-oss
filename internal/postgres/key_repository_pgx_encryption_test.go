@@ -178,6 +178,7 @@ func TestP3_5_LegacyPassthrough(t *testing.T) {
 // TestP3_5_ReEncryptSweep is teeth (c): ReEncryptPlaintextKeys converts a
 // legacy row to "v2:" ciphertext that still decrypts to the identical PEM; a
 // second run re-encrypts zero rows (idempotent).
+// RULE: SIGNING-KEY-ATREST-1
 func TestP3_5_ReEncryptSweep(t *testing.T) {
 	pool := keyEncPool(t)
 	defer pool.Close()
