@@ -209,23 +209,33 @@ func TestInstanceLease_SecondInstanceRefuses(t *testing.T) {
 }
 
 // TestInstanceLease_StaleLeaseTakenOverOnRollout models a rolling deploy
-// where the OUTGOING pod dies UNGRACEFULLY (no Release): its lease is
-// held with a short TTL and it stops heartbeating. The incoming pod must
-// take the lease over once it goes stale — a rollout is not an outage.
+// where the OUTGOING pod dies UNGRACEFULLY (no Release): its lease row
+// stops being renewed, goes stale, and the incoming pod must take it
+// over — a rollout is not an outage.
+//
+// RE-EXPRESSED 2026-08-25: the old form slept on the HOST clock (500ms
+// TTL + 800ms sleep) and asserted a staleness decision made on the DB
+// clock; the Docker VM's DB clock demonstrably STEPS under load (~0.8s
+// of correction observed within minutes), so a host sleep is not a
+// measurement of DB elapsed time and the test flaked. The invariant is
+// ORDERING, not wall-clock: a FRESH lease is never stolen, a STALE
+// lease is always taken over. Freshness and staleness are now created
+// DETERMINISTICALLY on the same clock TryAcquire compares against (DB
+// now()), with hour-scale margins no clock step can cross, and no
+// sleeps at all.
 func TestInstanceLease_StaleLeaseTakenOverOnRollout(t *testing.T) {
 	pool := leasePool(t)
 	repo := postgres.NewPgxInstanceLeaseRepository(pool)
 
-	const shortTTL = 500 * time.Millisecond
 	// Outgoing pod acquires, then "dies" — we simply stop touching it.
-	out, err := repo.TryAcquire(context.Background(), "outgoing-pod", shortTTL)
+	out, err := repo.TryAcquire(context.Background(), "outgoing-pod", time.Hour)
 	if err != nil || !out.Acquired {
 		t.Fatalf("outgoing pod must acquire; acquired=%v err=%v", out.Acquired, err)
 	}
 
-	// Incoming pod: while the outgoing lease is still fresh it must NOT
-	// take over.
-	fresh, err := repo.TryAcquire(context.Background(), "incoming-pod", shortTTL)
+	// FRESH: the row was written moments ago; judged against an
+	// hour-scale TTL the incoming pod must NOT take over.
+	fresh, err := repo.TryAcquire(context.Background(), "incoming-pod", time.Hour)
 	if err != nil {
 		t.Fatalf("incoming TryAcquire (fresh): %v", err)
 	}
@@ -233,10 +243,17 @@ func TestInstanceLease_StaleLeaseTakenOverOnRollout(t *testing.T) {
 		t.Fatal("incoming pod must NOT steal a still-fresh lease")
 	}
 
-	// Wait past the TTL so the outgoing lease goes stale.
-	time.Sleep(shortTTL + 300*time.Millisecond)
+	// STALE: age the row on the DB's own clock — the same now() basis
+	// TryAcquire compares against — far past the TTL, which is exactly
+	// what an ungracefully dead pod's row looks like once its TTL
+	// lapses.
+	if _, err := pool.Exec(context.Background(),
+		"UPDATE instance_lease SET heartbeat_at = now() - interval '2 hours' WHERE id = $1",
+		domain.InstanceLeaseSingletonID); err != nil {
+		t.Fatalf("age the outgoing lease: %v", err)
+	}
 
-	stale, err := repo.TryAcquire(context.Background(), "incoming-pod", shortTTL)
+	stale, err := repo.TryAcquire(context.Background(), "incoming-pod", time.Hour)
 	if err != nil {
 		t.Fatalf("incoming TryAcquire (stale): %v", err)
 	}
@@ -249,19 +266,29 @@ func TestInstanceLease_StaleLeaseTakenOverOnRollout(t *testing.T) {
 }
 
 // TestInstanceLease_LiveIncumbentHeartbeatKeepsLoserOut proves the
-// heartbeat is load-bearing: while the incumbent keeps heartbeating, a
-// second instance is kept out for its ENTIRE acquisition window even
-// though the TTL is short. Without the heartbeat the lease would lapse
-// and the loser would wrongly take over.
+// heartbeat is load-bearing in two ordering steps: (1) the incumbent's
+// background loop OBSERVABLY RENEWS the row (the stored heartbeat_at
+// value changes), and (2) a renewed-fresh lease keeps a second instance
+// out for its ENTIRE acquisition window, which records NOT-SERVING.
+//
+// RE-EXPRESSED 2026-08-25: the old form gave the incumbent a 200ms TTL
+// and asserted the 40ms host-clock ticker always outran DB-clock
+// staleness — false whenever the Docker VM's DB clock steps (observed
+// under load). Renewal is now proven by ORDERING (heartbeat_at CHANGES,
+// a fact no clock step can fake), and the keep-out uses an hour-scale
+// TTL, so the loser is refused because the row is genuinely fresh, not
+// because a race was won. The only time bound left is a generous
+// liveness timeout on observing a 40ms-cadence write. Stale-lease
+// takeover semantics live in
+// TestInstanceLease_StaleLeaseTakenOverOnRollout.
 func TestInstanceLease_LiveIncumbentHeartbeatKeepsLoserOut(t *testing.T) {
 	pool := leasePool(t)
 	repo := postgres.NewPgxInstanceLeaseRepository(pool)
 
-	// Incumbent with a SHORT TTL but a FAST heartbeat that keeps renewing.
 	incumbentCfg := lease.Config{
 		InstanceID:    "incumbent",
-		TTL:           200 * time.Millisecond,
-		Heartbeat:     40 * time.Millisecond, // << TTL, so it never lapses
+		TTL:           time.Hour,
+		Heartbeat:     40 * time.Millisecond,
 		AcquireWindow: 300 * time.Millisecond,
 		RetryInterval: 15 * time.Millisecond,
 	}
@@ -271,12 +298,39 @@ func TestInstanceLease_LiveIncumbentHeartbeatKeepsLoserOut(t *testing.T) {
 	}
 	defer coordA.Release(context.Background())
 
-	// Loser's window spans many incumbent heartbeats AND several TTLs.
+	// (1) The heartbeat loop RENEWS: the stored heartbeat_at CHANGES.
+	// Value inequality is an ordering fact — a clock step can neither
+	// fake nor suppress it; only a dead loop fails this within the
+	// (generous) liveness timeout.
+	readHeartbeat := func() time.Time {
+		var hb time.Time
+		if err := pool.QueryRow(context.Background(),
+			"SELECT heartbeat_at FROM instance_lease WHERE id = $1",
+			domain.InstanceLeaseSingletonID).Scan(&hb); err != nil {
+			t.Fatalf("read heartbeat_at: %v", err)
+		}
+		return hb
+	}
+	first := readHeartbeat()
+	renewed := false
+	deadline := time.Now().Add(5 * time.Second) // liveness bound only: >=125 chances at a 40ms cadence
+	for time.Now().Before(deadline) {
+		if !readHeartbeat().Equal(first) {
+			renewed = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !renewed {
+		t.Fatal("the heartbeat loop must renew the lease row (heartbeat_at never changed)")
+	}
+
+	// (2) A fresh lease keeps the loser out for its whole window.
 	loserCfg := lease.Config{
 		InstanceID:    "loser",
-		TTL:           200 * time.Millisecond,
+		TTL:           time.Hour,
 		Heartbeat:     time.Hour,
-		AcquireWindow: 700 * time.Millisecond, // > 3× the TTL
+		AcquireWindow: 300 * time.Millisecond,
 		RetryInterval: 20 * time.Millisecond,
 	}
 	reportB := lifecycle.NewStartupReport()
