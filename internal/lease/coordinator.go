@@ -115,12 +115,25 @@ type Coordinator struct {
 // identity of the form "<hostname>/<uuid>". The hostname helps an
 // operator recognise which pod holds the lease; the uuid guarantees
 // uniqueness even across identically-named hosts. It is NOT a secret.
+// The uuid component is a UUIDv7 (identifiers are v7 — time-ordered —
+// per the uuidgen package rule); uuid.NewV7 is called DIRECTLY rather
+// than through internal/utils/uuidgen because lease is an architecture
+// leaf over domain + lifecycle only (boundaries.json forbids the utils
+// import). Plain v4 survives only as the RNG-failure fallback below,
+// mirroring the audit-event fallback, so an instance can always
+// identify itself.
 func NewInstanceID() string {
 	host, err := os.Hostname()
 	if err != nil || host == "" {
 		host = "unknown-host"
 	}
-	return host + "/" + uuid.NewString()
+	id, idErr := uuid.NewV7()
+	if idErr != nil {
+		// v7 generation only fails if the system RNG fails; fall back to
+		// v4 rather than refuse to identify the instance.
+		return host + "/" + uuid.NewString()
+	}
+	return host + "/" + id.String()
 }
 
 // NewCoordinator builds a coordinator. logf is the loud sink for
