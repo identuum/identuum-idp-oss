@@ -28,7 +28,7 @@
 #                     rulefloor-check is NO LONGER subtracted: since
 #                     THE-TOOLING-UPGRADE the verify job installs the real
 #                     rulefloor binary (`go install
-#                     github.com/ozgurcd/rulefloor@v0.3.0`) and ci-verify
+#                     github.com/ozgurcd/rulefloor@v0.6.0`) and ci-verify
 #                     runs the same `make rulefloor-check` developers run —
 #                     hashes, extractor-owned discovery, orphan scan. The
 #                     tools/rulefloorlite subset it replaces reimplemented
@@ -147,13 +147,13 @@ jobs:
 
       - name: Install rulefloor
         # Pinned module version — the ledger gate's extractor semantics are
-        # version-bound (v0.3.0 machine interfaces, extractor-owned
+        # version-bound (v0.6.0 machine interfaces, extractor-owned
         # discovery). Bump deliberately, never implicitly. The installed
         # binary self-reports "dev" (no ldflags stamp under go install); the
-        # @v0.3.0 pin is what carries the version guarantee here, and the
+        # @v0.6.0 pin is what carries the version guarantee here, and the
         # Makefile's RULEFLOOR_RESOLVE accepts a binary that answers
         # `version --json`.
-        run: go install github.com/ozgurcd/rulefloor@v0.3.0
+        run: go install github.com/ozgurcd/rulefloor@v0.6.0
 
       - name: Install grype
         # Pinned to a tagged release — BOTH the install script ref and the
@@ -262,7 +262,7 @@ jobs:
       # integration --tags integration). Runs AFTER ci-integration-test:
       # the suites have already migrated the service database by then.
       - name: Install rulefloor
-        run: go install github.com/ozgurcd/rulefloor@v0.3.0
+        run: go install github.com/ozgurcd/rulefloor@v0.6.0
 
       - name: make rulefloor-integration
         env:
