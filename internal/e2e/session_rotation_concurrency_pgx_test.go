@@ -157,12 +157,13 @@ func TestE2E_OSS_SessionRotation_ConcurrentStorm(t *testing.T) {
 
 	const n = 8
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		winners int
-		invalid int
-		reuse   int
-		other   int
+		wg         sync.WaitGroup
+		mu         sync.Mutex
+		winners    int
+		invalid    int
+		reuse      int
+		other      int
+		successExp []time.Time // every success's returned (persisted) expires_at
 	)
 	release := make(chan struct{})
 
@@ -177,6 +178,7 @@ func TestE2E_OSS_SessionRotation_ConcurrentStorm(t *testing.T) {
 			switch {
 			case err == nil && res != nil:
 				winners++
+				successExp = append(successExp, res.ExpiresAt)
 			case errors.Is(err, service.ErrUserSessionReuse):
 				reuse++
 			case errors.Is(err, service.ErrUserSessionInvalidGrant):
@@ -187,10 +189,11 @@ func TestE2E_OSS_SessionRotation_ConcurrentStorm(t *testing.T) {
 		}()
 	}
 
-	// Sleep before releasing so every rotation computes its new
-	// expires_at from a wall clock strictly later than create time —
-	// gives the P0-12b assertion real separation (~1.5s) instead of a
-	// sub-millisecond delta that a reverted fix could still satisfy.
+	// Sleep before releasing so the rotation's DB-clock instant is
+	// comfortably later than the create's — real separation for the
+	// P0-12b advance check below. The sleep is NOT load-bearing for any
+	// magnitude assertion (see THE-CLOSURE-AND-CLOCK): the persist proof
+	// is the returned-vs-final-row expiry identity, not a duration.
 	time.Sleep(1500 * time.Millisecond)
 	close(release)
 	wg.Wait()
@@ -243,13 +246,32 @@ func TestE2E_OSS_SessionRotation_ConcurrentStorm(t *testing.T) {
 		t.Error("rotated session must still appear in ListActiveByUserID (user stays logged in)")
 	}
 
-	// P0-12b: expires_at was persisted by the CAS and moved forward.
+	// P0-12b: expires_at was persisted by the CAS and moved forward. Both
+	// timestamps are DB-clock transaction-start instants (Create and
+	// RotateToken each write expires_at as now() + TTL), so this is a
+	// single-clock, ordering-based check: the rotation transaction ran
+	// strictly after the create transaction, so a persisted extension is
+	// strictly later — and a reverted P0-12b (expires_at dropped from the
+	// CAS UPDATE) leaves the row at exp0 exactly, failing After.
 	if !after.ExpiresAt.UTC().After(fx.exp0) {
 		t.Errorf("expires_at must advance on rotation (P0-12b); before=%s after=%s",
 			fx.exp0.Format(time.RFC3339Nano), after.ExpiresAt.UTC().Format(time.RFC3339Nano))
 	}
-	if delta := after.ExpiresAt.UTC().Sub(fx.exp0); delta < time.Second {
-		t.Errorf("expires_at advance too small to be a real persist (P0-12b teeth); delta=%s", delta)
+	// P0-12b teeth, re-expressed as the INVARIANT rather than a wall-clock
+	// margin (THE-CLOSURE-AND-CLOCK): every successful rotation's RETURNED
+	// expires_at — the CAS's RETURNING projection for the winner, the
+	// post-commit read for a benign racer — must be EXACTLY the value now
+	// persisted on the row. The prior form asserted delta >= 1s against a
+	// 1.5s host sleep, i.e. a host-clock duration against a DB-clock
+	// elapsed; under VM clock drift the margin collapsed (measured idle
+	// distribution n=15 min=1.398s median=1.511s max=2.089s, with a
+	// recorded under-load firing at ~972ms) and the test failed on drift,
+	// never on a product defect. The identity below is duration-free.
+	for i, exp := range successExp {
+		if !exp.UTC().Equal(after.ExpiresAt.UTC()) {
+			t.Errorf("success %d returned expires_at %s but the persisted row has %s — the returned expiry must BE the persisted expiry (P0-12b teeth)",
+				i, exp.UTC().Format(time.RFC3339Nano), after.ExpiresAt.UTC().Format(time.RFC3339Nano))
+		}
 	}
 }
 
