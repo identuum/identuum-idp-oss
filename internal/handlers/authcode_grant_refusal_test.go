@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
@@ -64,10 +66,13 @@ func TestHandleAuthorizationCodeGrant_RefusesReplayedCode(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/oauth/token",
 		strings.NewReader("code=replayed-or-unknown&redirect_uri=https://client.example.com/cb&code_verifier=verifier"))
 	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// Inject the authenticated client (mw stores it under this context key).
-	c.Set("identuum-oss-oauth-client", &service.AuthenticatedClient{ClientID: "cid"})
+	// Inject the authenticated client via the exported test setter (never the
+	// raw context-key string, which would silently decay if the key changes and
+	// make the grant error early for the wrong reason).
+	mw.SetAuthenticatedClientForTest(c, &service.AuthenticatedClient{ClientID: "cid"})
 
-	if _, err := handleAuthorizationCodeGrant(c, deps); err == nil {
-		t.Errorf("a replayed or unknown authorization code must be refused, got nil error")
+	_, err := handleAuthorizationCodeGrant(c, deps)
+	if !errors.Is(err, service.ErrAuthCodeInvalidGrant) {
+		t.Errorf("a replayed or unknown authorization code must be refused with ErrAuthCodeInvalidGrant, got %v", err)
 	}
 }
