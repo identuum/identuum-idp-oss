@@ -232,7 +232,12 @@ func TestCascade_UserDelete_RevokesSession(t *testing.T) {
 	}
 }
 
-// (c) ORG DEACTIVATE → a member's live session rejected at the bearer path.
+// (c) ORG DEACTIVATE → the org's member session rejected at the bearer
+// path, the member's refresh tokens revoked, and an OUTSIDER (a live
+// session in a different org, deliberately absent from the member list)
+// untouched — the cascade is scoped by the organization id, not
+// revoke-everything.
+// RULE: ORG-CASCADE-REVOKE-1
 func TestCascade_OrgDeactivate_RevokesMemberSession(t *testing.T) {
 	orgID := uuid.New()
 	orgRepo := newMemOrgRepo()
@@ -240,6 +245,9 @@ func TestCascade_OrgDeactivate_RevokesMemberSession(t *testing.T) {
 	member := &domain.User{ID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgUser}
 	store := newCascadeSessionStore()
 	sid := store.addLiveSession(member.ID, orgID)
+	outsiderOrg := uuid.New()
+	outsider := &domain.User{ID: uuid.New(), OrganizationID: outsiderOrg, Role: domain.RoleOrgUser}
+	outsiderSID := store.addLiveSession(outsider.ID, outsiderOrg)
 	refresh := &cascadeRefreshStub{}
 	deps := OrganizationsHandlerDeps{
 		Audit:               audit.NoopService{},
@@ -250,21 +258,31 @@ func TestCascade_OrgDeactivate_RevokesMemberSession(t *testing.T) {
 	}
 
 	verifier := cascadeVerifier{p: &domain.Principal{UserID: member.ID, OrganizationID: orgID, Role: domain.RoleOrgUser, SessionID: sid}}
+	outsiderVerifier := cascadeVerifier{p: &domain.Principal{UserID: outsider.ID, OrganizationID: outsiderOrg, Role: domain.RoleOrgUser, SessionID: outsiderSID}}
 	code := runHandler(t, http.MethodPut, "/o/:id", "/o/"+orgID.String(), `{"active":false}`, HandleUpdateOrganization(deps))
 	if code != http.StatusOK {
 		t.Fatalf("org deactivate status = %d, want 200", code)
 	}
 	after := bearerStatus(verifier, store)
-	t.Logf("EVIDENCE (c) org deactivate: bearer after=%d; member refresh revokes=%v", after, refresh.calls)
+	outsiderAfter := bearerStatus(outsiderVerifier, store)
+	t.Logf("EVIDENCE (c) org deactivate: member bearer after=%d; outsider bearer after=%d; refresh revokes=%v", after, outsiderAfter, refresh.calls)
 	if after != http.StatusUnauthorized {
 		t.Errorf("after org deactivate: member bearer status = %d, want 401", after)
 	}
+	if outsiderAfter != http.StatusOK {
+		t.Errorf("after org deactivate: OUTSIDER bearer status = %d, want 200 (cascade must stay org-scoped)", outsiderAfter)
+	}
 	if len(refresh.calls) != 1 || refresh.calls[0] != member.ID {
-		t.Errorf("member refresh revoke not called: %v", refresh.calls)
+		t.Errorf("refresh revokes must be exactly the org's member: %v", refresh.calls)
 	}
 }
 
-// (d) ORG DELETE → a member's live session rejected at the bearer path.
+// (d) ORG DELETE → the org's member session rejected at the bearer path,
+// the member's refresh tokens revoked, the outsider untouched — same
+// scope contract as (c), through the delete call site. Second tooth of
+// ORG-CASCADE-REVOKE-1 (the unique rule tag sits on (c); the check
+// binds this whole file, so this func runs under the same check and
+// carries its own recorded mutation, M2).
 func TestCascade_OrgDelete_RevokesMemberSession(t *testing.T) {
 	orgID := uuid.New()
 	orgRepo := newMemOrgRepo()
@@ -272,6 +290,9 @@ func TestCascade_OrgDelete_RevokesMemberSession(t *testing.T) {
 	member := &domain.User{ID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgUser}
 	store := newCascadeSessionStore()
 	sid := store.addLiveSession(member.ID, orgID)
+	outsiderOrg := uuid.New()
+	outsider := &domain.User{ID: uuid.New(), OrganizationID: outsiderOrg, Role: domain.RoleOrgUser}
+	outsiderSID := store.addLiveSession(outsider.ID, outsiderOrg)
 	refresh := &cascadeRefreshStub{}
 	deps := OrganizationsHandlerDeps{
 		Audit:               audit.NoopService{},
@@ -282,14 +303,22 @@ func TestCascade_OrgDelete_RevokesMemberSession(t *testing.T) {
 	}
 
 	verifier := cascadeVerifier{p: &domain.Principal{UserID: member.ID, OrganizationID: orgID, Role: domain.RoleOrgUser, SessionID: sid}}
+	outsiderVerifier := cascadeVerifier{p: &domain.Principal{UserID: outsider.ID, OrganizationID: outsiderOrg, Role: domain.RoleOrgUser, SessionID: outsiderSID}}
 	code := runHandler(t, http.MethodDelete, "/o/:id", "/o/"+orgID.String(), "", HandleDeleteOrganization(deps))
 	if code != http.StatusOK {
 		t.Fatalf("org delete status = %d, want 200", code)
 	}
 	after := bearerStatus(verifier, store)
-	t.Logf("EVIDENCE (d) org delete: bearer after=%d; member refresh revokes=%v", after, refresh.calls)
+	outsiderAfter := bearerStatus(outsiderVerifier, store)
+	t.Logf("EVIDENCE (d) org delete: member bearer after=%d; outsider bearer after=%d; refresh revokes=%v", after, outsiderAfter, refresh.calls)
 	if after != http.StatusUnauthorized {
 		t.Errorf("after org delete: member bearer status = %d, want 401", after)
+	}
+	if outsiderAfter != http.StatusOK {
+		t.Errorf("after org delete: OUTSIDER bearer status = %d, want 200 (cascade must stay org-scoped)", outsiderAfter)
+	}
+	if len(refresh.calls) != 1 || refresh.calls[0] != member.ID {
+		t.Errorf("refresh revokes must be exactly the org's member: %v", refresh.calls)
 	}
 }
 
