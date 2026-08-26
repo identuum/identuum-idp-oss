@@ -68,6 +68,72 @@ type rotationCounts struct {
 	skipped   int
 }
 
+// sealedFamily describes one at-rest sealed surface. This slice is the
+// SINGLE source of truth for three consumers: the rotation core (selKV /
+// upd), the unknown-schema guard (table+column form the exclusion set),
+// and the doctor's at-rest key-id census (aggSQL). A new sealed column
+// added here lands in all three at once; a sealed column NOT added here
+// is what the guard exists to catch.
+type sealedFamily struct {
+	family string // operator-facing name, e.g. "signing_keys.private_key"
+	table  string
+	column string
+	selKV  string // rotation: (key, value) read
+	upd    string // rotation: write-back by key
+	pemOK  bool   // signing keys: legacy plaintext PEM is sealed, not skipped
+	json   bool   // sealed values live INSIDE a JSON document (identity_providers.config)
+	aggSQL string // doctor: value -> key-id census ('plaintext'/'legacy' for non-v2 shapes)
+}
+
+// keyIDCensus is the shared doctor aggregation: v2 values report their
+// key id, plaintext PEMs report 'plaintext', anything else 'legacy'.
+const keyIDCensus = `SELECT COALESCE(substring(%[1]s FROM '^v2:([0-9a-f]{16}):'),
+	       CASE WHEN %[1]s LIKE '-----BEGIN%%' THEN 'plaintext' ELSE 'legacy' END) AS kid, count(*)
+	FROM %[2]s WHERE %[1]s IS NOT NULL AND %[1]s <> '' GROUP BY 1 ORDER BY 1`
+
+var sealedFamilies = []sealedFamily{
+	{
+		family: "signing_keys.private_key",
+		table:  "signing_keys", column: "private_key",
+		selKV:  `SELECT kid, private_key FROM signing_keys WHERE private_key <> ''`,
+		upd:    `UPDATE signing_keys SET private_key = $2 WHERE kid = $1`,
+		pemOK:  true,
+		aggSQL: fmt.Sprintf(keyIDCensus, "private_key", "signing_keys"),
+	},
+	{
+		family: "users.mfa_secret",
+		table:  "users", column: "mfa_secret",
+		selKV:  `SELECT id::text, mfa_secret FROM users WHERE mfa_secret IS NOT NULL AND mfa_secret <> ''`,
+		upd:    `UPDATE users SET mfa_secret = $2 WHERE id::text = $1`,
+		aggSQL: fmt.Sprintf(keyIDCensus, "mfa_secret", "users"),
+	},
+	{
+		family: "mfa_pending_login_sessions.secret",
+		table:  "mfa_pending_login_sessions", column: "secret",
+		selKV:  `SELECT id::text, secret FROM mfa_pending_login_sessions WHERE secret IS NOT NULL AND secret <> ''`,
+		upd:    `UPDATE mfa_pending_login_sessions SET secret = $2 WHERE id::text = $1`,
+		aggSQL: fmt.Sprintf(keyIDCensus, "secret", "mfa_pending_login_sessions"),
+	},
+	{
+		family: "oidc_states.pkce_verifier_encrypted",
+		table:  "oidc_states", column: "pkce_verifier_encrypted",
+		selKV:  `SELECT state, pkce_verifier_encrypted FROM oidc_states WHERE pkce_verifier_encrypted <> ''`,
+		upd:    `UPDATE oidc_states SET pkce_verifier_encrypted = $2 WHERE state = $1`,
+		aggSQL: fmt.Sprintf(keyIDCensus, "pkce_verifier_encrypted", "oidc_states"),
+	},
+	{
+		family: "identity_providers.config (2 sealed fields)",
+		table:  "identity_providers", column: "config",
+		selKV: `SELECT id::text, config::text FROM identity_providers WHERE config IS NOT NULL`,
+		upd:   `UPDATE identity_providers SET config = $2::jsonb WHERE id::text = $1`,
+		json:  true,
+		aggSQL: `SELECT COALESCE(substring(v FROM '^v2:([0-9a-f]{16}):'), 'legacy') AS kid, count(*)
+			FROM (SELECT config->>'client_secret_encrypted' AS v FROM identity_providers
+			      UNION ALL SELECT config->>'bind_password_encrypted' FROM identity_providers) s
+			WHERE v IS NOT NULL AND v <> '' GROUP BY 1 ORDER BY 1`,
+	},
+}
+
 // dispatchRotateEncryptionKey wires the one-shot: env keys, pool, the
 // offline lease guard, then the single-transaction core.
 func dispatchRotateEncryptionKey(ctx context.Context, rest []string, stdout, stderr io.Writer) int {
@@ -137,6 +203,20 @@ func dispatchRotateEncryptionKey(ctx context.Context, rest []string, stdout, std
 	}
 	defer func() { _ = tx.Rollback(ctx) }() // no-op after a successful commit
 
+	// UNKNOWN-SCHEMA GUARD: refuse before the first rewrite when the
+	// database holds sealed columns outside the family list — converting
+	// only what this build knows would half-rotate the customer's data.
+	unknown, err := probeUnknownSealedColumns(ctx, tx)
+	if err != nil {
+		fmt.Fprintln(stderr, "identuum-idp: rotate-encryption-key: schema guard failed, zero rows changed:", err)
+		return 1
+	}
+	if len(unknown) > 0 {
+		fmt.Fprintf(stderr, "identuum-idp: rotate-encryption-key: REFUSING, zero rows changed — the schema holds sealed value(s) in column(s) this tool does not know: %s. Converting only the known families would HALF-ROTATE this database (is this an identuum-idp-oss database, and is this binary current?).\n",
+			strings.Join(unknown, ", "))
+		return 1
+	}
+
 	report, coreErr := rotateEncryptionKeyCore(ctx, tx, cs, newID)
 	if coreErr != nil {
 		fmt.Fprintf(stderr, "identuum-idp: rotate-encryption-key: ABORTED, zero rows changed (the transaction rolled back): %v\n", coreErr)
@@ -162,43 +242,24 @@ func dispatchRotateEncryptionKey(ctx context.Context, rest []string, stdout, std
 func rotateEncryptionKeyCore(ctx context.Context, tx pgx.Tx, cs *crypto.CryptoService, newID string) (map[string]rotationCounts, error) {
 	report := make(map[string]rotationCounts)
 
-	simple := []struct {
-		family string
-		sel    string
-		upd    string
-		pemOK  bool // signing keys: a legacy plaintext PEM is sealed, not skipped
-	}{
-		{
-			family: "signing_keys.private_key",
-			sel:    `SELECT kid, private_key FROM signing_keys WHERE private_key <> ''`,
-			upd:    `UPDATE signing_keys SET private_key = $2 WHERE kid = $1`,
-			pemOK:  true,
-		},
-		{
-			family: "users.mfa_secret",
-			sel:    `SELECT id::text, mfa_secret FROM users WHERE mfa_secret IS NOT NULL AND mfa_secret <> ''`,
-			upd:    `UPDATE users SET mfa_secret = $2 WHERE id::text = $1`,
-		},
-		{
-			family: "mfa_pending_login_sessions.secret",
-			sel:    `SELECT id::text, secret FROM mfa_pending_login_sessions WHERE secret IS NOT NULL AND secret <> ''`,
-			upd:    `UPDATE mfa_pending_login_sessions SET secret = $2 WHERE id::text = $1`,
-		},
-		{
-			family: "oidc_states.pkce_verifier_encrypted",
-			sel:    `SELECT state, pkce_verifier_encrypted FROM oidc_states WHERE pkce_verifier_encrypted <> ''`,
-			upd:    `UPDATE oidc_states SET pkce_verifier_encrypted = $2 WHERE state = $1`,
-		},
-	}
-
-	for _, fam := range simple {
-		rows, err := collectKV(ctx, tx, fam.sel)
+	for _, fam := range sealedFamilies {
+		rows, err := collectKV(ctx, tx, fam.selKV)
 		if err != nil {
 			return nil, fmt.Errorf("%s: read: %w", fam.family, err)
 		}
 		var c rotationCounts
 		for _, kv := range rows {
-			next, changed, err := rotateCiphertext(cs, newID, kv.v, fam.pemOK)
+			var (
+				next    string
+				changed bool
+			)
+			if fam.json {
+				// identity_providers.config carries its sealed values
+				// INSIDE a JSON document.
+				next, changed, err = rotateProviderConfigJSON(cs, newID, kv.v)
+			} else {
+				next, changed, err = rotateCiphertext(cs, newID, kv.v, fam.pemOK)
+			}
 			if err != nil {
 				return nil, fmt.Errorf("%s (row %s): %w", fam.family, kv.k, err)
 			}
@@ -214,30 +275,149 @@ func rotateEncryptionKeyCore(ctx context.Context, tx pgx.Tx, cs *crypto.CryptoSe
 		report[fam.family] = c
 	}
 
-	// identity_providers.config carries its sealed values INSIDE a JSON
-	// document (client_secret_encrypted / bind_password_encrypted).
-	rows, err := collectKV(ctx, tx, `SELECT id::text, config::text FROM identity_providers WHERE config IS NOT NULL`)
-	if err != nil {
-		return nil, fmt.Errorf("identity_providers.config: read: %w", err)
-	}
-	var c rotationCounts
-	for _, kv := range rows {
-		next, changed, err := rotateProviderConfigJSON(cs, newID, kv.v)
-		if err != nil {
-			return nil, fmt.Errorf("identity_providers.config (row %s): %w", kv.k, err)
-		}
-		if !changed {
-			c.skipped++
-			continue
-		}
-		if _, err := tx.Exec(ctx, `UPDATE identity_providers SET config = $2::jsonb WHERE id::text = $1`, kv.k, next); err != nil {
-			return nil, fmt.Errorf("identity_providers.config (row %s): write: %w", kv.k, err)
-		}
-		c.converted++
-	}
-	report["identity_providers.config (2 sealed fields)"] = c
-
 	return report, nil
+}
+
+// probeUnknownSealedColumns is the UNKNOWN-SCHEMA GUARD (THE-ROTATION-
+// GUARD): before any rewrite, every base-table text/varchar/json/jsonb
+// column in the public schema OUTSIDE the sealedFamilies list is probed
+// for values shaped like this cipher's output (v2:<16-hex-keyid>: — or
+// a v1: base64 body; JSON documents are probed for embedded v2 values).
+// One hit means the database holds sealed data this tool would leave
+// under the retired key while printing DONE — the half-converted
+// outcome the tool exists to make impossible (measured threat: a
+// pre-split/CE schema's trusted_assertion_issuers.oidc_client_secret_
+// encrypted, sealed by the SAME CryptoService). The caller must REFUSE,
+// naming every hit. STATED LIMIT: pre-v1 bare-base64 ciphertexts carry
+// no recognizable shape and cannot be probed for; a false-positive
+// (an unrelated column whose text matches the v1/v2 shape) refuses
+// loudly rather than converts — fail-closed is the only safe direction
+// for a data-converting tool.
+// The sealed-value shapes the guard probes for. Character classes only —
+// identical semantics under Go regexp (unit-tested) and Postgres `~`
+// (fixture-tested), so the always-running unit teeth and the live probe
+// can never drift apart.
+const (
+	sealedV2Pattern     = `^v2:[0-9a-f]{16}:`
+	sealedV1Pattern     = `^v1:[A-Za-z0-9_=+/-]+$`
+	sealedJSONV2Pattern = `"v2:[0-9a-f]{16}:`
+)
+
+// guardColumn is one live-schema column the guard considers.
+type guardColumn struct{ tbl, col, typ string }
+
+// guardCandidateColumns is the guard's PURE decision: which enumerated
+// columns get probed. Everything except the sealedFamilies columns — a
+// family added to the shared table is auto-excluded here, and a sealed
+// column that is NOT in the table is exactly what must remain a
+// candidate.
+func guardCandidateColumns(all []guardColumn) []guardColumn {
+	known := make(map[string]bool, len(sealedFamilies))
+	for _, f := range sealedFamilies {
+		known[f.table+"."+f.column] = true
+	}
+	out := make([]guardColumn, 0, len(all))
+	for _, c := range all {
+		if !known[c.tbl+"."+c.col] {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func probeUnknownSealedColumns(ctx context.Context, tx pgx.Tx) ([]string, error) {
+	cols, err := tx.Query(ctx, `
+		SELECT c.table_name, c.column_name, c.data_type
+		FROM information_schema.columns c
+		JOIN information_schema.tables t
+		  ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+		WHERE c.table_schema = 'public'
+		  AND t.table_type = 'BASE TABLE'
+		  AND c.data_type IN ('text', 'character varying', 'json', 'jsonb')
+		ORDER BY c.table_name, c.column_name`)
+	if err != nil {
+		return nil, fmt.Errorf("schema guard: enumerate columns: %w", err)
+	}
+	var all []guardColumn
+	for cols.Next() {
+		var c guardColumn
+		if err := cols.Scan(&c.tbl, &c.col, &c.typ); err != nil {
+			cols.Close()
+			return nil, fmt.Errorf("schema guard: scan: %w", err)
+		}
+		all = append(all, c)
+	}
+	cols.Close()
+	if err := cols.Err(); err != nil {
+		return nil, fmt.Errorf("schema guard: enumerate columns: %w", err)
+	}
+
+	var hits []string
+	for _, c := range guardCandidateColumns(all) {
+		tbl := pgx.Identifier{c.tbl}.Sanitize()
+		col := pgx.Identifier{c.col}.Sanitize()
+		var probe string
+		if c.typ == "json" || c.typ == "jsonb" {
+			probe = fmt.Sprintf(`SELECT 1 FROM %s WHERE %s::text ~ '%s' LIMIT 1`, tbl, col, sealedJSONV2Pattern)
+		} else {
+			probe = fmt.Sprintf(`SELECT 1 FROM %s WHERE %s ~ '%s' OR %s ~ '%s' LIMIT 1`, tbl, col, sealedV2Pattern, col, sealedV1Pattern)
+		}
+		var one int
+		err := tx.QueryRow(ctx, probe).Scan(&one)
+		switch {
+		case err == nil:
+			hits = append(hits, c.tbl+"."+c.col)
+		case err == pgx.ErrNoRows:
+			// clean column
+		default:
+			return nil, fmt.Errorf("schema guard: probe %s.%s: %w", c.tbl, c.col, err)
+		}
+	}
+	return hits, nil
+}
+
+// familyKeyIDCensus is the doctor's view of one sealed family: how many
+// values sit under which key id ('plaintext'/'legacy' for pre-v2
+// shapes). Key ids are safe to print (crypto.deriveKeyID is a hash
+// prefix, never material).
+type familyKeyIDCensus struct {
+	family  string
+	entries []keyIDCount // ordered by kid
+}
+
+type keyIDCount struct {
+	kid string
+	n   int
+}
+
+// atRestKeyIDCensus runs the per-family key-id census for doctor. It
+// reads over the SAME sealedFamilies table the rotation and the schema
+// guard use, so the three views can never disagree about what is sealed.
+type atRestKeyIDCensus struct{ db postgres.DBTX }
+
+func (c atRestKeyIDCensus) AtRestKeyIDs(ctx context.Context) ([]familyKeyIDCensus, error) {
+	out := make([]familyKeyIDCensus, 0, len(sealedFamilies))
+	for _, fam := range sealedFamilies {
+		rows, err := c.db.Query(ctx, fam.aggSQL)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", fam.family, err)
+		}
+		f := familyKeyIDCensus{family: fam.family}
+		for rows.Next() {
+			var e keyIDCount
+			if err := rows.Scan(&e.kid, &e.n); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("%s: %w", fam.family, err)
+			}
+			f.entries = append(f.entries, e)
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("%s: %w", fam.family, err)
+		}
+		out = append(out, f)
+	}
+	return out, nil
 }
 
 type kvRow struct{ k, v string }

@@ -68,6 +68,16 @@ type doctorDeps struct {
 	AtRestKeySource string
 	Setup           doctorSetupReader
 	Seal            doctorSealProber
+	// KeyIDs, when non-nil, reports which key id each sealed at-rest
+	// family's rows sit under (THE-ROTATION-GUARD item 2) — the operator's
+	// post-rotation verification that the old key is genuinely retirable.
+	KeyIDs doctorKeyIDProber
+}
+
+// doctorKeyIDProber is the at-rest key-id census seam (implemented by
+// atRestKeyIDCensus over the sealedFamilies table).
+type doctorKeyIDProber interface {
+	AtRestKeyIDs(ctx context.Context) ([]familyKeyIDCensus, error)
 }
 
 // doctorCore prints one named state per line and returns the exit code:
@@ -151,6 +161,36 @@ func doctorCore(ctx context.Context, d doctorDeps, stdout io.Writer) int {
 		fmt.Fprintf(stdout, "identuum-idp: doctor: signing-key-seal: ok (%d of %d active key(s) usable)\n", len(usable), activeRows)
 	}
 
+	// at-rest seal census (needs the DB): which key id each sealed
+	// family's rows sit under. Informational for a healthy install; the
+	// operator's post-rotation check that nothing stayed under the old
+	// key. Mixed ids are printed, not failed — a half-finished rotation
+	// is exactly what this line exists to make visible.
+	switch {
+	case d.KeyIDs == nil && d.DBOK:
+		// census not wired (unit-test composition) — print nothing
+	case d.KeyIDs == nil:
+		fmt.Fprintln(stdout, "identuum-idp: doctor: at-rest-seals: unknown (database unreachable)")
+	default:
+		fams, err := d.KeyIDs.AtRestKeyIDs(ctx)
+		if err != nil {
+			fmt.Fprintln(stdout, "identuum-idp: doctor: at-rest-seals: unknown (census failed — is the database migrated?)")
+			failing = append(failing, "at-rest-seals")
+			break
+		}
+		for _, f := range fams {
+			if len(f.entries) == 0 {
+				fmt.Fprintf(stdout, "identuum-idp: doctor: at-rest-seals: %s: none\n", f.family)
+				continue
+			}
+			parts := make([]string, 0, len(f.entries))
+			for _, e := range f.entries {
+				parts = append(parts, fmt.Sprintf("%s(%d)", e.kid, e.n))
+			}
+			fmt.Fprintf(stdout, "identuum-idp: doctor: at-rest-seals: %s: %s\n", f.family, strings.Join(parts, " "))
+		}
+	}
+
 	if len(failing) > 0 {
 		fmt.Fprintf(stdout, "identuum-idp: doctor: FAILING: %s\n", strings.Join(failing, ", "))
 		return 1
@@ -189,6 +229,7 @@ func dispatchDoctor(ctx context.Context, rest []string, stdout, stderr io.Writer
 	defer pool.Close()
 	deps.DBOK = true
 	deps.Setup = postgres.NewPgxSetupStateRepository(pool)
+	deps.KeyIDs = atRestKeyIDCensus{db: pool}
 	if cipher != nil {
 		repos := postgres.NewPgxRepositories(pool, cipher)
 		if repos != nil {

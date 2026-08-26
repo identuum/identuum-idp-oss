@@ -14,6 +14,7 @@ package main
 import (
 	"context"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -288,6 +289,209 @@ func TestRotateEncryptionKeyCore_LiveSchema_ConvertsIdempotentlyAndAbortsOnPoiso
 		t.Fatal("a poisoned row must abort the rotation core")
 	} else if !strings.Contains(err.Error(), "rot-test-poison") {
 		t.Fatalf("the abort must name the poisoned row: %v", err)
+	}
+}
+
+// The guard's PURE decision: a column outside the sealedFamilies table
+// stays a candidate — including one whose NAME matches a known column in
+// a foreign table — while every known family column is excluded. This is
+// the always-running half of the guard's teeth; the fixture test below
+// proves the live probe.
+//
+// RULE: ROTATE-GUARD-1
+func TestGuardCandidateColumns_ExcludesExactlyTheKnownFamilies(t *testing.T) {
+	all := []guardColumn{
+		{tbl: "signing_keys", col: "private_key", typ: "text"},                               // known
+		{tbl: "users", col: "mfa_secret", typ: "text"},                                       // known
+		{tbl: "identity_providers", col: "config", typ: "jsonb"},                             // known
+		{tbl: "trusted_assertion_issuers", col: "oidc_client_secret_encrypted", typ: "text"}, // the measured threat
+		{tbl: "foreign_table", col: "private_key", typ: "text"},                              // known NAME, foreign table
+	}
+	got := guardCandidateColumns(all)
+	if len(got) != 2 {
+		t.Fatalf("want exactly the 2 foreign columns kept as candidates, got %d: %v", len(got), got)
+	}
+	if got[0].tbl != "trusted_assertion_issuers" || got[1].tbl != "foreign_table" {
+		t.Fatalf("wrong candidates survived: %v", got)
+	}
+	// Every family in the shared table must be excluded — a family added
+	// there must never re-appear as its own guard candidate.
+	var famCols []guardColumn
+	for _, f := range sealedFamilies {
+		famCols = append(famCols, guardColumn{tbl: f.table, col: f.column, typ: "text"})
+	}
+	if left := guardCandidateColumns(famCols); len(left) != 0 {
+		t.Fatalf("sealedFamilies columns must all be excluded, %d survived: %v", len(left), left)
+	}
+}
+
+// The sealed-value shapes, unit-tested through Go regexp with the SAME
+// character-class patterns the Postgres probe runs: this cipher's output
+// is recognized, ordinary text and PEMs are not.
+func TestSealedValuePatterns_MatchCipherOutputOnly(t *testing.T) {
+	v2 := regexp.MustCompile(sealedV2Pattern)
+	v1 := regexp.MustCompile(sealedV1Pattern)
+	jv2 := regexp.MustCompile(sealedJSONV2Pattern)
+
+	sealed := sealUnder(t, rotTestOldKey, "x")
+	if !v2.MatchString(sealed) {
+		t.Fatal("a real v2 ciphertext must match the v2 probe shape")
+	}
+	if !v1.MatchString("v1:" + strings.SplitN(sealed, ":", 3)[2]) {
+		t.Fatal("a real v1-format ciphertext must match the v1 probe shape")
+	}
+	if !jv2.MatchString(`{"secret":"` + sealed + `"}`) {
+		t.Fatal("a v2 ciphertext embedded in JSON must match the JSON probe shape")
+	}
+	for _, clean := range []string{
+		"plain words", "-----BEGIN PRIVATE KEY-----", "v2:short:x", "v2:NOTHEXNOTHEX0000:x",
+		"v1:not base64 spaces", "https://v1.example/path",
+	} {
+		if v2.MatchString(clean) || v1.MatchString(clean) {
+			t.Fatalf("non-ciphertext %q must not trip the probe shapes", clean)
+		}
+	}
+}
+
+// The UNKNOWN-SCHEMA GUARD, proven against a live fixture schema: a
+// table this tool's family list does not know, created inside the
+// rolled-back transaction, carrying (a) a v2-sealed text column, (b) a
+// v1-shaped text column, and (c) a jsonb column with an embedded sealed
+// value — the guard must name all three; the clean base schema must
+// probe empty. This is the door THE-KEY-ROTATION-TRUTH item 4 did not
+// look at: a pre-split/CE database (e.g. trusted_assertion_issuers.
+// oidc_client_secret_encrypted) would otherwise half-convert under a
+// green DONE.
+func TestProbeUnknownSealedColumns_RefusesForeignSealedColumnsByName(t *testing.T) {
+	dbURL := os.Getenv("IDENTUUM_IDP_TEST_DATABASE_URL")
+	if dbURL == "" {
+		if os.Getenv("IDENTUUM_IDP_REQUIRE_DB_TESTS") != "" {
+			t.Fatal("IDENTUUM_IDP_REQUIRE_DB_TESTS is set but IDENTUUM_IDP_TEST_DATABASE_URL is not")
+		}
+		t.Skip("IDENTUUM_IDP_TEST_DATABASE_URL not set; skipping DB-backed guard test")
+	}
+	if err := testsupport.RequireTestDatabase(dbURL); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	pool, err := postgres.NewPool(ctx, dbURL, nil)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	// The base schema must be clean BEFORE the fixture lands — a hit here
+	// would mean the family list itself has drifted from the migrations.
+	// The dispatch test's committed fixture table is tolerated: two test
+	// processes can share this database, and that table is a named test
+	// artifact, not schema drift.
+	if hits, err := probeUnknownSealedColumns(ctx, tx); err != nil {
+		t.Fatalf("guard on base schema: %v", err)
+	} else {
+		for _, h := range hits {
+			if !strings.HasPrefix(h, "rot_guard_dispatch_fixture.") {
+				t.Fatalf("base schema must probe clean, got hit: %v (all: %v)", h, hits)
+			}
+		}
+	}
+
+	if _, err := tx.Exec(ctx, `CREATE TABLE rot_guard_fixture (
+		id int PRIMARY KEY,
+		oidc_client_secret_encrypted text,
+		legacy_secret text,
+		payload jsonb,
+		harmless text
+	)`); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	v2 := sealUnder(t, rotTestOldKey, "foreign-sealed")
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO rot_guard_fixture (id, oidc_client_secret_encrypted, legacy_secret, payload, harmless)
+		 VALUES (1, $1, $2, $3::jsonb, 'plain words')`,
+		v2, "v1:"+strings.SplitN(v2, ":", 3)[2], `{"nested":{"secret":"`+v2+`"}}`); err != nil {
+		t.Fatalf("seed fixture: %v", err)
+	}
+
+	hits, err := probeUnknownSealedColumns(ctx, tx)
+	if err != nil {
+		t.Fatalf("guard on fixture schema: %v", err)
+	}
+	want := map[string]bool{
+		"rot_guard_fixture.oidc_client_secret_encrypted": true,
+		"rot_guard_fixture.legacy_secret":                true,
+		"rot_guard_fixture.payload":                      true,
+	}
+	var mine []string
+	for _, h := range hits {
+		if strings.HasPrefix(h, "rot_guard_fixture.") {
+			mine = append(mine, h)
+		}
+	}
+	if len(mine) != len(want) {
+		t.Fatalf("want exactly the 3 seeded sealed columns named, got %v", mine)
+	}
+	for _, h := range mine {
+		if !want[h] {
+			t.Fatalf("unexpected hit %q (all: %v)", h, hits)
+		}
+	}
+}
+
+// The WIRING is load-bearing too: the dispatch path must refuse — rc 1,
+// the foreign column named on stderr, zero rows changed — when the
+// database holds a sealed column outside the family list. This drives
+// the REAL subcommand path (env keys, lease, transaction), so the
+// fixture table must be committed and is dropped in cleanup.
+func TestDispatchRotateEncryptionKey_RefusesUnknownSchemaByName(t *testing.T) {
+	dbURL := os.Getenv("IDENTUUM_IDP_TEST_DATABASE_URL")
+	if dbURL == "" {
+		if os.Getenv("IDENTUUM_IDP_REQUIRE_DB_TESTS") != "" {
+			t.Fatal("IDENTUUM_IDP_REQUIRE_DB_TESTS is set but IDENTUUM_IDP_TEST_DATABASE_URL is not")
+		}
+		t.Skip("IDENTUUM_IDP_TEST_DATABASE_URL not set; skipping DB-backed dispatch test")
+	}
+	if err := testsupport.RequireTestDatabase(dbURL); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	pool, err := postgres.NewPool(ctx, dbURL, nil)
+	if err != nil {
+		t.Fatalf("pool: %v", err)
+	}
+	defer pool.Close()
+
+	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS rot_guard_dispatch_fixture (id int PRIMARY KEY, sealed text)`); err != nil {
+		t.Fatalf("create fixture: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DROP TABLE IF EXISTS rot_guard_dispatch_fixture`)
+	})
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO rot_guard_dispatch_fixture (id, sealed) VALUES (1, $1) ON CONFLICT (id) DO NOTHING`,
+		sealUnder(t, rotTestWrongKey, "foreign")); err != nil {
+		t.Fatalf("seed fixture: %v", err)
+	}
+
+	t.Setenv(rotateNewKeyEnv, rotTestNewKey)
+	t.Setenv(rotateOldKeyEnv, rotTestOldKey)
+	var out, errBuf strings.Builder
+	rc := dispatchRotateEncryptionKey(ctx, []string{dbURL}, &out, &errBuf)
+	if rc == 0 {
+		t.Fatalf("dispatch must refuse the unknown-schema database, got rc 0 (stdout: %s)", out.String())
+	}
+	if !strings.Contains(errBuf.String(), "rot_guard_dispatch_fixture.sealed") {
+		t.Fatalf("the refusal must name the foreign sealed column, got: %s", errBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), "zero rows changed") {
+		t.Fatalf("the refusal must state zero rows changed, got: %s", errBuf.String())
 	}
 }
 
