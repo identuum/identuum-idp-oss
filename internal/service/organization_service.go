@@ -172,6 +172,26 @@ func (s *OrganizationService) GetByID(ctx context.Context, id uuid.UUID) (*domai
 	return o, nil
 }
 
+// GetByIDAdminView reads an organization in ANY active state (the admin
+// read path — a deactivated org must stay inspectable, else deactivation
+// is a trap door). It intentionally still RETURNS soft-deleted rows so the
+// caller can distinguish deleted (404 per ORG-RESTORE-1) from absent; the
+// handler owns that mapping. Falls back to the narrow GetByID when the
+// repository has no admin accessor.
+func (s *OrganizationService) GetByIDAdminView(ctx context.Context, id uuid.UUID) (*domain.Organization, error) {
+	if ar, ok := s.repo.(repository.AdminOrganizationRepository); ok {
+		o, err := ar.GetByIDAdmin(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if o == nil {
+			return nil, errOrganizationNotFound
+		}
+		return o, nil
+	}
+	return s.GetByID(ctx, id)
+}
+
 // List returns organizations with filter + paging.
 func (s *OrganizationService) List(ctx context.Context, filter repository.OrganizationFilter, pagination repository.Pagination, sort repository.Sort) ([]*domain.Organization, int, error) {
 	return s.repo.List(ctx, filter, pagination, sort)

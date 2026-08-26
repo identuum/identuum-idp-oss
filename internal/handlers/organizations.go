@@ -369,6 +369,46 @@ func toSafeOrganization(o *domain.Organization) safeOrganization {
 	}
 }
 
+// parseOrgStateFilter maps the lifecycle query params onto the repository
+// filter. Two independent tri-state axes, mirroring the two DB columns:
+//
+//	?active=true|false|all    (absent = true  — the historic default)
+//	?deleted=false|true|all   (absent = false — the historic default)
+//
+// Absent params produce the ZERO filter, so callers that send nothing get
+// byte-for-byte the old behavior (active + non-deleted). An unrecognized
+// value returns ok=false — the caller answers 400 rather than silently
+// serving the default for a filter the client did not ask for.
+func parseOrgStateFilter(c *gin.Context) (repository.OrganizationFilter, bool) {
+	var f repository.OrganizationFilter
+	t, fa := true, false
+	switch c.Query("active") {
+	case "", "true":
+		if c.Query("active") == "true" {
+			f.Active = &t
+		}
+	case "false":
+		f.Active = &fa
+	case "all":
+		f.IncludeInactive = true
+	default:
+		return f, false
+	}
+	switch c.Query("deleted") {
+	case "", "false":
+		if c.Query("deleted") == "false" {
+			f.Deleted = &fa
+		}
+	case "true":
+		f.Deleted = &t
+	case "all":
+		f.IncludeDeleted = true
+	default:
+		return f, false
+	}
+	return f, true
+}
+
 // HandleListOrganizations lists organizations with paging.
 // site_admin sees every row; org_admin sees a single-row response
 // scoped to actor.OrganizationID (their own org). org_admin with no
@@ -417,16 +457,23 @@ func HandleListOrganizations(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			})
 			return
 		}
-		// site_admin / fallback: cross-tenant list.
+		// site_admin / fallback: cross-tenant list. The lifecycle filter is
+		// a site_admin affordance parsed ONLY on this path — the org_admin
+		// branch above returns before it and ignores the params entirely.
+		filter, ok := parseOrgStateFilter(c)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filter"})
+			return
+		}
 		var (
 			orgs  []*domain.Organization
 			total int
 			err   error
 		)
 		if deps.OrganizationService != nil {
-			orgs, total, err = deps.OrganizationService.List(c.Request.Context(), repository.OrganizationFilter{}, pagination, sort)
+			orgs, total, err = deps.OrganizationService.List(c.Request.Context(), filter, pagination, sort)
 		} else {
-			orgs, total, err = deps.OrganizationRepo.List(c.Request.Context(), repository.OrganizationFilter{}, pagination, sort)
+			orgs, total, err = deps.OrganizationRepo.List(c.Request.Context(), filter, pagination, sort)
 		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
@@ -494,13 +541,19 @@ func HandleGetOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
+		// Active-agnostic read: a DEACTIVATED org must stay reachable here
+		// or deactivation is a trap door (nothing to inspect, nothing to
+		// re-activate from). Soft-DELETED orgs keep answering 404 — that is
+		// ORG-RESTORE-1's pinned contract; /restore is their recovery door.
 		var o *domain.Organization
 		if deps.OrganizationService != nil {
-			o, err = deps.OrganizationService.GetByID(c.Request.Context(), id)
+			o, err = deps.OrganizationService.GetByIDAdminView(c.Request.Context(), id)
+		} else if ar, okAdmin := deps.OrganizationRepo.(repository.AdminOrganizationRepository); okAdmin {
+			o, err = ar.GetByIDAdmin(c.Request.Context(), id)
 		} else {
 			o, err = deps.OrganizationRepo.GetByID(c.Request.Context(), id)
 		}
-		if err != nil || o == nil {
+		if err != nil || o == nil || o.DeletedAt != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
