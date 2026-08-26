@@ -113,6 +113,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return dispatchDoctor(context.Background(), rest, stdout, stderr)
 		case "factory-reset":
 			return dispatchFactoryReset(context.Background(), rest, stdout, stderr)
+		case "rotate-encryption-key":
+			return dispatchRotateEncryptionKey(context.Background(), rest, stdout, stderr)
 		case "appliance":
 			// The container entrypoint (P2-19c): prepare, migrate, drop
 			// privileges, serve — in ONE process, because a distroless
@@ -273,6 +275,12 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  factory-reset --i-understand-this-destroys-all-data [database-url]")
 	fmt.Fprintln(w, "                                     DESTROY all data and return the database to")
 	fmt.Fprintln(w, "                                     factory state (refused without the flag)")
+	fmt.Fprintln(w, "  rotate-encryption-key [database-url]")
+	fmt.Fprintln(w, "                                     re-encrypt every at-rest secret from")
+	fmt.Fprintln(w, "                                     $IDENTUUM_IDP_OLD_ENCRYPTION_KEY to")
+	fmt.Fprintln(w, "                                     $IDENTUUM_IDP_ENCRYPTION_KEY in one")
+	fmt.Fprintln(w, "                                     transaction; OFFLINE ONLY (refuses while")
+	fmt.Fprintln(w, "                                     a process holds the instance lease)")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "  Subcommands taking [database-url] fall back to IDENTUUM_IDP_DATABASE_URL,")
 	fmt.Fprintln(w, "  then IDENTUUM_IDP_OSS_DB, when the argument is absent (the URL is never printed).")
