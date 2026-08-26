@@ -42,6 +42,8 @@
 #     attempt against PG16 failed at 0001) and is left untouched by this
 #     compose file.
 
+name: identuum-idp-oss
+
 services:
   postgres-idp-oss:
     image: postgres:18-alpine
