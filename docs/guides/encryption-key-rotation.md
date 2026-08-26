@@ -9,13 +9,31 @@ key to a new one, offline, in one transaction.
 
 ## The ceremony
 
+0. **Back up first.** The rotation is atomic, but an operator ceremony
+   deserves an exit that does not depend on the tool being right:
+
+   ```
+   pg_dump -F c <database> > identuum-idp-pre-rotation-$(date +%F).dump
+   ```
+
+   Keep the dump outside the deployment tree. No dump, no rotation.
+
 1. **Stop the IdP.** Rotation is offline-only: it takes the
    single-replica instance lease with a single attempt and REFUSES,
    naming the incumbent, while any process is serving.
 
    ```
-   docker compose stop identuum-idp     # or your process manager
+   docker compose stop <idp-service>    # the SERVICE name from your
+                                        # compose file (the dev compose
+                                        # calls it `app`), or your
+                                        # process manager
    ```
+
+   A gracefully stopped server releases the lease immediately —
+   rotation can start at once (measured). After a crash or `kill -9`
+   the dead instance's lease lingers until its ~45-second TTL expires;
+   the tool refuses, naming the stale incumbent — wait a minute and
+   run it again.
 
 2. **Rotate.** Both keys come from the environment — key material is
    never accepted on the command line (argv is visible in `ps`).
