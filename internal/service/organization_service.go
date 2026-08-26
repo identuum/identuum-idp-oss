@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
@@ -72,6 +74,21 @@ func ErrOrganizationNotFound() error { return errOrganizationNotFound }
 // so the migration default never applied; the service-layer fix is
 // to set the secure default at struct-construction time.
 func (s *OrganizationService) Create(ctx context.Context, opts CreateOrganizationOptions) (*domain.Organization, error) {
+	org, err := buildOrganization(opts)
+	if err != nil {
+		return nil, err
+	}
+	created, err := s.repo.Create(ctx, org)
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+// buildOrganization is the shared normalization + validation step used by
+// Create and CreateWithInitialAdmin — one place decides slugs, policy
+// defaults, and domain canonicalization.
+func buildOrganization(opts CreateOrganizationOptions) (*domain.Organization, error) {
 	if opts.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -107,11 +124,63 @@ func (s *OrganizationService) Create(ctx context.Context, opts CreateOrganizatio
 	if err := org.Validate(); err != nil {
 		return nil, err
 	}
-	created, err := s.repo.Create(ctx, org)
+	return org, nil
+}
+
+// CreateWithInitialAdmin creates the organization AND its initial
+// org_admin in one repository transaction (repo.CreateWithAdmin) — a bad
+// admin email creates NOTHING, so a retry is clean instead of hitting the
+// just-created org's domain conflict (THE-BORN-DEACTIVATED).
+//
+// The org is forced INACTIVE regardless of opts.Active: the activation
+// ceremony (ConsumeActivationToken) is what sets the admin's real
+// password and flips the org active, and it refuses already-active
+// organizations. The admin is created with an unguessable placeholder
+// password hash — generated and hashed HERE, plaintext discarded before
+// return — solely to satisfy the password-required domain invariant
+// (USER-PW-REQUIRED-1); until the claim, the org is inactive so no login
+// can complete, and the placeholder is 32 bytes of entropy nobody holds.
+func (s *OrganizationService) CreateWithInitialAdmin(ctx context.Context, opts CreateOrganizationOptions, adminEmail string) (*domain.Organization, *domain.User, error) {
+	opts.Active = false
+	org, err := buildOrganization(opts)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return created, nil
+
+	adminEmail = strings.ToLower(strings.TrimSpace(adminEmail))
+	adminID, err := uuidgen.NewV7()
+	if err != nil {
+		return nil, nil, fmt.Errorf("admin uuid generation failed: %w", err)
+	}
+	placeholder := make([]byte, 32)
+	if _, err := rand.Read(placeholder); err != nil {
+		return nil, nil, fmt.Errorf("placeholder generation failed: %w", err)
+	}
+	hash, err := crypto.GenerateHash(placeholder)
+	if err != nil {
+		return nil, nil, fmt.Errorf("placeholder hashing failed: %w", err)
+	}
+	now := time.Now().UTC()
+	admin := &domain.User{
+		ID:             adminID,
+		OrganizationID: org.ID,
+		Email:          adminEmail,
+		PasswordHash:   hash,
+		Role:           domain.RoleOrgAdmin,
+		AuthSource:     domain.AuthSourceLocal,
+		EmailVerified:  false,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := admin.Validate(); err != nil {
+		return nil, nil, err
+	}
+
+	createdOrg, createdAdmin, err := s.repo.CreateWithAdmin(ctx, org, admin)
+	if err != nil {
+		return nil, nil, err
+	}
+	return createdOrg, createdAdmin, nil
 }
 
 // Update mutates an organization by id.

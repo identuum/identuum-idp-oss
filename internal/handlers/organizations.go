@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -58,6 +59,21 @@ type OrganizationsHandlerDeps struct {
 	// admin-state fields as ABSENT — never false — so a missing
 	// counter can never masquerade as "no administrator".
 	AdminCounter OrgAdminCounter
+
+	// ActivationIssuer wires the create-organization admin_email flow
+	// (THE-BORN-DEACTIVATED): the org + initial org_admin are created
+	// atomically by OrganizationService.CreateWithInitialAdmin, then
+	// this seam issues the activation token whose claim ceremony sets
+	// the admin's real password and flips the org active. Nil-safe in
+	// the loud direction: an admin_email request against an unwired
+	// issuer fails 503, never a silent drop.
+	ActivationIssuer OrgActivationIssuer
+}
+
+// OrgActivationIssuer issues the activation token for a pending
+// org_admin (implemented by *service.OrganizationActivationService).
+type OrgActivationIssuer interface {
+	IssueActivationToken(ctx context.Context, user *domain.User) (string, time.Time, error)
 }
 
 // OrgAdminCounter is the narrow user-repository seam the organizations
@@ -574,20 +590,80 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			MaxSessionsPerUser int    `json:"max_sessions_per_user,omitempty"`
 			MFAPolicy          string `json:"mfa_policy,omitempty"`
 			AuthPolicy         string `json:"auth_policy,omitempty"`
-			Active             bool   `json:"active,omitempty"`
+			// Active is a POINTER so absence is distinguishable from an
+			// explicit false: an omitted `active` means ACTIVE
+			// (THE-BORN-DEACTIVATED — the UI never sends it, and a
+			// zero-value bool silently birthed every UI-created org
+			// deactivated). Explicit true/false is still honored.
+			Active *bool `json:"active,omitempty"`
+			// AdminEmail restores the pre-split create-with-admin
+			// contract the OSS bind struct silently DROPPED: mint the
+			// initial org_admin and its activation token in the same
+			// request. The activation ceremony sets the real password
+			// and flips the org active — so with admin_email the org is
+			// born INACTIVE by design, and an explicit active:true
+			// alongside it is a contradiction refused loudly.
+			AdminEmail string `json:"admin_email,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
-		created, err := deps.OrganizationService.Create(c.Request.Context(), service.CreateOrganizationOptions{
+
+		adminEmail := strings.TrimSpace(req.AdminEmail)
+		opts := service.CreateOrganizationOptions{
 			Name:               req.Name,
 			Domain:             req.Domain,
 			MaxSessionsPerUser: req.MaxSessionsPerUser,
 			MFAPolicy:          req.MFAPolicy,
 			AuthPolicy:         req.AuthPolicy,
-			Active:             req.Active,
-		})
+			// Absent means ACTIVE; an explicit value is honored.
+			Active: req.Active == nil || *req.Active,
+		}
+
+		if adminEmail != "" {
+			if req.Active != nil && *req.Active {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "active_conflicts_with_admin_email"})
+				return
+			}
+			if deps.ActivationIssuer == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "admin_provisioning_unavailable"})
+				return
+			}
+			createdOrg, adminUser, err := deps.OrganizationService.CreateWithInitialAdmin(c.Request.Context(), opts, adminEmail)
+			if err != nil {
+				// Atomic: nothing was created — a retry is clean.
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+				return
+			}
+			raw, _, err := deps.ActivationIssuer.IssueActivationToken(c.Request.Context(), adminUser)
+			if err != nil {
+				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+					Action:    "organization.initial_admin_failed",
+					Outcome:   "failure",
+					IPAddress: c.ClientIP(),
+					UserAgent: c.Request.UserAgent(),
+					Metadata:  map[string]any{"organization_id": createdOrg.ID, "admin_email": adminEmail, "stage": "activation_token"},
+				})
+				// The org+admin pair exists; resend-activation recovers it.
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "admin_provisioning_failed", "organization": toSafeOrganization(createdOrg)})
+				return
+			}
+			c.JSON(http.StatusCreated, gin.H{
+				"organization":     toSafeOrganization(createdOrg),
+				"activation_token": raw,
+			})
+			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+				Action:    "organization.created",
+				Outcome:   "success",
+				IPAddress: c.ClientIP(),
+				UserAgent: c.Request.UserAgent(),
+				Metadata:  map[string]any{"organization_id": createdOrg.ID, "name": createdOrg.Name, "domain": createdOrg.Domain, "active": createdOrg.Active, "initial_admin": true},
+			})
+			return
+		}
+
+		created, err := deps.OrganizationService.Create(c.Request.Context(), opts)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
@@ -598,7 +674,7 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			Outcome:   "success",
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
-			Metadata:  map[string]any{"organization_id": created.ID, "name": created.Name, "domain": created.Domain},
+			Metadata:  map[string]any{"organization_id": created.ID, "name": created.Name, "domain": created.Domain, "active": created.Active, "initial_admin": false},
 		})
 	}
 }
