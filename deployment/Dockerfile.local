@@ -87,12 +87,17 @@ COPY . .
 # "dev", which can never match a release tag — the workflow's canonical
 # binary-vs-tag gate therefore refuses any build where this plumbing broke.
 ARG VERSION=dev
+# COMMIT — build provenance, passed by `make oss-build` (the context
+# excludes .git so the builder cannot derive it itself). "unknown" means
+# an unstamped build, which the dev smoke refuses (STALE-BINARY-1).
+ARG COMMIT=unknown
 
 # Build the OSS binary. Strip symbol + DWARF tables to shrink the image;
-# stamp the release version into main.buildVersion.
+# stamp the release version into main.buildVersion and the provenance
+# commit into internal/buildinfo.Commit.
 RUN go build \
         -trimpath \
-        -ldflags="-s -w -X main.buildVersion=${VERSION}" \
+        -ldflags="-s -w -X main.buildVersion=${VERSION} -X github.com/identuum/identuum-idp-oss/internal/buildinfo.Commit=${COMMIT}" \
         -o /out/identuum-idp \
         ./cmd/identuum-idp
 

@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
 	"github.com/identuum/identuum-idp-oss/internal/features"
 	"github.com/identuum/identuum-idp-oss/internal/handlers"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
@@ -1418,6 +1419,10 @@ func systemInfoHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			"status":  "healthy",
 			"version": deps.Version,
 			"mode":    "oss",
+			// The build-provenance announce (STALE-BINARY-1): the commit
+			// this binary was built from, so the dev smoke can refuse a
+			// process that does not match the working tree.
+			"build_commit": buildinfo.Commit,
 		})
 	}
 }

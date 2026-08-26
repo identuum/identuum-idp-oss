@@ -52,6 +52,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	pkgruntime "github.com/identuum/identuum-idp-oss/pkg/runtime"
 )
@@ -121,7 +122,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// image has no shell to sequence it.
 			return runAppliance(context.Background(), rest, stdout, stderr)
 		case "version":
-			fmt.Fprintln(stdout, version)
+			fmt.Fprintln(stdout, version+" (commit "+buildinfo.Commit+")")
 			return 0
 		case "help", "-h", "--help":
 			printUsage(stdout)

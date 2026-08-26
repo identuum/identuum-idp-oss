@@ -265,12 +265,16 @@ func HandleGetAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			OrganizationID uuid.UUID         `json:"organization_id"`
-			Name           string            `json:"name"`
-			Audience       string            `json:"audience"`
-			Active         bool              `json:"active"`
-			TokenTTLSecs   int               `json:"token_ttl_secs"`
-			Scopes         []domain.APIScope `json:"scopes,omitempty"`
+			OrganizationID uuid.UUID `json:"organization_id"`
+			Name           string    `json:"name"`
+			Audience       string    `json:"audience"`
+			// Active is a POINTER so absence is distinguishable from an
+			// explicit false: the UI create body never sends active, and
+			// the old bare bool birthed every UI-created API resource
+			// deactivated (ABSENT-BOOL-1, the BORN-ACTIVE-1 shape).
+			Active       *bool             `json:"active,omitempty"`
+			TokenTTLSecs int               `json:"token_ttl_secs"`
+			Scopes       []domain.APIScope `json:"scopes,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -280,7 +284,7 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			OrganizationID: req.OrganizationID,
 			Name:           req.Name,
 			Audience:       req.Audience,
-			Active:         req.Active,
+			Active:         req.Active == nil || *req.Active,
 			TokenTTLSecs:   req.TokenTTLSecs,
 			Scopes:         req.Scopes,
 		})

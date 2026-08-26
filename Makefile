@@ -73,6 +73,7 @@ DEV_APP_CONTAINER ?= identuum-idp-oss
 DEV_APP_PORT ?= 7113
 DEV_HEALTH_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/health
 DEV_COMPONENT_URL ?= http://127.0.0.1:7113/api/v1/component
+DEV_SYSTEM_INFO_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/system/info
 
 # DB URL for the DEV STACK / app — the human's live database. NOT used by the
 # integration suites (TEST-DB-ISOLATION-1): those TRUNCATE and replay setup, so
@@ -1010,10 +1011,26 @@ dev-reset:
 	done
 	$(MAKE) --no-print-directory dev-seed
 
-## dev-smoke: check the local IDP OSS health and component discovery endpoints.
+## dev-smoke: check the local IDP OSS health and component discovery
+## endpoints, and REFUSE a stale binary: the running process announces the
+## commit it was built from (/system/info build_commit, stamped by
+## oss-build); when that differs from the working tree — including
+## "unknown" from an unstamped image, or a clean-built binary while the
+## tree is dirty — the smoke fails naming both sides
+## (THE-THREE-THAT-MUST-NOT-REPEAT item 1: a 13:43 image served an
+## evening of clicks against a 15:33 fix, and nothing said so).
 dev-smoke:
 	curl -fsS --max-time 5 $(DEV_HEALTH_URL) >/dev/null
 	curl -fsS --max-time 5 $(DEV_COMPONENT_URL) >/dev/null
+	@running=$$(curl -fsS --max-time 5 $(DEV_SYSTEM_INFO_URL) | sed -n 's/.*"build_commit":"\([^"]*\)".*/\1/p'); \
+	tree=$$(git rev-parse HEAD)$$(test -n "$$(git status --porcelain)" && echo "-dirty"); \
+	if [ -z "$$running" ]; then \
+		echo "dev-smoke: REFUSING — the running IdP does not announce build_commit (pre-provenance image); rebuild: make oss-build && make dev-recreate-app"; exit 1; \
+	fi; \
+	if [ "$$running" != "$$tree" ]; then \
+		echo "dev-smoke: REFUSING — STALE BINARY: the running IdP was built from '$$running' but the working tree is '$$tree'; rebuild: make oss-build && make dev-recreate-app"; exit 1; \
+	fi; \
+	echo "dev-smoke: build_commit matches the working tree ($$running)"
 	@echo "IDP OSS local smoke checks passed."
 
 ## dev-health: alias for dev-smoke.
@@ -1065,8 +1082,13 @@ build:
 ## "dev", which can never match a release tag — the publish workflow's
 ## canonical binary-vs-tag gate refuses any build where stamping broke.
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null | sed 's/^v//')
+# COMMIT — the working tree's provenance, "-dirty" when uncommitted changes
+# exist. Stamped into internal/buildinfo.Commit so the RUNNING process can
+# announce what it was built from (/system/info), and dev-smoke can refuse
+# a stale binary (THE-THREE-THAT-MUST-NOT-REPEAT item 1).
+COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)$(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo "-dirty")
 build-binary:
-	go build -trimpath -ldflags "-s -w -X main.buildVersion=$(VERSION)" -o bin/identuum-idp ./cmd/identuum-idp
+	go build -trimpath -ldflags "-s -w -X main.buildVersion=$(VERSION) -X github.com/identuum/identuum-idp-oss/internal/buildinfo.Commit=$(COMMIT)" -o bin/identuum-idp ./cmd/identuum-idp
 	./bin/identuum-idp --version
 
 ## test: run all unit tests (excludes build-tagged integration tests).
@@ -1410,7 +1432,7 @@ clean:
 ##   Source: deployment/Dockerfile.local (multi-stage golang:1.26.5-bookworm builder + debian:bookworm-slim runtime).
 ##   DB URLs are never echoed (compose env handles the URL inside the container).
 oss-build:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app build app
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app build --build-arg COMMIT=$(COMMIT) app
 
 ## oss-up: bring up Postgres + the OSS app container together.
 ##   The app container runs `identuum-idp migrate <url>` first (one-shot),
