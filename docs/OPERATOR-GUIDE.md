@@ -45,6 +45,37 @@ Resets the `site_admin@system.local` password and clears its MFA enrollment
 so the operator can sign in again. The password travels only through the
 exec environment (mind your host shell history) and is never echoed.
 
+### What this invalidates (the aftermath)
+
+The reset rewrites `password_hash` AND wipes the MFA enrollment
+(`mfa_enabled=false`, `mfa_secret=""`, `mfa_recovery_codes=[]` —
+cmd/identuum-idp/recover.go). The moment the command returns, ALL of the
+following are stale:
+
+- **The authenticator app entry.** The old TOTP seed no longer exists
+  server-side; delete the entry. On the **next login** the IdP forces a
+  fresh enrolment and shows the new base32 seed **once, at that moment**
+  — capture it then (scan it AND note the base32 string if you need it
+  for fixtures below), or re-enrol later at `/account/settings?tab=mfa`.
+- **Recovery codes.** The printed codes from the old enrolment are dead;
+  new ones are shown at the fresh enrolment, also once.
+- **Local e2e fixtures.** `identuum-ui/.env.playwright.idp-oss.local`
+  carries `IDENTUUM_TEST_SITE_ADMIN_PASSWORD` and
+  `IDENTUUM_TEST_SITE_ADMIN_TOTP_SECRET` — both now wrong. Update them
+  from the reset password and the once-shown seed, or every Playwright
+  run that logs in as site_admin fails (or worse, trips the login
+  lockout with repeated wrong attempts). The pointers back to this
+  section live in `identuum-ui/e2e/README.md` and
+  `identuum-ui/docs/LOCAL_ORG_ADMIN_PLAYWRIGHT_FIXTURE.md`.
+- **Any password manager entry** for site_admin, obviously.
+
+## Rotate the at-rest encryption key
+
+Offline, atomic, both directions proven — the full ceremony (backup,
+stop, rotate, set the new key, start, verify with doctor) lives in
+[guides/encryption-key-rotation.md](guides/encryption-key-rotation.md).
+Doctor's `at-rest-seals` lines are the post-rotation verification.
+
 ## Create the first admin + signing key (bootstrap)
 
 ```

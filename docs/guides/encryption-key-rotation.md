@@ -18,6 +18,14 @@ key to a new one, offline, in one transaction.
 
    Keep the dump outside the deployment tree. No dump, no rotation.
 
+   **The dump trap:** this dump carries ciphertext sealed under the key
+   you are about to RETIRE. Restoring it ever again requires that
+   retired key — the new key cannot open it. Label the dump file with
+   its key id (doctor's `at-rest-seals` lines print it before you
+   rotate), and keep the retired key somewhere recoverable for as long
+   as the dump exists. Deleting the old key while a pre-rotation dump
+   is your only backup silently converts that backup into noise.
+
 1. **Stop the IdP.** Rotation is offline-only: it takes the
    single-replica instance lease with a single attempt and REFUSES,
    naming the incumbent, while any process is serving.
