@@ -133,6 +133,11 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
+      # THE-UNBOUND-STAMP: the ONE declared rulefloor version for this
+      # workflow — URL tag, tarball dir, ldflags stamp, and the printed
+      # assert all derive from this string; the sha256 pins the artifact.
+      RULEFLOOR_VERSION: v0.7.0
+      RULEFLOOR_SHA256: a0b6ef8a212c64378a8aae9785bd8a589efa71daa42af3ce792827c70c4dc6c6
       IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:5432/identuum_ci_test?sslmode=disable
       IDENTUUM_IDP_REQUIRE_DB_TESTS: "1"
       # The single-replica lease contends when tests share one DB; the runtime
@@ -161,23 +166,28 @@ jobs:
         # sha256 lifted from the tap formula — with brew's exact ldflags
         # version stamp. `go install` is banned here: it resolves through
         # the module proxy (a different artifact chain than the tarball)
-        # and stamps no version (self-reports "dev", unverifiable). Bump
-        # the TAG and SHA256 together, deliberately, when the tap bumps.
+        # and stamps no version (self-reports "dev", unverifiable).
+        # THE-UNBOUND-STAMP: RULEFLOOR_VERSION is declared ONCE, at the
+        # job env — the URL tag, tarball directory, ldflags stamp, and
+        # the assert step are ALL derived from it, mirroring how brew
+        # derives v#{version} from its url. A bump edits exactly two
+        # lines (version + sha), and no pair of them can diverge silently.
         run: |
-          curl -sSfL -o rulefloor.tar.gz https://github.com/ozgurcd/rulefloor/archive/refs/tags/v0.7.0.tar.gz
-          echo "a0b6ef8a212c64378a8aae9785bd8a589efa71daa42af3ce792827c70c4dc6c6  rulefloor.tar.gz" | sha256sum -c -
+          curl -sSfL -o rulefloor.tar.gz "https://github.com/ozgurcd/rulefloor/archive/refs/tags/${RULEFLOOR_VERSION}.tar.gz"
+          echo "${RULEFLOOR_SHA256}  rulefloor.tar.gz" | sha256sum -c -
           tar -xzf rulefloor.tar.gz
-          (cd rulefloor-0.7.0 && go build -ldflags "-X main.version=v0.7.0" -o "$(go env GOPATH)/bin/rulefloor" .)
-          rm -rf rulefloor.tar.gz rulefloor-0.7.0
+          (cd "rulefloor-${RULEFLOOR_VERSION#v}" && go build -ldflags "-X main.version=${RULEFLOOR_VERSION}" -o "$(go env GOPATH)/bin/rulefloor" .)
+          rm -rf rulefloor.tar.gz "rulefloor-${RULEFLOOR_VERSION#v}"
 
       - name: Prove the rulefloor version
         # A version nobody prints is a version nobody can check
-        # (THE-SAME-BINARY). The printed JSON must carry the pinned
-        # version — drift between this assert and the install step above
-        # fails the run instead of running a different instrument quietly.
+        # (THE-SAME-BINARY). The assert derives from the SAME job-env
+        # string the build stamped (THE-UNBOUND-STAMP): what it proves is
+        # that the binary on PATH is the one this workflow just built —
+        # the artifact identity itself is carried by the sha256 pin.
         run: |
           rulefloor version --json
-          rulefloor version --json | grep -F '"version":"v0.7.0"'
+          rulefloor version --json | grep -F "\"version\":\"${RULEFLOOR_VERSION}\""
 
       - name: Install grype
         # Pinned to a tagged release — BOTH the install script ref and the
