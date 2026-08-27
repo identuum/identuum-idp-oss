@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -48,9 +49,42 @@ type UsersHandlerDeps struct {
 	// warn-and-continue contract as SessionRevoker.
 	RefreshTokenRevoker service.UserRefreshTokenRevoker
 
+	// PolicyOrgs resolves the TARGET organization so the admin user
+	// paths (create, update, bulk) can carry the org's password
+	// policy into the service call instead of silently holding every
+	// admin-created user to the strict default (THE-TWO-DEBTS, debt
+	// B). Nil-safe: when unwired, the service's documented safe
+	// defaults apply (nil ⇒ strict complexity, 0 ⇒ floor 8).
+	PolicyOrgs OrgPolicyReader
+
 	// StartupReport receives a fatal fault if neither UserService nor
 	// UserRepo is wired — instead of panicking (P-018). Nil-safe.
 	StartupReport *lifecycle.StartupReport
+}
+
+// OrgPolicyReader is the narrow read-only seam the user handlers need
+// to resolve the target org's password policy. Satisfied by
+// repository.OrganizationRepository.
+type OrgPolicyReader interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Organization, error)
+}
+
+// resolveOrgPasswordPolicy reads the target org's password policy for
+// the admin user paths. Nil-safe on every input: any unreadable org
+// yields (nil, 0) — the service's documented safe defaults (strict
+// complexity, floor 8). The wire NEVER feeds these (BIND-OPTIONS-GATE-1
+// adjudicated them never-client-settable); the min length has no
+// org-level column, so 0 keeps the documented floor deliberately.
+func resolveOrgPasswordPolicy(ctx context.Context, orgs OrgPolicyReader, orgID uuid.UUID) (*bool, int) {
+	if orgs == nil || orgID == uuid.Nil {
+		return nil, 0
+	}
+	org, err := orgs.GetByID(ctx, orgID)
+	if err != nil || org == nil {
+		return nil, 0
+	}
+	pce := org.PasswordComplexityEnabled
+	return &pce, 0
 }
 
 // RegisterUsersRoutes mounts the user admin group onto router.
@@ -484,12 +518,22 @@ func HandleCreateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		actor, _ := mw.PrincipalFromContext(c)
+		// Target org for the password policy: the requested org, or the
+		// actor's own org when omitted (the org_admin self-org case the
+		// service substitutes anyway).
+		policyOrgID := req.OrganizationID
+		if policyOrgID == uuid.Nil && actor != nil {
+			policyOrgID = actor.OrganizationID
+		}
+		pce, minLen := resolveOrgPasswordPolicy(c.Request.Context(), deps.PolicyOrgs, policyOrgID)
 		created, err := deps.UserService.CreateUserForActor(c.Request.Context(), actor, service.CreateUserOptions{
-			OrganizationID: req.OrganizationID,
-			Email:          req.Email,
-			Password:       req.Password,
-			Name:           req.Name,
-			Role:           req.Role,
+			OrganizationID:            req.OrganizationID,
+			Email:                     req.Email,
+			Password:                  req.Password,
+			Name:                      req.Name,
+			Role:                      req.Role,
+			PasswordComplexityEnabled: pce,
+			MinPasswordLength:         minLen,
 		})
 		if errors.Is(err, domain.ErrForbidden) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
@@ -548,13 +592,25 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			req.Banned = &banned
 		}
 		actor, _ := mw.PrincipalFromContext(c)
+		// Password policy follows the TARGET user's org. Resolved only
+		// when a password is actually changing; a failed lookup falls
+		// back to the strict defaults (conservative direction).
+		var pce *bool
+		minLen := 0
+		if req.Password != nil {
+			if target, terr := deps.UserService.GetUserForActor(c.Request.Context(), actor, id); terr == nil && target != nil {
+				pce, minLen = resolveOrgPasswordPolicy(c.Request.Context(), deps.PolicyOrgs, target.OrganizationID)
+			}
+		}
 		updated, err := deps.UserService.UpdateUserForActor(c.Request.Context(), actor, id, service.UpdateUserOptions{
-			Email:         req.Email,
-			Password:      req.Password,
-			Name:          req.Name,
-			Role:          req.Role,
-			Banned:        req.Banned,
-			EmailVerified: req.EmailVerified,
+			Email:                     req.Email,
+			Password:                  req.Password,
+			Name:                      req.Name,
+			Role:                      req.Role,
+			Banned:                    req.Banned,
+			EmailVerified:             req.EmailVerified,
+			PasswordComplexityEnabled: pce,
+			MinPasswordLength:         minLen,
 		})
 		if errors.Is(err, domain.ErrForbidden) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})

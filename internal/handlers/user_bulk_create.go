@@ -102,12 +102,21 @@ func HandleBulkCreateUsers(deps UsersHandlerDeps) gin.HandlerFunc {
 		created := make([]safeUser, 0, len(req.Users))
 		failed := make([]bulkFailedItem, 0)
 		for i, u := range req.Users {
+			// Per-row target org for the password policy (rows may name
+			// different orgs); nil-safe like the single-create path.
+			policyOrgID := u.OrganizationID
+			if policyOrgID == uuid.Nil && actor != nil {
+				policyOrgID = actor.OrganizationID
+			}
+			pce, minLen := resolveOrgPasswordPolicy(c.Request.Context(), deps.PolicyOrgs, policyOrgID)
 			out, err := deps.UserService.CreateUserForActor(c.Request.Context(), actor, service.CreateUserOptions{
-				OrganizationID: u.OrganizationID,
-				Email:          u.Email,
-				Password:       u.Password,
-				Name:           u.Name,
-				Role:           u.Role,
+				OrganizationID:            u.OrganizationID,
+				Email:                     u.Email,
+				Password:                  u.Password,
+				Name:                      u.Name,
+				Role:                      u.Role,
+				PasswordComplexityEnabled: pce,
+				MinPasswordLength:         minLen,
 			})
 			if err != nil {
 				// Best-effort: record and continue; no abort, no rollback.

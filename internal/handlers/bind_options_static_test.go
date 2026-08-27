@@ -89,44 +89,14 @@ var bindOptionsJustified = map[string]optionsGap{
 		Why:   "RFC 7592 management mirrors the 7591 posture: service-account linkage stays admin-only.",
 	},
 
-	// Provenance must come from the authenticated principal, never the
-	// body — client-supplied provenance is spoofable.
-	"internal/handlers/keys.go:HandleGenerateSigningKey.GenerateKeyOptions.CreatedBy": {
-		State: "absent",
-		Why:   "operator provenance: the wire must never claim who created a key (spoofable). DEBT: the handler should derive CreatedBy from the authenticated principal — today it is left empty (~an eighth of a slice).",
-	},
-
-	// Password-policy knobs are SERVER inputs resolved by the caller,
-	// never wire business — a client choosing the password policy that
-	// validates its own payload would be self-attestation. On the admin
-	// paths nobody resolves the org policy yet, so the documented safe
-	// defaults apply (nil ⇒ strict complexity, 0 ⇒ floor 8) — strict in
-	// the conservative direction. DEBT: plumb the target org's policy
-	// in the three admin handlers (~a quarter slice).
-	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.PasswordComplexityEnabled": {
-		State: "absent",
-		Why:   "server-resolved org policy, never wire-settable (self-attested password policy). Unplumbed on the admin path: safe default = strict. DEBT to plumb org lookup.",
-	},
-	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.MinPasswordLength": {
-		State: "absent",
-		Why:   "server-resolved policy floor, never wire-settable. Unplumbed on the admin path: safe default = 8. DEBT to plumb org lookup.",
-	},
-	"internal/handlers/users.go:HandleUpdateUser.UpdateUserOptions.PasswordComplexityEnabled": {
-		State: "absent",
-		Why:   "server-resolved org policy, never wire-settable. Unplumbed on the admin password-change path: safe default = strict. DEBT to plumb org lookup.",
-	},
-	"internal/handlers/users.go:HandleUpdateUser.UpdateUserOptions.MinPasswordLength": {
-		State: "absent",
-		Why:   "server-resolved policy floor, never wire-settable. Unplumbed on the admin password-change path: safe default = 8. DEBT to plumb org lookup.",
-	},
-	"internal/handlers/user_bulk_create.go:HandleBulkCreateUsers.CreateUserOptions.PasswordComplexityEnabled": {
-		State: "absent",
-		Why:   "server-resolved org policy, never wire-settable. Bulk create inherits the same unplumbed-org-policy DEBT as single create; safe default = strict.",
-	},
-	"internal/handlers/user_bulk_create.go:HandleBulkCreateUsers.CreateUserOptions.MinPasswordLength": {
-		State: "absent",
-		Why:   "server-resolved policy floor, never wire-settable. Bulk create inherits the same DEBT; safe default = 8.",
-	},
+	// ── Debts PAID by THE-TWO-DEBTS (rows retired, stale teeth fired) ──
+	// keys.go CreatedBy: now derived from the authenticated principal
+	// (never the wire). users/user_bulk password-policy knobs: now fed
+	// from the TARGET org via resolveOrgPasswordPolicy (the wire still
+	// never sets them — the handlers resolve, PROVENANCE-POLICY-1
+	// pins). The gate's stale teeth fired on all seven retired rows
+	// before removal — a ratchet that cannot detect its own resolution
+	// is a comment, not a gate.
 }
 
 // RULE: BIND-OPTIONS-GATE-1

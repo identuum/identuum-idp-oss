@@ -907,6 +907,9 @@ func mountUserSurface(router gin.IRouter, resolved OSSRouterDeps) {
 		UserRepo:      resolved.UserRepo,
 		Audit:         resolved.Audit,
 		StartupReport: resolved.StartupReport,
+		// Target-org password policy for the admin user paths
+		// (THE-TWO-DEBTS); nil-safe — unwired keeps the strict defaults.
+		PolicyOrgs: resolved.OrganizationRepo,
 	}
 	// Wire the OSS session revoker only when the runtime has
 	// constructed UserSessionService; absent that, the handler

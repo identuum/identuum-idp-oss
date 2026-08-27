@@ -244,9 +244,19 @@ func HandleGenerateSigningKey(deps KeysHandlerDeps) gin.HandlerFunc {
 			state = domain.KeyStateActive
 		}
 
+		// CreatedBy is provenance and comes from the AUTHENTICATED
+		// principal, never the wire — client-supplied provenance would
+		// be spoofable (THE-TWO-DEBTS, debt A).
+		var createdBy *uuid.UUID
+		if actor, ok := mw.PrincipalFromContext(c); ok && actor.UserID != uuid.Nil {
+			id := actor.UserID
+			createdBy = &id
+		}
+
 		key, err := deps.KeyService.Generate(c.Request.Context(), service.GenerateKeyOptions{
 			Algorithm: req.Algorithm,
 			State:     state,
+			CreatedBy: createdBy,
 		})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
