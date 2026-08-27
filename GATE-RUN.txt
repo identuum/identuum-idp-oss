@@ -1,0 +1,40 @@
+schema: gate-run.v1
+gate: identuum-idp-oss make verify
+note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
+repo-head: 44990cf (dirty)
+started: 2026-08-27T23:44:41Z
+plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
+tool: go          go1.27.0  /opt/homebrew/bin/go
+tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
+tool: grype       0.117.0  /opt/homebrew/bin/grype
+tool: govulncheck govulncheck@v1.7.0  /opt/homebrew/bin/govulncheck
+tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.7.0"}  /opt/homebrew/bin/rulefloor
+target: tool-versions exit=0
+target: repo-green exit=0
+target: tracked-binary-check exit=0
+target: credential-transparency exit=0
+evidence: [rulefloor-check] check OK: 164 rows (164 armed), FLOOR 164, RED-PROOFS 164 (measured 164)
+target: rulefloor-check exit=0
+target: image-base-check exit=0
+target: vet-integration exit=0
+target: doccomment-check exit=0
+evidence: [r-suite] go packages ok: 3
+target: r-suite exit=0
+target: image-base-parity exit=0
+target: image-policy-restate-check exit=0
+target: clock-fuse-report exit=0
+target: clock-fuse-gate exit=0
+target: tagged-vet exit=0
+target: integration-inventory exit=0
+target: gograph-capabilities exit=0
+target: gograph-build exit=0
+target: gograph-boundaries exit=0
+target: go-mod-tidy-diff exit=0
+target: staticcheck exit=0
+target: govulncheck exit=0
+evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
+target: wiki-fresh exit=0
+target: grype-scan exit=0
+finished: 2026-08-27T23:48:39Z
+tree: sha256=4f24a7deed4a7204f0d0f973deaa939df1c94981775046e49cc5699c0cc7415b
+result: green

@@ -321,43 +321,52 @@ tool-versions:
 	@printf 'rulefloor   %s  %s\n' "$$(rulefloor version --json 2>/dev/null)" "$$(command -v rulefloor || echo MISSING)"
 
 verify:
-	@$(MAKE) --no-print-directory tool-versions
-	@$(MAKE) --no-print-directory repo-green
-	@$(MAKE) --no-print-directory tracked-binary-check
-	@$(MAKE) --no-print-directory credential-transparency
+	# THE-UNWITNESSED-GREEN: the same targets in the same order, driven
+	# through scripts/gate-witness.sh so the run leaves a committed record
+	# (GATE-RUN.txt): per-target exit codes, the five tool versions with
+	# paths, the tools' own count lines, and a digest of the tree the run
+	# saw (minus the record itself). A run that stops early reads
+	# INCOMPLETE, never green.
+	#
 	# rulefloor-check sits EARLY on purpose: it is cheap (hash pins + four
 	# standalone go test -run rows) and a tampered rule proof should fail the
 	# aggregate before the expensive gates spend their minutes. Sibling-coupled,
 	# so ci-verify subtracts it — see the ci.yml header enumeration.
-	@$(MAKE) --no-print-directory rulefloor-check
-	# fmt-check / vet / go build / go test are NOT missing: `repo-green` above
+	#
+	# fmt-check / vet / go build / go test are NOT missing: `repo-green`
 	# runs all four as ONE named floor (order F, THE-FLIPPED-CELLS). tagged-vet
 	# stays because repo-green runs UNTAGGED and cannot see //go:build files.
-	@$(MAKE) --no-print-directory image-base-check
-	@$(MAKE) --no-print-directory vet-integration
-	@$(MAKE) --no-print-directory doccomment-check
-	@$(MAKE) --no-print-directory r-suite
-	@$(MAKE) --no-print-directory image-base-parity
-	@$(MAKE) --no-print-directory image-policy-restate-check
-	@$(MAKE) --no-print-directory clock-fuse-report
-	@$(MAKE) --no-print-directory clock-fuse-gate
-	@$(MAKE) --no-print-directory tagged-vet
-	@$(MAKE) --no-print-directory integration-inventory
-	gograph capabilities --intention "repo-local make verify"
-	gograph build . --precise
-	# P3-9: the boundary policy finally EXISTS and is ENFORCED. boundaries.json
-	# (committed at the repo root — .gograph/ is gitignored) was generated from
-	# the import graph and is checked here, after the precise build, because the
-	# CLI reads the persisted graph: a stale graph reports stale imports.
-	# Red-proved: internal/crypto importing internal/api fails with
-	# [boundary_violation]. Local-only like the other gograph lines; ci-verify
-	# documents the omission.
-	gograph boundaries --config boundaries.json
-	go mod tidy -diff
-	staticcheck ./...
-	govulncheck ./...
-	@$(MAKE) --no-print-directory wiki-fresh
-	$(MAKE) grype-scan
+	#
+	# P3-9: the boundary policy EXISTS and is ENFORCED. boundaries.json
+	# (committed at the repo root — .gograph/ is gitignored) is checked after
+	# the precise build, because the CLI reads the persisted graph: a stale
+	# graph reports stale imports. Red-proved: internal/crypto importing
+	# internal/api fails with [boundary_violation]. Local-only like the other
+	# gograph lines; ci-verify documents the omission.
+	@bash scripts/gate-witness.sh run GATE-RUN.txt "identuum-idp-oss make verify" \
+		'tool-versions=$(MAKE) --no-print-directory tool-versions' \
+		'repo-green=$(MAKE) --no-print-directory repo-green' \
+		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
+		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
+		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
+		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
+		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
+		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \
+		'r-suite=$(MAKE) --no-print-directory r-suite' \
+		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
+		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
+		'clock-fuse-report=$(MAKE) --no-print-directory clock-fuse-report' \
+		'clock-fuse-gate=$(MAKE) --no-print-directory clock-fuse-gate' \
+		'tagged-vet=$(MAKE) --no-print-directory tagged-vet' \
+		'integration-inventory=$(MAKE) --no-print-directory integration-inventory' \
+		'gograph-capabilities=gograph capabilities --intention "repo-local make verify"' \
+		'gograph-build=gograph build . --precise' \
+		'gograph-boundaries=gograph boundaries --config boundaries.json' \
+		'go-mod-tidy-diff=go mod tidy -diff' \
+		'staticcheck=staticcheck ./...' \
+		'govulncheck=govulncheck ./...' \
+		'wiki-fresh=$(MAKE) --no-print-directory wiki-fresh' \
+		'grype-scan=$(MAKE) grype-scan'
 
 ## ci-verify: CI mirror of `make verify` MINUS the two gograph lines, MINUS
 ## govulncheck, and MINUS wiki-fresh. THREE omissions, all deliberate and all
