@@ -154,7 +154,7 @@ define RULEFLOOR_RESOLVE
 		fi; \
 		if [ -z "$$RF" ]; then \
 			if [ ! -d "$(RULEFLOOR_DIR)" ]; then \
-				echo "$@: CANNOT-EVALUATE — no rulefloor v0.3.0+ (set RULEFLOOR_BIN, 'brew upgrade rulefloor', 'go install github.com/ozgurcd/rulefloor@v0.3.0', or clone $(RULEFLOOR_DIR))" >&2; \
+				echo "$@: CANNOT-EVALUATE — no rulefloor v0.3.0+ (set RULEFLOOR_BIN, 'brew install ozgurcd/tap/rulefloor' or 'brew upgrade rulefloor', or clone $(RULEFLOOR_DIR))" >&2; \
 				exit 2; \
 			fi; \
 			if [ -x "$(RULEFLOOR_DIR)/rulefloor" ] && "$(RULEFLOOR_DIR)/rulefloor" version --json >/dev/null 2>&1; then :; else \

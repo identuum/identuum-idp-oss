@@ -151,6 +151,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Reject undeclared rulefloor install routes
+        # Vendored at scripts/rulefloor-install-gate.sh because this
+        # single-repo CI checkout has no ../wiki sibling. Scanning the full
+        # workflow directory makes a second install route fail before tools run.
+        run: bash scripts/rulefloor-install-gate.sh .github/workflows
+
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
