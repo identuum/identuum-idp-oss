@@ -616,6 +616,18 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
 		}
+		// A policy-refused password answers an HONEST 400 weak_password
+		// (THE-HONEST-REFUSAL) — the live matrix caught it collapsing
+		// into 404 not-found. RG10 stays intact: UpdateUserForActor
+		// answers not-found for any target outside the caller's
+		// visibility BEFORE the password is ever validated, so this
+		// branch can only fire for a target the caller may touch and
+		// leaks no existence. Message text is policy prose only
+		// (the change-password precedent), never credential material.
+		if err != nil && domain.IsPasswordPolicyError(err) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "weak_password", "message": err.Error()})
+			return
+		}
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return

@@ -163,6 +163,13 @@ func safeBulkReason(err error) string {
 		return "unauthorized"
 	case errors.Is(err, domain.ErrUserAlreadyExists):
 		return "email already exists"
+	case domain.IsPasswordPolicyError(err):
+		// Names the FAILURE CLASS, not the email — strictly less than
+		// the "email already exists" branch above already reveals, so
+		// this cannot widen the enumeration surface
+		// (THE-HONEST-REFUSAL: the live matrix saw a policy failure
+		// collapse into the generic reason inside a 200 envelope).
+		return "weak_password"
 	default:
 		return "invalid request"
 	}

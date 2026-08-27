@@ -107,3 +107,21 @@ func ValidatePasswordPolicy(password string, minLength int, complexityEnabled bo
 func ValidatePassword(password string, minLength int) error {
 	return ValidatePasswordPolicy(password, minLength, true)
 }
+
+// IsPasswordPolicyError reports whether err is one of the policy refusals
+// ValidatePasswordPolicy emits — the discriminator handlers use to answer
+// an honest 400 weak_password instead of collapsing the refusal into
+// another shape (THE-HONEST-REFUSAL). Policy error text carries rule
+// descriptions only, never credential material.
+func IsPasswordPolicyError(err error) bool {
+	for _, sentinel := range []error{
+		ErrPasswordTooShort, ErrPasswordTooLong, ErrPasswordNoUpper,
+		ErrPasswordNoLower, ErrPasswordNoNumber, ErrPasswordNoSpecial,
+		ErrPasswordUnsafeChar,
+	} {
+		if errors.Is(err, sentinel) {
+			return true
+		}
+	}
+	return false
+}
