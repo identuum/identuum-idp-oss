@@ -629,7 +629,19 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`,
 		strings.Join(setParts, ", "), whereClause)
 
-	return r.scanUser(r.db.QueryRow(ctx, query, args...))
+	updated, err := r.scanUser(r.db.QueryRow(ctx, query, args...))
+	if err != nil {
+		// Translate Postgres unique-violation (SQLSTATE 23505) to the
+		// domain sentinel, mirroring Create — an email UPDATE onto an
+		// existing address was reaching the handler as an unknown error
+		// (THE-DEFAULT-THAT-LIES).
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return nil, domain.ErrUserAlreadyExists
+		}
+		return nil, err
+	}
+	return updated, nil
 }
 
 // ConsumeRecoveryCode atomically removes a SINGLE MFA recovery code (identified

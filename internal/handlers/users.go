@@ -629,7 +629,21 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-DEFAULT-THAT-LIES: 404 is reserved for the two
+			// not-found sentinels (which RG10 also rides on); a
+			// duplicate email is an honest 409 (own-org admin surface —
+			// the same enumeration posture bulk's vocabulary already
+			// rests on); everything unknown — including the hashing
+			// sentinel — is an INTERNAL fault and says so, instead of
+			// masquerading as a missing user.
+			switch {
+			case errors.Is(err, service.ErrUserNotFound()), errors.Is(err, domain.ErrUserNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			case errors.Is(err, domain.ErrUserAlreadyExists):
+				c.JSON(http.StatusConflict, gin.H{"error": "email_exists"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+			}
 			return
 		}
 		// Lifecycle-first cascade (P-018 best-effort): when this update

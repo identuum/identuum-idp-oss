@@ -78,6 +78,13 @@ var errUserNotFound = errors.New("service: user not found")
 // ErrUserNotFound exposes the OSS not-found sentinel.
 func ErrUserNotFound() error { return errUserNotFound }
 
+var errPasswordHashing = errors.New("service: password hashing failed")
+
+// ErrPasswordHashing exposes the hashing-failure sentinel: an INTERNAL
+// fault that must surface as a 500, never masquerade as a missing user
+// (THE-DEFAULT-THAT-LIES).
+func ErrPasswordHashing() error { return errPasswordHashing }
+
 var errUserNotPendingApproval = errors.New("service: user is not a pending self-registration")
 
 // ErrUserNotPendingApproval exposes the sentinel returned when an
@@ -124,7 +131,7 @@ func (s *UserService) Create(ctx context.Context, opts CreateUserOptions) (*doma
 	}
 	hash, err := s.repo.HashPassword(opts.Password)
 	if err != nil {
-		return nil, fmt.Errorf("password hashing failed")
+		return nil, errPasswordHashing
 	}
 	id, err := uuidgen.NewV7()
 	if err != nil {
@@ -253,7 +260,7 @@ func (s *UserService) Update(ctx context.Context, id, orgID uuid.UUID, opts Upda
 		}
 		hash, err := s.repo.HashPassword(*opts.Password)
 		if err != nil {
-			return nil, fmt.Errorf("password hashing failed")
+			return nil, errPasswordHashing
 		}
 		repoOpts.Password = &hash
 	}
