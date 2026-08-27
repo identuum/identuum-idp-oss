@@ -28,13 +28,17 @@
       ],
       "may_import": [
         "github.com/google/**",
+        "github.com/jackc/**",
         "internal/appliance/**",
+        "internal/buildinfo/**",
         "internal/crypto/**",
         "internal/domain/**",
+        "internal/lease/**",
         "internal/postgres/**",
         "internal/repository/**",
         "internal/service/**",
         "internal/setup/**",
+        "internal/testsupport/**",
         "pkg/runtime/**"
       ]
     },
@@ -47,6 +51,7 @@
         "github.com/gin-gonic/**",
         "github.com/google/**",
         "internal/audit/**",
+        "internal/buildinfo/**",
         "internal/crypto/**",
         "internal/domain/**",
         "internal/features/**",

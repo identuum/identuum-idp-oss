@@ -303,6 +303,10 @@ credential-transparency:
 # every build/vet/test/lint gate first, wiki-fresh LAST. wiki-fresh is
 # still fatal — nothing here is downgraded to a warning — it simply no
 # longer masks what it is not about.
+# This recipe is the canonical repo-local close gate. README.md's Validation
+# matrix mirrors its ordered coverage and omissions; the focused
+# TestVerifyGateSetBoundaryContract pin makes removing the boundary step fail
+# inside repo-green before a misleading green aggregate can be reported.
 verify:
 	@$(MAKE) --no-print-directory repo-green
 	@$(MAKE) --no-print-directory tracked-binary-check

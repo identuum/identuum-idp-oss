@@ -359,21 +359,48 @@ through D-IDP-INSTALL-25).
 
 ## Validation matrix
 
-This is the canonical command set. If anything below fails, the tree
-is not in a releasable state.
+The repo-local close gate is `make verify`. Its recipe in `Makefile` is the
+source of truth; in order, it runs:
+
+1. `repo-green` (gofmt, build, vet, and the untagged Go test suite).
+2. The tracked-binary and credential-transparency checks.
+3. `rulefloor-check` (unit rows execute; integration-profile rows are checked
+   statically here).
+4. Image-base policy, integration vet, doc-comment, R-suite, image-parity, and
+   image-policy-restatement checks.
+5. Clock-fuse reporting plus its snapshot gate, tagged-file vet, and the
+   integration inventory that names tests this Docker-free aggregate did not
+   execute.
+6. A precise gograph rebuild followed by
+   `gograph boundaries --config boundaries.json`. This is part of the full
+   local gate, not an optional review command.
+7. `go mod tidy -diff`, `staticcheck ./...`, `govulncheck ./...`, wiki
+   freshness, and `grype dir:. --fail-on high`.
 
 ```bash
 make verify
-
-# or, equivalently:
-go mod tidy -diff
-go build ./...
-go vet ./...
-go test ./... -count=1
-staticcheck ./...
-govulncheck ./...
-grype dir:. --fail-on high
 ```
+
+The short command list previously printed here as "equivalent" was not
+equivalent: it omitted the architecture boundary check and most repo-specific
+gates. Do not substitute it for `make verify`.
+
+What this close gate does not cover is equally explicit:
+
+- It does not execute DB-backed integration tests or integration-profile
+  Rulefloor rows; use `make integration-test` (or the `make validate` live
+  chain). `integration-inventory` reports the current skipped population.
+- It does not run `staticcheck -tags integration`; that belongs to
+  `make integration-staticcheck`.
+- It does not run the race detector locally; `ci-verify` runs the untagged
+  suite with `-race`.
+- It does not boot Docker Compose, exercise a live appliance or rotation,
+  execute browser/UI tests, contact external services, or consume operator
+  secrets. Those are separate integration, smoke, or sibling-repository gates.
+- CI's `ci-verify` does not execute gograph or the boundary policy because CI
+  does not install gograph. It pins that the local full gate still contains the
+  boundary command, but new boundary violations are evaluated only by the
+  repo-local `make verify` invocation.
 
 Integration tests (require a running Postgres 18+):
 
