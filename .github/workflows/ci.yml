@@ -49,9 +49,15 @@
 #   3. race         — `go test -race ./... -count=1`. CI-ONLY: the race
 #                     detector is deliberately NOT part of `make verify`.
 #
-# gograph stays a developer-local tool by decision (owner-distributed via
-# the brew cask; CI does not install it); `ci-verify` documents that
-# omission. grype and tidy-diff RUN in CI via `ci-verify` —
+# gograph stays a developer-local tool BY DECISION, re-affirmed 2026-08-27
+# (THE-SAME-BINARY): Linux release artifacts EXIST (the cask's GoReleaser
+# tarballs), so this is a choice, not an impossibility. What CI would buy
+# is the `gograph boundaries` architecture gate; what it would cost is a
+# precise type-loading graph build (~minutes) on every run. The boundary
+# gate runs in every local `make verify` close, its ordering is pinned by
+# TestVerifyGateSetBoundaryContract, and the README validation matrix
+# states the CI omission explicitly — recorded, enforced locally, skipped
+# here on cost. grype and tidy-diff RUN in CI via `ci-verify` —
 # previously they were developer-only. govulncheck also runs in CI, but as its
 # OWN JOB rather than inside `ci-verify`, so a vulnerability database that moves
 # under an unchanged tree turns that job red without taking the build/test
@@ -143,17 +149,35 @@ jobs:
       # install their binaries first. govulncheck is NOT installed here: it
       # has its own job.
       - name: Install staticcheck
-        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+        # Pinned to the version the local gate runs (brew staticcheck
+        # 2026.2) — @latest was a rolling pin, the exact silent-upgrade
+        # class THE-SAME-BINARY closes. Bump together with local brew,
+        # deliberately.
+        run: go install honnef.co/go/tools/cmd/staticcheck@2026.2
 
-      - name: Install rulefloor
-        # Pinned module version — the ledger gate's extractor semantics are
-        # version-bound (v0.6.0 machine interfaces, extractor-owned
-        # discovery). Bump deliberately, never implicitly. The installed
-        # binary self-reports "dev" (no ldflags stamp under go install); the
-        # @v0.6.0 pin is what carries the version guarantee here, and the
-        # Makefile's RULEFLOOR_RESOLVE accepts a binary that answers
-        # `version --json`.
-        run: go install github.com/ozgurcd/rulefloor@v0.6.0
+      - name: Install rulefloor (brew-identical build)
+        # THE-SAME-BINARY (2026-08-27): CI builds rulefloor from the SAME
+        # immutable source artifact local brew builds — the tag tarball and
+        # sha256 lifted from the tap formula — with brew's exact ldflags
+        # version stamp. `go install` is banned here: it resolves through
+        # the module proxy (a different artifact chain than the tarball)
+        # and stamps no version (self-reports "dev", unverifiable). Bump
+        # the TAG and SHA256 together, deliberately, when the tap bumps.
+        run: |
+          curl -sSfL -o rulefloor.tar.gz https://github.com/ozgurcd/rulefloor/archive/refs/tags/v0.7.0.tar.gz
+          echo "a0b6ef8a212c64378a8aae9785bd8a589efa71daa42af3ce792827c70c4dc6c6  rulefloor.tar.gz" | sha256sum -c -
+          tar -xzf rulefloor.tar.gz
+          (cd rulefloor-0.7.0 && go build -ldflags "-X main.version=v0.7.0" -o "$(go env GOPATH)/bin/rulefloor" .)
+          rm -rf rulefloor.tar.gz rulefloor-0.7.0
+
+      - name: Prove the rulefloor version
+        # A version nobody prints is a version nobody can check
+        # (THE-SAME-BINARY). The printed JSON must carry the pinned
+        # version — drift between this assert and the install step above
+        # fails the run instead of running a different instrument quietly.
+        run: |
+          rulefloor version --json
+          rulefloor version --json | grep -F '"version":"v0.7.0"'
 
       - name: Install grype
         # Pinned to a tagged release — BOTH the install script ref and the
@@ -161,7 +185,7 @@ jobs:
         # is a rolling branch with no checksum; a tag is immutable. Bump this
         # version deliberately, never implicitly. (Severity / fail-on policy is
         # owner-controlled and lives in the Makefile grype-scan target, not here.)
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/v0.116.0/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v0.116.0
+        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/v0.117.0/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v0.117.0
 
       # The whole verify matrix in one Makefile target: image-base-check,
       # tidy-diff, build, unit tests, staticcheck, grype-scan. The steps of
