@@ -27,8 +27,8 @@
 #                                          SKIPPED)
 #                     rulefloor-check is NO LONGER subtracted: since
 #                     THE-TOOLING-UPGRADE the verify job installs the real
-#                     rulefloor binary (`go install
-#                     github.com/ozgurcd/rulefloor@v0.6.0`) and ci-verify
+#                     rulefloor binary (built from the workflow-env-pinned
+#                     tag tarball — THE-SECOND-INSTALL) and ci-verify
 #                     runs the same `make rulefloor-check` developers run —
 #                     hashes, extractor-owned discovery, orphan scan. The
 #                     tools/rulefloorlite subset it replaces reimplemented
@@ -41,7 +41,10 @@
 #                     (e2e + DB-backed runtime + pkg/runtime teeth), then
 #                     `make rulefloor-integration` (THE-CI-TEETH): the
 #                     RULE-FLOOR.md DB-profile teeth execute here too, with
-#                     the same pinned rulefloor install as the verify job.
+#                     the SAME workflow-env-derived rulefloor build as the
+#                     verify job — one declared version, both jobs derive
+#                     (THE-SECOND-INSTALL; this line previously claimed a
+#                     parity that did not hold).
 #                     Nothing of the developer `integration-test` chain is
 #                     subtracted anymore except `test-db` (createdb +
 #                     migrate bootstrap — the service container provides
@@ -89,6 +92,13 @@ env:
   # Well-known public dev AES key — not a real secret. Safe ONLY for CI.
   IDENTUUM_IDP_DATA_ENCRYPTION_KEY: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   IDENTUUM_IDP_DEPLOYMENT_MODE: dev
+  # THE-SECOND-INSTALL: the ONE declared rulefloor version for the WHOLE
+  # workflow — every job that installs rulefloor derives its URL tag,
+  # tarball directory, ldflags stamp, and version assert from this pair.
+  # (The previous job-level declaration let the Integration job keep a
+  # second, older go-install route invisibly.) Bump both lines together.
+  RULEFLOOR_VERSION: v0.7.0
+  RULEFLOOR_SHA256: a0b6ef8a212c64378a8aae9785bd8a589efa71daa42af3ce792827c70c4dc6c6
 
 jobs:
   verify:
@@ -133,11 +143,6 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      # THE-UNBOUND-STAMP: the ONE declared rulefloor version for this
-      # workflow — URL tag, tarball dir, ldflags stamp, and the printed
-      # assert all derive from this string; the sha256 pins the artifact.
-      RULEFLOOR_VERSION: v0.7.0
-      RULEFLOOR_SHA256: a0b6ef8a212c64378a8aae9785bd8a589efa71daa42af3ce792827c70c4dc6c6
       IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:5432/identuum_ci_test?sslmode=disable
       IDENTUUM_IDP_REQUIRE_DB_TESTS: "1"
       # The single-replica lease contends when tests share one DB; the runtime
@@ -167,11 +172,12 @@ jobs:
         # version stamp. `go install` is banned here: it resolves through
         # the module proxy (a different artifact chain than the tarball)
         # and stamps no version (self-reports "dev", unverifiable).
-        # THE-UNBOUND-STAMP: RULEFLOOR_VERSION is declared ONCE, at the
-        # job env — the URL tag, tarball directory, ldflags stamp, and
-        # the assert step are ALL derived from it, mirroring how brew
-        # derives v#{version} from its url. A bump edits exactly two
-        # lines (version + sha), and no pair of them can diverge silently.
+        # THE-UNBOUND-STAMP/THE-SECOND-INSTALL: RULEFLOOR_VERSION is
+        # declared ONCE, at the WORKFLOW env — the URL tag, tarball
+        # directory, ldflags stamp, and the assert step in EVERY job
+        # derive from it, mirroring how brew derives v#{version} from
+        # its url. A bump edits exactly two lines (version + sha), and
+        # no pair of them can diverge silently.
         run: |
           curl -sSfL -o rulefloor.tar.gz "https://github.com/ozgurcd/rulefloor/archive/refs/tags/${RULEFLOOR_VERSION}.tar.gz"
           echo "${RULEFLOOR_SHA256}  rulefloor.tar.gz" | sha256sum -c -
@@ -181,7 +187,7 @@ jobs:
 
       - name: Prove the rulefloor version
         # A version nobody prints is a version nobody can check
-        # (THE-SAME-BINARY). The assert derives from the SAME job-env
+        # (THE-SAME-BINARY). The assert derives from the SAME workflow-env
         # string the build stamped (THE-UNBOUND-STAMP): what it proves is
         # that the binary on PATH is the one this workflow just built —
         # the artifact identity itself is carried by the sha256 pin.
@@ -226,8 +232,14 @@ jobs:
           go-version-file: go.mod
 
       - name: Install govulncheck
-        # Installed inline. No binary is vendored or committed.
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest
+        # Installed inline. No binary is vendored or committed. Pinned to
+        # the SCANNER version the local gate runs (govulncheck@v1.7.0,
+        # measured — @latest was the same rolling-pin class THE-SAME-BINARY
+        # closed for staticcheck). The vulnerability DATABASE stays rolling
+        # BY DESIGN: that movement is this job's whole purpose, which is
+        # why it is its own job and not part of ci-verify. Bump together
+        # with the local scanner, deliberately.
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
 
       # Its own job on purpose, and therefore deliberately absent from
       # `ci-verify`: a vulnerability database moves under a tree that has not
@@ -290,13 +302,25 @@ jobs:
           IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss_test?sslmode=disable
         run: make ci-integration-test
 
-      # THE-CI-TEETH: the DB-profile ledger teeth now run in CI too —
-      # the same pinned install as the verify job, then the same
-      # `make rulefloor-integration` developers run (check --run-profile
-      # integration --tags integration). Runs AFTER ci-integration-test:
-      # the suites have already migrated the service database by then.
-      - name: Install rulefloor
-        run: go install github.com/ozgurcd/rulefloor@v0.6.0
+      # THE-CI-TEETH: the DB-profile ledger teeth now run in CI too, then
+      # the same `make rulefloor-integration` developers run (check
+      # --run-profile integration --tags integration). Runs AFTER
+      # ci-integration-test: the suites have already migrated the service
+      # database by then. THE-SECOND-INSTALL: this step previously
+      # `go install`ed a DIFFERENT rulefloor (v0.6.0, module proxy, no
+      # stamp) under a comment claiming parity with the verify job — two
+      # install methods, two versions, one ledger, in one file. It now
+      # derives from the SAME workflow-level env as verify, and proves
+      # what it built before the teeth run.
+      - name: Install rulefloor (brew-identical build)
+        run: |
+          curl -sSfL -o rulefloor.tar.gz "https://github.com/ozgurcd/rulefloor/archive/refs/tags/${RULEFLOOR_VERSION}.tar.gz"
+          echo "${RULEFLOOR_SHA256}  rulefloor.tar.gz" | sha256sum -c -
+          tar -xzf rulefloor.tar.gz
+          (cd "rulefloor-${RULEFLOOR_VERSION#v}" && go build -ldflags "-X main.version=${RULEFLOOR_VERSION}" -o "$(go env GOPATH)/bin/rulefloor" .)
+          rm -rf rulefloor.tar.gz "rulefloor-${RULEFLOOR_VERSION#v}"
+          rulefloor version --json
+          rulefloor version --json | grep -F "\"version\":\"${RULEFLOOR_VERSION}\""
 
       - name: make rulefloor-integration
         env:
