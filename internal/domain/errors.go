@@ -56,6 +56,10 @@ var (
 	ErrIDPNotFound                     = errors.New("identity provider not found")
 	ErrAPIResourceAlreadyExists        = errors.New("api resource already exists")
 	ErrAPIResourceNotFound             = errors.New("api resource not found")
+	// The two below back the honest 409 on the rename-into-collision
+	// paths (UNIQUE (org_id, name) on both tables) — THE-SIXTEEN-ELSES.
+	ErrScopeTemplateAlreadyExists = errors.New("scope template name already exists")
+	ErrOrgRoleAlreadyExists       = errors.New("org role name already exists")
 	// ErrServiceAccountNameAlreadyExists — the create or update path
 	// found another SA in the same organization already using the
 	// requested name. Slice identuum-20260530-service-account-name-

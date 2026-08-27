@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -302,7 +303,17 @@ func HandleUpdateScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 			Scopes:      req.Scopes,
 		})
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss; a rename
+			// into UNIQUE (org_id, name) is an honest 409; unknown
+			// faults say so.
+			switch {
+			case errors.Is(err, service.ErrScopeTemplateNotFound()):
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			case errors.Is(err, domain.ErrScopeTemplateAlreadyExists):
+				c.JSON(http.StatusConflict, gin.H{"error": "name_exists"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+			}
 			return
 		}
 		c.JSON(http.StatusOK, toSafeScopeTemplate(template))
@@ -331,7 +342,10 @@ func HandleDeleteScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		if err := deps.ScopeTemplateService.Delete(c.Request.Context(), id, p.OrganizationID); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// Delete is idempotent at the repo (a miss is a 0-row Exec,
+			// no error) — errors here are infrastructure faults, so the
+			// old 404 was a pure lie (THE-SIXTEEN-ELSES).
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": id})

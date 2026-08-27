@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 	"time"
 
@@ -336,7 +337,17 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			Scopes:       req.Scopes,
 		})
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss; an
+			// audience rename into UNIQUE (org_id, audience) is an
+			// honest 409; unknown faults say so.
+			switch {
+			case errors.Is(err, service.ErrAPIResourceNotFound()):
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			case errors.Is(err, domain.ErrAPIResourceAlreadyExists):
+				c.JSON(http.StatusConflict, gin.H{"error": "audience_exists"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+			}
 			return
 		}
 		c.JSON(http.StatusOK, toSafeAPIResource(resource))
@@ -359,7 +370,10 @@ func HandleDeleteAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		if err := deps.APIResourceService.Delete(c.Request.Context(), id, nil); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// Delete is documented-idempotent (a miss answers 200 with 0
+			// rows affected) — the ONLY errors here are infrastructure
+			// faults, so the old 404 was a pure lie (THE-SIXTEEN-ELSES).
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": id})
@@ -383,7 +397,12 @@ func HandleRegenerateAPIResourceSecret(deps APIResourcesHandlerDeps) gin.Handler
 		}
 		resource, plaintext, err := deps.APIResourceService.RegenerateSecret(c.Request.Context(), id)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss.
+			if errors.Is(err, service.ErrAPIResourceNotFound()) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{

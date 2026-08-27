@@ -55,6 +55,10 @@ type UpdateAPIResourceOptions struct {
 
 var errAPIResourceNotFound = errors.New("service: api resource not found")
 
+// ErrAPIResourceNotFound exposes the not-found sentinel so handlers can
+// reserve 404 for real misses (THE-SIXTEEN-ELSES).
+func ErrAPIResourceNotFound() error { return errAPIResourceNotFound }
+
 // Create persists a new APIResource plus its scope set. Returns the
 // stored resource and (for newly-created rows) the plaintext
 // resource secret EXACTLY ONCE.

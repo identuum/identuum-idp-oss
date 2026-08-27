@@ -11,6 +11,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/utils/uuidgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -180,6 +181,15 @@ func (r *PgxAPIResourceRepository) GetByAudienceGlobal(ctx context.Context, audi
 func (r *PgxAPIResourceRepository) Update(ctx context.Context, res *domain.APIResource) error {
 	query := `UPDATE api_resources SET name = $1, audience = $2, active = $3, token_ttl_secs = $4, resource_secret_hash = $5, updated_at = $6 WHERE id = $7`
 	_, err := r.db.Exec(ctx, query, res.Name, res.Audience, res.Active, res.TokenTTLSecs, res.ResourceSecretHash, res.UpdatedAt, res.ID)
+	if err != nil {
+		// UNIQUE (org_id, audience): renaming the audience into a
+		// collision is a client conflict, not an unknown fault
+		// (THE-SIXTEEN-ELSES).
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrAPIResourceAlreadyExists
+		}
+	}
 	return err
 }
 

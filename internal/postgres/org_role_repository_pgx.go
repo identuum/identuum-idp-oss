@@ -11,6 +11,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/utils/uuidgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // PgxOrgRoleRepository implements OrgRoleRepository using pgx.
@@ -108,6 +109,12 @@ func (r *PgxOrgRoleRepository) Update(ctx context.Context, role *domain.OrgRole)
 		role.Name, role.Description, role.UpdatedAt, role.ID,
 	)
 	if err != nil {
+		// UNIQUE (org_id, name): renaming into a collision is a client
+		// conflict, not an unknown fault (THE-SIXTEEN-ELSES).
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrOrgRoleAlreadyExists
+		}
 		return fmt.Errorf("org_role: update: %w", err)
 	}
 	return nil

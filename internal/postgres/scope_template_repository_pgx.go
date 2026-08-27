@@ -11,6 +11,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/utils/uuidgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // PgxScopeTemplateRepository implements ScopeTemplateRepository using pgx.
@@ -98,6 +99,12 @@ func (r *PgxScopeTemplateRepository) Update(ctx context.Context, t *domain.Scope
 		t.Name, t.Description, t.Scopes, t.UpdatedAt, t.ID, t.OrganizationID,
 	)
 	if err != nil {
+		// UNIQUE (org_id, name): renaming into a collision is a client
+		// conflict, not an unknown fault (THE-SIXTEEN-ELSES).
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrScopeTemplateAlreadyExists
+		}
 		return fmt.Errorf("scope_template update: %w", err)
 	}
 	return nil

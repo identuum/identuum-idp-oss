@@ -292,7 +292,13 @@ func HandleDeleteOrganizationDomain(deps OrganizationDomainsHandlerDeps) gin.Han
 			return
 		}
 		if err := deps.OrganizationDomainService.Delete(c.Request.Context(), domainID, orgID); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the repo's real-miss
+			// sentinel (0 rows affected); unknown faults say so.
+			if errors.Is(err, domain.ErrOrganizationDomainNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": domainID})
@@ -314,7 +320,13 @@ func HandleSetPrimaryOrganizationDomain(deps OrganizationDomainsHandlerDeps) gin
 			return
 		}
 		if err := deps.OrganizationDomainService.SetPrimary(c.Request.Context(), domainID, orgID); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the repo's real-miss
+			// sentinel; unknown faults say so.
+			if errors.Is(err, domain.ErrOrganizationDomainNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"primary": domainID})

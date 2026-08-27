@@ -360,7 +360,12 @@ func HandleGetOrgRole(deps RBACHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss.
+			if errors.Is(err, service.ErrOrgRoleNotFound()) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, toSafeOrgRole(role))
@@ -390,7 +395,17 @@ func HandleUpdateOrgRole(deps RBACHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss; a rename
+			// into UNIQUE (org_id, name) is an honest 409; unknown
+			// faults say so.
+			switch {
+			case errors.Is(err, service.ErrOrgRoleNotFound()):
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			case errors.Is(err, domain.ErrOrgRoleAlreadyExists):
+				c.JSON(http.StatusConflict, gin.H{"error": "name_exists"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+			}
 			return
 		}
 		c.JSON(http.StatusOK, toSafeOrgRole(role))
@@ -418,7 +433,12 @@ func HandleDeleteOrgRole(deps RBACHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 				return
 			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss.
+			if errors.Is(err, service.ErrOrgRoleNotFound()) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": roleID})
@@ -486,7 +506,12 @@ func HandleRemoveRoleScope(deps RBACHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 				return
 			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss.
+			if errors.Is(err, service.ErrOrgRoleNotFound()) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"role_id": roleID, "scope_name": scopeName})
@@ -580,7 +605,12 @@ func HandleRemoveRoleFromUser(deps RBACHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 				return
 			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// THE-SIXTEEN-ELSES: 404 only for the real miss.
+			if errors.Is(err, service.ErrOrgRoleNotFound()) {
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"user_id": userID, "role_id": roleID})

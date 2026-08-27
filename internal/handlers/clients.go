@@ -548,7 +548,11 @@ func HandleDeleteClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			clientOrg = orgOf(prior.OrganizationID)
 		}
 		if err := deps.ClientService.DeleteClient(c.Request.Context(), id, orgAdminClientScope(c)); err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			// Delete is documented-idempotent (P3-14: a miss or a
+			// tombstone is a 0-row Exec, no error) — errors here are
+			// infrastructure faults, so the old 404 was a pure lie
+			// (THE-SIXTEEN-ELSES).
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"deleted": id})
