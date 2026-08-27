@@ -531,12 +531,21 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			Password      *string          `json:"password,omitempty"`
 			Name          *string          `json:"name,omitempty"`
 			Role          *domain.UserRole `json:"role,omitempty"`
+			Active        *bool            `json:"active,omitempty"`
 			Banned        *bool            `json:"banned,omitempty"`
 			EmailVerified *bool            `json:"email_verified,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
+		}
+		// active is the public, pre-split wire contract; banned is the
+		// persistence representation. Keep accepting the OSS-native banned
+		// field, but let an explicit active value take precedence when both
+		// are present so established clients retain the monolith semantics.
+		if req.Active != nil {
+			banned := !*req.Active
+			req.Banned = &banned
 		}
 		actor, _ := mw.PrincipalFromContext(c)
 		updated, err := deps.UserService.UpdateUserForActor(c.Request.Context(), actor, id, service.UpdateUserOptions{
