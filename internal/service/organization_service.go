@@ -48,6 +48,17 @@ type CreateOrganizationOptions struct {
 	MFAPolicy          string
 	AuthPolicy         string
 	Active             bool
+	// Slug is honored when non-empty; otherwise derived from Name.
+	// The slug is create-only: the update wire refuses it loudly
+	// (org_slug is a UNIQUE external identifier — THE-INERT-ORG-FIELDS).
+	Slug string
+	// The four below were monolith create-wire fields the OSS split
+	// silently dropped; absent means the same false/0 the INSERT
+	// always wrote (THE-INERT-ORG-FIELDS).
+	AllowPublicRegistration     bool
+	RequireRegistrationApproval bool
+	RequireStrictReauth         bool
+	ServiceAccountExpiryDays    int
 }
 
 // UpdateOrganizationOptions is forwarded verbatim to the repository
@@ -108,18 +119,26 @@ func buildOrganization(opts CreateOrganizationOptions) (*domain.Organization, er
 	if mfa == "" {
 		mfa = "optional"
 	}
+	slug := strings.ToLower(strings.TrimSpace(opts.Slug))
+	if slug == "" {
+		slug = slugifyOrgName(opts.Name)
+	}
 	org := &domain.Organization{
-		ID:                        id,
-		Name:                      opts.Name,
-		Domain:                    strings.ToLower(strings.TrimSpace(opts.Domain)),
-		OrgSlug:                   slugifyOrgName(opts.Name),
-		MaxSessionsPerUser:        maxSess,
-		MFAPolicy:                 mfa,
-		AuthPolicy:                opts.AuthPolicy,
-		Active:                    opts.Active,
-		PasswordComplexityEnabled: true, // secure default per Decision D-015 §9 + the migration's NOT NULL DEFAULT true.
-		CreatedAt:                 now,
-		UpdatedAt:                 now,
+		ID:                          id,
+		Name:                        opts.Name,
+		Domain:                      strings.ToLower(strings.TrimSpace(opts.Domain)),
+		OrgSlug:                     slug,
+		MaxSessionsPerUser:          maxSess,
+		MFAPolicy:                   mfa,
+		AuthPolicy:                  opts.AuthPolicy,
+		Active:                      opts.Active,
+		AllowPublicRegistration:     opts.AllowPublicRegistration,
+		RequireRegistrationApproval: opts.RequireRegistrationApproval,
+		RequireStrictReauth:         opts.RequireStrictReauth,
+		ServiceAccountExpiryDays:    opts.ServiceAccountExpiryDays,
+		PasswordComplexityEnabled:   true, // secure default per Decision D-015 §9 + the migration's NOT NULL DEFAULT true.
+		CreatedAt:                   now,
+		UpdatedAt:                   now,
 	}
 	if err := org.Validate(); err != nil {
 		return nil, err

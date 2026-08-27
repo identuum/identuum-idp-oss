@@ -291,24 +291,30 @@ func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDe
 // for forward-compat (a future field added to the domain type that
 // IS sensitive will be omitted by default rather than leaking).
 type safeOrganization struct {
-	ID                          uuid.UUID  `json:"id"`
-	Name                        string     `json:"name"`
-	Domain                      string     `json:"domain"`
-	OrgSlug                     string     `json:"org_slug"`
-	Active                      bool       `json:"active"`
-	MaxSessionsPerUser          int        `json:"max_sessions_per_user"`
-	MFAPolicy                   string     `json:"mfa_policy"`
-	AuthPolicy                  string     `json:"auth_policy"`
-	ApiAuthorizationPolicy      string     `json:"api_authorization_policy,omitempty"`
-	AllowPublicRegistration     bool       `json:"allow_public_registration"`
-	RequireRegistrationApproval bool       `json:"require_registration_approval"`
-	RequireStrictReauth         bool       `json:"require_strict_reauth"`
-	LocalAdminOnly              bool       `json:"local_admin_only"`
-	PasswordComplexityEnabled   bool       `json:"password_complexity_enabled"`
-	Tier                        string     `json:"tier"`
-	CreatedAt                   time.Time  `json:"created_at"`
-	UpdatedAt                   time.Time  `json:"updated_at"`
-	DeletedAt                   *time.Time `json:"deleted_at,omitempty"`
+	ID                          uuid.UUID `json:"id"`
+	Name                        string    `json:"name"`
+	Domain                      string    `json:"domain"`
+	OrgSlug                     string    `json:"org_slug"`
+	Active                      bool      `json:"active"`
+	MaxSessionsPerUser          int       `json:"max_sessions_per_user"`
+	MFAPolicy                   string    `json:"mfa_policy"`
+	AuthPolicy                  string    `json:"auth_policy"`
+	ApiAuthorizationPolicy      string    `json:"api_authorization_policy,omitempty"`
+	AllowPublicRegistration     bool      `json:"allow_public_registration"`
+	RequireRegistrationApproval bool      `json:"require_registration_approval"`
+	RequireStrictReauth         bool      `json:"require_strict_reauth"`
+	LocalAdminOnly              bool      `json:"local_admin_only"`
+	PasswordComplexityEnabled   bool      `json:"password_complexity_enabled"`
+	// The three limits below became wire-settable with
+	// THE-INERT-ORG-FIELDS; settable-but-unreadable is half-inert,
+	// so they are projected too.
+	ServiceAccountExpiryDays int        `json:"service_account_expiry_days"`
+	M2MAnomalyLimit          int        `json:"m2m_anomaly_limit"`
+	M2MAnomalyWindowSeconds  int        `json:"m2m_anomaly_window_seconds"`
+	Tier                     string     `json:"tier"`
+	CreatedAt                time.Time  `json:"created_at"`
+	UpdatedAt                time.Time  `json:"updated_at"`
+	DeletedAt                *time.Time `json:"deleted_at,omitempty"`
 
 	// Admin-state projection (PHANTOM-NO-ADMIN). Pointers + omitempty:
 	// when the counter is unwired or errors the fields are ABSENT so the
@@ -378,6 +384,9 @@ func toSafeOrganization(o *domain.Organization) safeOrganization {
 		RequireStrictReauth:         o.RequireStrictReauth,
 		LocalAdminOnly:              o.LocalAdminOnly,
 		PasswordComplexityEnabled:   o.PasswordComplexityEnabled,
+		ServiceAccountExpiryDays:    o.ServiceAccountExpiryDays,
+		M2MAnomalyLimit:             o.M2MAnomalyLimit,
+		M2MAnomalyWindowSeconds:     o.M2MAnomalyWindowSeconds,
 		Tier:                        o.Tier.String(),
 		CreatedAt:                   o.CreatedAt,
 		UpdatedAt:                   o.UpdatedAt,
@@ -604,6 +613,20 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			// born INACTIVE by design, and an explicit active:true
 			// alongside it is a contradiction refused loudly.
 			AdminEmail string `json:"admin_email,omitempty"`
+			// Slug is create-only (org_slug is a UNIQUE external
+			// identifier): honored here, refused loudly on update.
+			// Empty derives from Name as before (THE-INERT-ORG-FIELDS).
+			Slug string `json:"slug,omitempty"`
+			// The four below were monolith create-wire fields the OSS
+			// split silently dropped; two of them (require_strict_reauth,
+			// service_account_expiry_days) were otherwise unreachable at
+			// birth even via a follow-up PUT (THE-INERT-ORG-FIELDS).
+			// Pointer bools per ABSENT-BOOL-1: absent keeps the false
+			// default the INSERT always wrote.
+			AllowPublicRegistration     *bool `json:"allow_public_registration,omitempty"`
+			RequireRegistrationApproval *bool `json:"require_registration_approval,omitempty"`
+			RequireStrictReauth         *bool `json:"require_strict_reauth,omitempty"`
+			ServiceAccountExpiryDays    *int  `json:"service_account_expiry_days,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -618,7 +641,14 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			MFAPolicy:          req.MFAPolicy,
 			AuthPolicy:         req.AuthPolicy,
 			// Absent means ACTIVE; an explicit value is honored.
-			Active: req.Active == nil || *req.Active,
+			Active:                      req.Active == nil || *req.Active,
+			Slug:                        req.Slug,
+			AllowPublicRegistration:     req.AllowPublicRegistration != nil && *req.AllowPublicRegistration,
+			RequireRegistrationApproval: req.RequireRegistrationApproval != nil && *req.RequireRegistrationApproval,
+			RequireStrictReauth:         req.RequireStrictReauth != nil && *req.RequireStrictReauth,
+		}
+		if req.ServiceAccountExpiryDays != nil {
+			opts.ServiceAccountExpiryDays = *req.ServiceAccountExpiryDays
 		}
 
 		if adminEmail != "" {
@@ -698,9 +728,36 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			ApiAuthorizationPolicy      *string `json:"api_authorization_policy,omitempty"`
 			AllowPublicRegistration     *bool   `json:"allow_public_registration,omitempty"`
 			RequireRegistrationApproval *bool   `json:"require_registration_approval,omitempty"`
+			// The five below were repository-supported options the wire
+			// silently dropped — a 200 that changed nothing
+			// (THE-INERT-ORG-FIELDS, same shape as the users active bug).
+			ServiceAccountExpiryDays *int  `json:"service_account_expiry_days,omitempty"`
+			M2MAnomalyLimit          *int  `json:"m2m_anomaly_limit,omitempty"`
+			M2MAnomalyWindowSeconds  *int  `json:"m2m_anomaly_window_seconds,omitempty"`
+			RequireStrictReauth      *bool `json:"require_strict_reauth,omitempty"`
+			LocalAdminOnly           *bool `json:"local_admin_only,omitempty"`
+			// Slug and Tier are bound ONLY to refuse them loudly: a
+			// silent drop is exactly the defect class this slice kills.
+			// org_slug is a UNIQUE external identifier, create-only;
+			// tier is the LICENSING control and must never be settable
+			// through the API by anyone, site_admin included.
+			// ComplianceContactEmail stays deliberately unbound: it is
+			// tenant-owned data and this endpoint is site_admin-only —
+			// binding it here would hand tenant data to infrastructure
+			// authority (AdminPermissionsModel).
+			Slug *string `json:"slug,omitempty"`
+			Tier *string `json:"tier,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		if req.Slug != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "slug_immutable", "message": "org_slug is a permanent identifier set at create; it cannot be changed"})
+			return
+		}
+		if req.Tier != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "tier_not_settable", "message": "tier is a licensing attribute and is not settable via the API"})
 			return
 		}
 		updated, err := deps.OrganizationService.Update(c.Request.Context(), id, repository.UpdateOrganizationOptions{
@@ -714,6 +771,11 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			ApiAuthorizationPolicy:      req.ApiAuthorizationPolicy,
 			AllowPublicRegistration:     req.AllowPublicRegistration,
 			RequireRegistrationApproval: req.RequireRegistrationApproval,
+			ServiceAccountExpiryDays:    req.ServiceAccountExpiryDays,
+			M2MAnomalyLimit:             req.M2MAnomalyLimit,
+			M2MAnomalyWindowSeconds:     req.M2MAnomalyWindowSeconds,
+			RequireStrictReauth:         req.RequireStrictReauth,
+			LocalAdminOnly:              req.LocalAdminOnly,
 		})
 		if err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})

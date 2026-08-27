@@ -33,6 +33,11 @@ var (
 		"domain",
 		"id",
 		"local_admin_only",
+		// m2m_anomaly_limit/window + service_account_expiry_days joined
+		// the contract with THE-INERT-ORG-FIELDS: the fields became
+		// wire-settable, and settable-but-unreadable is half-inert.
+		"m2m_anomaly_limit",
+		"m2m_anomaly_window_seconds",
 		"max_sessions_per_user",
 		"mfa_policy",
 		"name",
@@ -40,6 +45,7 @@ var (
 		"password_complexity_enabled",
 		"require_registration_approval",
 		"require_strict_reauth",
+		"service_account_expiry_days",
 		"tier",
 		"updated_at",
 	}
