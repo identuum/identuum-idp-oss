@@ -99,6 +99,22 @@ env:
   # second, older go-install route invisibly.) Bump both lines together.
   RULEFLOOR_VERSION: v0.7.0
   RULEFLOOR_SHA256: a0b6ef8a212c64378a8aae9785bd8a589efa71daa42af3ce792827c70c4dc6c6
+  # THE-UNWATCHED-FOUR: the discipline above was ONE TOOL WIDE — local
+  # staticcheck drifted a whole slice unseen because rulefloor was the
+  # only tool CI printed and asserted. One declaration per tool, every
+  # install derived, every version printed and asserted below. Go's
+  # single source is go.mod's `go` directive (asserted, not
+  # re-declared). Latest-stable owner rule applies to all of them.
+  STATICCHECK_VERSION: v0.8.1
+  GRYPE_VERSION: v0.117.0
+  GOVULNCHECK_VERSION: v1.7.0
+  # THE-UNWATCHED-FOUR: the vendored install gate must be byte-identical
+  # to the shared master — a weakened copy would let this CI pass with a
+  # gate that no longer gates. This digest is the master's sha256; the
+  # integrity step below verifies the copy, and the wiki-side check
+  # compares master against both vendored copies AND this recorded
+  # digest. Bump all together when the gate changes.
+  RULEFLOOR_GATE_SHA256: "db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6"
 
 jobs:
   verify:
@@ -151,6 +167,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Verify the install gate is the shared master
+        # THE-UNWATCHED-FOUR: a weakened vendored copy would pass CI with
+        # a gate that no longer gates. The digest is pinned at workflow
+        # env; the wiki-side check holds master, both copies, and that
+        # pin identical.
+        run: echo "${RULEFLOOR_GATE_SHA256}  scripts/rulefloor-install-gate.sh" | sha256sum -c -
+
       - name: Reject undeclared rulefloor install routes
         # Vendored at scripts/rulefloor-install-gate.sh because this
         # single-repo CI checkout has no ../wiki sibling. Scanning the full
@@ -161,17 +184,29 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Prove the Go toolchain version
+        # THE-UNWATCHED-FOUR: Go's single declaration is go.mod's `go`
+        # directive; this proves the runner actually resolved it.
+        run: |
+          go version
+          go version | grep -F "go$(awk '/^go /{print $2}' go.mod) "
+
       # ci-verify runs staticcheck, grype, and the RULE-FLOOR.md ledger gate —
       # install their binaries first. govulncheck is NOT installed here: it
       # has its own job.
-      - name: Install staticcheck
+      - name: Install staticcheck (and prove its version)
         # OWNER RULE (2026-08-27): CI workflows always pin the LATEST
         # stable tool version — pinned (never rolling @latest, which
         # re-scopes silently) and bumped deliberately the moment a new
-        # stable ships. v0.8.1 == staticcheck 2026.2.1, latest stable,
-        # measured via the module index. Semver tag form: it is the
-        # form the proxy always resolves.
-        run: go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
+        # stable ships. v0.8.1 == staticcheck 2026.2.1, latest stable.
+        # THE-UNWATCHED-FOUR: the install derives from the workflow-env
+        # declaration and the printed version is asserted — staticcheck
+        # prints its module version in parentheses, e.g.
+        # "staticcheck 2026.2.1 (0.8.1)".
+        run: |
+          go install "honnef.co/go/tools/cmd/staticcheck@${STATICCHECK_VERSION}"
+          staticcheck --version
+          staticcheck --version | grep -F "(${STATICCHECK_VERSION#v})"
 
       - name: Install rulefloor (brew-identical build)
         # THE-SAME-BINARY (2026-08-27): CI builds rulefloor from the SAME
@@ -203,13 +238,18 @@ jobs:
           rulefloor version --json
           rulefloor version --json | grep -F "\"version\":\"${RULEFLOOR_VERSION}\""
 
-      - name: Install grype
+      - name: Install grype (and prove its version)
         # Pinned to a tagged release — BOTH the install script ref and the
         # installed version — so the supply chain cannot move under CI. `main`
-        # is a rolling branch with no checksum; a tag is immutable. Bump this
-        # version deliberately, never implicitly. (Severity / fail-on policy is
-        # owner-controlled and lives in the Makefile grype-scan target, not here.)
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/grype/v0.117.0/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v0.117.0
+        # is a rolling branch with no checksum; a tag is immutable. (Severity /
+        # fail-on policy is owner-controlled and lives in the Makefile
+        # grype-scan target, not here.) THE-UNWATCHED-FOUR: both version
+        # uses derive from the workflow-env declaration and the printed
+        # version is asserted.
+        run: |
+          curl -sSfL "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" | sh -s -- -b "$(go env GOPATH)/bin" "${GRYPE_VERSION}"
+          grype --version
+          grype --version | grep -F "grype ${GRYPE_VERSION#v}"
 
       # The whole verify matrix in one Makefile target: image-base-check,
       # tidy-diff, build, unit tests, staticcheck, grype-scan. The steps of
@@ -239,15 +279,19 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install govulncheck
+      - name: Install govulncheck (and prove its version)
         # Installed inline. No binary is vendored or committed. Pinned to
-        # the SCANNER version the local gate runs (govulncheck@v1.7.0,
-        # measured — @latest was the same rolling-pin class THE-SAME-BINARY
-        # closed for staticcheck). The vulnerability DATABASE stays rolling
-        # BY DESIGN: that movement is this job's whole purpose, which is
-        # why it is its own job and not part of ci-verify. Bump together
-        # with the local scanner, deliberately.
-        run: go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+        # the latest stable SCANNER (@latest was the rolling-pin class
+        # THE-SAME-BINARY closed for staticcheck). The vulnerability
+        # DATABASE stays rolling BY DESIGN: that movement is this job's
+        # whole purpose, which is why it is its own job and not part of
+        # ci-verify. THE-UNWATCHED-FOUR: the install derives from the
+        # workflow-env declaration and the printed scanner version is
+        # asserted.
+        run: |
+          go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"
+          govulncheck -version
+          govulncheck -version | grep -F "govulncheck@${GOVULNCHECK_VERSION}"
 
       # Its own job on purpose, and therefore deliberately absent from
       # `ci-verify`: a vulnerability database moves under a tree that has not

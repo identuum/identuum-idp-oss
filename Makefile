@@ -89,7 +89,7 @@ OSS_TEST_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0
 # WIKI_TOOLS — the shared gate scripts live in the sibling wiki repo.
 WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
-.PHONY: clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report
+.PHONY: clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report tool-versions
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
 .PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
@@ -307,7 +307,21 @@ credential-transparency:
 # matrix mirrors its ordered coverage and omissions; the focused
 # TestVerifyGateSetBoundaryContract pin makes removing the boundary step fail
 # inside repo-green before a misleading green aggregate can be reported.
+# tool-versions: print the gate set's five tools — version AND path.
+# THE-UNWATCHED-FOUR: local staticcheck drifted a whole slice unseen,
+# and two go-installed binaries in ~/go/bin shadowed brew while reports
+# said "the local brew version". Print-only by design: local tracks
+# brew-latest and CI asserts its own pins; this line makes skew and
+# shadowing VISIBLE at every close instead of discovered by incident.
+tool-versions:
+	@printf 'go          %s  %s\n' "$$(go version | awk '{print $$3}')" "$$(command -v go)"
+	@printf 'staticcheck %s  %s\n' "$$(staticcheck --version 2>/dev/null | awk '{print $$2, $$3}')" "$$(command -v staticcheck || echo MISSING)"
+	@printf 'grype       %s  %s\n' "$$(grype --version 2>/dev/null | awk '{print $$2}')" "$$(command -v grype || echo MISSING)"
+	@printf 'govulncheck %s  %s\n' "$$(govulncheck -version 2>/dev/null | awk '/Scanner/{print $$2}')" "$$(command -v govulncheck || echo MISSING)"
+	@printf 'rulefloor   %s  %s\n' "$$(rulefloor version --json 2>/dev/null)" "$$(command -v rulefloor || echo MISSING)"
+
 verify:
+	@$(MAKE) --no-print-directory tool-versions
 	@$(MAKE) --no-print-directory repo-green
 	@$(MAKE) --no-print-directory tracked-binary-check
 	@$(MAKE) --no-print-directory credential-transparency

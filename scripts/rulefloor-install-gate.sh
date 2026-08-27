@@ -38,10 +38,20 @@
 # gate's world); obfuscated invocations that never write the string
 # "rulefloor" on the install line.
 #
+# THREE COPIES, ONE GATE (THE-UNWATCHED-FOUR): this master runs in
+# wiki `make check`; each CI runs a vendored copy in its repo's
+# scripts/. Held identical by --sync-check below: master must equal
+# BOTH vendored copies byte-for-byte AND the digest recorded at
+# ../contracts/rulefloor-install-gate.master.sha256 (which the CI
+# workflows also pin at env). A weakened vendored copy fires here at
+# the next close; a weakened copy + workflow-pin edit still diverges
+# from the master and fires here.
+#
 # USAGE   rulefloor-install-gate.sh [WORKFLOW_DIR ...]
 #           default: ../identuum-idp-oss/.github/workflows and
 #                    ../identuum-ui/.github/workflows
 #         rulefloor-install-gate.sh --selftest
+#         rulefloor-install-gate.sh --sync-check
 # EXIT    0 all installs on the declared route | 1 violation | 2 cannot evaluate
 
 set -uo pipefail
@@ -145,6 +155,37 @@ if [ "${1:-}" = "--selftest" ]; then
 	fi
 	echo "SELFTEST FAIL — $fails case(s)"
 	exit 1
+fi
+
+if [ "${1:-}" = "--sync-check" ]; then
+	bad=0
+	master="${BASH_SOURCE[0]}"
+	digest_file="$WIKI_DIR/contracts/rulefloor-install-gate.master.sha256"
+	for copy in "$WIKI_DIR/../identuum-idp-oss/scripts/rulefloor-install-gate.sh" \
+		"$WIKI_DIR/../identuum-ui/scripts/rulefloor-install-gate.sh"; do
+		if [ ! -f "$copy" ]; then
+			echo "  VIOLATION  vendored copy MISSING: $copy"
+			bad=$((bad + 1))
+		elif ! cmp -s "$master" "$copy"; then
+			echo "  VIOLATION  vendored copy DIVERGES from the master gate: ${copy#"$WIKI_DIR/../"} (a CI running it gates something else)"
+			bad=$((bad + 1))
+		fi
+	done
+	if [ ! -f "$digest_file" ]; then
+		echo "  VIOLATION  recorded master digest missing: contracts/rulefloor-install-gate.master.sha256"
+		bad=$((bad + 1))
+	else
+		recorded="$(awk '{print $1}' "$digest_file")"
+		actual="$(shasum -a 256 "$master" | awk '{print $1}')"
+		if [ "$recorded" != "$actual" ]; then
+			echo "  VIOLATION  recorded master digest is stale: recorded $recorded, actual $actual — the CI workflow pins ride this digest"
+			bad=$((bad + 1))
+		fi
+	fi
+	echo "rulefloor-install-gate sync: master + 2 vendored copies + recorded digest"
+	echo "rulefloor-install-gate sync violations: $bad"
+	[ "$bad" -eq 0 ]
+	exit $?
 fi
 
 if [ "$#" -gt 0 ]; then
