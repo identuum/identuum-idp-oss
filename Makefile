@@ -455,8 +455,8 @@ ci-verify:
 	# with pre-v0.3.0 string-marker semantics and measurably diverged from
 	# the real extractor (a marker inside a Go string literal satisfied
 	# lite and failed rulefloor v0.3.0), and it never verified hashes.
-	# CI installs the binary with `go install github.com/ozgurcd/rulefloor@v0.3.0`
-	# (see ci.yml); locally RULEFLOOR_RESOLVE falls back to PATH/sibling.
+	# CI builds the binary from the pinned, checksum-verified release tarball
+	# declared in ci.yml; locally RULEFLOOR_RESOLVE falls back to PATH/sibling.
 	@$(MAKE) --no-print-directory rulefloor-check
 	@$(MAKE) --no-print-directory image-base-check
 	@$(MAKE) --no-print-directory fmt-check

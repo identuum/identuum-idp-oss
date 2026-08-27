@@ -123,6 +123,10 @@ if [ "${1:-}" = "--selftest" ]; then
 	expect "the declared derived route (URL + stamp) PASSES" 0
 	wf '    # x: go install github.com/ozgurcd/rulefloor@v0.6.0'
 	expect "a commented go-install mention PASSES" 0
+	wf '    # x: brew install ozgurcd/tap/rulefloor'
+	expect "a commented brew-install mention PASSES" 0
+	wf '    # x: curl "https://github.com/ozgurcd/rulefloor/archive/refs/tags/v0.8.0.tar.gz"'
+	expect "a commented hardcoded-tag mention PASSES" 0
 	wf 'x: go install github.com/ozgurcd/rulefloor@v0.6.0'
 	expect "a live go-install route FIRES" 1
 	wf 'env:' '  RULEFLOOR_VERSION: v0.7.0' 'x: curl "https://github.com/ozgurcd/rulefloor/archive/refs/tags/v0.8.0.tar.gz"'
@@ -136,7 +140,7 @@ if [ "${1:-}" = "--selftest" ]; then
 	wf '    # y: go build -ldflags "-X main.version=v0.7.0" (documented example)'
 	expect "a commented literal-stamp mention PASSES" 0
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 8 case(s), fire and pass both proven"
+		echo "SELFTEST OK — 10 case(s), fire and pass both proven"
 		exit 0
 	fi
 	echo "SELFTEST FAIL — $fails case(s)"
