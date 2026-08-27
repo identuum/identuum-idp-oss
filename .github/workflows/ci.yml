@@ -165,11 +165,13 @@ jobs:
       # install their binaries first. govulncheck is NOT installed here: it
       # has its own job.
       - name: Install staticcheck
-        # Pinned to the version the local gate runs (brew staticcheck
-        # 2026.2) — @latest was a rolling pin, the exact silent-upgrade
-        # class THE-SAME-BINARY closes. Bump together with local brew,
-        # deliberately.
-        run: go install honnef.co/go/tools/cmd/staticcheck@2026.2
+        # OWNER RULE (2026-08-27): CI workflows always pin the LATEST
+        # stable tool version — pinned (never rolling @latest, which
+        # re-scopes silently) and bumped deliberately the moment a new
+        # stable ships. v0.8.1 == staticcheck 2026.2.1, latest stable,
+        # measured via the module index. Semver tag form: it is the
+        # form the proxy always resolves.
+        run: go install honnef.co/go/tools/cmd/staticcheck@v0.8.1
 
       - name: Install rulefloor (brew-identical build)
         # THE-SAME-BINARY (2026-08-27): CI builds rulefloor from the SAME

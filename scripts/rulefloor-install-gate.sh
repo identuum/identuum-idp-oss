@@ -21,9 +21,17 @@
 #     ${RULEFLOOR_VERSION} — a HARDCODED /archive/refs/tags/vN.N.N is a
 #     violation (an independent literal is how the circular stamp
 #     happened).
+#   - Any `-X main.version=` ldflags stamp must derive from
+#     ${RULEFLOOR_VERSION} — a literal stamp is the circular-assert
+#     defect itself (URL derived, stamp hardcoded: the binary reports
+#     the stale literal and the version assert still passes). This gate
+#     previously NAMED that class in this header without testing for it
+#     (THE-UNGATED-STAMP).
 #   - A workflow that uses the derived route declares RULEFLOOR_VERSION
 #     exactly ONCE (the workflow-level env). Zero declarations with a
 #     use, or two declarations, both fail.
+#   - Comment lines are exempt from EVERY pattern: a gate must not
+#     forbid describing what it forbids.
 #
 # WHAT IT CANNOT SEE: installs in files outside .github/workflows of
 # the two scanned repos (Makefiles and dev machines are the local
@@ -59,15 +67,25 @@ check_dirs() {
 
 			while IFS=: read -r ln line; do
 				[ -z "$ln" ] && continue
+				[[ "$line" =~ ^[[:space:]]*# ]] && continue
 				echo "  VIOLATION  $rel:$ln banned brew-install route: $(echo "$line" | sed 's/^[[:space:]]*//')"
 				bad=$((bad + 1))
 			done < <(grep -nE 'brew install [^#]*rulefloor' "$f" || true)
 
 			while IFS=: read -r ln line; do
 				[ -z "$ln" ] && continue
+				[[ "$line" =~ ^[[:space:]]*# ]] && continue
 				echo "  VIOLATION  $rel:$ln hardcoded tarball tag (must derive from \${RULEFLOOR_VERSION}): $(echo "$line" | sed 's/^[[:space:]]*//')"
 				bad=$((bad + 1))
 			done < <(grep -nE 'rulefloor/archive/refs/tags/v[0-9]' "$f" || true)
+
+			while IFS=: read -r ln line; do
+				[ -z "$ln" ] && continue
+				[[ "$line" =~ ^[[:space:]]*# ]] && continue
+				case "$line" in *'-X main.version=${RULEFLOOR_VERSION}'*) continue ;; esac
+				echo "  VIOLATION  $rel:$ln ldflags stamp does not derive from \${RULEFLOOR_VERSION} (the circular-assert defect): $(echo "$line" | sed 's/^[[:space:]]*//')"
+				bad=$((bad + 1))
+			done < <(grep -nE -- '-X main\.version=' "$f" || true)
 
 			local uses decls
 			uses="$(grep -cE 'rulefloor/archive/refs/tags/\$\{RULEFLOOR_VERSION\}' "$f")" || true
@@ -101,8 +119,8 @@ if [ "${1:-}" = "--selftest" ]; then
 		fi
 	}
 	echo "rulefloor-install-gate selftest"
-	wf 'env:' '  RULEFLOOR_VERSION: v0.7.0' 'x: curl "https://github.com/ozgurcd/rulefloor/archive/refs/tags/${RULEFLOOR_VERSION}.tar.gz"'
-	expect "the declared derived route PASSES" 0
+	wf 'env:' '  RULEFLOOR_VERSION: v0.7.0' 'x: curl "https://github.com/ozgurcd/rulefloor/archive/refs/tags/${RULEFLOOR_VERSION}.tar.gz"' 'y: go build -ldflags "-X main.version=${RULEFLOOR_VERSION}" -o rulefloor .'
+	expect "the declared derived route (URL + stamp) PASSES" 0
 	wf '    # x: go install github.com/ozgurcd/rulefloor@v0.6.0'
 	expect "a commented go-install mention PASSES" 0
 	wf 'x: go install github.com/ozgurcd/rulefloor@v0.6.0'
@@ -113,8 +131,12 @@ if [ "${1:-}" = "--selftest" ]; then
 	expect "a second declaration FIRES (one per workflow)" 1
 	wf 'x: brew install ozgurcd/tap/rulefloor'
 	expect "the tap-HEAD route FIRES" 1
+	wf 'env:' '  RULEFLOOR_VERSION: v0.7.0' 'x: curl "https://github.com/ozgurcd/rulefloor/archive/refs/tags/${RULEFLOOR_VERSION}.tar.gz"' 'y: go build -ldflags "-X main.version=v0.7.0" -o rulefloor .'
+	expect "a LITERAL ldflags stamp FIRES even with the URL derived (the circular assert)" 1
+	wf '    # y: go build -ldflags "-X main.version=v0.7.0" (documented example)'
+	expect "a commented literal-stamp mention PASSES" 0
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 6 case(s), fire and pass both proven"
+		echo "SELFTEST OK — 8 case(s), fire and pass both proven"
 		exit 0
 	fi
 	echo "SELFTEST FAIL — $fails case(s)"
