@@ -48,8 +48,13 @@ func TestCSRF_IssueProducesParseableToken(t *testing.T) {
 	if cookie.Name != "identuum_csrf" {
 		t.Errorf("cookie name = %q", cookie.Name)
 	}
-	if !cookie.Secure {
-		t.Errorf("cookie not Secure by default")
+	// The service leaves Secure=false: it cannot see the request, so it
+	// cannot know the transport. The HTTP handler stamps the transport-correct
+	// Secure flag via writeBrowserCSRFCookie/cookieSecureForRequest (true in
+	// production, false over http://localhost) — pinned by the handler-layer
+	// TestBrowserLoginCSRFCookie_SecureFollowsTransport (BROWSER-LOGIN-PLAINHTTP-1).
+	if cookie.Secure {
+		t.Errorf("service-layer cookie must leave Secure=false (handler stamps transport)")
 	}
 	if cookie.HttpOnly {
 		t.Errorf("cookie MUST NOT be HttpOnly (form needs to read it)")

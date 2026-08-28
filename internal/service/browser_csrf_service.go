@@ -56,10 +56,9 @@ const browserCSRFCookieName = "identuum_csrf"
 
 // BrowserCSRFService issues + verifies double-submit CSRF tokens.
 type BrowserCSRFService struct {
-	secret         []byte
-	ttl            time.Duration
-	allowPlainHTTP bool
-	now            func() time.Time
+	secret []byte
+	ttl    time.Duration
+	now    func() time.Time
 }
 
 // BrowserCSRFServiceOptions parameterises the service.
@@ -68,12 +67,18 @@ type BrowserCSRFService struct {
 //     Misconfigured callers panic at construction.
 //   - TTL defaults to 15 minutes; capped at 1 hour to bound a
 //     stolen-cookie's window.
-//   - AllowPlainHTTP turns OFF the Secure flag (for local dev
-//     only).
+//
+// The cookie's Secure attribute is NOT set here: the service cannot see the
+// request, so Issue leaves Secure=false and the HTTP handler stamps the
+// transport-correct value via cookieSecureForRequest — exactly as the auth
+// session cookies do (BROWSER-LOGIN-PLAINHTTP-1). A previous AllowPlainHTTP
+// option statically forced Secure=true and was wired to nothing, so the
+// double-submit cookie never returned over http://localhost and every form
+// submit 403'd; the request-adaptive stamp keeps production https-Secure
+// while making the local-dev http form work.
 type BrowserCSRFServiceOptions struct {
-	Secret         []byte
-	TTL            time.Duration
-	AllowPlainHTTP bool
+	Secret []byte
+	TTL    time.Duration
 }
 
 // NewBrowserCSRFService constructs the service. Secret <32 bytes
@@ -90,10 +95,9 @@ func NewBrowserCSRFService(report *lifecycle.StartupReport, opts BrowserCSRFServ
 		ttl = time.Hour
 	}
 	return &BrowserCSRFService{
-		secret:         append([]byte(nil), opts.Secret...),
-		ttl:            ttl,
-		allowPlainHTTP: opts.AllowPlainHTTP,
-		now:            time.Now,
+		secret: append([]byte(nil), opts.Secret...),
+		ttl:    ttl,
+		now:    time.Now,
 	}
 }
 
@@ -132,7 +136,11 @@ func (s *BrowserCSRFService) Issue() (string, *http.Cookie, error) {
 		// hidden field must match each other AND verify under
 		// the HMAC key.
 		HttpOnly: false,
-		Secure:   !s.allowPlainHTTP,
+		// Secure is stamped by the HTTP handler via cookieSecureForRequest
+		// (BROWSER-LOGIN-PLAINHTTP-1): the service cannot see the request, so
+		// it leaves Secure=false and the caller upgrades it to true in
+		// production (ReleaseMode, non-localhost), matching the auth cookies.
+		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 	}
 	return token, cookie, nil
@@ -186,7 +194,9 @@ func (s *BrowserCSRFService) Clear() *http.Cookie {
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: false,
-		Secure:   !s.allowPlainHTTP,
+		// Secure stamped by the caller (see Issue); a delete cookie is matched
+		// by name+path, so the flag only needs to agree with the transport.
+		Secure:   false,
 		SameSite: http.SameSiteLaxMode,
 	}
 }

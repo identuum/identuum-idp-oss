@@ -88,7 +88,7 @@ func HandleBrowserLoginForm(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 			tok, cookie, err := deps.CSRF.Issue()
 			if err == nil {
 				csrfToken = tok
-				http.SetCookie(c.Writer, cookie)
+				writeBrowserCSRFCookie(c, cookie)
 			}
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")

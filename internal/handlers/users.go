@@ -95,7 +95,7 @@ func resolveOrgPasswordPolicy(ctx context.Context, orgs OrgPolicyReader, orgID u
 //	GET    /api/v1/users/:id                   (site_admin OR org_admin w/ users:read)
 //	POST   /api/v1/users                       (site_admin OR org_admin w/ users:create)
 //	PUT    /api/v1/users/:id                   (site_admin OR org_admin w/ users:update)
-//	DELETE /api/v1/users/:id                   (site_admin)
+//	DELETE /api/v1/users/:id                   (site_admin OR org_admin w/ users:delete)
 //	POST   /api/v1/users/:id/restore           (site_admin)
 //	POST   /api/v1/users/:id/recovery/reset-mfa (site_admin OR org_admin w/ users:mfa:revoke)
 //

@@ -136,3 +136,15 @@ func cookieSecureForRequest(r *http.Request) bool {
 	isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "host.docker.internal"
 	return gin.Mode() == gin.ReleaseMode && !isLocalhost
 }
+
+// writeBrowserCSRFCookie stamps the transport-correct Secure flag onto a CSRF
+// cookie produced by BrowserCSRFService and writes it. The service leaves
+// Secure=false because it cannot see the request; this upgrades it to true in
+// production (ReleaseMode, non-localhost) via the SAME cookieSecureForRequest
+// the auth session cookies use, so the double-submit cookie returns over
+// http://localhost (the local-dev form) while staying https-only in production
+// (BROWSER-LOGIN-PLAINHTTP-1).
+func writeBrowserCSRFCookie(c *gin.Context, cookie *http.Cookie) {
+	cookie.Secure = cookieSecureForRequest(c.Request)
+	http.SetCookie(c.Writer, cookie)
+}

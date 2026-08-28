@@ -111,7 +111,7 @@ func HandleConsentForm(deps ConsentHandlerDeps) gin.HandlerFunc {
 		if deps.CSRF != nil {
 			if tok, cookie, err := deps.CSRF.Issue(); err == nil {
 				csrfToken = tok
-				http.SetCookie(c.Writer, cookie)
+				writeBrowserCSRFCookie(c, cookie)
 			}
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")

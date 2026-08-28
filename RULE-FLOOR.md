@@ -1,5 +1,5 @@
-FLOOR: 168
-RED-PROOFS: 168
+FLOOR: 169
+RED-PROOFS: 169
 
 | ID | one-sentence rule | enforced-by | check | red-proof | hash |
 |---|---|---|---|---|---|
@@ -171,3 +171,4 @@ RED-PROOFS: 168
 | USER-NOTFOUND-MAPPING-1 | Approve and reset-mfa map a repository not-found for a nonexistent user id to the service not-found sentinel so the handler renders 404, never the default 500. | go-test | internal/service/user_restore_approve_notfound_test.go @ unit | [proof-v1 kind=mutation_observation] Dropped the domain->service not-found translation; TestApproveAndResetMFA_GhostMapsToServiceNotFound failed with 'got user not found' (raw domain sentinel); restored byte-identical <!-- rulefloor-binding-v1:eyJleGVjdXRpb25fcG9saWN5IjoiZXhlY3V0ZSJ9 --> | b6cd6be3dd78 |
 | USERS-DELETE-ORGADMIN-SCOPED-1 | DELETE /users/:id admits an org_admin bearing users:delete for a same-org target and refuses a cross-org target with the anti-enumeration not-found, per AdminPermissionsModel.md org_admin day-to-day user control. | go-test | internal/handlers/users_delete_guard_test.go @ unit | [proof-v1 kind=mutation_observation] Reverted the route guard to mw.RequireSiteAdmin(); TestUsersRoute_OrgAdminDeletesSameOrgUser... failed with 403 on the same-org delete; restored <!-- rulefloor-binding-v1:eyJleGVjdXRpb25fcG9saWN5IjoiZXhlY3V0ZSJ9 --> | 504392fe3a4a |
 | RESTORE-NO-SILENT-FALLBACK-1 | User restore never silently falls back to the deleted-filtered read: a repository without admin support fails loudly rather than reintroducing the dead-restore defect. | go-test | internal/service/user_restore_approve_notfound_test.go @ unit | [proof-v1 kind=mutation_observation] Swapped the loud admin-required branch for the silent GetByID fallback; TestRestoreUserForActor_NonAdminRepoFailsLoudly failed (got nil, restore silently succeeded); restored <!-- rulefloor-binding-v1:eyJleGVjdXRpb25fcG9saWN5IjoiZXhlY3V0ZSJ9 --> | 5d7d30424441 |
+| CSRF-COOKIE-TRANSPORT-SECURE-1 | The browser CSRF cookie's Secure flag follows the request transport (cookieSecureForRequest): true in production, false over http-localhost, so the double-submit cookie returns and the local-dev form works while production stays https-only. | go-test | internal/handlers/browser_csrf_cookie_transport_test.go @ unit | [proof-v1 kind=mutation_observation] Removed the cookieSecureForRequest stamp from writeBrowserCSRFCookie; TestBrowserLoginCSRFCookie_SecureFollowsTransport failed (prod cookie Secure=false); restored byte-identical <!-- rulefloor-binding-v1:eyJleGVjdXRpb25fcG9saWN5IjoiZXhlY3V0ZSJ9 --> | 6a2a4fad94ba |
