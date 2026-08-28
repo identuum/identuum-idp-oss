@@ -207,6 +207,14 @@ func (s *UserService) ResetMFAForActor(ctx context.Context, actor *domain.Princi
 	}
 	target, err := s.repo.GetByID(ctx, targetUserID)
 	if err != nil {
+		// GetByID surfaces domain.ErrUserNotFound for a truly-absent id (via
+		// scanUser's pgx.ErrNoRows branch); the handler switch matches the
+		// SERVICE sentinel, so translate here or a nonexistent id falls to the
+		// handler's default 500 while a cross-tenant id correctly 404s
+		// (USER-APPROVE-RESETMFA-GHOST-500-1). Siblings map it the same way.
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return nil, errUserNotFound
+		}
 		return nil, err
 	}
 	if target == nil {
@@ -490,6 +498,14 @@ func (s *UserService) UpdateUserForActor(ctx context.Context, actor *domain.Prin
 	}
 	target, err := s.repo.GetByID(ctx, targetUserID)
 	if err != nil {
+		// GetByID surfaces domain.ErrUserNotFound for a truly-absent id (via
+		// scanUser's pgx.ErrNoRows branch); the handler switch matches the
+		// SERVICE sentinel, so translate here or a nonexistent id falls to the
+		// handler's default 500 while a cross-tenant id correctly 404s
+		// (USER-APPROVE-RESETMFA-GHOST-500-1). Siblings map it the same way.
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return nil, errUserNotFound
+		}
 		return nil, err
 	}
 	if target == nil {
@@ -544,6 +560,14 @@ func (s *UserService) ApproveRegistrationForActor(ctx context.Context, actor *do
 	}
 	target, err := s.repo.GetByID(ctx, targetUserID)
 	if err != nil {
+		// GetByID surfaces domain.ErrUserNotFound for a truly-absent id (via
+		// scanUser's pgx.ErrNoRows branch); the handler switch matches the
+		// SERVICE sentinel, so translate here or a nonexistent id falls to the
+		// handler's default 500 while a cross-tenant id correctly 404s
+		// (USER-APPROVE-RESETMFA-GHOST-500-1). Siblings map it the same way.
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return nil, errUserNotFound
+		}
 		return nil, err
 	}
 	if target == nil {
@@ -624,7 +648,21 @@ func (s *UserService) RestoreUserForActor(ctx context.Context, actor *domain.Pri
 	if err := s.guardActorBaseline(actor); err != nil {
 		return err
 	}
-	target, err := s.repo.GetByID(ctx, targetUserID)
+	// Restore MUST see soft-deleted users, so it reads through GetByIDAdmin
+	// (WHERE id = $1, deleted-inclusive). The plain GetByID filters
+	// deleted_at IS NULL, which made restore permanently 404 for exactly the
+	// rows it exists to recover (USER-RESTORE-DEAD-1). The real repository is
+	// an AdminUserRepository; the assertion keeps the constructor's
+	// UserRepository contract intact and lets pure-UserRepository fakes fall
+	// back (their GetByID is deleted-inclusive by construction). Authorization
+	// below is unchanged — a cross-tenant or site_admin target still refuses.
+	var target *domain.User
+	var err error
+	if admin, ok := s.repo.(repository.AdminUserRepository); ok {
+		target, err = admin.GetByIDAdmin(ctx, targetUserID)
+	} else {
+		target, err = s.repo.GetByID(ctx, targetUserID)
+	}
 	if err != nil {
 		return err
 	}
