@@ -152,7 +152,7 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		}
 
 		// Phase 4: clear cookie.
-		http.SetCookie(c.Writer, deps.CookieSession.Clear())
+		writeSessionCookie(c, deps.CookieSession.Clear())
 
 		// Phase 5: maybe redirect.
 		if postLogoutRedirectURI == "" {

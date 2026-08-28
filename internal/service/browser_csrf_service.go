@@ -20,8 +20,9 @@
 // At POST time the handler reads BOTH and rejects unless they
 // match each other AND verify under the HMAC key. The cookie is
 // non-HttpOnly intentionally — the form needs to read it to echo
-// it back. SameSite=Lax + Secure (in non-AllowPlainHTTP mode) +
-// short TTL bound the blast radius.
+// it back. SameSite=Lax + a Secure flag the HTTP handler stamps per
+// request transport (see BrowserCSRFServiceOptions below) + short TTL
+// bound the blast radius.
 //
 // What the service does NOT do:
 //

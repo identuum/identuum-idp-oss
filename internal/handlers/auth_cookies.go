@@ -148,3 +148,19 @@ func writeBrowserCSRFCookie(c *gin.Context, cookie *http.Cookie) {
 	cookie.Secure = cookieSecureForRequest(c.Request)
 	http.SetCookie(c.Writer, cookie)
 }
+
+// writeSessionCookie stamps the transport-correct Secure flag onto the
+// identuum_session cookie produced by CookieSessionService.Issue/Clear and
+// writes it. The service bakes a fail-safe Secure=true default (it cannot see
+// the request, and the runtime leaves AllowPlainHTTP unset), which never
+// returns over http://localhost — so the browser-login session the interactive
+// /oauth/consent flow depends on was unreachable on the plain-HTTP appliance,
+// exactly as the CSRF cookie was (BROWSER-LOGIN-PLAINHTTP-1). This upgrades the
+// Secure flag to the request-adaptive value — the SAME cookieSecureForRequest
+// the auth and CSRF cookies use — so the session returns over http://localhost
+// while staying https-only in production. Issue and Clear both route through
+// here so the delete-cookie's flags match the planted cookie's.
+func writeSessionCookie(c *gin.Context, cookie *http.Cookie) {
+	cookie.Secure = cookieSecureForRequest(c.Request)
+	http.SetCookie(c.Writer, cookie)
+}

@@ -226,7 +226,7 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 			cookieValue = issued.Token
 		}
 		cookie := deps.CookieSession.Issue(cookieValue, result.Session.ExpiresAt)
-		http.SetCookie(c.Writer, cookie)
+		writeSessionCookie(c, cookie)
 
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "user_session.browser_login.success",

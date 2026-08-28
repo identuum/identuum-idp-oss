@@ -86,7 +86,7 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 				})
 			}
 		}
-		http.SetCookie(c.Writer, deps.CookieSession.Clear())
+		writeSessionCookie(c, deps.CookieSession.Clear())
 
 		// Optional iframe rendering. When the request carries a
 		// `client_id` AND we can resolve it to a client whose

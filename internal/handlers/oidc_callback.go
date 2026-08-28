@@ -126,7 +126,7 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 				cookieValue = issued.Token
 			}
 		}
-		http.SetCookie(c.Writer, deps.CookieSession.Issue(cookieValue, res.Session.ExpiresAt))
+		writeSessionCookie(c, deps.CookieSession.Issue(cookieValue, res.Session.ExpiresAt))
 
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "auth.oidc_login.success",
