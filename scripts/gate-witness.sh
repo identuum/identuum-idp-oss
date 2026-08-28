@@ -49,9 +49,31 @@
 #
 # Modes:
 #   run <record> <label> <name=command>...   drive a gate, write the record
+#   init <record> <label> <name>...          open a record: header + plan only
+#   step <record> <name=command>             run ONE planned target, append it
+#   finalize <record>                        close a record; green only if every
+#                                            planned target recorded exit=0
 #   check <repo-dir> <record>                verify a record against its tree
 #   --selftest                               prove the teeth on a throwaway repo
 #   --sync-check                             hold the three copies identical
+#
+# init/step/finalize exist for CI jobs that have no single entry point (the
+# ui job is discrete workflow steps interleaved with setup actions that a
+# wrapper cannot run): the workflow declares the plan once in its init step,
+# each shell step routes through `step`, and `finalize` refuses to write
+# `result: green` unless every planned step actually recorded exit=0 — so a
+# job that died mid-way uploads a record that reads INCOMPLETE, never green.
+#
+# THE CI TIE (THE-UNWITNESSED-MIRROR, 2026-08-28): GATE_WITNESS_TIE=commit
+# makes finalize record `tree: commit=<full sha>` instead of the content
+# digest. CI cannot commit its record, so the committed-alongside witness
+# chain does not exist there; but a CI checkout IS an unmodified commit, so
+# the commit SHA pins the tree content exactly as the local digest does —
+# provided the tree is still clean at finalize, which the record checks and
+# `check` enforces. GATE_WITNESS_CITES adds a `cites:` line naming the ONE
+# place the expected target set is declared, so a reader comparing the local
+# and CI records can tell an INTENDED subtraction from a run that stopped
+# early: absent-from-plan is declared, in-plan-but-unrecorded is INCOMPLETE.
 #
 # Test hook: GATE_WITNESS_ABORT_AFTER=N makes `run` die (exit 143) after N
 # targets WITHOUT finalizing the record — a deterministic stand-in for a
@@ -94,55 +116,107 @@ now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # that limitation is stated in the header of every record this writes.
 EVIDENCE_RE='^check OK:|Tests  [0-9]|Test Files |wiki freshness:|sync violations:|SELFTEST OK|gate-witness OK:'
 
-run_mode() {
-	[ $# -ge 3 ] || { echo "usage: gate-witness.sh run <record> <label> <name=command>..." >&2; exit 2; }
+write_header() { # <record> <label> <plan name>...
 	local rec="$1" label="$2"; shift 2
-	local tmp; tmp=$(mktemp -d "${TMPDIR:-/tmp}/gate-witness.XXXXXX")
-	# shellcheck disable=SC2064 — expand now: $tmp is function-local and the
-	# trap fires after the function's scope is gone.
-	trap "rm -rf '$tmp'" EXIT
 	{
 		echo "schema: gate-run.v1"
 		echo "gate: $label"
 		echo "note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code"
+		[ -n "${GATE_WITNESS_CITES:-}" ] && echo "cites: $GATE_WITNESS_CITES"
 		echo "repo-head: $(git rev-parse --short HEAD 2>/dev/null || echo none)$(git status --porcelain 2>/dev/null | grep -q . && echo ' (dirty)')"
 		echo "started: $(now_utc)"
-		local e
+		local n
 		printf 'plan:'
-		for e in "$@"; do printf ' %s' "${e%%=*}"; done
+		for n in "$@"; do printf ' %s' "$n"; done
 		printf '\n'
 	} >"$rec"
-	local overall=0 n=0 name cmd ec okpkgs
-	for e in "$@"; do
-		name="${e%%=*}"; cmd="${e#*=}"
-		echo "==> gate-witness: $name"
-		bash -c "$cmd" 2>&1 | tee "$tmp/out.log"
-		ec=${PIPESTATUS[0]}
-		n=$((n + 1))
-		if [ "$name" = "tool-versions" ]; then
-			sed 's/^/tool: /' "$tmp/out.log" >>"$rec"
-		fi
-		grep -E "$EVIDENCE_RE" "$tmp/out.log" 2>/dev/null | sed "s/^/evidence: [$name] /" >>"$rec" || true
-		# go-test package lines only: `ok <pkg> <dur>s` or `(cached)` — the
-		# duration requirement keeps other tools' leading-"ok" summary lines
-		# (e.g. wiki-freshness rows) out of this count.
-		okpkgs=$(grep -c -E '^ok[[:space:]]+\S+[[:space:]]+([0-9.]+s|\(cached\))' "$tmp/out.log" 2>/dev/null || true)
-		[ "${okpkgs:-0}" -gt 0 ] && echo "evidence: [$name] go packages ok: $okpkgs" >>"$rec"
-		echo "target: $name exit=$ec" >>"$rec"
-		if [ -n "${GATE_WITNESS_ABORT_AFTER:-}" ] && [ "$n" -ge "$GATE_WITNESS_ABORT_AFTER" ]; then
-			echo "gate-witness: ABORTED by GATE_WITNESS_ABORT_AFTER=$GATE_WITNESS_ABORT_AFTER (record left unfinalized)" >&2
-			exit 143
-		fi
-		if [ "$ec" -ne 0 ]; then overall=1; break; fi
+}
+
+record_one() { # <record> <name> <command> — returns the command's exit
+	local rec="$1" name="$2" cmd="$3" out ec okpkgs
+	out=$(mktemp "${TMPDIR:-/tmp}/gate-witness-out.XXXXXX")
+	echo "==> gate-witness: $name"
+	bash -c "$cmd" 2>&1 | tee "$out"
+	ec=${PIPESTATUS[0]}
+	if [ "$name" = "tool-versions" ]; then
+		sed 's/^/tool: /' "$out" >>"$rec"
+	fi
+	grep -E "$EVIDENCE_RE" "$out" 2>/dev/null | sed "s/^/evidence: [$name] /" >>"$rec" || true
+	# go-test package lines only: `ok <pkg> <dur>s` or `(cached)` — the
+	# duration requirement keeps other tools' leading-"ok" summary lines
+	# (e.g. wiki-freshness rows) out of this count.
+	okpkgs=$(grep -c -E '^ok[[:space:]]+\S+[[:space:]]+([0-9.]+s|\(cached\))' "$out" 2>/dev/null || true)
+	[ "${okpkgs:-0}" -gt 0 ] && echo "evidence: [$name] go packages ok: $okpkgs" >>"$rec"
+	echo "target: $name exit=$ec" >>"$rec"
+	rm -f "$out"
+	return "$ec"
+}
+
+finalize_into() { # <record> — green ONLY if every planned target recorded exit=0
+	local rec="$1" plan name all=0
+	plan=$(sed -n 's/^plan: //p' "$rec" | head -1)
+	for name in $plan; do
+		grep -q "^target: $name exit=0$" "$rec" || all=1
 	done
 	echo "finished: $(now_utc)" >>"$rec"
-	if [ "$overall" -eq 0 ]; then
-		echo "tree: sha256=$(tree_digest . "$rec")" >>"$rec"
+	if [ "$all" -eq 0 ]; then
+		if [ "${GATE_WITNESS_TIE:-digest}" = "commit" ]; then
+			echo "tie-note: CI cannot commit this record, so the committed-alongside witness chain does not exist here; the checkout IS an unmodified commit, so the full commit SHA below pins the tree content exactly as the local digest does — valid only while the tree stays clean, which check enforces" >>"$rec"
+			echo "tree: commit=$(git rev-parse HEAD 2>/dev/null || echo none)$(git status --porcelain 2>/dev/null | grep -q . && echo ' (dirty-at-finalize)')" >>"$rec"
+		else
+			echo "tree: sha256=$(tree_digest . "$rec")" >>"$rec"
+		fi
 		echo "result: green" >>"$rec"
 	else
 		echo "result: red" >>"$rec"
 	fi
+	return "$all"
+}
+
+run_mode() {
+	[ $# -ge 3 ] || { echo "usage: gate-witness.sh run <record> <label> <name=command>..." >&2; exit 2; }
+	local rec="$1" label="$2"; shift 2
+	local names=() e
+	for e in "$@"; do names+=("${e%%=*}"); done
+	write_header "$rec" "$label" "${names[@]}"
+	local overall=0 n=0 name cmd
+	for e in "$@"; do
+		name="${e%%=*}"; cmd="${e#*=}"
+		record_one "$rec" "$name" "$cmd" || overall=1
+		n=$((n + 1))
+		if [ -n "${GATE_WITNESS_ABORT_AFTER:-}" ] && [ "$n" -ge "$GATE_WITNESS_ABORT_AFTER" ]; then
+			echo "gate-witness: ABORTED by GATE_WITNESS_ABORT_AFTER=$GATE_WITNESS_ABORT_AFTER (record left unfinalized)" >&2
+			exit 143
+		fi
+		[ "$overall" -ne 0 ] && break
+	done
+	finalize_into "$rec" || true
 	return "$overall"
+}
+
+init_mode() {
+	[ $# -ge 3 ] || { echo "usage: gate-witness.sh init <record> <label> <plan name>..." >&2; exit 2; }
+	local rec="$1" label="$2"; shift 2
+	write_header "$rec" "$label" "$@"
+}
+
+step_mode() {
+	[ $# -eq 2 ] || { echo "usage: gate-witness.sh step <record> <name=command>" >&2; exit 2; }
+	local rec="$1" name="${2%%=*}" cmd="${2#*=}"
+	if [ ! -f "$rec" ]; then
+		echo "gate-witness: no record at $rec — run init first" >&2
+		return 2
+	fi
+	record_one "$rec" "$name" "$cmd"
+}
+
+finalize_mode() {
+	[ $# -eq 1 ] || { echo "usage: gate-witness.sh finalize <record>" >&2; exit 2; }
+	if [ ! -f "$1" ]; then
+		echo "gate-witness: no record at $1 — nothing to finalize" >&2
+		return 2
+	fi
+	finalize_into "$1"
 }
 
 check_mode() {
@@ -181,11 +255,31 @@ check_mode() {
 		bad=1
 	fi
 	if [ "$bad" -eq 0 ]; then
-		recorded=$(sed -n 's/^tree: sha256=//p' "$path" | tail -1)
-		actual=$(tree_digest "$repo" "$rec")
-		if [ "$recorded" != "$actual" ]; then
-			echo "GATE-WITNESS STALE: $path claims sha256=$recorded but the tree is sha256=$actual — the tree changed after the recorded run"
-			bad=1
+		if grep -q '^tree: commit=' "$path"; then
+			recorded=$(sed -n 's/^tree: commit=//p' "$path" | tail -1)
+			case "$recorded" in
+			*dirty-at-finalize*)
+				echo "GATE-WITNESS FAIL: $path is commit-tied but was finalized on a dirty tree — the SHA does not pin what actually ran"
+				bad=1
+				;;
+			esac
+			if [ "$bad" -eq 0 ]; then
+				actual=$(cd "$repo" && git rev-parse HEAD 2>/dev/null || echo none)
+				if [ "$recorded" != "$actual" ]; then
+					echo "GATE-WITNESS STALE: $path claims commit=$recorded but HEAD is $actual — the checkout is no longer the recorded commit"
+					bad=1
+				elif (cd "$repo" && git status --porcelain 2>/dev/null | grep -q .); then
+					echo "GATE-WITNESS STALE: $path is commit-tied to $recorded but the tree is dirty — its content no longer equals that commit"
+					bad=1
+				fi
+			fi
+		else
+			recorded=$(sed -n 's/^tree: sha256=//p' "$path" | tail -1)
+			actual=$(tree_digest "$repo" "$rec")
+			if [ "$recorded" != "$actual" ]; then
+				echo "GATE-WITNESS STALE: $path claims sha256=$recorded but the tree is sha256=$actual — the tree changed after the recorded run"
+				bad=1
+			fi
 		fi
 	fi
 	if [ "$bad" -eq 0 ]; then
@@ -265,10 +359,34 @@ selftest() {
 		[ $? -eq 143 ] || { echo "SELFTEST FAIL 6a: abort hook did not exit 143"; exit 1; }
 		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q "INCOMPLETE: target 'b' has no recorded run" || { echo "SELFTEST FAIL 6b: cut run did not name the missing target"; exit 1; }
 
+		# 7 PASS: init/step/finalize round-trip (the no-single-entry-point shape)
+		bash "$self" init GATE-RUN.txt "selftest stepwise" a b >/dev/null 2>&1 || { echo "SELFTEST FAIL 7a: init failed"; exit 1; }
+		bash "$self" step GATE-RUN.txt 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 7b: step a failed"; exit 1; }
+		bash "$self" step GATE-RUN.txt 'b=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 7c: step b failed"; exit 1; }
+		bash "$self" finalize GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 7d: finalize of a complete green run failed"; exit 1; }
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 7e: stepwise green record did not pass"; exit 1; }
+
+		# 8 FIRE: finalize REFUSES green when a planned step never ran
+		bash "$self" init GATE-RUN.txt "selftest stepwise" a b >/dev/null 2>&1
+		bash "$self" step GATE-RUN.txt 'a=true' >/dev/null 2>&1
+		bash "$self" finalize GATE-RUN.txt >/dev/null 2>&1 && { echo "SELFTEST FAIL 8a: finalize wrote green with a planned step missing"; exit 1; }
+		grep -q '^result: red$' GATE-RUN.txt || { echo "SELFTEST FAIL 8b: unfinished stepwise record is not red"; exit 1; }
+		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q "INCOMPLETE: target 'b'" || { echo "SELFTEST FAIL 8c: check did not name the unrun step"; exit 1; }
+
+		# 9 commit-tie (the CI shape): green pins HEAD; a new commit reads STALE
+		echo 'GATE-RUN.txt' >.gitignore
+		git add -A
+		git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm base
+		GATE_WITNESS_TIE=commit bash "$self" run GATE-RUN.txt "selftest ci gate" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 9a: commit-tie run failed"; exit 1; }
+		grep -q '^tree: commit=' GATE-RUN.txt || { echo "SELFTEST FAIL 9b: commit-tie record has no commit line"; exit 1; }
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 9c: fresh commit-tie record did not pass"; exit 1; }
+		git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm next --allow-empty
+		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS STALE:.*commit=' || { echo "SELFTEST FAIL 9d: HEAD moved but commit-tie did not read STALE"; exit 1; }
+
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 6 case(s): fire (missing, stale x2, red, incomplete) and pass both proven"
+		echo "SELFTEST OK — 9 case(s): fire (missing, stale x3, red, incomplete x2) and pass (run, stepwise, commit-tie) proven"
 		return 0
 	fi
 	return 1
@@ -278,6 +396,18 @@ case "${1:-}" in
 run)
 	shift
 	run_mode "$@"
+	;;
+init)
+	shift
+	init_mode "$@"
+	;;
+step)
+	shift
+	step_mode "$@"
+	;;
+finalize)
+	shift
+	finalize_mode "$@"
 	;;
 check)
 	shift
@@ -290,7 +420,7 @@ check)
 	sync_check
 	;;
 *)
-	echo "usage: gate-witness.sh run|check|--selftest|--sync-check" >&2
+	echo "usage: gate-witness.sh run|init|step|finalize|check|--selftest|--sync-check" >&2
 	exit 2
 	;;
 esac

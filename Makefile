@@ -471,8 +471,16 @@ verify:
 ## Keeping CI on this target instead of hand-rolled steps is what stops CI from
 ## drifting away from `verify`.
 ci-verify:
-	@$(MAKE) --no-print-directory tracked-binary-check
-	@$(MAKE) --no-print-directory credential-transparency
+	# THE-UNWITNESSED-MIRROR: ci-verify was the last gate entry point that
+	# left no record. Same targets in the same order, driven through the
+	# witness; CI uploads GATE-RUN.ci.txt (gitignored — a local run must not
+	# read as an edit to the committed verify record's tree) as a workflow
+	# artifact, tied to the checkout COMMIT via GATE_WITNESS_TIE=commit set
+	# in ci.yml. This recipe is the ONE declared CI target set the record
+	# cites: a name absent from this plan is a documented subtraction from
+	# `verify` (see the header comments above), a planned name with no
+	# recorded run reads INCOMPLETE.
+	#
 	# THE-TOOLING-UPGRADE: CI runs the REAL rulefloor check. The homegrown
 	# tools/rulefloorlite subset is DELETED — it reimplemented extraction
 	# with pre-v0.3.0 string-marker semantics and measurably diverged from
@@ -480,30 +488,35 @@ ci-verify:
 	# lite and failed rulefloor v0.3.0), and it never verified hashes.
 	# CI builds the binary from the pinned, checksum-verified release tarball
 	# declared in ci.yml; locally RULEFLOOR_RESOLVE falls back to PATH/sibling.
-	@$(MAKE) --no-print-directory rulefloor-check
-	@$(MAKE) --no-print-directory image-base-check
-	@$(MAKE) --no-print-directory fmt-check
-	@$(MAKE) --no-print-directory vet
-	@$(MAKE) --no-print-directory vet-integration
-	@$(MAKE) --no-print-directory doccomment-check
-	@$(MAKE) --no-print-directory r-suite
-	@$(MAKE) --no-print-directory image-base-parity
-	@$(MAKE) --no-print-directory image-policy-restate-check
-	@$(MAKE) --no-print-directory clock-fuse-report
-	@$(MAKE) --no-print-directory tagged-vet
-	@$(MAKE) --no-print-directory integration-inventory
-	go mod tidy -diff
-	go build ./...
+	#
 	# P2-17 (owner ruling): -race runs HERE, in CI's aggregate. It ran NOWHERE —
 	# not verify, not ci-verify, zero occurrences in this Makefile — so "CI is
 	# weaker than verify" was wrong twice: nothing had the race detector at all.
-	# The timeout rises 120s -> 300s FOR THIS LINE ONLY because an instrumented
-	# run is 2-10x slower. The plain 120s run lives in `verify` (via repo-green,
-	# local-only since THE-CI-SHAPE); in CI this instrumented superset is the
-	# test floor.
-	go test ./... -count=1 -race -timeout=300s
-	staticcheck ./...
-	$(MAKE) grype-scan
+	# The timeout rises 120s -> 300s FOR go-test-race ONLY because an
+	# instrumented run is 2-10x slower. The plain 120s run lives in `verify`
+	# (via repo-green, local-only since THE-CI-SHAPE); in CI this instrumented
+	# superset is the test floor.
+	@GATE_WITNESS_CITES='the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' \
+	bash scripts/gate-witness.sh run GATE-RUN.ci.txt "identuum-idp-oss make ci-verify" \
+		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
+		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
+		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
+		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
+		'fmt-check=$(MAKE) --no-print-directory fmt-check' \
+		'vet=$(MAKE) --no-print-directory vet' \
+		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
+		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \
+		'r-suite=$(MAKE) --no-print-directory r-suite' \
+		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
+		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
+		'clock-fuse-report=$(MAKE) --no-print-directory clock-fuse-report' \
+		'tagged-vet=$(MAKE) --no-print-directory tagged-vet' \
+		'integration-inventory=$(MAKE) --no-print-directory integration-inventory' \
+		'go-mod-tidy-diff=go mod tidy -diff' \
+		'go-build=go build ./...' \
+		'go-test-race=go test ./... -count=1 -race -timeout=300s' \
+		'staticcheck=staticcheck ./...' \
+		'grype-scan=$(MAKE) grype-scan'
 
 ## fmt-check: HARD gofmt gate (CE-GATES-3). Fails on drifted files AND on a
 ## non-zero gofmt exit status — gofmt walks files `go build` never compiles

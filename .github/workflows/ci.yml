@@ -115,6 +115,11 @@ env:
   # compares master against both vendored copies AND this recorded
   # digest. Bump all together when the gate changes.
   RULEFLOOR_GATE_SHA256: "db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6"
+  # THE-UNWITNESSED-MIRROR: same contract for the gate witness — the vendored
+  # scripts/gate-witness.sh must be the wiki master, or the record CI uploads
+  # is written by something else. Held identical to the wiki-side digest
+  # (contracts/gate-witness.master.sha256) by gate-witness.sh --sync-check.
+  GATE_WITNESS_SHA256: "48eeba51aac38bed3a70b5c547f8a898e0c6042c2b77fb5fcb8b2f62a502926b"
 
 jobs:
   verify:
@@ -173,6 +178,12 @@ jobs:
         # env; the wiki-side check holds master, both copies, and that
         # pin identical.
         run: echo "${RULEFLOOR_GATE_SHA256}  scripts/rulefloor-install-gate.sh" | sha256sum -c -
+
+      - name: Verify the gate witness is the shared master
+        # THE-UNWITNESSED-MIRROR: the asymmetry closed — the install gate was
+        # digest-checked here but the witness that writes this job's uploaded
+        # record was not.
+        run: echo "${GATE_WITNESS_SHA256}  scripts/gate-witness.sh" | sha256sum -c -
 
       - name: Reject undeclared rulefloor install routes
         # Vendored at scripts/rulefloor-install-gate.sh because this
@@ -258,7 +269,25 @@ jobs:
       # comment used to carry its own shorter list, which drifted the moment
       # the header's grew. One list, one place.
       - name: make ci-verify
+        # GATE_WITNESS_TIE=commit: this checkout cannot commit its record, so
+        # the witness ties it to the commit SHA the job executed against
+        # instead of the local content digest (the record itself says why).
+        env:
+          GATE_WITNESS_TIE: commit
         run: make ci-verify
+
+      - name: Upload the gate run record
+        # if: always() — a red or half-dead run must still upload its record;
+        # an INCOMPLETE record that names the unrun targets is the point.
+        # if-no-files-found stays warn: when the job dies before ci-verify
+        # starts there is no record, and the step must not repaint that
+        # failure as its own.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gate-run-ci-verify
+          path: GATE-RUN.ci.txt
+          if-no-files-found: warn
 
       # `verify` / `ci-verify` build and lint only the DEFAULT tag set. The
       # integration-tagged code (internal/e2e, internal/postgres) still needs a
