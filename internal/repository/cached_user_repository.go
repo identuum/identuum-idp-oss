@@ -19,8 +19,17 @@ type CachedUserRepository struct {
 	cacheTTL    time.Duration
 }
 
-// Compile-time interface check
-var _ UserRepository = (*CachedUserRepository)(nil)
+// Compile-time interface check. The AdminUserRepository assertion is the load-
+// bearing one (THE-GUARDED-DELETE): UserService.RestoreUserForActor reaches
+// deleted rows through GetByIDAdmin, and dropping any admin method here would
+// otherwise compile silently (the base UserRepository is still satisfied) while
+// restore degraded back to the deleted-filtered read — the exact regression
+// USER-RESTORE-DEAD-1 was. This makes that a BUILD failure, agreeing with the
+// loud runtime refusal in GetByIDAdmin below.
+var (
+	_ UserRepository      = (*CachedUserRepository)(nil)
+	_ AdminUserRepository = (*CachedUserRepository)(nil)
+)
 
 // NewCachedUserRepository creates a new cached user repository
 func NewCachedUserRepository(delegate UserRepository, redisClient *cache.RedisClient, cacheTTL time.Duration) *CachedUserRepository {

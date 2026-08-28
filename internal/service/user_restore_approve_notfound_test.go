@@ -121,3 +121,23 @@ func TestApproveAndResetMFA_GhostMapsToServiceNotFound(t *testing.T) {
 		t.Fatalf("reset-mfa of a nonexistent user must map to the service not-found sentinel, got %v", rerr)
 	}
 }
+
+// Restore MUST NOT silently fall back to the deleted-filtered GetByID when the
+// repository lacks admin support — that would reintroduce USER-RESTORE-DEAD-1
+// invisibly. Built on a pure UserRepository (inMemoryUserRepo, whose unfiltered
+// GetByID would happily "succeed" on a deleted row), restore fails LOUDLY with
+// the admin-required sentinel. Mutating the fix back to the silent GetByID
+// fallback makes this test fail (restore returns nil instead of the sentinel).
+// RULE: RESTORE-NO-SILENT-FALLBACK-1
+func TestRestoreUserForActor_NonAdminRepoFailsLoudly(t *testing.T) {
+	repo := newUserRepo() // pure UserRepository, NOT an AdminUserRepository
+	svc := NewUserService(nil, repo)
+	deletedAt := time.Now().UTC()
+	u := &domain.User{ID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgUser, DeletedAt: &deletedAt}
+	repo.rows[u.ID] = u
+
+	err := svc.RestoreUserForActor(context.Background(), siteAdmin(), u.ID)
+	if !errors.Is(err, ErrRestoreRequiresAdminRepo()) {
+		t.Fatalf("restore on a non-admin repo must fail loudly (admin-required), not silently degrade, got %v", err)
+	}
+}

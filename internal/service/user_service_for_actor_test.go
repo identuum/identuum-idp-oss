@@ -333,8 +333,11 @@ func TestUserForActor_DeleteSiteAdminAcrossOrgsOK(t *testing.T) {
 // could drive with their own credentials. It answers not-found now, matching
 // the read path that always did.
 func TestUserForActor_RestoreOrgAdminCrossOrgIsNotFound(t *testing.T) {
+	// Restore requires an admin-capable repo (THE-GUARDED-DELETE — it must see
+	// deleted rows), so wrap the base fake; the authorization logic under test
+	// is unchanged and cross-org still refuses with the not-found sentinel.
 	repo := newUserRepo()
-	svc := NewUserService(nil, repo)
+	svc := NewUserService(nil, &deletedFilterAdminRepo{inMemoryUserRepo: repo})
 	target := uuid.New()
 	seedRow(repo, target, uuid.New(), domain.RoleOrgUser)
 	err := svc.RestoreUserForActor(context.Background(), orgAdminActor(uuid.New()), target)

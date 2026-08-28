@@ -347,9 +347,15 @@ func TestUsersUpdate_OrgAdminCannotPromoteToSiteAdmin(t *testing.T) {
 	}
 }
 
-// ---------- DELETE / restore stay site_admin-only at HTTP layer ----------
+// ---------- DELETE is scoped-admin; restore stays site_admin-only ----------
 
-func TestUsersDelete_OrgAdminForbiddenAtHTTPLayer(t *testing.T) {
+// THE-GUARDED-DELETE reversed the old site_admin-only delete guard: per
+// AdminPermissionsModel.md an org_admin has day-to-day control of its org's
+// users, so an org_admin bearing users:delete deletes a SAME-org user through
+// the scoped guard. The dedicated route+service teeth live in
+// users_delete_guard_test.go (rule USERS-DELETE-ORGADMIN-SCOPED-1); this keeps
+// the tenant-suite's coverage aligned with the reversal.
+func TestUsersDelete_OrgAdminSameOrgAllowed(t *testing.T) {
 	org := uuid.New()
 	eng := newTenantEngine(t, &domain.Principal{
 		UserID:         uuid.New(),
@@ -360,8 +366,8 @@ func TestUsersDelete_OrgAdminForbiddenAtHTTPLayer(t *testing.T) {
 	target := uuid.New()
 	seedTenantUser(eng, target, org, domain.RoleOrgUser, "u@own.test")
 	rec := tenantReq(t, eng, http.MethodDelete, "/api/v1/users/"+target.String(), nil)
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("delete by org_admin = %d, want 403 (slice keeps delete site_admin-only)", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Errorf("delete of a same-org user by org_admin = %d, want 200 (scoped guard)", rec.Code)
 	}
 }
 

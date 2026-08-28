@@ -85,6 +85,16 @@ var errPasswordHashing = errors.New("service: password hashing failed")
 // (THE-DEFAULT-THAT-LIES).
 func ErrPasswordHashing() error { return errPasswordHashing }
 
+// errRestoreRequiresAdminRepo is returned when RestoreUserForActor is built on
+// a repository that does not support deleted-inclusive admin reads. It NEVER
+// fires in production (CachedUserRepository / PgxUserRepository are compile-time
+// asserted to be AdminUserRepository), but the loud failure is what stops a
+// future silent regression to the deleted-filtered read (THE-GUARDED-DELETE).
+var errRestoreRequiresAdminRepo = errors.New("service: restore requires an admin-capable user repository")
+
+// ErrRestoreRequiresAdminRepo exposes the loud restore-precondition sentinel.
+func ErrRestoreRequiresAdminRepo() error { return errRestoreRequiresAdminRepo }
+
 var errUserNotPendingApproval = errors.New("service: user is not a pending self-registration")
 
 // ErrUserNotPendingApproval exposes the sentinel returned when an
@@ -651,18 +661,19 @@ func (s *UserService) RestoreUserForActor(ctx context.Context, actor *domain.Pri
 	// Restore MUST see soft-deleted users, so it reads through GetByIDAdmin
 	// (WHERE id = $1, deleted-inclusive). The plain GetByID filters
 	// deleted_at IS NULL, which made restore permanently 404 for exactly the
-	// rows it exists to recover (USER-RESTORE-DEAD-1). The real repository is
-	// an AdminUserRepository; the assertion keeps the constructor's
-	// UserRepository contract intact and lets pure-UserRepository fakes fall
-	// back (their GetByID is deleted-inclusive by construction). Authorization
-	// below is unchanged — a cross-tenant or site_admin target still refuses.
-	var target *domain.User
-	var err error
-	if admin, ok := s.repo.(repository.AdminUserRepository); ok {
-		target, err = admin.GetByIDAdmin(ctx, targetUserID)
-	} else {
-		target, err = s.repo.GetByID(ctx, targetUserID)
+	// rows it exists to recover (USER-RESTORE-DEAD-1). The runtime repository
+	// is compile-time asserted to be an AdminUserRepository (both
+	// CachedUserRepository and PgxUserRepository), so this branch is always
+	// taken in production. A repo WITHOUT admin support must NOT silently fall
+	// back to the deleted-filtered GetByID — that would reintroduce the fixed
+	// defect invisibly (THE-GUARDED-DELETE) — so it fails LOUDLY, agreeing with
+	// CachedUserRepository.GetByIDAdmin's refusal. Authorization below is
+	// unchanged — a cross-tenant or site_admin target still refuses.
+	admin, ok := s.repo.(repository.AdminUserRepository)
+	if !ok {
+		return errRestoreRequiresAdminRepo
 	}
+	target, err := admin.GetByIDAdmin(ctx, targetUserID)
 	if err != nil {
 		return err
 	}

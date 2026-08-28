@@ -240,9 +240,16 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:notes=Only a user in the pending state (banned=true, role=org_user) may be approved; already-active users, admins, and missing users return 4xx (409/403/404). org_admin additionally requires the users:update scope and may only approve users in their own organization.
 		update.POST("/:id/approve", HandleApproveUser(deps))
 
-		// Delete + restore remain site_admin-only at the HTTP layer.
-		siteOnly := g.Group("")
-		siteOnly.Use(mw.RequireSiteAdmin())
+		// Delete: site_admin OR org_admin with users:delete (USERS-DELETE-GUARD-1,
+		// THE-GUARDED-DELETE). AdminPermissionsModel.md: site_admin "cannot manage
+		// the resources (such as users)" belonging to tenant orgs, while org_admin
+		// holds "day-to-day control of that organization's resources (users, ...)".
+		// The previous RequireSiteAdmin route both blocked the actor the model
+		// empowers AND made DeleteUserForActor's org_admin same-org branch
+		// unreachable dead code. The service already enforces same-org scope and
+		// the site_admin-protection invariant, so the guard now matches update.
+		del := g.Group("")
+		del.Use(mw.RequireSiteAdminOrOrgAdminWithScopesAudit(deps.Audit, domain.ScopeUsersDelete))
 
 		// docgen:endpoint
 		// docgen:surface=users
@@ -250,8 +257,14 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:path=/api/v1/users/:id
 		// docgen:summary=Soft-delete a user.
 		// docgen:tier=oss
-		// docgen:auth=site_admin
-		siteOnly.DELETE("/:id", HandleDeleteUser(deps))
+		// docgen:auth=site_admin|org_admin
+		// docgen:notes=site_admin can delete any ordinary user (the model's lost-all-org_admins recovery clause depends on it). org_admin additionally requires the users:delete scope and may only delete users in their own organization; cross-org and site_admin targets get the anti-enumeration 404.
+		del.DELETE("/:id", HandleDeleteUser(deps))
+
+		// Restore remains site_admin-only at the HTTP layer (infrastructure
+		// recovery, not day-to-day tenant management).
+		siteOnly := g.Group("")
+		siteOnly.Use(mw.RequireSiteAdmin())
 
 		// docgen:endpoint
 		// docgen:surface=users

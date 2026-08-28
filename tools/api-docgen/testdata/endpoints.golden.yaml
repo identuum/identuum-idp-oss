@@ -1833,7 +1833,7 @@ endpoints:
     registrar: ""
     summary: "Soft-delete a user."
     tier: "oss"
-    auth: "site_admin"
+    auth: "site_admin|org_admin"
     request_schema: ""
     response_schema: ""
     source_package: "github.com/identuum/identuum-idp-oss/internal/handlers"
