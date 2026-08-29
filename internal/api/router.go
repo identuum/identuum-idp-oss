@@ -516,9 +516,13 @@ const (
 // the relevant route groups are extracted — premature middleware
 // without consumer routes would be dead weight.
 func NewOSSEngine(deps OSSRouterDeps) *gin.Engine {
-	// Force release mode so test runs and live boot do not print
-	// the Gin debug banner to stderr. Operators can still override
-	// via GIN_MODE if they want the debug banner.
+	// Force release mode so test runs and live boot do not print the Gin
+	// debug banner to stderr. This is UNCONDITIONAL by design: gin reads
+	// GIN_MODE once at package init, and this call overrides it either way —
+	// there is NO GIN_MODE override (an earlier comment claimed one; it never
+	// existed, because this SetMode always runs). It is now a pure logging
+	// concern: THE-DEBUG-BANNER-SWITCH decoupled cookie Secure from gin.Mode
+	// (see cookieSecureForRequest), so no security property rides on it.
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()

@@ -121,12 +121,18 @@ func clearAuthCookies(c *gin.Context) {
 	})
 }
 
-// cookieSecureForRequest mirrors the monolith's runtime-resolved Secure
-// flag. The bool is true when Gin is in release mode AND the request's
-// Host is not a localhost/loopback name. This keeps the local-demo
-// HTTP runtime usable (browser would otherwise drop a Secure cookie on
-// a plain http://localhost origin) while making release deployments
-// fail-closed on non-HTTPS hosts.
+// cookieSecureForRequest resolves the Secure cookie flag from the REQUEST
+// HOST — a fact about where the cookie is bound — and deliberately NOT from
+// gin.Mode(). gin.Mode() is a debug-banner switch: NewOSSEngine forces
+// ReleaseMode purely to silence gin's startup banner, and a SECURITY flag must
+// never ride on a logging concern — an operator changing that switch would
+// otherwise silently strip Secure from every production cookie
+// (THE-DEBUG-BANNER-SWITCH). The bool is true for any real (non-loopback)
+// host — a cookie bound there must be HTTPS-only — and false for
+// localhost/loopback, where the local-demo runtime and the e2e-full appliance
+// serve plain http and the browser must return the cookie. At runtime this is
+// byte-for-byte the old `gin.ReleaseMode && !isLocalhost` (ReleaseMode is
+// always forced), so NO deployed behaviour changes; only the coupling is gone.
 func cookieSecureForRequest(r *http.Request) bool {
 	host := r.Host
 	if i := strings.IndexByte(host, ':'); i >= 0 {
@@ -134,7 +140,7 @@ func cookieSecureForRequest(r *http.Request) bool {
 	}
 	host = strings.ToLower(host)
 	isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "host.docker.internal"
-	return gin.Mode() == gin.ReleaseMode && !isLocalhost
+	return !isLocalhost
 }
 
 // writeBrowserCSRFCookie stamps the transport-correct Secure flag onto a CSRF

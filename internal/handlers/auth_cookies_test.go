@@ -110,6 +110,7 @@ func TestSetAuthCookies_EmptyTokensAreSkipped(t *testing.T) {
 	}
 }
 
+// RULE: COOKIE-SECURE-NOT-GIN-MODE-1
 func TestSetAuthCookies_LocalhostDetection(t *testing.T) {
 	cases := []struct {
 		host       string
@@ -121,8 +122,15 @@ func TestSetAuthCookies_LocalhostDetection(t *testing.T) {
 		{"host.docker.internal:7113", false, "release"},
 		{"example.com", true, "release"},
 		{"prod.identuum.io", true, "release"},
-		// Test/debug mode never sets Secure regardless of host.
-		{"example.com", false, "test"},
+		// DECOUPLED (THE-DEBUG-BANNER-SWITCH): Secure rides on the request
+		// HOST, not gin.Mode. A real host is Secure in test AND debug mode; a
+		// loopback host is never Secure, in any mode. Under the old
+		// gin.ReleaseMode coupling these three would flip with the mode — that
+		// flip is exactly what this rule forbids (a security flag must not ride
+		// on the debug-banner switch).
+		{"example.com", true, "test"},
+		{"example.com", true, "debug"},
+		{"localhost:7113", false, "debug"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.host+"_"+tc.mode, func(t *testing.T) {
