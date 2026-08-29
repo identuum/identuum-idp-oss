@@ -55,11 +55,14 @@ func insecureDevModeActive(getenv func(string) string) bool {
 
 // loginRiskForMode resolves which LoginRiskService the local-login pipeline is
 // wired with: the real one normally, nil under insecure dev mode.
-// LocalLoginService is nil-risk-safe by design (its Login gate is
-// `if s.risk != nil`), so a nil here cleanly disables ONLY the lockout gate —
-// password verification, MFA, and session issuance are untouched. The service
+// LocalLoginService is nil-risk-safe by design at EVERY s.risk use, and a nil
+// here disables ALL of them: the password-purpose lockout gate (Login,
+// local_login_service.go:211), the MFA-purpose lockout gate on the TOTP step
+// (Login, :334), and attempt recording (recordLoginRisk, :400-405 — so no
+// failure counters accumulate at all in this mode). Password verification,
+// MFA code verification, and session issuance are untouched. The service
 // itself is still constructed and returned to the retention sweepers either
-// way; only the login-gate wiring is dropped.
+// way; only the login-pipeline wiring is dropped.
 func loginRiskForMode(risk *service.LoginRiskService, insecure bool) *service.LoginRiskService {
 	if insecure {
 		return nil
