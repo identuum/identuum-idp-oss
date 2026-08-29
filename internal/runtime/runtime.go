@@ -1006,8 +1006,20 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 
 	mfaVerifier := service.NewMFAVerifierService(report, service.EncryptedTOTPSecretResolver{Cipher: mfaCipher}, service.MFAVerifierOptions{})
 	loginRiskSvc := service.NewLoginRiskService(report, repos.LoginAttempt, service.LoginRiskServiceOptions{Logger: serviceLogger()})
+	// TEST-ONLY escape hatch (insecure_dev_mode.go): under
+	// IDENTUUM_IDP_INSECURE_DEV_MODE=true the login-risk lockout gate is left
+	// unwired (nil risk — LocalLoginService is nil-risk-safe by design) and
+	// resolveRateLimitConfig below zeroes the HTTP limiter classes. Rate
+	// limiting ONLY — auth, MFA, and session validation are untouched. The
+	// banner is ERROR-level so an accidentally-flagged production deployment
+	// screams from its first startup line.
+	insecureDevMode := insecureDevModeActive(r.cfg.Getenv)
+	if insecureDevMode {
+		logger.Error.WithFields(map[string]any{"flag": "IDENTUUM_IDP_INSECURE_DEV_MODE"}).
+			Error("INSECURE_DEV_MODE ACTIVE: server-side rate limiting DISABLED (HTTP limiter classes + login lockout). TEST/DEV ONLY — never run production with this flag")
+	}
 	localLoginSvc := service.NewLocalLoginService(report, repos.User, userSessionSvc, mfaVerifier).
-		WithLoginRiskService(loginRiskSvc)
+		WithLoginRiskService(loginRiskForMode(loginRiskSvc, insecureDevMode))
 
 	mfaIssuer := "Identuum"
 	mfaEnrollmentSvc := service.NewMFAEnrollmentService(report, service.MFAEnrollmentRepoOptions{

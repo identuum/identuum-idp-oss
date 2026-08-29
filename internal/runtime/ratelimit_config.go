@@ -36,6 +36,15 @@ func resolveRateLimitConfig(getenv func(string) string) ratelimit.RateLimitConfi
 	if getenv == nil {
 		getenv = os.Getenv
 	}
+	// TEST-ONLY escape hatch (see insecure_dev_mode.go for the boundary): under
+	// IDENTUUM_IDP_INSECURE_DEV_MODE=true every limiter class is zero-value, and
+	// a zero RequestsPerWindow makes NewRateLimitMiddleware a documented no-op.
+	// This is the ONE way to disable the limiters — the per-class env overrides
+	// below can only raise them — and buildDeps logs a loud ERROR banner when it
+	// is active, so it cannot ride along silently.
+	if insecureDevModeActive(getenv) {
+		return ratelimit.RateLimitConfig{}
+	}
 	return ratelimit.RateLimitConfig{
 		LoginLimit:         resolveRateLimit(getenv, "LOGIN", 5, time.Minute),
 		RegisterLimit:      resolveRateLimit(getenv, "REGISTER", 10, time.Hour),

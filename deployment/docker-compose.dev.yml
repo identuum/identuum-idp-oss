@@ -106,6 +106,18 @@ services:
       # real IDENTUUM_IDP_ENCRYPTION_KEY there. Override it here from your host
       # env at any time.
       IDENTUUM_IDP_ENCRYPTION_KEY: "${IDENTUUM_IDP_ENCRYPTION_KEY:-cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe}"
+      # TEST-ONLY rate-limit escape hatch (internal/runtime/insecure_dev_mode.go):
+      # defaults EMPTY (flag OFF — full rate limiting + login lockout). The
+      # e2e-full harness exports it "true" so its hundreds of same-IP logins
+      # don't trip the LoginRiskService lockout (5 failures / 15min). Disables
+      # server-side rate limiting ONLY; auth/MFA/sessions never read it.
+      IDENTUUM_IDP_INSECURE_DEV_MODE: "${IDENTUUM_IDP_INSECURE_DEV_MODE:-}"
+      # Browser-facing UI origin for the WebAuthn RP allowlist
+      # (internal/runtime/webauthn_ui_origin.go). Defaults EMPTY → the runtime's
+      # localhost default (http://localhost:7104, the standing dev UI). The
+      # e2e-full harness exports its own dedicated dev-loop UI port so passkey
+      # ceremonies from that origin pass the RP origin check.
+      IDENTUUM_IDP_UI_PUBLIC_BASE_URL: "${IDENTUUM_IDP_UI_PUBLIC_BASE_URL:-}"
 
 volumes:
   postgres-idp-oss-data-v18:
