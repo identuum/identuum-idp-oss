@@ -12,8 +12,8 @@ evidence chain works. The operator tier is
 
 1. **`make verify` (this repo)** — the per-commit gate: build, unit tests,
    staticcheck, govulncheck, grype, rulefloor ledger check (FLOOR 173),
-   image-base policy, docgen golden, and the rest of the witnessed target
-   list. Writes `GATE-RUN.txt` (committed) via `scripts/gate-witness.sh`:
+   the IMG-NONALPINE gate, docgen golden, and the rest of the witnessed
+   target list. Writes `GATE-RUN.txt` (committed) via `scripts/gate-witness.sh`:
    per-target exits, tool versions, evidence lines, and a digest of the tree
    the run saw. `identuum-ui` has the same shape (`make verify`, FLOOR 62).
 2. **`make integration-test` (this repo)** — build-tagged suites against a
