@@ -45,11 +45,14 @@ func TestAPIResourceUpdate_ValidateBeforeWrite_Atomic(t *testing.T) {
 	t.Cleanup(func() { _ = repos.Organization.Delete(context.Background(), org.ID) })
 
 	svc := service.NewAPIResourceService(nil, repos.APIResource)
+	// THE-INVERTED-GUARD: the service is actor-scoped now — this suite acts
+	// as the seeded org's own org_admin.
+	actor := &domain.Principal{UserID: uuid.New(), OrganizationID: org.ID, Role: domain.RoleOrgAdmin}
 
 	const origName = "orig-name"
 	const origTTL = 3600
 	origAudience := "https://api-" + suffix + ".example.invalid"
-	created, _, err := svc.Create(ctx, service.CreateAPIResourceOptions{
+	created, _, err := svc.Create(ctx, actor, service.CreateAPIResourceOptions{
 		OrganizationID: org.ID, Name: origName, Audience: origAudience, Active: true, TokenTTLSecs: origTTL,
 		Scopes: []domain.APIScope{{Name: "read"}, {Name: "write"}},
 	})
@@ -58,7 +61,7 @@ func TestAPIResourceUpdate_ValidateBeforeWrite_Atomic(t *testing.T) {
 	}
 
 	baseline := func() *domain.APIResource {
-		got, gErr := svc.GetByID(ctx, created.ID, nil)
+		got, gErr := svc.GetByID(ctx, actor, created.ID)
 		if gErr != nil {
 			t.Fatalf("get: %v", gErr)
 		}
@@ -76,7 +79,7 @@ func TestAPIResourceUpdate_ValidateBeforeWrite_Atomic(t *testing.T) {
 	// (validated before any write). TEETH target.
 	t.Run("invalid_scopes_no_partial_write", func(t *testing.T) {
 		newName := "should-not-persist-1"
-		if _, uErr := svc.Update(ctx, created.ID, service.UpdateAPIResourceOptions{
+		if _, uErr := svc.Update(ctx, actor, created.ID, service.UpdateAPIResourceOptions{
 			Name:   &newName,
 			Scopes: []domain.APIScope{{Name: "read"}, {Name: "system:admin"}}, // forbidden prefix
 		}); uErr == nil {
@@ -97,7 +100,7 @@ func TestAPIResourceUpdate_ValidateBeforeWrite_Atomic(t *testing.T) {
 	// back — NEITHER the field change NOR the scope change persists. TEETH target.
 	t.Run("atomic_rollback_on_scope_failure", func(t *testing.T) {
 		newName := "should-not-persist-2"
-		if _, uErr := svc.Update(ctx, created.ID, service.UpdateAPIResourceOptions{
+		if _, uErr := svc.Update(ctx, actor, created.ID, service.UpdateAPIResourceOptions{
 			Name:   &newName,
 			Scopes: []domain.APIScope{{Name: "dup"}, {Name: "dup"}}, // valid per ValidateAPIScopes; UNIQUE violation in DB
 		}); uErr == nil {
@@ -122,7 +125,7 @@ func TestAPIResourceUpdate_ValidateBeforeWrite_Atomic(t *testing.T) {
 	t.Run("happy_path_updates_fields_and_scopes", func(t *testing.T) {
 		newName := "renamed"
 		newTTL := 7200
-		if _, uErr := svc.Update(ctx, created.ID, service.UpdateAPIResourceOptions{
+		if _, uErr := svc.Update(ctx, actor, created.ID, service.UpdateAPIResourceOptions{
 			Name: &newName, TokenTTLSecs: &newTTL,
 			Scopes: []domain.APIScope{{Name: "read"}, {Name: "admin"}},
 		}); uErr != nil {

@@ -372,9 +372,11 @@ func TestLive_ClientMutationsNonSiteAdminReturns403(t *testing.T) {
 // ----- API Resources live mutations -----------------------------
 
 func TestLive_APIResourceCreateReturnsResourceSecretOnce(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	// THE-INVERTED-GUARD: org_admin within its own org, never site_admin.
+	liveOrg := uuid.New()
+	eng := newLiveEngine(t, orgAdminBatchPrincipal(liveOrg))
 	rec := doJSON(t, eng, http.MethodPost, "/api/v1/api-resources", map[string]any{
-		"organization_id": uuid.New().String(),
+		"organization_id": liveOrg.String(),
 		"name":            "Resource",
 		"audience":        "https://api.example.com",
 		"active":          true,
@@ -411,9 +413,10 @@ func TestLive_APIResourceCreateReturnsResourceSecretOnce(t *testing.T) {
 }
 
 func TestLive_APIResourceRegenerateRotates(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	liveOrg := uuid.New()
+	eng := newLiveEngine(t, orgAdminBatchPrincipal(liveOrg))
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/api-resources", map[string]any{
-		"organization_id": uuid.New().String(),
+		"organization_id": liveOrg.String(),
 		"name":            "R",
 		"audience":        "https://api.example.com",
 		"active":          true,
@@ -448,9 +451,10 @@ func TestLive_APIResourceRegenerateRotates(t *testing.T) {
 }
 
 func TestLive_APIResourceDeleteAudits(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	liveOrg := uuid.New()
+	eng := newLiveEngine(t, orgAdminBatchPrincipal(liveOrg))
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/api-resources", map[string]any{
-		"organization_id": uuid.New().String(),
+		"organization_id": liveOrg.String(),
 		"name":            "R",
 		"audience":        "https://api.example.com",
 		"active":          true,

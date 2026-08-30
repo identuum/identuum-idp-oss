@@ -87,22 +87,27 @@ func TestFiveFamilyFallbacksTellTheTruth(t *testing.T) {
 	boom := errors.New("disk on fire")
 
 	t.Run("api-resources update: miss 404, audience collision 409, unknown 500", func(t *testing.T) {
+		// THE-INVERTED-GUARD: this family answers to the org's own
+		// org_admin, never site_admin — the principal flipped with the
+		// guard; the honest-refusal contract is unchanged.
 		repo := &faultAPIResourceRepo{memAPIResourceRepo: newMemAPIResourceRepo()}
 		deps := APIResourcesHandlerDeps{Audit: audit.NoopService{}, APIResourceService: service.NewAPIResourceService(nil, repo)}
-		res := &domain.APIResource{ID: uuid.New(), OrganizationID: uuid.New(), Name: "r", Audience: "aud", TokenTTLSecs: 300}
+		orgID := uuid.New()
+		orgAdmin := orgAdminBatchPrincipal(orgID)
+		res := &domain.APIResource{ID: uuid.New(), OrganizationID: orgID, Name: "r", Audience: "aud", TokenTTLSecs: 300}
 		_ = repo.Create(context.Background(), res, nil)
 
-		code, _ := honestRefusalCall(t, siteAdmin, http.MethodPut, "/r/:id", "/r/"+uuid.NewString(), `{"name":"x"}`, HandleUpdateAPIResource(deps))
+		code, _ := honestRefusalCall(t, orgAdmin, http.MethodPut, "/r/:id", "/r/"+uuid.NewString(), `{"name":"x"}`, HandleUpdateAPIResource(deps))
 		if code != http.StatusNotFound {
 			t.Fatalf("miss = %d, want 404", code)
 		}
 		repo.updateErr = domain.ErrAPIResourceAlreadyExists
-		code, body := honestRefusalCall(t, siteAdmin, http.MethodPut, "/r/:id", "/r/"+res.ID.String(), `{"name":"collides"}`, HandleUpdateAPIResource(deps))
+		code, body := honestRefusalCall(t, orgAdmin, http.MethodPut, "/r/:id", "/r/"+res.ID.String(), `{"name":"collides"}`, HandleUpdateAPIResource(deps))
 		if code != http.StatusConflict || body["error"] != "audience_exists" {
 			t.Fatalf("collision = %d %v, want 409 audience_exists", code, body)
 		}
 		repo.updateErr = boom
-		code, body = honestRefusalCall(t, siteAdmin, http.MethodPut, "/r/:id", "/r/"+res.ID.String(), `{"name":"y"}`, HandleUpdateAPIResource(deps))
+		code, body = honestRefusalCall(t, orgAdmin, http.MethodPut, "/r/:id", "/r/"+res.ID.String(), `{"name":"y"}`, HandleUpdateAPIResource(deps))
 		if code != http.StatusInternalServerError || body["error"] != "internal_error" {
 			t.Fatalf("unknown = %d %v, want 500 internal_error (the old 404 lie)", code, body)
 		}

@@ -210,11 +210,25 @@ func TestClients_MutationsReturn501(t *testing.T) {
 
 // ----- API Resources --------------------------------------------
 
+// orgAdminBatchPrincipal builds the org_admin actor the reworked
+// api-resources surface requires (THE-INVERTED-GUARD).
+func orgAdminBatchPrincipal(orgID uuid.UUID) *domain.Principal {
+	return &domain.Principal{
+		UserID:         uuid.New(),
+		OrganizationID: orgID,
+		Email:          "org-admin@example.test",
+		Role:           domain.RoleOrgAdmin,
+	}
+}
+
 func TestAPIResources_ListOmitsSecretHash(t *testing.T) {
+	// THE-INVERTED-GUARD: the surface is org_admin's (its own org), never
+	// site_admin's — the list principal flipped with the guard.
+	orgID := uuid.New()
 	repo := &fakeAPIResourceRepo{
 		list: []*domain.APIResource{{
 			ID:                 uuid.New(),
-			OrganizationID:     uuid.New(),
+			OrganizationID:     orgID,
 			Name:               "API Resource",
 			Audience:           "https://api.example.com",
 			Active:             true,
@@ -227,7 +241,7 @@ func TestAPIResources_ListOmitsSecretHash(t *testing.T) {
 	}
 	r := batchEngine(t, func(r *gin.Engine) {
 		RegisterAPIResourcesRoutes(r, APIResourcesHandlerDeps{APIResourceRepo: repo})
-	}, siteAdminPrincipal())
+	}, orgAdminBatchPrincipal(orgID))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/api-resources", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)

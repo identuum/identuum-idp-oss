@@ -76,12 +76,19 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 
 	g := router.Group("/api/v1/api-resources")
 	// Commercial-feature gate (monolith: features.AuthorizationServer).
-	// Mounted BEFORE RequireSiteAdmin so a deny short-circuits with
+	// Mounted BEFORE the auth middleware so a deny short-circuits with
 	// 403 before any auth decision is made. The audit-aware variant
 	// is used so a denial emits a safe `feature.denied` event when
 	// an audit.Service is wired.
 	g.Use(mw.RequireFeatureWithAudit(deps.FeatureGate, deps.Audit, features.AuthorizationServer))
-	g.Use(mw.RequireSiteAdmin())
+	// THE-INVERTED-GUARD (2026-08-30): this group carried
+	// mw.RequireSiteAdmin() — the ONE role AdminPermissionsModel.md
+	// forbids from managing tenant-owned resources (API resources carry
+	// OrganizationID). Authorization now lives in APIResourceService
+	// (org_admin within its own organization only; foreign-org ids read
+	// as a miss), matching the sibling org-resource groups: the group
+	// itself only requires an authenticated principal.
+	g.Use(mw.RequireAuthenticated())
 
 	// docgen:endpoint
 	// docgen:surface=api-resources
@@ -89,7 +96,7 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 	// docgen:path=/api/v1/api-resources
 	// docgen:summary=List API resources (Authorization Server feature).
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:response=oss.handlers.safeAPIResource
 	g.GET("", HandleListAPIResources(deps))
@@ -100,7 +107,7 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 	// docgen:path=/api/v1/api-resources/:id
 	// docgen:summary=Show a single API resource.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:response=oss.handlers.safeAPIResource
 	g.GET("/:id", HandleGetAPIResource(deps))
@@ -112,7 +119,7 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 		// docgen:path=/api/v1/api-resources
 		// docgen:summary=Create an API resource.
 		// docgen:tier=oss-feature-gated:authorization_server
-		// docgen:auth=site_admin
+		// docgen:auth=org_admin
 		// docgen:feature_gate=authorization_server
 		// docgen:response=oss.handlers.safeAPIResource
 		// docgen:status=201
@@ -124,7 +131,7 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 		// docgen:path=/api/v1/api-resources/:id
 		// docgen:summary=Update an API resource.
 		// docgen:tier=oss-feature-gated:authorization_server
-		// docgen:auth=site_admin
+		// docgen:auth=org_admin
 		// docgen:feature_gate=authorization_server
 		// docgen:response=oss.handlers.safeAPIResource
 		g.PUT("/:id", HandleUpdateAPIResource(deps))
@@ -135,7 +142,7 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 		// docgen:path=/api/v1/api-resources/:id
 		// docgen:summary=Delete an API resource.
 		// docgen:tier=oss-feature-gated:authorization_server
-		// docgen:auth=site_admin
+		// docgen:auth=org_admin
 		// docgen:feature_gate=authorization_server
 		g.DELETE("/:id", HandleDeleteAPIResource(deps))
 
@@ -145,7 +152,7 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 		// docgen:path=/api/v1/api-resources/:id/secret/regenerate
 		// docgen:summary=Rotate an API resource secret (new secret returned ONCE; never stored or echoed elsewhere).
 		// docgen:tier=oss-feature-gated:authorization_server
-		// docgen:auth=site_admin
+		// docgen:auth=org_admin
 		// docgen:feature_gate=authorization_server
 		g.POST("/:id/secret/regenerate", HandleRegenerateAPIResourceSecret(deps))
 	} else {
@@ -200,10 +207,27 @@ func toSafeAPIResource(r *domain.APIResource) safeAPIResource {
 	return out
 }
 
-// HandleListAPIResources returns the paginated list of API resources
-// in safe-projection form.
+// apiResourceActor resolves the org_admin actor for the repo-fallback
+// paths, mirroring the service-level contract so the fallback can never
+// answer wider than the service (defense in depth, THE-INVERTED-GUARD).
+// Writes the 403 itself and returns ok=false for every non-org_admin.
+func apiResourceActor(c *gin.Context) (*domain.Principal, bool) {
+	actor, _ := mw.PrincipalFromContext(c)
+	if actor == nil || !actor.IsOrgAdminOnly() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return nil, false
+	}
+	return actor, true
+}
+
+// HandleListAPIResources returns the paginated list of the actor's own
+// organization's API resources in safe-projection form.
 func HandleListAPIResources(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		actor, ok := apiResourceActor(c)
+		if !ok {
+			return
+		}
 		pageSize := parsePositiveQuery(c, "page_size", 50, 200)
 		page := parsePositiveQuery(c, "page", 1, 1<<16)
 		pagination := repository.Pagination{
@@ -217,9 +241,9 @@ func HandleListAPIResources(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			err       error
 		)
 		if deps.APIResourceService != nil {
-			resources, total, err = deps.APIResourceService.List(c.Request.Context(), pagination, nil)
+			resources, total, err = deps.APIResourceService.List(c.Request.Context(), actor, pagination)
 		} else {
-			resources, total, err = deps.APIResourceRepo.List(c.Request.Context(), pagination, nil)
+			resources, total, err = deps.APIResourceRepo.List(c.Request.Context(), pagination, &actor.OrganizationID)
 		}
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
@@ -246,11 +270,15 @@ func HandleGetAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
+		actor, ok := apiResourceActor(c)
+		if !ok {
+			return
+		}
 		var resource *domain.APIResource
 		if deps.APIResourceService != nil {
-			resource, err = deps.APIResourceService.GetByID(c.Request.Context(), id, nil)
+			resource, err = deps.APIResourceService.GetByID(c.Request.Context(), actor, id)
 		} else {
-			resource, err = deps.APIResourceRepo.GetByID(c.Request.Context(), id, nil)
+			resource, err = deps.APIResourceRepo.GetByID(c.Request.Context(), id, &actor.OrganizationID)
 		}
 		if err != nil || resource == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -281,7 +309,11 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
-		resource, plaintext, err := deps.APIResourceService.Create(c.Request.Context(), service.CreateAPIResourceOptions{
+		actor, ok := apiResourceActor(c)
+		if !ok {
+			return
+		}
+		resource, plaintext, err := deps.APIResourceService.Create(c.Request.Context(), actor, service.CreateAPIResourceOptions{
 			OrganizationID: req.OrganizationID,
 			Name:           req.Name,
 			Audience:       req.Audience,
@@ -290,7 +322,16 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			Scopes:         req.Scopes,
 		})
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			switch {
+			case errors.Is(err, service.ErrAPIResourceForbidden):
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			case errors.Is(err, service.ErrAPIResourceNotFound()):
+				// A create naming ANOTHER organization reads as a miss —
+				// never a confirming 403 (the SA rationale).
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			default:
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			}
 			return
 		}
 		c.JSON(http.StatusCreated, gin.H{
@@ -329,7 +370,11 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
-		resource, err := deps.APIResourceService.Update(c.Request.Context(), id, service.UpdateAPIResourceOptions{
+		actor, ok := apiResourceActor(c)
+		if !ok {
+			return
+		}
+		resource, err := deps.APIResourceService.Update(c.Request.Context(), actor, id, service.UpdateAPIResourceOptions{
 			Name:         req.Name,
 			Audience:     req.Audience,
 			Active:       req.Active,
@@ -337,10 +382,12 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			Scopes:       req.Scopes,
 		})
 		if err != nil {
-			// THE-SIXTEEN-ELSES: 404 only for the real miss; an
-			// audience rename into UNIQUE (org_id, audience) is an
-			// honest 409; unknown faults say so.
+			// THE-SIXTEEN-ELSES: 404 only for the real miss (a foreign-org
+			// id reads identically); an audience rename into UNIQUE
+			// (org_id, audience) is an honest 409; unknown faults say so.
 			switch {
+			case errors.Is(err, service.ErrAPIResourceForbidden):
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			case errors.Is(err, service.ErrAPIResourceNotFound()):
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			case errors.Is(err, domain.ErrAPIResourceAlreadyExists):
@@ -369,10 +416,19 @@ func HandleDeleteAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		if err := deps.APIResourceService.Delete(c.Request.Context(), id, nil); err != nil {
-			// Delete is documented-idempotent (a miss answers 200 with 0
-			// rows affected) — the ONLY errors here are infrastructure
-			// faults, so the old 404 was a pure lie (THE-SIXTEEN-ELSES).
+		actor, ok := apiResourceActor(c)
+		if !ok {
+			return
+		}
+		if err := deps.APIResourceService.Delete(c.Request.Context(), actor, id); err != nil {
+			// Delete is documented-idempotent (a miss — including a
+			// foreign-org id the org-scoped DELETE cannot match — answers
+			// 200 with 0 rows affected); after the actor gate the ONLY
+			// errors here are infrastructure faults (THE-SIXTEEN-ELSES).
+			if errors.Is(err, service.ErrAPIResourceForbidden) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
@@ -395,9 +451,18 @@ func HandleRegenerateAPIResourceSecret(deps APIResourcesHandlerDeps) gin.Handler
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		resource, plaintext, err := deps.APIResourceService.RegenerateSecret(c.Request.Context(), id)
+		actor, ok := apiResourceActor(c)
+		if !ok {
+			return
+		}
+		resource, plaintext, err := deps.APIResourceService.RegenerateSecret(c.Request.Context(), actor, id)
 		if err != nil {
-			// THE-SIXTEEN-ELSES: 404 only for the real miss.
+			// THE-SIXTEEN-ELSES: 404 only for the real miss (foreign-org
+			// ids read identically).
+			if errors.Is(err, service.ErrAPIResourceForbidden) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
 			if errors.Is(err, service.ErrAPIResourceNotFound()) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return

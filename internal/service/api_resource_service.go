@@ -59,10 +59,41 @@ var errAPIResourceNotFound = errors.New("service: api resource not found")
 // reserve 404 for real misses (THE-SIXTEEN-ELSES).
 func ErrAPIResourceNotFound() error { return errAPIResourceNotFound }
 
+// ErrAPIResourceForbidden refuses every actor outside the
+// org_admin-within-its-own-organization contract (THE-INVERTED-GUARD).
+var ErrAPIResourceForbidden = errors.New("service: api resource forbidden")
+
+// apiResourceActorOrg resolves the ONLY organization an actor may touch
+// API resources in. Modelled on ServiceAccountService.requireOrgAdmin with
+// ONE deliberate divergence: site_admin is REFUSED, not admitted —
+// AdminPermissionsModel.md is law, API resources carry OrganizationID, and
+// tenant-owned resources are the tenant's own business once an org_admin
+// exists. Cross-org ids never reach here: every read/mutation below is
+// repo-scoped to the returned org, so a foreign id is indistinguishable
+// from a miss (404, never a confirming 403 — the SA rationale).
+func apiResourceActorOrg(actor *domain.Principal) (uuid.UUID, error) {
+	if actor == nil || !actor.IsOrgAdminOnly() {
+		return uuid.Nil, ErrAPIResourceForbidden
+	}
+	return actor.OrganizationID, nil
+}
+
 // Create persists a new APIResource plus its scope set. Returns the
 // stored resource and (for newly-created rows) the plaintext
-// resource secret EXACTLY ONCE.
-func (s *APIResourceService) Create(ctx context.Context, opts CreateAPIResourceOptions) (*domain.APIResource, string, error) {
+// resource secret EXACTLY ONCE. The actor must be an org_admin; the
+// resource is pinned to the actor's own organization (a request naming
+// ANOTHER org answers not-found, never a confirming 403).
+func (s *APIResourceService) Create(ctx context.Context, actor *domain.Principal, opts CreateAPIResourceOptions) (*domain.APIResource, string, error) {
+	org, err := apiResourceActorOrg(actor)
+	if err != nil {
+		return nil, "", err
+	}
+	if opts.OrganizationID == uuid.Nil {
+		opts.OrganizationID = org
+	}
+	if opts.OrganizationID != org {
+		return nil, "", errAPIResourceNotFound
+	}
 	if opts.Name == "" || opts.Audience == "" {
 		return nil, "", fmt.Errorf("api resource name and audience are required")
 	}
@@ -108,9 +139,14 @@ func (s *APIResourceService) Create(ctx context.Context, opts CreateAPIResourceO
 }
 
 // Update mutates the resource and atomically replaces its scope set
-// when opts.Scopes is non-nil.
-func (s *APIResourceService) Update(ctx context.Context, id uuid.UUID, opts UpdateAPIResourceOptions) (*domain.APIResource, error) {
-	resource, err := s.repo.GetByID(ctx, id, nil)
+// when opts.Scopes is non-nil. The fetch is scoped to the actor's own
+// organization, so a foreign-org id is indistinguishable from a miss.
+func (s *APIResourceService) Update(ctx context.Context, actor *domain.Principal, id uuid.UUID, opts UpdateAPIResourceOptions) (*domain.APIResource, error) {
+	org, authzErr := apiResourceActorOrg(actor)
+	if authzErr != nil {
+		return nil, authzErr
+	}
+	resource, err := s.repo.GetByID(ctx, id, &org)
 	if err != nil || resource == nil {
 		return nil, errAPIResourceNotFound
 	}
@@ -159,15 +195,27 @@ func (s *APIResourceService) Update(ctx context.Context, id uuid.UUID, opts Upda
 	return resource, nil
 }
 
-// Delete removes the resource scoped to orgID when non-nil.
-func (s *APIResourceService) Delete(ctx context.Context, id uuid.UUID, orgID *uuid.UUID) error {
-	return s.repo.Delete(ctx, id, orgID)
+// Delete removes the resource, scoped to the actor's own organization.
+// Documented-idempotent: a miss — including a foreign-org id, which the
+// org-scoped DELETE simply does not match — answers success with zero
+// rows affected, mutating nothing and confirming nothing.
+func (s *APIResourceService) Delete(ctx context.Context, actor *domain.Principal, id uuid.UUID) error {
+	org, err := apiResourceActorOrg(actor)
+	if err != nil {
+		return err
+	}
+	return s.repo.Delete(ctx, id, &org)
 }
 
 // RegenerateSecret rotates the resource secret. Returns the new
-// plaintext EXACTLY ONCE.
-func (s *APIResourceService) RegenerateSecret(ctx context.Context, id uuid.UUID) (*domain.APIResource, string, error) {
-	resource, err := s.repo.GetByID(ctx, id, nil)
+// plaintext EXACTLY ONCE. Org-scoped fetch: foreign-org ids read as a
+// miss.
+func (s *APIResourceService) RegenerateSecret(ctx context.Context, actor *domain.Principal, id uuid.UUID) (*domain.APIResource, string, error) {
+	org, authzErr := apiResourceActorOrg(actor)
+	if authzErr != nil {
+		return nil, "", authzErr
+	}
+	resource, err := s.repo.GetByID(ctx, id, &org)
 	if err != nil || resource == nil {
 		return nil, "", errAPIResourceNotFound
 	}
@@ -183,20 +231,28 @@ func (s *APIResourceService) RegenerateSecret(ctx context.Context, id uuid.UUID)
 	return resource, plaintext, nil
 }
 
-// GetByID returns the resource keyed by id, optionally scoped to
-// orgID.
-func (s *APIResourceService) GetByID(ctx context.Context, id uuid.UUID, orgID *uuid.UUID) (*domain.APIResource, error) {
-	r, err := s.repo.GetByID(ctx, id, orgID)
+// GetByID returns the resource keyed by id, scoped to the actor's own
+// organization: a foreign-org id is indistinguishable from a miss.
+func (s *APIResourceService) GetByID(ctx context.Context, actor *domain.Principal, id uuid.UUID) (*domain.APIResource, error) {
+	org, authzErr := apiResourceActorOrg(actor)
+	if authzErr != nil {
+		return nil, authzErr
+	}
+	r, err := s.repo.GetByID(ctx, id, &org)
 	if err != nil || r == nil {
 		return nil, errAPIResourceNotFound
 	}
 	return r, nil
 }
 
-// List returns a paginated set of resources, optionally scoped to
-// orgID.
-func (s *APIResourceService) List(ctx context.Context, pagination repository.Pagination, orgID *uuid.UUID) ([]*domain.APIResource, int, error) {
-	return s.repo.List(ctx, pagination, orgID)
+// List returns a paginated set of the actor's own organization's
+// resources.
+func (s *APIResourceService) List(ctx context.Context, actor *domain.Principal, pagination repository.Pagination) ([]*domain.APIResource, int, error) {
+	org, err := apiResourceActorOrg(actor)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.repo.List(ctx, pagination, &org)
 }
 
 // ErrAPIResourceNotFound was removed by

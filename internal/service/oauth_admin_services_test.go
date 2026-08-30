@@ -194,10 +194,17 @@ func (r *inMemoryAPIResourceRepo) Create(_ context.Context, res *domain.APIResou
 	r.rows[res.ID] = res
 	return nil
 }
-func (r *inMemoryAPIResourceRepo) GetByID(_ context.Context, id uuid.UUID, _ *uuid.UUID) (*domain.APIResource, error) {
+func (r *inMemoryAPIResourceRepo) GetByID(_ context.Context, id uuid.UUID, orgID *uuid.UUID) (*domain.APIResource, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.rows[id], nil
+	// Honor the org filter exactly like PgxAPIResourceRepository's
+	// `AND org_id = $2` — the service's cross-org 404 contract rests on
+	// it (THE-INVERTED-GUARD; the fake used to ignore the filter).
+	row := r.rows[id]
+	if row != nil && orgID != nil && row.OrganizationID != *orgID {
+		return nil, nil
+	}
+	return row, nil
 }
 func (r *inMemoryAPIResourceRepo) GetByAudienceGlobal(_ context.Context, audience string) (*domain.APIResource, error) {
 	r.mu.Lock()
@@ -215,17 +222,25 @@ func (r *inMemoryAPIResourceRepo) Update(_ context.Context, res *domain.APIResou
 	r.rows[res.ID] = res
 	return nil
 }
-func (r *inMemoryAPIResourceRepo) Delete(_ context.Context, id uuid.UUID, _ *uuid.UUID) error {
+func (r *inMemoryAPIResourceRepo) Delete(_ context.Context, id uuid.UUID, orgID *uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Org-scoped delete, like the SQL `AND org_id = $2`: a foreign-org id
+	// matches nothing and the idempotent miss deletes nothing.
+	if row := r.rows[id]; row != nil && orgID != nil && row.OrganizationID != *orgID {
+		return nil
+	}
 	delete(r.rows, id)
 	return nil
 }
-func (r *inMemoryAPIResourceRepo) List(_ context.Context, _ repository.Pagination, _ *uuid.UUID) ([]*domain.APIResource, int, error) {
+func (r *inMemoryAPIResourceRepo) List(_ context.Context, _ repository.Pagination, orgID *uuid.UUID) ([]*domain.APIResource, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]*domain.APIResource, 0, len(r.rows))
 	for _, v := range r.rows {
+		if orgID != nil && v.OrganizationID != *orgID {
+			continue
+		}
 		out = append(out, v)
 	}
 	return out, len(out), nil
@@ -247,10 +262,23 @@ func (r *inMemoryAPIResourceRepo) UpdateWithScopes(_ context.Context, res *domai
 	return nil
 }
 
+// apiResourceOrgAdmin builds the org_admin actor the reworked service
+// requires (THE-INVERTED-GUARD): resources are managed by the tenant's
+// own org_admin, never site_admin.
+func apiResourceOrgAdmin(orgID uuid.UUID) *domain.Principal {
+	return &domain.Principal{
+		UserID:         uuid.New(),
+		OrganizationID: orgID,
+		Email:          "org-admin@example.test",
+		Role:           domain.RoleOrgAdmin,
+	}
+}
+
 func TestAPIResourceService_CreateReturnsOneTimeSecret(t *testing.T) {
 	svc := NewAPIResourceService(nil, newAPIResourceRepo())
-	resource, plaintext, err := svc.Create(context.Background(), CreateAPIResourceOptions{
-		OrganizationID: uuid.New(),
+	orgID := uuid.New()
+	resource, plaintext, err := svc.Create(context.Background(), apiResourceOrgAdmin(orgID), CreateAPIResourceOptions{
+		OrganizationID: orgID,
 		Name:           "Resource",
 		Audience:       "https://api.example.com",
 		Active:         true,
@@ -269,22 +297,23 @@ func TestAPIResourceService_CreateReturnsOneTimeSecret(t *testing.T) {
 
 func TestAPIResourceService_RegenerateRotates(t *testing.T) {
 	svc := NewAPIResourceService(nil, newAPIResourceRepo())
-	resource, _, _ := svc.Create(context.Background(), CreateAPIResourceOptions{
-		OrganizationID: uuid.New(),
+	admin := apiResourceOrgAdmin(uuid.New())
+	resource, _, _ := svc.Create(context.Background(), admin, CreateAPIResourceOptions{
+		OrganizationID: admin.OrganizationID,
 		Name:           "R",
 		Audience:       "https://api.example.com",
 		Active:         true,
 		TokenTTLSecs:   3600,
 	})
 	oldHash := resource.ResourceSecretHash
-	_, plaintext, err := svc.RegenerateSecret(context.Background(), resource.ID)
+	_, plaintext, err := svc.RegenerateSecret(context.Background(), admin, resource.ID)
 	if err != nil {
 		t.Fatalf("RegenerateSecret: %v", err)
 	}
 	if plaintext == "" {
 		t.Errorf("rotation must return new plaintext once")
 	}
-	fresh, _ := svc.GetByID(context.Background(), resource.ID, nil)
+	fresh, _ := svc.GetByID(context.Background(), admin, resource.ID)
 	if fresh.ResourceSecretHash == oldHash {
 		t.Errorf("hash did not rotate")
 	}
@@ -292,7 +321,7 @@ func TestAPIResourceService_RegenerateRotates(t *testing.T) {
 
 func TestAPIResourceService_CreateRequiresNameAudience(t *testing.T) {
 	svc := NewAPIResourceService(nil, newAPIResourceRepo())
-	_, _, err := svc.Create(context.Background(), CreateAPIResourceOptions{})
+	_, _, err := svc.Create(context.Background(), apiResourceOrgAdmin(uuid.New()), CreateAPIResourceOptions{})
 	if err == nil {
 		t.Error("Create(empty) must fail")
 	}

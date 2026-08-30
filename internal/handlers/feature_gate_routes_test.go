@@ -86,7 +86,9 @@ func gateReq(t *testing.T, eng gateEngine, method, path string) *httptest.Respon
 // ---------- OpenGate (default) ----------
 
 func TestFeatureGate_APIResources_OpenGateAllowsThroughAuth(t *testing.T) {
-	eng := newGateEngine(t, siteAdminPrincipal(), features.OpenGate{})
+	// THE-INVERTED-GUARD: the surface answers to the org's own org_admin,
+	// never site_admin — the gate test's principal flipped with the guard.
+	eng := newGateEngine(t, orgAdminBatchPrincipal(uuid.New()), features.OpenGate{})
 	rec := gateReq(t, eng, http.MethodGet, "/api/v1/api-resources")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("OpenGate api-resources status = %d, want 200; body=%q", rec.Code, rec.Body.String())
@@ -147,11 +149,14 @@ func TestFeatureGate_StaticGate_ResourcesAllowedTemplatesDenied(t *testing.T) {
 	gate := features.NewStaticGate(map[string]bool{
 		features.AuthorizationServer: true,
 	})
-	eng := newGateEngine(t, siteAdminPrincipal(), gate)
+	// THE-INVERTED-GUARD: api-resources answers to org_admin now while
+	// scope-templates stays site_admin — one engine per surface.
+	eng := newGateEngine(t, orgAdminBatchPrincipal(uuid.New()), gate)
 	if rec := gateReq(t, eng, http.MethodGet, "/api/v1/api-resources"); rec.Code != http.StatusOK {
 		t.Errorf("api-resources w/ AuthorizationServer=true = %d, want 200", rec.Code)
 	}
-	if rec := gateReq(t, eng, http.MethodGet, "/api/v1/scope-templates"); rec.Code != http.StatusOK {
+	stEng := newGateEngine(t, siteAdminPrincipal(), gate)
+	if rec := gateReq(t, stEng, http.MethodGet, "/api/v1/scope-templates"); rec.Code != http.StatusOK {
 		t.Errorf("scope-templates w/ AuthorizationServer=true = %d, want 200", rec.Code)
 	}
 	denyGate := features.NewStaticGate(map[string]bool{
@@ -213,7 +218,7 @@ func TestFeatureGate_PublicEndpointUnaffected(t *testing.T) {
 func TestFeatureGate_NilDepsDefaultToOpen(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(mw.InjectPrincipalForTest(siteAdminPrincipal()))
+	r.Use(mw.InjectPrincipalForTest(orgAdminBatchPrincipal(uuid.New())))
 	apiRepo := newMemAPIResourceRepo()
 	// No FeatureGate field supplied (nil) — the handler must default to OpenGate.
 	RegisterAPIResourcesRoutes(r, APIResourcesHandlerDeps{

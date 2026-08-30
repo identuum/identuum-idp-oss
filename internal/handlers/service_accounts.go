@@ -52,17 +52,17 @@ func RegisterServiceAccountsRoutes(router gin.IRouter, deps ServiceAccountsHandl
 	// docgen:surface=service-accounts
 	// docgen:method=GET
 	// docgen:path=/api/v1/organizations/:id/service-accounts
-	// docgen:summary=List service accounts in an organization (handler enforces site_admin OR same-org membership).
+	// docgen:summary=List service accounts in an organization (service enforces site_admin OR the org's own org_admin).
 	// docgen:tier=oss
 	// docgen:auth=authenticated
-	// docgen:notes=Authorisation is enforced at the handler layer (actor must be site_admin OR a member of the requested org).
+	// docgen:notes=Authorisation is enforced in ServiceAccountService.requireOrgAdmin (actor must be site_admin OR the requested org's own org_admin — plain same-org membership is refused; a foreign org's org_admin reads not-found).
 	orgGroup.GET("", HandleListServiceAccounts(deps))
 
 	// docgen:endpoint
 	// docgen:surface=service-accounts
 	// docgen:method=POST
 	// docgen:path=/api/v1/organizations/:id/service-accounts
-	// docgen:summary=Create a service account in an organization (handler enforces site_admin OR same-org membership).
+	// docgen:summary=Create a service account in an organization (service enforces site_admin OR the org's own org_admin).
 	// docgen:tier=oss
 	// docgen:auth=authenticated
 	// docgen:notes=Authorisation is enforced at the handler layer.
