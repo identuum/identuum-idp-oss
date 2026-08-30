@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 1bbbd93 (dirty)
-started: 2026-08-30T21:30:13Z
+repo-head: 0b05db6 (dirty)
+started: 2026-08-30T21:48:20Z
 plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.0  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -35,6 +35,6 @@ target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 target: wiki-fresh exit=0
 target: grype-scan exit=0
-finished: 2026-08-30T21:34:39Z
-tree: sha256=162f369d7924c7c8009046e6f75bd243adbd62a5a01c293a862f2cd49cb88eec
+finished: 2026-08-30T21:52:51Z
+tree: sha256=9a89c76092f1a05e5209d35d1931412f7509a3eb9fb6a27aec228ce3818ac6cd
 result: green
