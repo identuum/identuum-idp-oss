@@ -120,22 +120,25 @@ func TestCreateForActor_OrgAdminCrossOrgNotFound(t *testing.T) {
 	}
 }
 
-func TestCreateForActor_SiteAdminAnyOrgPasses(t *testing.T) {
+// THE-REMAINING-FOUR (2026-08-30): site_admin is REFUSED on tenant service
+// accounts now — the model forbids the superuser from managing a tenant's own
+// resources. The old "SiteAdminAnyOrgPasses" contract was the defect.
+func TestCreateForActor_SiteAdminRefused(t *testing.T) {
 	svc, _ := newAdminSAService()
-	sa, err := svc.CreateForActor(context.Background(), newSiteAdmin(), uuid.New(), ServiceAccountAdminInput{
+	_, err := svc.CreateForActor(context.Background(), newSiteAdmin(), uuid.New(), ServiceAccountAdminInput{
 		Name: "deploy-bot", Role: domain.RoleOrgUser,
 	})
-	if err != nil {
-		t.Fatalf("create: %v", err)
-	}
-	if sa.Name != "deploy-bot" || !sa.Active {
-		t.Errorf("unexpected sa: %+v", sa)
+	if !errors.Is(err, ErrSAForbidden) {
+		t.Fatalf("site_admin create must be ErrSAForbidden, got %v", err)
 	}
 }
 
+// THE-REMAINING-FOUR: validation tests drive as a same-org org_admin now
+// (site_admin is refused before validation runs).
 func TestCreateForActor_EmptyNameRejected(t *testing.T) {
 	svc, _ := newAdminSAService()
-	_, err := svc.CreateForActor(context.Background(), newSiteAdmin(), uuid.New(), ServiceAccountAdminInput{Name: "  "})
+	org := uuid.New()
+	_, err := svc.CreateForActor(context.Background(), newOrgAdmin(org), org, ServiceAccountAdminInput{Name: "  "})
 	if !errors.Is(err, ErrSAInvalidInput) {
 		t.Errorf("err = %v", err)
 	}
@@ -143,7 +146,8 @@ func TestCreateForActor_EmptyNameRejected(t *testing.T) {
 
 func TestCreateForActor_DisallowedRoleRejected(t *testing.T) {
 	svc, _ := newAdminSAService()
-	_, err := svc.CreateForActor(context.Background(), newSiteAdmin(), uuid.New(), ServiceAccountAdminInput{
+	org := uuid.New()
+	_, err := svc.CreateForActor(context.Background(), newOrgAdmin(org), org, ServiceAccountAdminInput{
 		Name: "bad", Role: domain.RoleSiteAdmin,
 	})
 	if !errors.Is(err, ErrSARoleInvalid) {
@@ -153,8 +157,9 @@ func TestCreateForActor_DisallowedRoleRejected(t *testing.T) {
 
 func TestCreateForActor_ExpiryInPastRejected(t *testing.T) {
 	svc, _ := newAdminSAService()
+	org := uuid.New()
 	past := time.Now().Add(-time.Hour)
-	_, err := svc.CreateForActor(context.Background(), newSiteAdmin(), uuid.New(), ServiceAccountAdminInput{
+	_, err := svc.CreateForActor(context.Background(), newOrgAdmin(org), org, ServiceAccountAdminInput{
 		Name: "expired", ExpiresAt: &past,
 	})
 	if !errors.Is(err, ErrSAExpiryInvalid) {
@@ -176,7 +181,7 @@ func TestGetForActor_OrgAdminCrossOrgNotFound(t *testing.T) {
 
 func TestGetForActor_UnknownNotFound(t *testing.T) {
 	svc, _ := newAdminSAService()
-	_, err := svc.GetForActor(context.Background(), newSiteAdmin(), uuid.New())
+	_, err := svc.GetForActor(context.Background(), newOrgAdmin(uuid.New()), uuid.New())
 	if !errors.Is(err, ErrSANotFound) {
 		t.Errorf("err = %v", err)
 	}

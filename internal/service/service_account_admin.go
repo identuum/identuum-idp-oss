@@ -235,9 +235,12 @@ func (s *ServiceAccountService) requireOrgAdmin(actor *domain.Principal, orgID u
 	if actor == nil {
 		return ErrSAForbidden
 	}
-	if actor.IsSiteAdmin() {
-		return nil
-	}
+	// THE-REMAINING-FOUR (2026-08-30): the `if actor.IsSiteAdmin() { return nil }`
+	// admission that stood here WAS the defect — service accounts are a
+	// tenant's own resource, and AdminPermissionsModel.md forbids site_admin
+	// from managing them. site_admin now falls through to ErrSAForbidden (403)
+	// like any non-org-admin. org_admin-own (nil), org_admin-cross (ErrSANotFound
+	// 404), and every other actor (ErrSAForbidden) are unchanged.
 	if actor.IsOrgAdminOnly() {
 		if actor.OrganizationID == orgID {
 			return nil

@@ -146,12 +146,33 @@ func seedProtoOrg(t *testing.T, eng orgProtoAdminEngine) uuid.UUID {
 	return id
 }
 
+// newProtoOrgAdminSeeded is the THE-REMAINING-FOUR replacement for the
+// site_admin-driven setup: protocol-settings answer to the org's own org_admin
+// now, so the engine's actor is a full-scope org_admin and the seeded active
+// org is ITS org. Returns the engine and that org id.
+func newProtoOrgAdminSeeded(t *testing.T) (orgProtoAdminEngine, uuid.UUID) {
+	t.Helper()
+	org := uuid.New()
+	eng := newOrgProtoAdminEngine(t, &domain.Principal{
+		UserID:         uuid.New(),
+		OrganizationID: org,
+		Role:           domain.RoleOrgAdmin,
+		Scope:          domain.SessionScopesForRole(domain.RoleOrgAdmin),
+	})
+	eng.orgRepo.rows[org] = &domain.Organization{
+		ID:     org,
+		Name:   "Tenant",
+		Domain: org.String() + ".test",
+		Active: true,
+	}
+	return eng, org
+}
+
 // TestOrgProtoAdmin_GetAbsentReturnsDefaultFalse pins the
 // system default: a GET against an org with no settings row
 // returns {dcr=false, scim=false, source=default}.
 func TestOrgProtoAdmin_GetAbsentReturnsDefaultFalse(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	rec := adminJSON(t, eng, http.MethodGet, "/api/v1/organizations/"+id.String()+"/protocol-settings", nil, "")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%q", rec.Code, rec.Body.String())
@@ -176,8 +197,7 @@ func TestOrgProtoAdmin_GetAbsentReturnsDefaultFalse(t *testing.T) {
 // source=explicit, and emits the org.protocol_settings_changed
 // audit event with safe metadata.
 func TestOrgProtoAdmin_PutCreatesRowAndAudit(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	rec := adminJSON(t, eng, http.MethodPut, "/api/v1/organizations/"+id.String()+"/protocol-settings", map[string]any{
 		"dynamic_client_registration_enabled": true,
 		"scim_enabled":                        false,
@@ -201,8 +221,9 @@ func TestOrgProtoAdmin_PutCreatesRowAndAudit(t *testing.T) {
 	if meta["target_organization_id"] != id.String() {
 		t.Errorf("audit target_organization_id = %v, want %s", meta["target_organization_id"], id)
 	}
-	if meta["actor_kind"] != "site_admin" {
-		t.Errorf("audit actor_kind = %v, want site_admin", meta["actor_kind"])
+	// THE-REMAINING-FOUR: the actor is the org's own org_admin now.
+	if meta["actor_kind"] != "org_admin" {
+		t.Errorf("audit actor_kind = %v, want org_admin", meta["actor_kind"])
 	}
 	if meta["old_dynamic_client_registration_enabled"] != false || meta["new_dynamic_client_registration_enabled"] != true {
 		t.Errorf("audit dcr old/new = %v/%v, want false/true", meta["old_dynamic_client_registration_enabled"], meta["new_dynamic_client_registration_enabled"])
@@ -210,15 +231,13 @@ func TestOrgProtoAdmin_PutCreatesRowAndAudit(t *testing.T) {
 	if meta["new_scim_enabled"] != false {
 		t.Errorf("audit new_scim_enabled = %v, want false", meta["new_scim_enabled"])
 	}
-	if meta["actor_role"] != "site_admin" {
-		t.Errorf("audit actor_role = %v, want site_admin", meta["actor_role"])
+	if meta["actor_role"] != "org_admin" {
+		t.Errorf("audit actor_role = %v, want org_admin", meta["actor_role"])
 	}
-	// The shared siteAdminPrincipal fixture happens to carry
-	// an OrganizationID (random UUID). When the actor IS org-
-	// bound the audit MUST surface actor_organization_id so a
-	// consumer can correlate the actor to a tenant; only a
-	// principal with OrganizationID == uuid.Nil omits the
-	// field (defensive omission for the SystemActor case).
+	// The org_admin actor carries its OrganizationID, so the audit MUST
+	// surface actor_organization_id so a consumer can correlate the actor
+	// to a tenant; only a principal with OrganizationID == uuid.Nil omits
+	// the field (defensive omission for the SystemActor case).
 	if _, present := meta["actor_organization_id"]; !present {
 		t.Errorf("audit must include actor_organization_id when principal carries one")
 	}
@@ -228,8 +247,7 @@ func TestOrgProtoAdmin_PutCreatesRowAndAudit(t *testing.T) {
 // roundtrip: PUT then GET returns the persisted values with
 // source=explicit and non-nil timestamps.
 func TestOrgProtoAdmin_GetAfterPutReturnsExplicit(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	_ = adminJSON(t, eng, http.MethodPut, "/api/v1/organizations/"+id.String()+"/protocol-settings", map[string]any{
 		"dynamic_client_registration_enabled": true,
 		"scim_enabled":                        true,
@@ -255,8 +273,7 @@ func TestOrgProtoAdmin_GetAfterPutReturnsExplicit(t *testing.T) {
 // a SECOND PUT carries the prior row's values as the
 // before/old fields and the new values as the new fields.
 func TestOrgProtoAdmin_PutAuditCarriesBeforeAfterDelta(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	_ = adminJSON(t, eng, http.MethodPut, "/api/v1/organizations/"+id.String()+"/protocol-settings", map[string]any{
 		"dynamic_client_registration_enabled": true,
 		"scim_enabled":                        true,
@@ -319,8 +336,15 @@ func TestOrgProtoAdmin_UnauthenticatedUnauthorized(t *testing.T) {
 // against an unknown org id returns 404 (no row created on
 // PUT, no enumeration leak on GET).
 func TestOrgProtoAdmin_UnknownOrgReturns404(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	missing := uuid.New().String()
+	// THE-REMAINING-FOUR: the actor is the org's OWN org_admin; the route
+	// targets its own (unseeded) org so the handler's 404 is reached (a
+	// cross-org route would 403 at the middleware before the handler).
+	missingID := uuid.New()
+	eng := newOrgProtoAdminEngine(t, &domain.Principal{
+		UserID: uuid.New(), OrganizationID: missingID, Role: domain.RoleOrgAdmin,
+		Scope: domain.SessionScopesForRole(domain.RoleOrgAdmin),
+	})
+	missing := missingID.String()
 	if rec := adminJSON(t, eng, http.MethodGet, "/api/v1/organizations/"+missing+"/protocol-settings", nil, ""); rec.Code != http.StatusNotFound {
 		t.Errorf("GET unknown: status = %d, want 404", rec.Code)
 	}
@@ -335,8 +359,11 @@ func TestOrgProtoAdmin_UnknownOrgReturns404(t *testing.T) {
 // TestOrgProtoAdmin_DeletedOrgReturns404 pins that a
 // soft-deleted org is invisible to the admin surface.
 func TestOrgProtoAdmin_DeletedOrgReturns404(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
 	id := uuid.New()
+	eng := newOrgProtoAdminEngine(t, &domain.Principal{
+		UserID: uuid.New(), OrganizationID: id, Role: domain.RoleOrgAdmin,
+		Scope: domain.SessionScopesForRole(domain.RoleOrgAdmin),
+	})
 	deleted := time.Now()
 	eng.orgRepo.rows[id] = &domain.Organization{
 		ID: id, Name: "T", Domain: "t.test", Active: false, DeletedAt: &deleted,
@@ -350,8 +377,7 @@ func TestOrgProtoAdmin_DeletedOrgReturns404(t *testing.T) {
 // TestOrgProtoAdmin_PutRequiresBothBooleans pins the partial-
 // update rejection: both booleans MUST be present.
 func TestOrgProtoAdmin_PutRequiresBothBooleans(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	for _, payload := range []map[string]any{
 		{"dynamic_client_registration_enabled": true}, // missing scim
 		{"scim_enabled": true},                        // missing dcr
@@ -368,8 +394,7 @@ func TestOrgProtoAdmin_PutRequiresBothBooleans(t *testing.T) {
 // end-to-end contract: flipping DCR on for org X via the admin
 // PUT actually unblocks DCR via that org's IAT.
 func TestOrgProtoAdmin_DCRRouteObservesSettingAfterPut(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	// Mint an org-bound IAT.
 	res, err := eng.iatSvc.Issue(context.Background(), service.IssueOptions{
 		TTL: time.Hour, MaxUses: 2, OrganizationID: &id,
@@ -409,8 +434,7 @@ func TestOrgProtoAdmin_DCRRouteObservesSettingAfterPut(t *testing.T) {
 // guard: a request with a sentinel Authorization header MUST
 // NOT cause the sentinel to appear in the audit metadata.
 func TestOrgProtoAdmin_AuditNoTokenLeakage(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	sentinel := "SECRET-BEARER-MUST-NOT-LEAK"
 	_ = adminJSON(t, eng, http.MethodPut, "/api/v1/organizations/"+id.String()+"/protocol-settings", map[string]any{
 		"dynamic_client_registration_enabled": true,
@@ -688,8 +712,7 @@ func TestOrgProtoAdmin_AuditSchemaIsClosed(t *testing.T) {
 // the handler started emitting a sensitive substring OR a
 // future code change widened the leakage surface.
 func TestOrgProtoAdmin_AuditNoCredentialMaterial(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	const sentinelBearer = "SECRET-BEARER-MUST-NOT-LEAK"
 	_ = adminJSON(t, eng, http.MethodPut, "/api/v1/organizations/"+id.String()+"/protocol-settings", map[string]any{
 		"dynamic_client_registration_enabled": true,
@@ -720,8 +743,7 @@ func TestOrgProtoAdmin_AuditNoCredentialMaterial(t *testing.T) {
 // event is for state CHANGES only; read operations are not
 // audited at the handler layer.
 func TestOrgProtoAdmin_GetNeverAudits(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	_ = adminJSON(t, eng, http.MethodGet, "/api/v1/organizations/"+id.String()+"/protocol-settings", nil, "")
 	if got := len(eng.rec.Events()); got != 0 {
 		t.Errorf("GET emitted %d audit event(s), want 0; events=%+v", got, eng.rec.Events())
@@ -734,8 +756,7 @@ func TestOrgProtoAdmin_GetNeverAudits(t *testing.T) {
 // reason about "did the row actually change" — every admin
 // PUT is a recorded admin decision.
 func TestOrgProtoAdmin_PutOnUnchangedRowStillAudits(t *testing.T) {
-	eng := newOrgProtoAdminEngine(t, siteAdminPrincipal())
-	id := seedProtoOrg(t, eng)
+	eng, id := newProtoOrgAdminSeeded(t)
 	body := map[string]any{
 		"dynamic_client_registration_enabled": true,
 		"scim_enabled":                        true,

@@ -88,8 +88,12 @@ func RegisterOrganizationProtocolSettingsRoutes(router gin.IRouter, deps Organiz
 	}
 
 	g := router.Group("/api/v1/organizations/:id/protocol-settings")
+	// THE-REMAINING-FOUR (2026-08-30): protocol-settings are a tenant's own
+	// resource — site_admin is refused for the whole family (the underlying
+	// scope guard admits it, unchanged for its org-lifecycle neighbours).
+	g.Use(refuseSiteAdminOnTenantResource())
 
-	// GET: site_admin OR same-org org_admin with orgs:read.
+	// GET: same-org org_admin with orgs:read.
 	readGroup := g.Group("")
 	readGroup.Use(mw.RequireSiteAdminOrSameOrgAdminWithScopesAudit(deps.StartupReport, deps.Audit, "id", domain.ScopeOrgsRead))
 
@@ -99,7 +103,7 @@ func RegisterOrganizationProtocolSettingsRoutes(router gin.IRouter, deps Organiz
 	// docgen:path=/api/v1/organizations/:id/protocol-settings
 	// docgen:summary=Read the per-organization DCR + SCIM enable/disable settings (source field = explicit when a row exists, default when the system fallback applies).
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.organizationProtocolSettingsResponse
 	// docgen:notes=site_admin sees any active org; org_admin requires the orgs:read scope AND must be reading its OWN organization (cross-org probes return 403 via the shared scope middleware, NOT 404 — matches the existing org-scoped admin route convention). Absent row resolves to {dcr=false, scim=false}.
 	readGroup.GET("", HandleGetOrganizationProtocolSettings(deps))
@@ -114,7 +118,7 @@ func RegisterOrganizationProtocolSettingsRoutes(router gin.IRouter, deps Organiz
 	// docgen:path=/api/v1/organizations/:id/protocol-settings
 	// docgen:summary=Upsert the per-organization DCR + SCIM enable/disable settings. Both booleans are required.
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.organizationProtocolSettingsResponse
 	// docgen:notes=site_admin can write any active org; org_admin requires the orgs:settings:update scope AND must be writing its OWN organization (cross-org rejected 403 with no DB write). Emits org.protocol_settings_changed audit event with target_organization_id + actor_organization_id + actor_kind + actor_role + old/new booleans; never includes secrets, tokens, IATs, or RATs.
 	writeGroup.PUT("", HandlePutOrganizationProtocolSettings(deps))

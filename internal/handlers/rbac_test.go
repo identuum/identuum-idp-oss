@@ -379,13 +379,15 @@ func TestRBAC_CreateOrgRoleCrossOrgAdminForbidden(t *testing.T) {
 	}
 }
 
-func TestRBAC_CreateOrgRoleSiteAdminAcrossOrgsAllowed(t *testing.T) {
+// THE-REMAINING-FOUR (2026-08-30): site_admin is REFUSED on tenant RBAC roles
+// now — the old "cross-org create allowed" was the defect the model forbids.
+func TestRBAC_CreateOrgRoleSiteAdminRefused(t *testing.T) {
 	eng := newRBACEngine(t, siteAdminPrincipal(), features.OpenGate{})
 	rec := rbacReq(t, eng, http.MethodPost, "/api/v1/organizations/"+uuid.NewString()+"/roles", map[string]any{
 		"name": "Cross-Tenant",
 	})
-	if rec.Code != http.StatusCreated {
-		t.Errorf("site_admin cross-org create = %d, want 201", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("site_admin role create = %d, want 403 (tenant resource)", rec.Code)
 	}
 }
 
@@ -450,11 +452,12 @@ func TestRBAC_AssignRoleMissingScope403(t *testing.T) {
 	}
 }
 
-func TestRBAC_ListUserRolesSiteAdminCrossOrg(t *testing.T) {
+// THE-REMAINING-FOUR: site_admin is refused on tenant user-role bindings now.
+func TestRBAC_ListUserRolesSiteAdminRefused(t *testing.T) {
 	eng := newRBACEngine(t, siteAdminPrincipal(), features.OpenGate{})
 	rec := rbacReq(t, eng, http.MethodGet, "/api/v1/users/"+uuid.NewString()+"/roles", nil)
-	if rec.Code != http.StatusOK {
-		t.Errorf("site_admin list user roles = %d, want 200", rec.Code)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("site_admin list user roles = %d, want 403 (tenant resource)", rec.Code)
 	}
 }
 

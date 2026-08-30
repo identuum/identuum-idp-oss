@@ -191,14 +191,14 @@ func TestFeatureGate_OrganizationsUnaffectedByAuthorizationServerDeny(t *testing
 
 func TestFeatureGate_OrgDomainsUnaffectedByAuthorizationServerDeny(t *testing.T) {
 	org := uuid.New()
+	// THE-REMAINING-FOUR: domains answer to the org's own org_admin now
+	// (site_admin refused); the point of this test — the domains group is
+	// NOT feature-gated — is unchanged.
 	eng := newGateEngine(t, &domain.Principal{
 		UserID:         uuid.New(),
 		OrganizationID: org,
-		Role:           domain.RoleSiteAdmin,
+		Role:           domain.RoleOrgAdmin,
 	}, features.ClosedGate{})
-	// Seed the org so the same-org guard finds it. Not strictly
-	// needed for site_admin but keeps the test honest if the
-	// future loosening permits more roles.
 	rec := gateReq(t, eng, http.MethodGet, "/api/v1/organizations/"+org.String()+"/domains")
 	if rec.Code != http.StatusOK {
 		t.Errorf("org domains status = %d, want 200 (domains group is not feature-gated)", rec.Code)

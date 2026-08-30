@@ -125,9 +125,9 @@ func newBundleEngine(t *testing.T, principal *domain.Principal, clientErr error)
 	return r, saRepo, clientRepo, rec
 }
 
-func bundleSiteAdmin() *domain.Principal {
-	return &domain.Principal{UserID: uuid.New(), Role: domain.RoleSiteAdmin}
-}
+// bundleSiteAdmin was removed by THE-REMAINING-FOUR (2026-08-30): the bundle
+// route answers to the org's own org_admin now (site_admin refused on tenant
+// service accounts).
 
 func bundleOrgAdmin(orgID uuid.UUID) *domain.Principal {
 	return &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgAdmin}
@@ -191,9 +191,11 @@ func TestBundleRoute_CrossOrgOrgAdminNotFound(t *testing.T) {
 
 // ---------- Happy path: site_admin ----------
 
-func TestBundleRoute_SiteAdminCreatesBundleWithOneTimeSecret(t *testing.T) {
-	r, saRepo, clientRepo, rec := newBundleEngine(t, bundleSiteAdmin(), nil)
+// THE-REMAINING-FOUR: the SA+client bundle is created by the org's own
+// org_admin now (site_admin refused on tenant service accounts).
+func TestBundleRoute_OrgAdminCreatesBundleWithOneTimeSecret(t *testing.T) {
 	orgID := uuid.New()
+	r, saRepo, clientRepo, rec := newBundleEngine(t, bundleOrgAdmin(orgID), nil)
 	body := strings.NewReader(`{"service_account":{"name":"deploy-bot","role":"org_user"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID.String()+"/service-accounts/with-client", body)
 	req.Header.Set("Content-Type", "application/json")
@@ -263,8 +265,8 @@ func TestBundleRoute_SameOrgOrgAdminCreatesBundle(t *testing.T) {
 // ---------- Rollback ----------
 
 func TestBundleRoute_ClientCreateFailureRollsBackSAAndReturnsError(t *testing.T) {
-	r, saRepo, _, _ := newBundleEngine(t, bundleSiteAdmin(), errors.New("simulated"))
 	orgID := uuid.New()
+	r, saRepo, _, _ := newBundleEngine(t, bundleOrgAdmin(orgID), errors.New("simulated"))
 	body := strings.NewReader(`{"service_account":{"name":"ephemeral","role":"org_user"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID.String()+"/service-accounts/with-client", body)
 	req.Header.Set("Content-Type", "application/json")

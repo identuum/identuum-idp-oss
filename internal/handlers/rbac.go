@@ -86,6 +86,9 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// /organizations/:id/roles[/...] — org-scoped role CRUD + scopes.
 	orgRoles := router.Group("/api/v1/organizations/:id/roles")
 	orgRoles.Use(mw.RequireFeatureWithAudit(deps.FeatureGate, deps.Audit, features.AuthorizationServer))
+	// THE-REMAINING-FOUR (2026-08-30): org RBAC roles are a tenant's own
+	// resource — site_admin is refused for the whole surface.
+	orgRoles.Use(refuseSiteAdminOnTenantResource())
 
 	orgRolesRead := orgRoles.Group("")
 	orgRolesRead.Use(mw.RequireSiteAdminOrSameOrgAdminWithScopesAudit(deps.StartupReport, deps.Audit, "id", domain.ScopeOrgsRead))
@@ -96,7 +99,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/organizations/:id/roles
 	// docgen:summary=List roles defined in an organization (Authorization Server feature).
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor must be a member of the requested org AND carry the orgs:read scope.
 	orgRolesRead.GET("", HandleListOrgRoles(deps))
@@ -107,7 +110,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/organizations/:id/roles/:role_id
 	// docgen:summary=Show a single org role.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor must be a member of the requested org AND carry the orgs:read scope.
 	orgRolesRead.GET("/:role_id", HandleGetOrgRole(deps))
@@ -121,7 +124,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/organizations/:id/roles
 	// docgen:summary=Create an org role.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor must be a member of the requested org AND carry the orgs:update scope.
 	// docgen:status=201
@@ -133,7 +136,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/organizations/:id/roles/:role_id
 	// docgen:summary=Update an org role.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor must be a member of the requested org AND carry the orgs:update scope.
 	orgRolesWrite.PUT("/:role_id", HandleUpdateOrgRole(deps))
@@ -144,7 +147,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/organizations/:id/roles/:role_id
 	// docgen:summary=Delete an org role.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor must be a member of the requested org AND carry the orgs:update scope.
 	orgRolesWrite.DELETE("/:role_id", HandleDeleteOrgRole(deps))
@@ -155,7 +158,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/organizations/:id/roles/:role_id/scopes
 	// docgen:summary=Add a scope to an org role.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor must be a member of the requested org AND carry the orgs:update scope.
 	orgRolesWrite.POST("/:role_id/scopes", HandleAddRoleScope(deps))
@@ -166,7 +169,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/organizations/:id/roles/:role_id/scopes/:scope_name
 	// docgen:summary=Remove a scope from an org role.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor must be a member of the requested org AND carry the orgs:update scope.
 	orgRolesWrite.DELETE("/:role_id/scopes/:scope_name", HandleRemoveRoleScope(deps))
@@ -174,6 +177,12 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// /users/:id/roles[/...] — user-role bindings.
 	userRoles := router.Group("/api/v1/users/:id/roles")
 	userRoles.Use(mw.RequireFeatureWithAudit(deps.FeatureGate, deps.Audit, features.AuthorizationServer))
+	// THE-REMAINING-FOUR (2026-08-30): user-role bindings are tenant RBAC —
+	// site_admin is refused (the service's ListRolesForUserForActor /
+	// AssignRoleToUserForActor admitted it via their IsSiteAdmin branches;
+	// this HTTP gate confines the surface without touching those shared
+	// service methods).
+	userRoles.Use(refuseSiteAdminOnTenantResource())
 
 	userRolesRead := userRoles.Group("")
 	userRolesRead.Use(mw.RequireSiteAdminOrOrgAdminWithScopesAudit(deps.Audit, domain.ScopeUsersRead))
@@ -184,7 +193,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/users/:id/roles
 	// docgen:summary=List a user's role assignments.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor additionally requires the users:read scope.
 	userRolesRead.GET("", HandleListRolesForUser(deps))
@@ -198,7 +207,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/users/:id/roles
 	// docgen:summary=Assign a role to a user.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor additionally requires the orgs:update scope.
 	userRolesWrite.POST("", HandleAssignRoleToUser(deps))
@@ -209,7 +218,7 @@ func RegisterRBACRoutes(router gin.IRouter, deps RBACHandlerDeps) {
 	// docgen:path=/api/v1/users/:id/roles/:role_id
 	// docgen:summary=Remove a role from a user.
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:notes=org_admin actor additionally requires the orgs:update scope.
 	userRolesWrite.DELETE("/:role_id", HandleRemoveRoleFromUser(deps))

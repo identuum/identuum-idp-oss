@@ -116,9 +116,10 @@ func newSAEngine(t *testing.T, principal *domain.Principal) (*gin.Engine, *inMem
 	return r, repo, rec
 }
 
-func saSiteAdminPrincipal() *domain.Principal {
-	return &domain.Principal{UserID: uuid.New(), Role: domain.RoleSiteAdmin}
-}
+// saSiteAdminPrincipal was removed by THE-REMAINING-FOUR (2026-08-30): every
+// SA route test now drives as the org's own org_admin (site_admin is refused
+// on tenant service accounts). The refusal itself is pinned by
+// SA-ADMIN-SCOPE-1 and TestCreateForActor_SiteAdminRefused.
 
 func saOrgAdminPrincipal(orgID uuid.UUID) *domain.Principal {
 	return &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgAdmin}
@@ -182,9 +183,12 @@ func TestSARoutes_CrossOrgOrgAdminNotFound(t *testing.T) {
 
 // ---------- Create / Get / List / Update / Disable / Delete happy paths ----------
 
-func TestSARoutes_SiteAdminFullLifecycle(t *testing.T) {
-	r, repo, rec := newSAEngine(t, saSiteAdminPrincipal())
+// THE-REMAINING-FOUR (2026-08-30): the full lifecycle runs as the org's own
+// org_admin now (site_admin is refused on tenant service accounts; that
+// refusal is pinned by SA-ADMIN-SCOPE-1 and TestCreateForActor_SiteAdminRefused).
+func TestSARoutes_OrgAdminFullLifecycle(t *testing.T) {
 	orgID := uuid.New()
+	r, repo, rec := newSAEngine(t, saOrgAdminPrincipal(orgID))
 
 	// Create.
 	createBody := strings.NewReader(`{"name":"deploy-bot","description":"d","role":"org_user"}`)
@@ -282,8 +286,8 @@ func TestSARoutes_SiteAdminFullLifecycle(t *testing.T) {
 // ---------- DTO safety ----------
 
 func TestSARoutes_DTODoesNotExposeOwnerOrSensitiveFields(t *testing.T) {
-	r, repo, _ := newSAEngine(t, saSiteAdminPrincipal())
 	orgID := uuid.New()
+	r, repo, _ := newSAEngine(t, saOrgAdminPrincipal(orgID))
 	owner := uuid.New()
 	future := time.Now().Add(time.Hour)
 	sa := &domain.ServiceAccount{

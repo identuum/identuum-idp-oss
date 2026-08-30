@@ -67,6 +67,10 @@ func RegisterOrganizationDomainsRoutes(router gin.IRouter, deps OrganizationDoma
 
 	g := router.Group("/api/v1/organizations/:id/domains")
 	g.Use(mw.RequireSiteAdminOrSameOrgAdmin("id"))
+	// THE-REMAINING-FOUR (2026-08-30): domains are a tenant's own resource —
+	// site_admin is refused here (the shared guard admits it for its
+	// org-lifecycle neighbours; this gate confines the domains family).
+	g.Use(refuseSiteAdminOnTenantResource())
 
 	// docgen:endpoint
 	// docgen:surface=organization-domains
@@ -74,7 +78,7 @@ func RegisterOrganizationDomainsRoutes(router gin.IRouter, deps OrganizationDoma
 	// docgen:path=/api/v1/organizations/:id/domains
 	// docgen:summary=List an organization's domains (safe projection — never exposes the verification-token hash).
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.safeOrganizationDomain
 	// docgen:notes=org_admin actor must be a member of the requested org (same-org enforcement via :id path param).
 	g.GET("", HandleListOrganizationDomains(deps))
@@ -85,7 +89,7 @@ func RegisterOrganizationDomainsRoutes(router gin.IRouter, deps OrganizationDoma
 	// docgen:path=/api/v1/organizations/:id/domains
 	// docgen:summary=Add a domain to an organization (issues a verification token whose hash is stored; the raw token is returned ONCE).
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.safeOrganizationDomain
 	// docgen:notes=Verification token is one-shot — only the SHA-256 hash is persisted; the raw token never appears again after the first response.
 	// docgen:status=201
@@ -97,7 +101,7 @@ func RegisterOrganizationDomainsRoutes(router gin.IRouter, deps OrganizationDoma
 	// docgen:path=/api/v1/organizations/:id/domains/:domain_id/verify
 	// docgen:summary=Verify a domain by presenting the previously-issued verification token.
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.safeOrganizationDomain
 	g.POST("/:domain_id/verify", HandleVerifyOrganizationDomain(deps))
 
@@ -107,7 +111,7 @@ func RegisterOrganizationDomainsRoutes(router gin.IRouter, deps OrganizationDoma
 	// docgen:path=/api/v1/organizations/:id/domains/:domain_id
 	// docgen:summary=Remove a domain from an organization.
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	g.DELETE("/:domain_id", HandleDeleteOrganizationDomain(deps))
 
 	// docgen:endpoint
@@ -116,7 +120,7 @@ func RegisterOrganizationDomainsRoutes(router gin.IRouter, deps OrganizationDoma
 	// docgen:path=/api/v1/organizations/:id/domains/:domain_id/primary
 	// docgen:summary=Set an organization's primary domain.
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.safeOrganizationDomain
 	g.POST("/:domain_id/primary", HandleSetPrimaryOrganizationDomain(deps))
 }

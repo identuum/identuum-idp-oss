@@ -21,17 +21,19 @@ func (r saBindRepo) GetByID(context.Context, uuid.UUID) (*domain.ServiceAccount,
 	return r.sa, nil
 }
 
-// requireOrgAdmin authorizes a service-account admin action to site_admin OR the
-// org_admin OF THE SAME organization; an org_admin of ANOTHER organization gets
-// not-found (never a 403 that would confirm the org id exists), and an org_user
-// is forbidden.
+// requireOrgAdmin authorizes a service-account admin action to the org_admin OF
+// THE SAME organization ONLY. THE-REMAINING-FOUR (2026-08-30): site_admin is
+// now FORBIDDEN — service accounts are a tenant's own resource, which
+// AdminPermissionsModel.md forbids site_admin from managing. An org_admin of
+// ANOTHER organization gets not-found (never a 403 that would confirm the org
+// id exists), and an org_user is forbidden.
 // RULE: SA-ADMIN-SCOPE-1
 func TestRequireOrgAdmin_TenantScoped(t *testing.T) {
 	s := &ServiceAccountService{}
 	org := uuid.New()
 
-	if err := s.requireOrgAdmin(&domain.Principal{Role: domain.RoleSiteAdmin}, org); err != nil {
-		t.Errorf("site_admin must be allowed, got %v", err)
+	if err := s.requireOrgAdmin(&domain.Principal{Role: domain.RoleSiteAdmin}, org); !errors.Is(err, ErrSAForbidden) {
+		t.Errorf("site_admin must be FORBIDDEN on a tenant service account, got %v", err)
 	}
 	if err := s.requireOrgAdmin(&domain.Principal{Role: domain.RoleOrgAdmin, OrganizationID: org}, org); err != nil {
 		t.Errorf("a same-org org_admin must be allowed, got %v", err)

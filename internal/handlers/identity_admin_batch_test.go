@@ -1085,8 +1085,12 @@ func TestOrganizationDomains_NonSiteAdmin403(t *testing.T) {
 }
 
 func TestOrganizationDomains_AddListVerifyDelete(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), stubVerifier{err: nil})
-	orgID := uuid.New().String()
+	// THE-REMAINING-FOUR: domains answer to the org's own org_admin now.
+	orgIDU := uuid.New()
+	eng := newIdentityEngine(t, &domain.Principal{
+		UserID: uuid.New(), OrganizationID: orgIDU, Role: domain.RoleOrgAdmin,
+	}, stubVerifier{err: nil})
+	orgID := orgIDU.String()
 	add := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/organizations/"+orgID+"/domains", map[string]any{
 		"domain": "Example.COM",
 	})
@@ -1156,8 +1160,11 @@ func TestOrganizationDomains_AddListVerifyDelete(t *testing.T) {
 }
 
 func TestOrganizationDomains_VerifyWithoutVerifierReturns501(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
-	orgID := uuid.New().String()
+	orgIDU := uuid.New()
+	eng := newIdentityEngine(t, &domain.Principal{
+		UserID: uuid.New(), OrganizationID: orgIDU, Role: domain.RoleOrgAdmin,
+	}, nil)
+	orgID := orgIDU.String()
 	add := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/organizations/"+orgID+"/domains", map[string]any{
 		"domain": "example.com",
 	})
