@@ -130,11 +130,15 @@ func batchEngine(t *testing.T, with func(r *gin.Engine), principal *domain.Princ
 // ----- Clients --------------------------------------------------
 
 func TestClients_ListOmitsSecretHash(t *testing.T) {
+	// THE-CLIENTS-GUARD: the surface is org_admin's own — the list principal
+	// flipped with the guard; site_admin is refused (403) now.
+	orgID := uuid.New()
 	repo := &fakeClientRepo{
 		list: []*domain.Client{{
 			ID:               uuid.New(),
 			ClientID:         "cli-1",
 			Name:             "Example Client",
+			OrganizationID:   &orgID,
 			ClientSecretHash: "SECRET-HASH-MUST-NOT-LEAK",
 			Scope:            "openid email",
 			RedirectURIs:     []string{"https://example.com/cb"},
@@ -144,7 +148,7 @@ func TestClients_ListOmitsSecretHash(t *testing.T) {
 	}
 	r := batchEngine(t, func(r *gin.Engine) {
 		RegisterClientsRoutes(r, ClientsHandlerDeps{ClientRepo: repo, Audit: audit.NoopService{}})
-	}, siteAdminPrincipal())
+	}, orgAdminClientPrincipal(orgID))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/clients", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -218,6 +222,20 @@ func orgAdminBatchPrincipal(orgID uuid.UUID) *domain.Principal {
 		OrganizationID: orgID,
 		Email:          "org-admin@example.test",
 		Role:           domain.RoleOrgAdmin,
+	}
+}
+
+// orgAdminClientPrincipal is orgAdminBatchPrincipal carrying the role-derived
+// clients:* session scopes, which the clients scope guard requires
+// (THE-CLIENTS-GUARD: the surface is the org's own org_admin's, never
+// site_admin's).
+func orgAdminClientPrincipal(orgID uuid.UUID) *domain.Principal {
+	return &domain.Principal{
+		UserID:         uuid.New(),
+		OrganizationID: orgID,
+		Email:          "org-admin@example.test",
+		Role:           domain.RoleOrgAdmin,
+		Scope:          domain.SessionScopesForRole(domain.RoleOrgAdmin),
 	}
 }
 

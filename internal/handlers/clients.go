@@ -85,12 +85,16 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		deps.Audit = audit.NoopService{}
 	}
 
-	// ORG-ADMIN-SCOPES (owner ruling): the clients surface was site_admin-only.
-	// org_admin now administers the clients OF ITS OWN ORG — the guards below
-	// admit an org_admin carrying the role-derived clients:* session scopes,
-	// and every handler pins the actor to its organization via
-	// orgAdminClientScope: list/delete filter by the actor's org, get/update/
-	// rotate refuse a client outside it, create force-pins organization_id.
+	// ORG-ADMIN-ONLY (THE-CLIENTS-GUARD, 2026-08-30): the clients surface is
+	// the org's own org_admin's, and ONLY its own. org_admin carries the
+	// role-derived clients:* session scopes and every handler pins it to its
+	// organization via orgAdminClientScope (list/delete filter by the actor's
+	// org; get/update/rotate refuse a client outside it; create force-pins
+	// organization_id). site_admin — which the shared scope guard still admits,
+	// and which used to see EVERY tenant's clients unscoped — is refused with a
+	// clean 403 by requireClientOrgAdmin at each handler
+	// (AdminPermissionsModel.md: site_admin cannot manage tenant resources).
+	// org_user is refused at the scope guard.
 	g := router.Group("/api/v1/clients")
 
 	read := g.Group("")
@@ -102,7 +106,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 	// docgen:path=/api/v1/clients
 	// docgen:summary=List OAuth clients (safe projection — never exposes client_secret_hash or inline JWKS material).
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:notes=org_admin actor additionally requires the clients:read scope and sees ONLY its own organization's clients.
 	// docgen:response=oss.handlers.safeClient
 	read.GET("", HandleListClients(deps))
@@ -113,7 +117,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 	// docgen:path=/api/v1/clients/:id
 	// docgen:summary=Show a single OAuth client by client_id (safe projection).
 	// docgen:tier=oss
-	// docgen:auth=site_admin|org_admin
+	// docgen:auth=org_admin
 	// docgen:notes=org_admin actor additionally requires the clients:read scope; a client outside the actor's org is 404 (indistinguishable from absent).
 	// docgen:response=oss.handlers.safeClient
 	read.GET("/:id", HandleGetClient(deps))
@@ -131,7 +135,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:path=/api/v1/clients
 		// docgen:summary=Create an OAuth client (client_secret returned ONCE in the response body; never stored in cleartext server-side).
 		// docgen:tier=oss
-		// docgen:auth=site_admin|org_admin
+		// docgen:auth=org_admin
 		// docgen:response=oss.handlers.safeClient
 		// docgen:notes=The cleartext client_secret appears in the response body exactly once. The server retains only the hash.
 		// docgen:status=201
@@ -143,7 +147,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:path=/api/v1/clients/:id
 		// docgen:summary=Update OAuth client metadata (does not rotate the client_secret).
 		// docgen:tier=oss
-		// docgen:auth=site_admin|org_admin
+		// docgen:auth=org_admin
 		// docgen:response=oss.handlers.safeClient
 		updateG.PUT("/:id", HandleUpdateClient(deps))
 
@@ -153,7 +157,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:path=/api/v1/clients/:id
 		// docgen:summary=Delete an OAuth client.
 		// docgen:tier=oss
-		// docgen:auth=site_admin|org_admin
+		// docgen:auth=org_admin
 		deleteG.DELETE("/:id", HandleDeleteClient(deps))
 
 		// docgen:endpoint
@@ -162,7 +166,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:path=/api/v1/clients/:id/secret/regenerate
 		// docgen:summary=Rotate an OAuth client's client_secret (new secret returned ONCE; old secret invalidated immediately).
 		// docgen:tier=oss
-		// docgen:auth=site_admin|org_admin
+		// docgen:auth=org_admin
 		// docgen:response=oss.handlers.safeClient
 		// docgen:notes=The new cleartext secret appears in the response body exactly once.
 		updateG.POST("/:id/secret/regenerate", HandleRegenerateClientSecret(deps))
@@ -197,6 +201,25 @@ func requireClientInActorOrg(c *gin.Context, deps ClientsHandlerDeps, id uuid.UU
 // the actor's own org for an org_admin. The guards upstream have already
 // refused everyone else. This is the ORG-BOUND half of ORG-ADMIN-SCOPES —
 // the scope claim says WHAT an org_admin may do; this says WHERE.
+// requireClientOrgAdmin gates every clients handler on the ONLY role
+// AdminPermissionsModel.md lets manage a tenant's OAuth clients: the org's own
+// org_admin. THE-CLIENTS-GUARD (2026-08-30) measured site_admin listing EVERY
+// org's clients (unscoped) — a separation-of-duties over-reach by the
+// installation superuser, which the model forbids ("site_admin ... cannot
+// manage the resources ... belong to that organizations"). org_user is already
+// refused at the scope guard; this refuses site_admin with a clean 403.
+// Mirrors apiResourceActor. The shared route guard still admits site_admin (it
+// is used by other families too — their own slices); the enforcement lives
+// here, and orgAdminClientScope below is fail-closed as a second line.
+func requireClientOrgAdmin(c *gin.Context) bool {
+	actor, _ := mw.PrincipalFromContext(c)
+	if actor == nil || !actor.IsOrgAdminOnly() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return false
+	}
+	return true
+}
+
 func orgAdminClientScope(c *gin.Context) *uuid.UUID {
 	actor, _ := mw.PrincipalFromContext(c)
 	if actor == nil {
@@ -208,9 +231,11 @@ func orgAdminClientScope(c *gin.Context) *uuid.UUID {
 		var none uuid.UUID
 		return &none
 	}
-	if actor.IsSiteAdmin() {
-		return nil
-	}
+	// THE-CLIENTS-GUARD: site_admin no longer gets an unscoped nil filter (it
+	// let the superuser read/manage EVERY tenant's clients, model-forbidden).
+	// It is refused outright by requireClientOrgAdmin at each handler; if a
+	// future handler forgets that gate, scoping site_admin to its own System
+	// org still matches no tenant client — no nil, no cross-tenant read.
 	org := actor.OrganizationID
 	return &org
 }
@@ -277,6 +302,9 @@ func toSafeClient(c *domain.Client) safeClient {
 // safe DTO projection (no secret hash, no inline JWKS).
 func HandleListClients(deps ClientsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireClientOrgAdmin(c) {
+			return
+		}
 		pageSize := parsePositiveQuery(c, "page_size", 50, 200)
 		page := parsePositiveQuery(c, "page", 1, 1<<16)
 		pagination := repository.Pagination{
@@ -315,6 +343,9 @@ func HandleListClients(deps ClientsHandlerDeps) gin.HandlerFunc {
 // HandleGetClient returns a single client by its UUID id.
 func HandleGetClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireClientOrgAdmin(c) {
+			return
+		}
 		id, err := uuid.Parse(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -346,6 +377,9 @@ func HandleGetClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 // clients — emitted EXACTLY ONCE in this response.
 func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireClientOrgAdmin(c) {
+			return
+		}
 		var req struct {
 			Name                              string     `json:"name"`
 			OrganizationID                    *uuid.UUID `json:"organization_id,omitempty"`
@@ -427,6 +461,9 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 // HandleUpdateClient mutates a client by UUID id.
 func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireClientOrgAdmin(c) {
+			return
+		}
 		id, err := uuid.Parse(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -535,6 +572,9 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 // HandleDeleteClient removes a client by id.
 func HandleDeleteClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireClientOrgAdmin(c) {
+			return
+		}
 		id, err := uuid.Parse(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
@@ -573,6 +613,9 @@ func HandleDeleteClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 // the new plaintext EXACTLY ONCE in the response.
 func HandleRegenerateClientSecret(deps ClientsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireClientOrgAdmin(c) {
+			return
+		}
 		id, err := uuid.Parse(c.Param("id"))
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})

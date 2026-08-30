@@ -20,20 +20,28 @@ import (
 //
 // This is the ORG-BOUND half of the ruling. The scope half is pinned by
 // TestSessionScopeTrio_* and TestIssueForSession_MintsRoleDerivedScopes.
+//
+// THE-CLIENTS-GUARD (2026-08-30): orgAdminClientScope NO LONGER frees
+// site_admin with a nil (unscoped) filter — that let the superuser read EVERY
+// tenant's clients, which AdminPermissionsModel.md forbids. site_admin is now
+// confined to its own (System) organization here AND refused outright with a
+// 403 by requireClientOrgAdmin at each handler; NO actor ever yields a nil
+// filter now.
 // RULE: CLIENT-SCOPE-1
-func TestOrgAdminClientScope_BindsOrgAdminAndFreesSiteAdmin(t *testing.T) {
+func TestOrgAdminClientScope_BindsOrgAdminAndConfinesSiteAdmin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	org := uuid.New()
+	sysOrg := uuid.New()
 
 	cases := []struct {
 		name  string
 		actor *domain.Principal
 		want  *uuid.UUID
 	}{
-		{"site_admin sees every org", &domain.Principal{
-			UserID: uuid.New(), Role: domain.RoleSiteAdmin,
+		{"site_admin is confined to its own org, NEVER freed to nil", &domain.Principal{
+			UserID: uuid.New(), OrganizationID: sysOrg, Role: domain.RoleSiteAdmin,
 			Scope: domain.SessionScopesForRole(domain.RoleSiteAdmin),
-		}, nil},
+		}, &sysOrg},
 		{"org_admin is confined to its own org", &domain.Principal{
 			UserID: uuid.New(), OrganizationID: org, Role: domain.RoleOrgAdmin,
 			Scope: domain.SessionScopesForRole(domain.RoleOrgAdmin),
@@ -49,15 +57,46 @@ func TestOrgAdminClientScope_BindsOrgAdminAndFreesSiteAdmin(t *testing.T) {
 				mw.InjectPrincipalForTest(tc.actor)(c)
 			}
 			got := orgAdminClientScope(c)
-			switch {
-			case tc.want == nil:
-				if got != nil {
-					t.Fatalf("site_admin got org filter %v, want nil (unfiltered)", *got)
-				}
-			case got == nil:
-				t.Fatalf("org-bound actor got NO filter — it would see every tenant's clients")
-			case *got != *tc.want:
+			// The load-bearing invariant: NO actor is ever freed to a nil
+			// (unscoped) filter — that was the site_admin cross-tenant hole.
+			if got == nil {
+				t.Fatalf("%s got NO filter — it would see every tenant's clients", tc.name)
+			}
+			if *got != *tc.want {
 				t.Fatalf("filter = %v, want %v", *got, *tc.want)
+			}
+		})
+	}
+}
+
+// TestRequireClientOrgAdmin_RefusesSiteAdminAndOrgUser pins the handler gate:
+// the tenant clients surface answers to the org's own org_admin ONLY. This is
+// the teeth for THE-CLIENTS-GUARD's site_admin refusal (measured live:
+// site_admin had listed all 10 orgs' clients before this slice).
+func TestRequireClientOrgAdmin_RefusesSiteAdminAndOrgUser(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, tc := range map[string]struct {
+		actor *domain.Principal
+		allow bool
+	}{
+		"site_admin refused": {&domain.Principal{UserID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleSiteAdmin}, false},
+		"org_user refused":   {&domain.Principal{UserID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgUser}, false},
+		"nil actor refused":  {nil, false},
+		"org_admin admitted": {&domain.Principal{UserID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgAdmin}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/clients", nil)
+			if tc.actor != nil {
+				mw.InjectPrincipalForTest(tc.actor)(c)
+			}
+			ok := requireClientOrgAdmin(c)
+			if ok != tc.allow {
+				t.Fatalf("requireClientOrgAdmin = %v, want %v", ok, tc.allow)
+			}
+			if !tc.allow && rec.Code != http.StatusForbidden {
+				t.Fatalf("refused actor got %d, want 403", rec.Code)
 			}
 		})
 	}

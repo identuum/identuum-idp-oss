@@ -232,7 +232,8 @@ func doJSON(t *testing.T, eng liveEngine, method, path string, body any) *httpte
 // ----- Clients live mutations -----------------------------------
 
 func TestLive_ClientCreateReturnsSecretOnceAndAuditEmits(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	// THE-CLIENTS-GUARD: the clients surface is the org's own org_admin's.
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	rec := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Live Client",
 		"redirect_uris": []string{"https://example.com/cb"},
@@ -269,7 +270,7 @@ func TestLive_ClientCreateReturnsSecretOnceAndAuditEmits(t *testing.T) {
 }
 
 func TestLive_ClientCreatePublicHasNoSecret(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	rec := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Live Public",
 		"redirect_uris": []string{"https://example.com/cb"},
@@ -288,7 +289,7 @@ func TestLive_ClientCreatePublicHasNoSecret(t *testing.T) {
 }
 
 func TestLive_ClientRegenerateRotatesAndAudits(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Live Client",
 		"redirect_uris": []string{"https://example.com/cb"},
@@ -328,7 +329,7 @@ func TestLive_ClientRegenerateRotatesAndAudits(t *testing.T) {
 }
 
 func TestLive_ClientDeleteReturnsOKAndAudits(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Doomed",
 		"redirect_uris": []string{"https://example.com/cb"},
@@ -567,7 +568,7 @@ func TestLive_ScopeTemplateUpdateAndDelete(t *testing.T) {
 // live witness; the plain update leg had none at any layer (measured:
 // no handler or service test exercised ClientService.Update).
 func TestLive_ClientUpdatePersistsAndAudits(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Before",
 		"redirect_uris": []string{"https://example.com/cb"},

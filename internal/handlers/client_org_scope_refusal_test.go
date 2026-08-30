@@ -52,12 +52,19 @@ func TestRequireClientInActorOrg_RefusesCrossOrg(t *testing.T) {
 		t.Errorf("a cross-org refusal must be 404, got %d", rec.Code)
 	}
 
-	// site_admin has no org filter -> allowed.
+	// THE-CLIENTS-GUARD (2026-08-30): site_admin is no longer freed here. It is
+	// refused at the handler gate (requireClientOrgAdmin, 403), and even this
+	// lower helper confines it — orgAdminClientScope returns site_admin's own
+	// (System) org, which does not match another tenant's client → 404. No
+	// actor is ever "allowed with no org filter" anymore.
 	rec2 := httptest.NewRecorder()
 	c2, _ := gin.CreateTestContext(rec2)
 	c2.Request = httptest.NewRequest(http.MethodGet, "/", nil)
 	mw.SetPrincipal(c2, &domain.Principal{Role: domain.RoleSiteAdmin})
-	if ok := requireClientInActorOrg(c2, deps, clientID); !ok {
-		t.Errorf("a site_admin must be allowed (no org filter), got refused")
+	if ok := requireClientInActorOrg(c2, deps, clientID); ok {
+		t.Errorf("a site_admin acting on a tenant's client must be confined (404), got allowed")
+	}
+	if rec2.Code != http.StatusNotFound {
+		t.Errorf("site_admin cross-tenant client must be 404 (confined), got %d", rec2.Code)
 	}
 }

@@ -24,7 +24,7 @@ import (
 
 // Gap A — the wire: is_public must be PRESENT and TRUE for a public client.
 func TestLive_ClientCreatePublic_ResponseCarriesIsPublicTrue(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	rec := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Gap-A Public Client",
 		"redirect_uris": []string{"https://example.com/cb"},
@@ -57,7 +57,7 @@ func TestLive_ClientCreatePublic_ResponseCarriesIsPublicTrue(t *testing.T) {
 // from secret presence (private_key_jwt clients are secretless AND
 // confidential, so that inference is wrong).
 func TestLive_ClientCreateConfidential_ResponseCarriesIsPublicFalse(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	rec := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Gap-A Confidential Client",
 		"redirect_uris": []string{"https://example.com/cb"},
@@ -87,7 +87,7 @@ func TestLive_ClientCreateConfidential_ResponseCarriesIsPublicFalse(t *testing.T
 // "public" client slip past UpdateClient's public-clients-may-not-bind-a-
 // service-account guard (the guard reads the STORED flag).
 func TestLive_ClientListRoundTripsIsPublic(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Gap-A Round-Trip Client",
 		"redirect_uris": []string{"https://example.com/cb"},
@@ -117,7 +117,7 @@ func TestLive_ClientListRoundTripsIsPublic(t *testing.T) {
 // Gap B — the rotate audit event must carry the resource subject so
 // subject_id-keyed audit reads can surface the rotation.
 func TestLive_ClientSecretRotateAuditCarriesOAuthClientSubject(t *testing.T) {
-	eng := newLiveEngine(t, siteAdminPrincipal())
+	eng := newLiveEngine(t, orgAdminClientPrincipal(uuid.New()))
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/clients", map[string]any{
 		"name":          "Gap-B Rotate Client",
 		"redirect_uris": []string{"https://example.com/cb"},

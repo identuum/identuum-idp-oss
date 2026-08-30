@@ -160,14 +160,18 @@ func TestFiveFamilyFallbacksTellTheTruth(t *testing.T) {
 	})
 
 	t.Run("clients delete: idempotent miss stays 200, unknown fault is 500 not a 404 lie", func(t *testing.T) {
+		// THE-CLIENTS-GUARD: the clients surface answers to the org's own
+		// org_admin now, never site_admin — the honest-refusal contract is
+		// unchanged; only the driving principal flipped.
+		orgAdmin := &domain.Principal{UserID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgAdmin}
 		repo := &faultClientRepo{memClientRepo: newMemClientRepo()}
 		deps := ClientsHandlerDeps{Audit: audit.NoopService{}, ClientService: service.NewClientService(nil, repo)}
-		code, _ := honestRefusalCall(t, siteAdmin, http.MethodDelete, "/c/:id", "/c/"+uuid.NewString(), "", HandleDeleteClient(deps))
+		code, _ := honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+uuid.NewString(), "", HandleDeleteClient(deps))
 		if code != http.StatusOK {
 			t.Fatalf("idempotent miss = %d, want the documented 200", code)
 		}
 		repo.deleteErr = boom
-		code, body := honestRefusalCall(t, siteAdmin, http.MethodDelete, "/c/:id", "/c/"+uuid.NewString(), "", HandleDeleteClient(deps))
+		code, body := honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+uuid.NewString(), "", HandleDeleteClient(deps))
 		if code != http.StatusInternalServerError || body["error"] != "internal_error" {
 			t.Fatalf("unknown = %d %v, want 500 internal_error (no 23505 path exists on delete — no invented 409)", code, body)
 		}
