@@ -30,10 +30,19 @@ ceiling, floors enforced (coverage 51, static-rows 24, skip 22, rulefloor
 
 ## The approved plan (owner, 2026-08-30)
 
-T2 harness-anchor (orchestrator moves to this repo; the UI-driving phases
-still run from the identuum-ui checkout, direction reversed, no duplicated
-specs) → T3 role-census (the (functionality × role) matrix becomes a
-machine-checked floor) → T4.. close the uncovered cells (org_user negatives
+T2 harness-anchor → T3 role-census (the (functionality × role) matrix becomes
+a machine-checked floor) → T4.. close the uncovered cells (org_user negatives
 first) → T-R2a admin-reset scenario → T-R4 two-tier docs. Existing
 bash/node/Go tooling alongside Playwright is grandfathered; any NEW tool
 needs owner sign-off first, per the spec's own clause.
+
+**T2 status — anchored entry point LANDED; physical relocation DEFERRED with
+a measured reason.** `make test-full` in THIS repo now runs the whole suite
+(sibling-checkout guard → the canonical runner → an independent
+gate-witness verification of the minted record, so a delegated run that lies
+about its result still fails). The orchestrator BODY stays in
+`identuum-ui/e2e-full/scripts/full-run.sh`: four ui source-invariant tests
+(static-rows, ui-provisioner, skip-ceiling, coverage-floor) pin that script's
+content and run in ui's single-checkout CI — relocating the file breaks four
+CI invariants, so the move waits until those pins migrate with it (its own
+slice, if ever worth it).

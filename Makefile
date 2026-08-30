@@ -1677,3 +1677,22 @@ verify-oss-contract:
 			|| { echo "  FAIL: /token returned 200 — must be 4xx without a valid request"; exit 1; }; \
 		echo "  /token NOT 200 (got $$STATUS) ✓"
 	@echo "OSS IdP runtime contract passed."
+
+## test-full: the TEST-spec anchor — one command in THIS repo runs the full
+## disposable-appliance behavior suite (T2 of the plan in
+## docs/TEST-spec-status.md).
+##
+## The ORCHESTRATOR BODY deliberately stays in the sibling checkout
+## (identuum-ui/e2e-full/scripts/full-run.sh) — measured 2026-08-30: four ui
+## source-invariant tests (static-rows, ui-provisioner, skip-ceiling,
+## coverage-floor) pin that script's CONTENT and run in ui's single-checkout
+## CI, so physically relocating it breaks four CI invariants. This target is
+## the anchored ENTRY POINT: it requires the sibling checkout, delegates to
+## the canonical runner (which stands the appliance FROM THIS REPO's working
+## tree via oss-up), and then INDEPENDENTLY verifies the witnessed record —
+## a delegated run that lies about its result still fails here.
+.PHONY: test-full
+test-full:
+	@test -d ../identuum-ui || { echo "test-full: sibling checkout ../identuum-ui is required (the UI-driving phases and playwright specs live there)"; exit 1; }
+	$(MAKE) -C ../identuum-ui e2e-full
+	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-full.txt
