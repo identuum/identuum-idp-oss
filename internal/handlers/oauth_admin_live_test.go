@@ -485,10 +485,11 @@ func TestLive_APIResourceDeleteAudits(t *testing.T) {
 
 func TestLive_ScopeTemplateCreateAudits(t *testing.T) {
 	orgID := uuid.New()
+	// THE-SCOPE-TEMPLATES: scope templates are the org's own org_admin's now.
 	eng := newLiveEngine(t, &domain.Principal{
 		UserID:         uuid.New(),
 		OrganizationID: orgID,
-		Role:           domain.RoleSiteAdmin,
+		Role:           domain.RoleOrgAdmin,
 	})
 	rec := doJSON(t, eng, http.MethodPost, "/api/v1/scope-templates", map[string]any{
 		"name":        "Admin Template",
@@ -518,10 +519,11 @@ func TestLive_ScopeTemplateCreateAudits(t *testing.T) {
 
 func TestLive_ScopeTemplateUpdateAndDelete(t *testing.T) {
 	orgID := uuid.New()
+	// THE-SCOPE-TEMPLATES: the org's own org_admin.
 	eng := newLiveEngine(t, &domain.Principal{
 		UserID:         uuid.New(),
 		OrganizationID: orgID,
-		Role:           domain.RoleSiteAdmin,
+		Role:           domain.RoleOrgAdmin,
 	})
 	create := doJSON(t, eng, http.MethodPost, "/api/v1/scope-templates", map[string]any{
 		"name":   "Initial",
@@ -561,6 +563,66 @@ func TestLive_ScopeTemplateUpdateAndDelete(t *testing.T) {
 		t.Errorf("missing audit events: update=%v delete=%v", sawUpd, sawDel)
 	}
 	_ = time.Second
+}
+
+// TestLive_ScopeTemplate_AuthzAndReservedPrefixTeeth pins THE-SCOPE-TEMPLATES:
+// the tenant scope-template surface answers to the org's own org_admin ONLY,
+// and the reserved-prefix bound (unwired until this slice) now holds on BOTH
+// writable paths. Owner ruling: scope templates are tenant-owned.
+func TestLive_ScopeTemplate_AuthzAndReservedPrefixTeeth(t *testing.T) {
+	orgID := uuid.New()
+	orgAdmin := &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgAdmin}
+
+	// ── Authz: site_admin and org_user are refused; org_admin is served. ──
+	saEng := newLiveEngine(t, &domain.Principal{UserID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleSiteAdmin})
+	if rec := doJSON(t, saEng, http.MethodGet, "/api/v1/scope-templates", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("site_admin list → %d, want 403 (tenant resource)", rec.Code)
+	}
+	if rec := doJSON(t, saEng, http.MethodPost, "/api/v1/scope-templates", map[string]any{"name": "x", "scopes": []string{"a"}}); rec.Code != http.StatusForbidden {
+		t.Errorf("site_admin create → %d, want 403", rec.Code)
+	}
+	ouEng := newLiveEngine(t, &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgUser})
+	if rec := doJSON(t, ouEng, http.MethodGet, "/api/v1/scope-templates", nil); rec.Code != http.StatusForbidden {
+		t.Errorf("org_user list → %d, want 403", rec.Code)
+	}
+
+	// ── Own-org allowed; cross-org read is a miss (404). ──
+	eng := newLiveEngine(t, orgAdmin)
+	create := doJSON(t, eng, http.MethodPost, "/api/v1/scope-templates", map[string]any{
+		"name": "Own", "scopes": []string{"org:read"},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("own-org create → %d; body=%q", create.Code, create.Body.String())
+	}
+	var made safeScopeTemplate
+	_ = json.Unmarshal(create.Body.Bytes(), &made)
+	foreignEng := newLiveEngine(t, &domain.Principal{UserID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgAdmin})
+	if rec := doJSON(t, foreignEng, http.MethodGet, "/api/v1/scope-templates/"+made.ID.String(), nil); rec.Code != http.StatusNotFound {
+		t.Errorf("cross-org get → %d, want 404 (indistinguishable from absent)", rec.Code)
+	}
+
+	// ── Reserved-prefix refused on CREATE and UPDATE (the wired validation). ──
+	for _, reserved := range []string{"system:admin", "keys:rotate", "backups:restore"} {
+		rec := doJSON(t, eng, http.MethodPost, "/api/v1/scope-templates", map[string]any{
+			"name": "Bad", "scopes": []string{reserved},
+		})
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("create with reserved %q → %d, want 400", reserved, rec.Code)
+		}
+	}
+	updBad := doJSON(t, eng, http.MethodPut, "/api/v1/scope-templates/"+made.ID.String(), map[string]any{
+		"scopes": []string{"system:admin"},
+	})
+	if updBad.Code != http.StatusBadRequest {
+		t.Errorf("update into a reserved prefix → %d, want 400 (the apply-bypass hazard, closed)", updBad.Code)
+	}
+	// The original template's scope survived the rejected update.
+	still := doJSON(t, eng, http.MethodGet, "/api/v1/scope-templates/"+made.ID.String(), nil)
+	var after safeScopeTemplate
+	_ = json.Unmarshal(still.Body.Bytes(), &after)
+	if len(after.Scopes) != 1 || after.Scopes[0] != "org:read" {
+		t.Errorf("rejected reserved update mutated the row: %+v", after.Scopes)
+	}
 }
 
 // THE-PROTOCOL-COVERAGE (manual-matrix clients.4): PUT /api/v1/clients/:id

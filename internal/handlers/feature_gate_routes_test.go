@@ -96,11 +96,14 @@ func TestFeatureGate_APIResources_OpenGateAllowsThroughAuth(t *testing.T) {
 }
 
 func TestFeatureGate_ScopeTemplates_OpenGateAllowsThroughAuth(t *testing.T) {
+	// THE-SCOPE-TEMPLATES: scope-templates answer to the org's own org_admin
+	// now (owner ruling: tenant-owned); the point of this test — the feature
+	// gate lets an authorized principal through — is unchanged.
 	org := uuid.New()
 	eng := newGateEngine(t, &domain.Principal{
 		UserID:         uuid.New(),
 		OrganizationID: org,
-		Role:           domain.RoleSiteAdmin,
+		Role:           domain.RoleOrgAdmin,
 	}, features.OpenGate{})
 	rec := gateReq(t, eng, http.MethodGet, "/api/v1/scope-templates")
 	if rec.Code != http.StatusOK {
@@ -149,14 +152,14 @@ func TestFeatureGate_StaticGate_ResourcesAllowedTemplatesDenied(t *testing.T) {
 	gate := features.NewStaticGate(map[string]bool{
 		features.AuthorizationServer: true,
 	})
-	// THE-INVERTED-GUARD: api-resources answers to org_admin now while
-	// scope-templates stays site_admin — one engine per surface.
+	// THE-SCOPE-TEMPLATES (2026-08-30): BOTH api-resources and scope-templates
+	// now answer to the org's own org_admin (scope-templates flipped from
+	// site_admin by the owner ruling); one org_admin engine serves both.
 	eng := newGateEngine(t, orgAdminBatchPrincipal(uuid.New()), gate)
 	if rec := gateReq(t, eng, http.MethodGet, "/api/v1/api-resources"); rec.Code != http.StatusOK {
 		t.Errorf("api-resources w/ AuthorizationServer=true = %d, want 200", rec.Code)
 	}
-	stEng := newGateEngine(t, siteAdminPrincipal(), gate)
-	if rec := gateReq(t, stEng, http.MethodGet, "/api/v1/scope-templates"); rec.Code != http.StatusOK {
+	if rec := gateReq(t, eng, http.MethodGet, "/api/v1/scope-templates"); rec.Code != http.StatusOK {
 		t.Errorf("scope-templates w/ AuthorizationServer=true = %d, want 200", rec.Code)
 	}
 	denyGate := features.NewStaticGate(map[string]bool{

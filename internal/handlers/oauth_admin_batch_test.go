@@ -328,7 +328,8 @@ func TestScopeTemplates_ListReturnsSafeShape(t *testing.T) {
 	}
 	r := batchEngine(t, func(r *gin.Engine) {
 		RegisterScopeTemplatesRoutes(r, ScopeTemplatesHandlerDeps{ScopeTemplateRepo: repo})
-	}, &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleSiteAdmin})
+		// THE-SCOPE-TEMPLATES: the surface is the org's own org_admin's now.
+	}, &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgAdmin})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/scope-templates", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
@@ -351,9 +352,13 @@ func TestScopeTemplates_ListReturnsSafeShape(t *testing.T) {
 }
 
 func TestScopeTemplates_MissingOrgContext400(t *testing.T) {
+	// THE-SCOPE-TEMPLATES: the org-context gate now sits AFTER the org_admin
+	// gate. An org_admin with a nil org (contrived — org_admin always carries
+	// its org) passes the role gate and hits the defensive 400. A site_admin
+	// would be refused 403 at the role gate first (asserted separately).
 	r := batchEngine(t, func(r *gin.Engine) {
 		RegisterScopeTemplatesRoutes(r, ScopeTemplatesHandlerDeps{ScopeTemplateRepo: &fakeScopeTemplateRepo{}})
-	}, &domain.Principal{UserID: uuid.New(), Role: domain.RoleSiteAdmin}) // no OrganizationID
+	}, &domain.Principal{UserID: uuid.New(), Role: domain.RoleOrgAdmin}) // no OrganizationID
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/scope-templates", nil)
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)

@@ -118,7 +118,11 @@ func TestFiveFamilyFallbacksTellTheTruth(t *testing.T) {
 		orgAdmin := &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgAdmin}
 		repo := &faultScopeTemplateRepo{memScopeTemplateRepo: newMemScopeTemplateRepo()}
 		deps := ScopeTemplatesHandlerDeps{Audit: audit.NoopService{}, ScopeTemplateService: service.NewScopeTemplateService(nil, repo)}
-		tmpl := &domain.ScopeTemplate{ID: uuid.New(), OrganizationID: orgID, Name: "t"}
+		// THE-SCOPE-TEMPLATES: templates now carry >=1 valid scope (the wired
+		// Validate re-runs on update) — give the fixture a real scope so this
+		// honest-refusal test exercises the collision/fault branches, not the
+		// new validation branch.
+		tmpl := &domain.ScopeTemplate{ID: uuid.New(), OrganizationID: orgID, Name: "t", Scopes: []string{"org:read"}}
 		_ = repo.Create(context.Background(), tmpl)
 
 		code, _ := honestRefusalCall(t, orgAdmin, http.MethodPut, "/t/:id", "/t/"+uuid.NewString(), `{"name":"x"}`, HandleUpdateScopeTemplate(deps))

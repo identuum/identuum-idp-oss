@@ -83,7 +83,16 @@ func RegisterScopeTemplatesRoutes(router gin.IRouter, deps ScopeTemplatesHandler
 	// Audit-aware variant: a denial emits `feature.denied` when an
 	// audit.Service is wired.
 	g.Use(mw.RequireFeatureWithAudit(deps.FeatureGate, deps.Audit, features.AuthorizationServer))
-	g.Use(mw.RequireSiteAdmin())
+	// THE-SCOPE-TEMPLATES (2026-08-30): owner ruling — scope templates are a
+	// tenant's own resource, so the surface answers to the org's own org_admin,
+	// NOT site_admin. The group previously carried mw.RequireSiteAdmin() (the
+	// inverse of the model). It is now RequireAuthenticated, and every handler
+	// gates on IsOrgAdminOnly (site_admin AND org_user refused 403); the
+	// handlers already pin every operation to the principal's OrganizationID,
+	// so a foreign template is a miss (404). Reserved-prefix validation is now
+	// wired into the service Create/Update, so an org_admin cannot store a
+	// "system:"/"keys:"/"backups:" scope.
+	g.Use(mw.RequireAuthenticated())
 
 	// docgen:endpoint
 	// docgen:surface=scope-templates
@@ -91,7 +100,7 @@ func RegisterScopeTemplatesRoutes(router gin.IRouter, deps ScopeTemplatesHandler
 	// docgen:path=/api/v1/scope-templates
 	// docgen:summary=List scope templates for the authenticated principal's organization (Authorization Server feature).
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:response=oss.handlers.safeScopeTemplate
 	// docgen:notes=Nil-org principal currently 400s rather than cross-tenant listing (documented difference vs the monolith).
@@ -103,7 +112,7 @@ func RegisterScopeTemplatesRoutes(router gin.IRouter, deps ScopeTemplatesHandler
 	// docgen:path=/api/v1/scope-templates/:id
 	// docgen:summary=Show a single scope template by id (Authorization Server feature).
 	// docgen:tier=oss-feature-gated:authorization_server
-	// docgen:auth=site_admin
+	// docgen:auth=org_admin
 	// docgen:feature_gate=authorization_server
 	// docgen:response=oss.handlers.safeScopeTemplate
 	g.GET("/:id", HandleGetScopeTemplate(deps))
@@ -115,7 +124,7 @@ func RegisterScopeTemplatesRoutes(router gin.IRouter, deps ScopeTemplatesHandler
 		// docgen:path=/api/v1/scope-templates
 		// docgen:summary=Create a scope template (Authorization Server feature).
 		// docgen:tier=oss-feature-gated:authorization_server
-		// docgen:auth=site_admin
+		// docgen:auth=org_admin
 		// docgen:feature_gate=authorization_server
 		// docgen:response=oss.handlers.safeScopeTemplate
 		// docgen:status=201
@@ -127,7 +136,7 @@ func RegisterScopeTemplatesRoutes(router gin.IRouter, deps ScopeTemplatesHandler
 		// docgen:path=/api/v1/scope-templates/:id
 		// docgen:summary=Update a scope template (Authorization Server feature).
 		// docgen:tier=oss-feature-gated:authorization_server
-		// docgen:auth=site_admin
+		// docgen:auth=org_admin
 		// docgen:feature_gate=authorization_server
 		// docgen:response=oss.handlers.safeScopeTemplate
 		g.PUT("/:id", HandleUpdateScopeTemplate(deps))
@@ -138,7 +147,7 @@ func RegisterScopeTemplatesRoutes(router gin.IRouter, deps ScopeTemplatesHandler
 		// docgen:path=/api/v1/scope-templates/:id
 		// docgen:summary=Delete a scope template (Authorization Server feature).
 		// docgen:tier=oss-feature-gated:authorization_server
-		// docgen:auth=site_admin
+		// docgen:auth=org_admin
 		// docgen:feature_gate=authorization_server
 		g.DELETE("/:id", HandleDeleteScopeTemplate(deps))
 	} else {
@@ -146,6 +155,19 @@ func RegisterScopeTemplatesRoutes(router gin.IRouter, deps ScopeTemplatesHandler
 		g.PUT("/:id", scopeTemplateServiceMissing("update"))
 		g.DELETE("/:id", scopeTemplateServiceMissing("delete"))
 	}
+}
+
+// requireScopeTemplateOrgAdmin gates every scope-template handler on the org's
+// own org_admin (THE-SCOPE-TEMPLATES): site_admin (which the old guard uniquely
+// admitted) and org_user are refused 403. Mirrors requireClientOrgAdmin. The
+// handlers below already pin each operation to the principal's OrganizationID.
+func requireScopeTemplateOrgAdmin(c *gin.Context) bool {
+	actor, ok := mw.PrincipalFromContext(c)
+	if !ok || actor == nil || !actor.IsOrgAdminOnly() {
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+		return false
+	}
+	return true
 }
 
 type safeScopeTemplate struct {
@@ -178,6 +200,9 @@ func toSafeScopeTemplate(t *domain.ScopeTemplate) safeScopeTemplate {
 // OrganizationID.
 func HandleListScopeTemplates(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireScopeTemplateOrgAdmin(c) {
+			return
+		}
 		p, ok := mw.PrincipalFromContext(c)
 		if !ok || p.OrganizationID == uuid.Nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
@@ -211,6 +236,9 @@ func HandleListScopeTemplates(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 // scoped to the principal's OrganizationID.
 func HandleGetScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireScopeTemplateOrgAdmin(c) {
+			return
+		}
 		p, ok := mw.PrincipalFromContext(c)
 		if !ok || p.OrganizationID == uuid.Nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
@@ -239,6 +267,9 @@ func HandleGetScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 // the principal's OrganizationID.
 func HandleCreateScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireScopeTemplateOrgAdmin(c) {
+			return
+		}
 		p, ok := mw.PrincipalFromContext(c)
 		if !ok || p.OrganizationID == uuid.Nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
@@ -278,6 +309,9 @@ func HandleCreateScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 // principal's OrganizationID.
 func HandleUpdateScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireScopeTemplateOrgAdmin(c) {
+			return
+		}
 		p, ok := mw.PrincipalFromContext(c)
 		if !ok || p.OrganizationID == uuid.Nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})
@@ -307,6 +341,10 @@ func HandleUpdateScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 			// into UNIQUE (org_id, name) is an honest 409; unknown
 			// faults say so.
 			switch {
+			case errors.Is(err, service.ErrScopeTemplateInvalid()):
+				// THE-SCOPE-TEMPLATES: a reserved-prefix / malformed-scope
+				// rejection is the caller's fault → 400, not a 500.
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			case errors.Is(err, service.ErrScopeTemplateNotFound()):
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			case errors.Is(err, domain.ErrScopeTemplateAlreadyExists):
@@ -331,6 +369,9 @@ func HandleUpdateScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 // principal's OrganizationID.
 func HandleDeleteScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireScopeTemplateOrgAdmin(c) {
+			return
+		}
 		p, ok := mw.PrincipalFromContext(c)
 		if !ok || p.OrganizationID == uuid.Nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "organization context required"})

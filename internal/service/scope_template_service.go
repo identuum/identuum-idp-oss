@@ -48,6 +48,14 @@ type UpdateScopeTemplateOptions struct {
 
 var errScopeTemplateNotFound = errors.New("service: scope template not found")
 
+// errScopeTemplateInvalid wraps a domain-validation failure (reserved scope
+// prefix, empty/whitespace scope, name limits) so the handler can answer 400
+// rather than a 500 (THE-SCOPE-TEMPLATES).
+var errScopeTemplateInvalid = errors.New("service: scope template invalid")
+
+// ErrScopeTemplateInvalid exposes the validation sentinel to handlers.
+func ErrScopeTemplateInvalid() error { return errScopeTemplateInvalid }
+
 // Create persists a new scope template scoped to opts.OrganizationID.
 func (s *ScopeTemplateService) Create(ctx context.Context, opts CreateScopeTemplateOptions) (*domain.ScopeTemplate, error) {
 	if opts.OrganizationID == uuid.Nil {
@@ -70,6 +78,15 @@ func (s *ScopeTemplateService) Create(ctx context.Context, opts CreateScopeTempl
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}
+	// THE-SCOPE-TEMPLATES (2026-08-30): validate BEFORE any write. Until this
+	// slice ScopeTemplate.Validate had ZERO callers — the reserved-prefix bound
+	// ("system:"/"keys:"/"backups:") was written but never enforced, safe only
+	// because the surface was site_admin-only. Now that org_admin writes
+	// templates (owner ruling: tenant-owned), Validate is wired here so a
+	// reserved prefix (or whitespace / empty scope) is refused at the door.
+	if err := template.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", errScopeTemplateInvalid, err)
+	}
 	if err := s.repo.Create(ctx, template); err != nil {
 		return nil, err
 	}
@@ -86,20 +103,32 @@ func (s *ScopeTemplateService) Update(ctx context.Context, id, orgID uuid.UUID, 
 	if err != nil || template == nil {
 		return nil, errScopeTemplateNotFound
 	}
+	// Build the PROPOSED state on a copy — a rejected update must not mutate
+	// the fetched object (belt-and-suspenders: harmless against the Pgx repo,
+	// which returns a fresh row, but correct against any repo that hands back
+	// its stored pointer).
+	next := *template
 	if opts.Name != "" {
-		template.Name = opts.Name
+		next.Name = opts.Name
 	}
 	if opts.Description != "" {
-		template.Description = opts.Description
+		next.Description = opts.Description
 	}
 	if opts.Scopes != nil {
-		template.Scopes = opts.Scopes
+		next.Scopes = opts.Scopes
 	}
-	template.UpdatedAt = time.Now().UTC()
-	if err := s.repo.Update(ctx, template); err != nil {
+	next.UpdatedAt = time.Now().UTC()
+	// THE-SCOPE-TEMPLATES: re-validate the WHOLE template before the write —
+	// the reserved-prefix bound must hold on update too, not only create (the
+	// hazard the owner flagged: a path copying the stored slice without
+	// re-validation would silently bypass it).
+	if err := next.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %v", errScopeTemplateInvalid, err)
+	}
+	if err := s.repo.Update(ctx, &next); err != nil {
 		return nil, err
 	}
-	return template, nil
+	return &next, nil
 }
 
 // Delete removes the template scoped to orgID.
