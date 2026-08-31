@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -243,12 +244,60 @@ const (
 
 // Validate performs business logic validation on the Organization
 func (o *Organization) Validate() error {
-	if o.Name == "" {
+	// THE-UNVALIDATED-DOMAIN (2026-08-31), widened by owner ruling to EVERY
+	// field: `Name == ""` accepted a name of pure whitespace and had no upper
+	// bound, so an over-long name reached Postgres and came back as a driver
+	// error instead of a clean refusal. Bounds match the live column widths
+	// (organizations.name / .org_slug are VARCHAR(255)).
+	if strings.TrimSpace(o.Name) == "" {
 		return errors.New("name is required")
 	}
+	if len(o.Name) > organizationNameMaxLength {
+		return fmt.Errorf("name must be %d characters or fewer", organizationNameMaxLength)
+	}
 
-	if o.Domain == "" {
-		return errors.New("domain is required")
+	// THE-UNVALIDATED-DOMAIN (2026-08-31): `== ""` was the ENTIRE check, so
+	// "lexus" — no dot, no TLD — was accepted and persisted. Validate() is
+	// the choke point every create and update path already runs through, so
+	// the grammar goes here rather than in one handler.
+	if err := ValidateDomainFormat(o.Domain); err != nil {
+		return err
+	}
+
+	// OrgSlug is OPTIONAL (many rows carry none), but when present it is an
+	// identifier that appears in lookups, so it gets a grammar rather than
+	// no check at all: lowercase letters, digits and hyphens, never
+	// hyphen-edged. The live rows ("system-local", "saab") satisfy it.
+	if slug := strings.TrimSpace(o.OrgSlug); slug != "" {
+		if len(slug) > organizationSlugMaxLength {
+			return fmt.Errorf("org_slug must be %d characters or fewer", organizationSlugMaxLength)
+		}
+		if slug[0] == '-' || slug[len(slug)-1] == '-' {
+			return errors.New("org_slug must not start or end with a hyphen")
+		}
+		for i := 0; i < len(slug); i++ {
+			c := slug[i]
+			if !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-' {
+				return errors.New("org_slug may contain only lowercase letters, digits and hyphens")
+			}
+		}
+	}
+
+	// Tier is an enum; an unlisted value would silently render as TierBase
+	// via Tier.String(), so an out-of-range value is refused rather than
+	// quietly downgraded.
+	if o.Tier != TierBase && o.Tier != TierPro && o.Tier != TierEnterprise {
+		return errors.New("tier must be one of TierBase, TierPro or TierEnterprise")
+	}
+
+	// M2M anomaly thresholds are counts/seconds: negative is meaningless and
+	// would otherwise reach the database unchallenged. Zero stays valid — it
+	// is the "disabled" value the live rows use.
+	if o.M2MAnomalyLimit < 0 {
+		return errors.New("m2m_anomaly_limit must not be negative")
+	}
+	if o.M2MAnomalyWindowSeconds < 0 {
+		return errors.New("m2m_anomaly_window_seconds must not be negative")
 	}
 
 	if o.MaxSessionsPerUser < 1 {

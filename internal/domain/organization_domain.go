@@ -2,8 +2,10 @@ package domain
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 )
@@ -82,9 +84,10 @@ func (d *OrganizationDomain) Validate() error {
 		return errors.New("organization_id is required")
 	}
 
-	trimmed := strings.TrimSpace(d.Domain)
-	if trimmed == "" {
-		return errors.New("domain is required")
+	// THE-UNVALIDATED-DOMAIN: the same grammar the organizations table is
+	// held to — one definition, both call sites.
+	if err := ValidateDomainFormat(d.Domain); err != nil {
+		return err
 	}
 
 	if d.VerificationAttempts < 0 {
@@ -115,6 +118,124 @@ func (d *OrganizationDomain) Validate() error {
 // storage and lookup. Mirrors the lowercase-trim used by the existing
 // HandleUpdateOrganization path so the new table sees the same shape the
 // legacy organizations.domain column already sees.
+//
+// A single trailing dot (the FQDN root form, "example.com.") is stripped so
+// that "example.com" and "example.com." are one key, matching what
+// normalizeDNSDomainName already does on the verification side.
 func NormalizeDomain(d string) string {
-	return strings.ToLower(strings.TrimSpace(d))
+	n := strings.ToLower(strings.TrimSpace(d))
+	return strings.TrimSuffix(n, ".")
+}
+
+// organizationNameMaxLength / organizationSlugMaxLength mirror the live
+// column widths (organizations.name, organizations.org_slug are VARCHAR(255)),
+// so an over-long value is refused cleanly instead of failing in the driver.
+const (
+	organizationNameMaxLength = 255
+	organizationSlugMaxLength = 255
+)
+
+// domainMaxLength is the DNS limit on a fully-qualified name in presentation
+// form (RFC 1035 §2.3.4, 255 octets of wire format ≙ 253 characters here).
+const domainMaxLength = 253
+
+// domainLabelMaxLength is the DNS limit on a single label (RFC 1035 §2.3.4).
+const domainLabelMaxLength = 63
+
+// ValidateDomainFormat is THE domain-format grammar for this codebase — one
+// definition, used by both Organization.Validate and
+// OrganizationDomain.Validate. It is deliberately the only place the shape is
+// decided; adding a second grammar elsewhere is how the two drift apart.
+//
+// THE-UNVALIDATED-DOMAIN (2026-08-31): before this, the entire check on an
+// organization's domain was `== ""`, so `lexus` — no dot, no TLD — was
+// accepted and persisted. OrganizationDomain.Validate had no format check
+// either, so wiring it in would not have caught it.
+//
+// THE GRAMMAR, on the NORMALIZED value (lowercase, trimmed, one optional
+// trailing dot removed):
+//
+//	total length            1..253 characters
+//	at least TWO labels     a dot is REQUIRED — this is what rejects "lexus"
+//	label length            1..63 characters each; no empty label, so no
+//	                        leading/trailing dot and no ".." run
+//	label alphabet          a-z, 0-9 and '-' (ASCII LDH); a label may not
+//	                        start or end with '-'
+//	final label (the TLD)   at least 2 characters, and either all-alphabetic
+//	                        or an A-label ("xn--" prefix). This rejects
+//	                        numeric TLDs, which is also what rejects a bare
+//	                        IPv4 address like 192.168.1.1
+//	case                    input is lowercased before checking, so
+//	                        "Example.COM" is accepted and stored lowercase
+//	IDN                     ASCII/punycode ONLY. A name containing non-ASCII
+//	                        is refused with a message telling the operator to
+//	                        submit the punycode (xn--) form. Converting it
+//	                        here would mean shipping an IDNA table and a
+//	                        normalization policy this slice did not measure.
+//
+// DELIBERATELY STILL ACCEPTED: any syntactically valid TLD, including .test,
+// .local, .internal and unregistered ones. There is no IANA list check —
+// the system organization itself is "system.local", the harness uses ".test"
+// throughout, and a bundled list would go stale silently. This validator
+// answers "is this a well-formed domain name", not "is this a registered
+// public domain"; the latter is what the DNS verification flow is for.
+func ValidateDomainFormat(d string) error {
+	n := NormalizeDomain(d)
+	if n == "" {
+		return errors.New("domain is required")
+	}
+	if len(n) > domainMaxLength {
+		return fmt.Errorf("%w: longer than %d characters", ErrOrganizationDomainInvalid, domainMaxLength)
+	}
+	for _, r := range n {
+		if r > unicode.MaxASCII {
+			return fmt.Errorf("%w: %q contains non-ASCII characters — submit the punycode (xn--) form",
+				ErrOrganizationDomainInvalid, d)
+		}
+	}
+
+	labels := strings.Split(n, ".")
+	if len(labels) < 2 {
+		return fmt.Errorf("%w: %q has no dot — a domain needs at least a name and a top-level domain (for example %q)",
+			ErrOrganizationDomainInvalid, d, n+".com")
+	}
+
+	for _, label := range labels {
+		if label == "" {
+			return fmt.Errorf("%w: %q has an empty label (a leading dot, a trailing dot, or \"..\")",
+				ErrOrganizationDomainInvalid, d)
+		}
+		if len(label) > domainLabelMaxLength {
+			return fmt.Errorf("%w: label %q is longer than %d characters",
+				ErrOrganizationDomainInvalid, label, domainLabelMaxLength)
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return fmt.Errorf("%w: label %q starts or ends with a hyphen",
+				ErrOrganizationDomainInvalid, label)
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			isLower := c >= 'a' && c <= 'z'
+			isDigit := c >= '0' && c <= '9'
+			if !isLower && !isDigit && c != '-' {
+				return fmt.Errorf("%w: label %q contains %q — only letters, digits and hyphens are allowed",
+					ErrOrganizationDomainInvalid, label, string(rune(c)))
+			}
+		}
+	}
+
+	tld := labels[len(labels)-1]
+	if len(tld) < 2 {
+		return fmt.Errorf("%w: top-level domain %q is shorter than 2 characters",
+			ErrOrganizationDomainInvalid, tld)
+	}
+	if !strings.HasPrefix(tld, "xn--") {
+		for i := 0; i < len(tld); i++ {
+			if tld[i] < 'a' || tld[i] > 'z' {
+				return fmt.Errorf("%w: top-level domain %q must be alphabetic (or a punycode \"xn--\" label)",
+					ErrOrganizationDomainInvalid, tld)
+			}
+		}
+	}
+	return nil
 }
