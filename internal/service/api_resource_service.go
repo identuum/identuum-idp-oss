@@ -63,6 +63,13 @@ func ErrAPIResourceNotFound() error { return errAPIResourceNotFound }
 // org_admin-within-its-own-organization contract (THE-INVERTED-GUARD).
 var ErrAPIResourceForbidden = errors.New("service: api resource forbidden")
 
+var errAPIResourceInvalid = errors.New("service: api resource invalid")
+
+// ErrAPIResourceInvalid exposes the field-validation sentinel. The update
+// path already validated correctly; without this the handler's default sent
+// a 500 for a refused field (THE-UNVALIDATED-REST).
+func ErrAPIResourceInvalid() error { return errAPIResourceInvalid }
+
 // apiResourceActorOrg resolves the ONLY organization an actor may touch
 // API resources in. Modelled on ServiceAccountService.requireOrgAdmin with
 // ONE deliberate divergence: site_admin is REFUSED, not admitted —
@@ -170,12 +177,17 @@ func (s *APIResourceService) Update(ctx context.Context, actor *domain.Principal
 	// forbidden `system:`/`keys:`/`backups:` prefix) commits NOTHING — the
 	// prior bug validated scopes AFTER repo.Update had already committed the
 	// field changes, leaving a partial write.
+	//
+	// THE-UNVALIDATED-REST: both refusals are wrapped in a sentinel. The
+	// guard was already here and correct, but the handler had no branch for
+	// it, so a blank name or a `system:` scope fell to the default and the
+	// operator was told "internal_error" for their own bad request.
 	if err := resource.Validate(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", errAPIResourceInvalid, err)
 	}
 	if opts.Scopes != nil {
 		if err := domain.ValidateAPIScopes(opts.Scopes); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: %v", errAPIResourceInvalid, err)
 		}
 		// ATOMIC: the field update AND the scope replacement commit in ONE
 		// transaction (mirrors Create). A failure in either step rolls BOTH

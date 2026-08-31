@@ -78,6 +78,14 @@ var errUserNotFound = errors.New("service: user not found")
 // ErrUserNotFound exposes the OSS not-found sentinel.
 func ErrUserNotFound() error { return errUserNotFound }
 
+var errUserInvalid = errors.New("service: user invalid")
+
+// ErrUserInvalid exposes the field-validation sentinel so the handler can
+// answer 400 instead of falling to its default 500 — the answer a rejected
+// email or role got while the DB constraint was the only guard
+// (THE-UNVALIDATED-REST).
+func ErrUserInvalid() error { return errUserInvalid }
+
 var errPasswordHashing = errors.New("service: password hashing failed")
 
 // ErrPasswordHashing exposes the hashing-failure sentinel: an INTERNAL
@@ -252,9 +260,40 @@ func (s *UserService) ResetMFAForActor(ctx context.Context, actor *domain.Princi
 	return s.ResetMFA(ctx, target.ID, target.OrganizationID)
 }
 
+// validateUserUpdate applies the create path's field rules to the subset of
+// fields an update actually supplies. A nil pointer means "not supplied" and
+// is left alone; Banned and EmailVerified are booleans with no grammar.
+func validateUserUpdate(opts UpdateUserOptions) error {
+	if opts.Email != nil {
+		if err := domain.ValidateUserEmail(*opts.Email); err != nil {
+			return err
+		}
+	}
+	if opts.Role != nil {
+		if err := domain.ValidateUserRole(*opts.Role); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Update mutates a user scoped to orgID. Password, when supplied,
 // is hashed before persistence.
 func (s *UserService) Update(ctx context.Context, id, orgID uuid.UUID, opts UpdateUserOptions) (*domain.User, error) {
+	// THE-UNVALIDATED-REST (2026-08-31): this method validated ONLY the
+	// password and handed Email and Role to the repository raw, so
+	// PUT {"email":"not-an-email"} and PUT {"role":"wizard"} were refused
+	// by the DATABASE — the users.chk_user_email_format CHECK and the
+	// user_role ENUM — and the operator saw 500 internal_error for what is
+	// a bad request. Create already runs both rules via User.Validate; this
+	// calls the SAME extracted grammar rather than restating it.
+	//
+	// No normalization is applied here on purpose: create neither trims nor
+	// lowercases a user email, so normalizing only on update would make the
+	// two paths disagree about what one address is.
+	if err := validateUserUpdate(opts); err != nil {
+		return nil, fmt.Errorf("%w: %v", errUserInvalid, err)
+	}
 	repoOpts := repository.UpdateUserOptions{
 		Email:         opts.Email,
 		Name:          opts.Name,

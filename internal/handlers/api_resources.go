@@ -392,6 +392,13 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			case errors.Is(err, domain.ErrAPIResourceAlreadyExists):
 				c.JSON(http.StatusConflict, gin.H{"error": "audience_exists"})
+			case errors.Is(err, service.ErrAPIResourceInvalid()):
+				// THE-UNVALIDATED-REST: a blank name, a blank audience, a
+				// non-positive TTL or a reserved scope prefix is a BAD
+				// REQUEST. The service refused them correctly all along;
+				// this switch had no branch, so the caller was told
+				// "internal_error" for their own input.
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			}

@@ -176,14 +176,34 @@ func (s *ClientService) RegisterClient(ctx context.Context, opts RegisterClientO
 // RegisterClient calls it, then runs the binding read + repo write. The
 // returned plaintext secret is the one-time value for secret-based
 // confidential clients ("" for public / private_key_jwt clients).
+// validateClientName and validateClientRedirectURIs are THE two client field
+// rules. They were inline in prepareClient, so the UPDATE path enforced
+// neither: THE-UNVALIDATED-REST measured PUT /api/v1/clients/:id with
+// {"name":"   "} and {"redirect_uris":[]} both answering 200 and PERSISTING,
+// leaving an authorization-code client that can never complete a flow. Both
+// paths now call the same functions instead of restating the rules.
+//
+// Neither trims: create stores the name exactly as given, so trimming on
+// update only would make one spelling become two rows.
+func validateClientName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("client name is required")
+	}
+	return nil
+}
+
+func validateClientRedirectURIs(uris []string) error {
+	if len(uris) == 0 {
+		return fmt.Errorf("at least one redirect URI is required")
+	}
+	return domain.ValidateRedirectURIs(uris)
+}
+
 func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Client, string, error) {
-	if strings.TrimSpace(opts.Name) == "" {
-		return nil, "", fmt.Errorf("client name is required")
+	if err := validateClientName(opts.Name); err != nil {
+		return nil, "", err
 	}
-	if len(opts.RedirectURIs) == 0 {
-		return nil, "", fmt.Errorf("at least one redirect URI is required")
-	}
-	if err := domain.ValidateRedirectURIs(opts.RedirectURIs); err != nil {
+	if err := validateClientRedirectURIs(opts.RedirectURIs); err != nil {
 		return nil, "", err
 	}
 	if err := domain.ValidateLogoutURI(opts.FrontchannelLogoutURI); err != nil {
@@ -258,14 +278,20 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 	if err != nil || client == nil {
 		return nil, errClientNotFound
 	}
+	// THE-UNVALIDATED-REST: a SUPPLIED value must pass the same rule create
+	// applies. `!= ""` / `!= nil` stays the "was it supplied" sentinel; what
+	// changed is that a supplied value is now checked rather than trusted.
 	if opts.Name != "" {
+		if err := validateClientName(opts.Name); err != nil {
+			return nil, err
+		}
 		client.Name = opts.Name
 	}
 	if opts.Scope != "" {
 		client.Scope = opts.Scope
 	}
 	if opts.RedirectURIs != nil {
-		if err := domain.ValidateRedirectURIs(opts.RedirectURIs); err != nil {
+		if err := validateClientRedirectURIs(opts.RedirectURIs); err != nil {
 			return nil, err
 		}
 		client.RedirectURIs = opts.RedirectURIs

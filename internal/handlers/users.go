@@ -654,6 +654,13 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			case errors.Is(err, domain.ErrUserAlreadyExists):
 				c.JSON(http.StatusConflict, gin.H{"error": "email_exists"})
+			case errors.Is(err, service.ErrUserInvalid()):
+				// THE-UNVALIDATED-REST: a malformed email or an unlisted
+				// role is a BAD REQUEST. Until the service validated them
+				// these fell through to the default and the DB constraint
+				// answered — so the operator was told "internal_error" for
+				// their own typo.
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			}

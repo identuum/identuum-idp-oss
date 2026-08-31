@@ -804,6 +804,15 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
 				return
 			}
+			// THE-UNVALIDATED-REST: renaming the SYSTEM organization is
+			// refused by the service (AdminPermissionsModel.md: "System
+			// organization CANNOT be deleted and renamed") — and was then
+			// reported as "not found" for a row site_admin can plainly
+			// read. A refusal is a 403; only a real miss is a 404.
+			if errors.Is(err, domain.ErrForbidden) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}

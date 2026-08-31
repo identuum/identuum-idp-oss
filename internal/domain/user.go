@@ -164,6 +164,33 @@ type User struct {
 	Banned                       bool
 }
 
+// ValidateUserEmail is THE email grammar for a user record. Extracted from
+// User.Validate by THE-UNVALIDATED-REST so the UPDATE path can enforce the
+// SAME rule the create path enforces instead of writing the value raw and
+// letting the users.chk_user_email_format CHECK constraint answer 500.
+//
+// It is deliberately not a normalizer: neither create nor update lowercases
+// or trims a user email, so trimming here would make the two paths disagree.
+func ValidateUserEmail(email string) error {
+	if email == "" {
+		return errors.New("email is required")
+	}
+	if _, err := mail.ParseAddress(email); err != nil {
+		return errors.New("email is invalid")
+	}
+	return nil
+}
+
+// ValidateUserRole is THE role rule. The users.role column is a Postgres
+// ENUM, so an unlisted role was previously refused by the database with a
+// 500 rather than by the service with a 400.
+func ValidateUserRole(role UserRole) error {
+	if !role.IsValid() {
+		return errors.New("invalid role")
+	}
+	return nil
+}
+
 // Validate performs business logic validation on the User domain model.
 //
 // Email format check: previously absent at this layer. Now uses
@@ -174,11 +201,8 @@ type User struct {
 // tools/tools.go. Spec-compliant, callable from the stdlib, ~5
 // cyclomatic instead of 50.
 func (u *User) Validate() error {
-	if u.Email == "" {
-		return errors.New("email is required")
-	}
-	if _, err := mail.ParseAddress(u.Email); err != nil {
-		return errors.New("email is invalid")
+	if err := ValidateUserEmail(u.Email); err != nil {
+		return err
 	}
 
 	// Check organization ID based on role
@@ -189,8 +213,8 @@ func (u *User) Validate() error {
 		}
 	}
 
-	if !u.Role.IsValid() {
-		return errors.New("invalid role")
+	if err := ValidateUserRole(u.Role); err != nil {
+		return err
 	}
 
 	if u.PasswordHash == "" {
