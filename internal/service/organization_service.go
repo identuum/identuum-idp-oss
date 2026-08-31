@@ -71,6 +71,17 @@ var errOrganizationNotFound = errors.New("service: organization not found")
 // ErrOrganizationNotFound exposes the OSS not-found sentinel.
 func ErrOrganizationNotFound() error { return errOrganizationNotFound }
 
+// errOrganizationInvalid wraps every field-validation failure on the UPDATE
+// path (THE-UNVALIDATED-UPDATE). The update handler collapsed EVERY error to
+// 404 "not found", so without a distinguishable sentinel a rejected rename
+// would be reported as a missing organization — a second lying message on top
+// of the missing guard. Wrapping lets the handler answer 400 while leaving
+// its other branches exactly as they were.
+var errOrganizationInvalid = errors.New("service: organization invalid")
+
+// ErrOrganizationInvalid exposes the validation sentinel to handlers.
+func ErrOrganizationInvalid() error { return errOrganizationInvalid }
+
 // Create persists a new organization. Defaults are applied when
 // MaxSessionsPerUser==0 or MFAPolicy=="" so a minimal request body
 // still passes domain validation.
@@ -146,6 +157,87 @@ func buildOrganization(opts CreateOrganizationOptions) (*domain.Organization, er
 	return org, nil
 }
 
+// normalizeAndValidateUpdate is buildOrganization's counterpart for the
+// UPDATE path (THE-UNVALIDATED-UPDATE, 2026-08-31).
+//
+// A partial update cannot run Organization.Validate — most fields are absent
+// — so it validates each SUPPLIED field with the SAME per-field validator
+// Organization.Validate calls. There is no second grammar: domain shape comes
+// from domain.ValidateDomainFormat, exactly as on create.
+//
+// Normalization mirrors buildOrganization so a rename cannot produce a shape
+// a create would have rejected, and so "LEXUS.COM " and "lexus.com" cannot
+// become two different rows. The returned copy is what the caller must pass
+// on — the input is not mutated.
+func normalizeAndValidateUpdate(opts UpdateOrganizationOptions) (UpdateOrganizationOptions, error) {
+	if opts.Name != nil {
+		name := strings.TrimSpace(*opts.Name)
+		if err := domain.ValidateOrganizationName(name); err != nil {
+			return opts, err
+		}
+		opts.Name = &name
+	}
+	if opts.Domain != nil {
+		d := domain.NormalizeDomain(*opts.Domain)
+		if err := domain.ValidateDomainFormat(d); err != nil {
+			return opts, err
+		}
+		opts.Domain = &d
+	}
+	if opts.MaxSessionsPerUser != nil {
+		if err := domain.ValidateMaxSessionsPerUser(*opts.MaxSessionsPerUser); err != nil {
+			return opts, err
+		}
+	}
+	if opts.MFAPolicy != nil {
+		if err := domain.ValidateMFAPolicy(*opts.MFAPolicy); err != nil {
+			return opts, err
+		}
+	}
+	if opts.AuthPolicy != nil {
+		if err := domain.ValidateAuthPolicyValue(*opts.AuthPolicy); err != nil {
+			return opts, err
+		}
+	}
+	if opts.ApiAuthorizationPolicy != nil {
+		if err := domain.ValidateAPIAuthorizationPolicyValue(*opts.ApiAuthorizationPolicy); err != nil {
+			return opts, err
+		}
+	}
+	if opts.ServiceAccountExpiryDays != nil {
+		if err := domain.ValidateServiceAccountExpiryDays(*opts.ServiceAccountExpiryDays); err != nil {
+			return opts, err
+		}
+	}
+	if opts.M2MAnomalyLimit != nil {
+		if err := domain.ValidateM2MAnomalyLimit(*opts.M2MAnomalyLimit); err != nil {
+			return opts, err
+		}
+	}
+	if opts.M2MAnomalyWindowSeconds != nil {
+		if err := domain.ValidateM2MAnomalyWindowSeconds(*opts.M2MAnomalyWindowSeconds); err != nil {
+			return opts, err
+		}
+	}
+	if opts.Tier != nil {
+		if err := domain.ValidateOrganizationTier(*opts.Tier); err != nil {
+			return opts, err
+		}
+	}
+	if opts.ComplianceContactEmail != nil {
+		email := strings.TrimSpace(*opts.ComplianceContactEmail)
+		if err := domain.ValidateComplianceContactEmail(email); err != nil {
+			return opts, err
+		}
+		opts.ComplianceContactEmail = &email
+	}
+	// Booleans (Active, AllowPublicRegistration, RequireRegistrationApproval,
+	// RequireStrictReauth, LocalAdminOnly, PasswordComplexityEnabled) have no
+	// invalid value to reject: the wire decoder already refused anything that
+	// is not a bool.
+	return opts, nil
+}
+
 // CreateWithInitialAdmin creates the organization AND its initial
 // org_admin in one repository transaction (repo.CreateWithAdmin) — a bad
 // admin email creates NOTHING, so a retry is clean instead of hitting the
@@ -209,6 +301,24 @@ func (s *OrganizationService) Update(ctx context.Context, id uuid.UUID, opts Upd
 	if id.String() == domain.SystemOrgID && opts.Name != nil {
 		return nil, domain.ErrForbidden
 	}
+	// THE-UNVALIDATED-UPDATE (2026-08-31): this method went straight to
+	// repo.Update, so PUT {"domain":"lexus"} persisted a domain the create
+	// path refuses — and the repository appended *opts.Domain raw, without
+	// even the lowercase/trim the create path applies, so "LEXUS.COM " and
+	// "lexus.com" could become two different rows.
+	//
+	// LAYER: the SERVICE, because that is where create already normalizes
+	// and validates (buildOrganization). Putting it here keeps ONE
+	// convention and one grammar; the repository stays a dumb writer, as
+	// its Create counterpart is.
+	normalized, err := normalizeAndValidateUpdate(opts)
+	if err != nil {
+		// Wrapped so the handler can answer 400 instead of its
+		// catch-all 404 — the message keeps the field-specific text.
+		return nil, fmt.Errorf("%w: %v", errOrganizationInvalid, err)
+	}
+	opts = normalized
+
 	updated, err := s.repo.Update(ctx, id, opts)
 	if err != nil {
 		return nil, err

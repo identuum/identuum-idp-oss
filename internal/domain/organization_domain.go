@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 	"unicode"
@@ -134,6 +135,133 @@ const (
 	organizationNameMaxLength = 255
 	organizationSlugMaxLength = 255
 )
+
+// THE-UNVALIDATED-UPDATE (2026-08-31): these per-field validators exist so the
+// CREATE path (Organization.Validate, via buildOrganization) and the UPDATE
+// path (OrganizationService.Update, which validates each supplied option) run
+// THE SAME rule — one definition per field, never a second grammar. The
+// previous slice's rule claimed update coverage it did not have: Update()
+// went straight to repo.Update, so PUT {"domain":"lexus"} persisted.
+//
+// Each takes the field's own type and returns the same error the create path
+// has always returned, so behaviour on create is unchanged.
+
+// ValidateOrganizationName refuses a blank/whitespace-only name and anything
+// wider than the name column.
+func ValidateOrganizationName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return errors.New("name is required")
+	}
+	if len(name) > organizationNameMaxLength {
+		return fmt.Errorf("name must be %d characters or fewer", organizationNameMaxLength)
+	}
+	return nil
+}
+
+// ValidateOrganizationSlug accepts an EMPTY slug (it is optional) but holds a
+// present one to lowercase letters, digits and hyphens, never hyphen-edged.
+func ValidateOrganizationSlug(slug string) error {
+	s := strings.TrimSpace(slug)
+	if s == "" {
+		return nil
+	}
+	if len(s) > organizationSlugMaxLength {
+		return fmt.Errorf("org_slug must be %d characters or fewer", organizationSlugMaxLength)
+	}
+	if s[0] == '-' || s[len(s)-1] == '-' {
+		return errors.New("org_slug must not start or end with a hyphen")
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-' {
+			return errors.New("org_slug may contain only lowercase letters, digits and hyphens")
+		}
+	}
+	return nil
+}
+
+// ValidateOrganizationTier refuses a value outside the enum, which would
+// otherwise render as TierBase via Tier.String() — a silent downgrade.
+func ValidateOrganizationTier(t Tier) error {
+	if t != TierBase && t != TierPro && t != TierEnterprise {
+		return errors.New("tier must be one of TierBase, TierPro or TierEnterprise")
+	}
+	return nil
+}
+
+// ValidateMaxSessionsPerUser bounds the per-user session cap.
+func ValidateMaxSessionsPerUser(n int) error {
+	if n < 1 {
+		return errors.New("max_sessions_per_user must be at least 1")
+	}
+	if n > 100 {
+		return errors.New("max_sessions_per_user cannot exceed 100")
+	}
+	return nil
+}
+
+// ValidateMFAPolicy accepts only the two policy words the column stores.
+func ValidateMFAPolicy(p string) error {
+	if p != "optional" && p != "required" {
+		return errors.New("mfa_policy must be 'optional' or 'required'")
+	}
+	return nil
+}
+
+// ValidateServiceAccountExpiryDays bounds the SA expiry window (0 = perpetual).
+func ValidateServiceAccountExpiryDays(d int) error {
+	if d < 0 || d > 3650 {
+		return errors.New("service_account_expiry_days must be between 0 (perpetual) and 3650")
+	}
+	return nil
+}
+
+// ValidateM2MAnomalyLimit / ValidateM2MAnomalyWindowSeconds refuse negative
+// counts and windows. Zero remains valid — it is the "disabled" value live
+// rows carry.
+func ValidateM2MAnomalyLimit(n int) error {
+	if n < 0 {
+		return errors.New("m2m_anomaly_limit must not be negative")
+	}
+	return nil
+}
+
+func ValidateM2MAnomalyWindowSeconds(n int) error {
+	if n < 0 {
+		return errors.New("m2m_anomaly_window_seconds must not be negative")
+	}
+	return nil
+}
+
+// ValidateAuthPolicyValue / ValidateAPIAuthorizationPolicyValue mirror the
+// policy checks Organization.Validate performs, for the update path.
+func ValidateAuthPolicyValue(p string) error {
+	if p != AuthPolicyPermissive && p != AuthPolicyLocalOnly && p != AuthPolicyIDPOnly && p != AuthPolicyMixed {
+		return errors.New("auth_policy must be one of 'local_only', 'idp_only', 'mixed', or '' (permissive default)")
+	}
+	return nil
+}
+
+func ValidateAPIAuthorizationPolicyValue(p string) error {
+	if p != "" && p != APIAuthPolicyStrict && p != APIAuthPolicyImplicit {
+		return errors.New("api_authorization_policy must be 'STRICT' or 'IMPLICIT'")
+	}
+	return nil
+}
+
+// ValidateComplianceContactEmail accepts an empty value (the field is
+// optional, and clearing it is legitimate) and otherwise requires a parseable
+// address — the same mail.ParseAddress convention User.Validate uses.
+func ValidateComplianceContactEmail(email string) error {
+	e := strings.TrimSpace(email)
+	if e == "" {
+		return nil
+	}
+	if _, err := mail.ParseAddress(e); err != nil {
+		return errors.New("compliance_contact_email must be a valid email address")
+	}
+	return nil
+}
 
 // domainMaxLength is the DNS limit on a fully-qualified name in presentation
 // form (RFC 1035 §2.3.4, 255 octets of wire format ≙ 253 characters here).

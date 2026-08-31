@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -794,6 +795,15 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			LocalAdminOnly:              req.LocalAdminOnly,
 		})
 		if err != nil {
+			// THE-UNVALIDATED-UPDATE: a rejected field is a BAD REQUEST, not a
+			// missing organization. This branch used to collapse every error to
+			// 404, which would have reported a refused rename as "not found" —
+			// a lying status on top of the missing guard. Every other error
+			// keeps its previous answer.
+			if errors.Is(err, service.ErrOrganizationInvalid()) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
+				return
+			}
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}

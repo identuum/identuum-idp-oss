@@ -3,7 +3,6 @@ package domain
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -249,11 +248,8 @@ func (o *Organization) Validate() error {
 	// bound, so an over-long name reached Postgres and came back as a driver
 	// error instead of a clean refusal. Bounds match the live column widths
 	// (organizations.name / .org_slug are VARCHAR(255)).
-	if strings.TrimSpace(o.Name) == "" {
-		return errors.New("name is required")
-	}
-	if len(o.Name) > organizationNameMaxLength {
-		return fmt.Errorf("name must be %d characters or fewer", organizationNameMaxLength)
+	if err := ValidateOrganizationName(o.Name); err != nil {
+		return err
 	}
 
 	// THE-UNVALIDATED-DOMAIN (2026-08-31): `== ""` was the ENTIRE check, so
@@ -268,52 +264,31 @@ func (o *Organization) Validate() error {
 	// identifier that appears in lookups, so it gets a grammar rather than
 	// no check at all: lowercase letters, digits and hyphens, never
 	// hyphen-edged. The live rows ("system-local", "saab") satisfy it.
-	if slug := strings.TrimSpace(o.OrgSlug); slug != "" {
-		if len(slug) > organizationSlugMaxLength {
-			return fmt.Errorf("org_slug must be %d characters or fewer", organizationSlugMaxLength)
-		}
-		if slug[0] == '-' || slug[len(slug)-1] == '-' {
-			return errors.New("org_slug must not start or end with a hyphen")
-		}
-		for i := 0; i < len(slug); i++ {
-			c := slug[i]
-			if !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-' {
-				return errors.New("org_slug may contain only lowercase letters, digits and hyphens")
-			}
-		}
+	if err := ValidateOrganizationSlug(o.OrgSlug); err != nil {
+		return err
 	}
 
-	// Tier is an enum; an unlisted value would silently render as TierBase
-	// via Tier.String(), so an out-of-range value is refused rather than
-	// quietly downgraded.
-	if o.Tier != TierBase && o.Tier != TierPro && o.Tier != TierEnterprise {
-		return errors.New("tier must be one of TierBase, TierPro or TierEnterprise")
+	if err := ValidateOrganizationTier(o.Tier); err != nil {
+		return err
 	}
 
-	// M2M anomaly thresholds are counts/seconds: negative is meaningless and
-	// would otherwise reach the database unchallenged. Zero stays valid — it
-	// is the "disabled" value the live rows use.
-	if o.M2MAnomalyLimit < 0 {
-		return errors.New("m2m_anomaly_limit must not be negative")
+	if err := ValidateM2MAnomalyLimit(o.M2MAnomalyLimit); err != nil {
+		return err
 	}
-	if o.M2MAnomalyWindowSeconds < 0 {
-		return errors.New("m2m_anomaly_window_seconds must not be negative")
+	if err := ValidateM2MAnomalyWindowSeconds(o.M2MAnomalyWindowSeconds); err != nil {
+		return err
 	}
 
-	if o.MaxSessionsPerUser < 1 {
-		return errors.New("max_sessions_per_user must be at least 1")
+	if err := ValidateMaxSessionsPerUser(o.MaxSessionsPerUser); err != nil {
+		return err
 	}
 
-	if o.MaxSessionsPerUser > 100 {
-		return errors.New("max_sessions_per_user cannot exceed 100")
+	if err := ValidateMFAPolicy(o.MFAPolicy); err != nil {
+		return err
 	}
 
-	if o.MFAPolicy != "optional" && o.MFAPolicy != "required" {
-		return errors.New("mfa_policy must be 'optional' or 'required'")
-	}
-
-	if o.ServiceAccountExpiryDays < 0 || o.ServiceAccountExpiryDays > 3650 {
-		return errors.New("service_account_expiry_days must be between 0 (perpetual) and 3650")
+	if err := ValidateServiceAccountExpiryDays(o.ServiceAccountExpiryDays); err != nil {
+		return err
 	}
 
 	// Validate AuthPolicy — AuthPolicyPermissive ("") is the explicit legacy default.
