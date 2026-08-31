@@ -374,6 +374,16 @@ type OSSRouterDeps struct {
 	// URL.
 	DCRRegistrationBaseURL string
 
+	// UIPublicBaseURL is the browser-facing base URL of the identuum-ui
+	// frontend. It composes the activation link returned beside a freshly
+	// issued activation token (THE-UNUSABLE-TOKEN).
+	//
+	// It must be the UI origin, NOT the issuer: /activate is a UI page, so
+	// an issuer-based link would 404. Empty is supported — the handlers
+	// then return the token with an honest reason naming the setting
+	// instead of a guessed link.
+	UIPublicBaseURL string
+
 	// PasswordReset, EmailVerification, OrganizationActivation,
 	// and Claim back the account-lifecycle route family:
 	//
@@ -967,6 +977,9 @@ func mountOrganizations(router gin.IRouter, resolved OSSRouterDeps) {
 		orgDeps.ActivationResender = resolved.OrganizationActivationService
 		orgDeps.ActivationIssuer = resolved.OrganizationActivationService
 	}
+	// THE-UNUSABLE-TOKEN: the UI origin, passed through verbatim. Empty
+	// stays empty — the handlers refuse to guess a link.
+	orgDeps.ActivationLinkBaseURL = resolved.UIPublicBaseURL
 	if resolved.UserRepo != nil {
 		orgDeps.AdminCounter = resolved.UserRepo
 	}

@@ -60,6 +60,17 @@ type OrganizationsHandlerDeps struct {
 	// counter can never masquerade as "no administrator".
 	AdminCounter OrgAdminCounter
 
+	// ActivationLinkBaseURL is the browser-facing base URL of the
+	// identuum-ui frontend, used to compose the activation link returned
+	// beside a freshly issued activation token (THE-UNUSABLE-TOKEN).
+	//
+	// It is the UI origin ONLY — never this server's issuer — because
+	// /activate is a UI page, not an IdP route; an issuer-based link would
+	// 404. Empty is a supported state, not a fault: the handlers then
+	// return the token with an honest reason naming the setting instead of
+	// a guessed link.
+	ActivationLinkBaseURL string
+
 	// ActivationIssuer wires the create-organization admin_email flow
 	// (THE-BORN-DEACTIVATED): the org + initial org_admin are created
 	// atomically by OrganizationService.CreateWithInitialAdmin, then
@@ -679,10 +690,15 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "admin_provisioning_failed", "organization": toSafeOrganization(createdOrg)})
 				return
 			}
-			c.JSON(http.StatusCreated, gin.H{
+			// THE-UNUSABLE-TOKEN: the token ships WITH the link that
+			// consumes it, or with the reason no link exists. A bare token
+			// had no consumption path when email is unconfigured.
+			createdBody := gin.H{
 				"organization":     toSafeOrganization(createdOrg),
 				"activation_token": raw,
-			})
+			}
+			applyActivationLinkFields(createdBody, deps.ActivationLinkBaseURL, raw)
+			c.JSON(http.StatusCreated, createdBody)
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 				Action:    "organization.created",
 				Outcome:   "success",

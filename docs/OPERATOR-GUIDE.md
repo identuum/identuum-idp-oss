@@ -95,6 +95,65 @@ One-shot; safe to re-run (already-applied migrations are skipped). The
 appliance entrypoint migrates on boot, so this is normally only needed when
 operating against an externally-managed database.
 
+## Hand a new organization admin their activation
+
+Creating an organization with an `admin_email` issues a **one-time activation
+credential** for that administrator. It is shown to you once, at creation
+time, and again if you re-issue it — never afterwards.
+
+**This works with or without email delivery.** Those are the two supported
+modes, and they differ only in whether the IdP also sends the message for
+you:
+
+- **Email delivery configured** (`IDENTUUM_IDP_SMTP_HOST` and friends): the
+  IdP emails the activation link to the administrator. You still see the
+  credential in the response, so you can deliver it yourself if the mail does
+  not arrive.
+- **Email delivery not configured** — the default on a fresh install: nothing
+  is sent. Delivering the activation is *your* job, and the response gives you
+  what you need to do it.
+
+### What you get back, and which part to send
+
+The response carries the raw token **and** the link that consumes it:
+
+```
+activation_token   the raw one-time credential (not a URL)
+activation_url     the link to send — opens the activation page with the
+                   token already filled in
+```
+
+**Send the link.** The activation page reads the token from the link's query
+string; it has no field to paste a bare token into, so the token on its own
+cannot be redeemed by hand. The site-admin UI shows the link as the primary
+action, with the raw token underneath for the rare case you need it.
+
+### If there is no link
+
+When the IdP does not know the browser-facing address of the UI, it cannot
+build a link, and it says so instead of guessing one:
+
+```
+activation_url_unavailable   no activation link can be built because
+                             IDENTUUM_IDP_UI_PUBLIC_BASE_URL is not set ...
+```
+
+Set `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` to the UI's browser-facing base URL
+(for example `http://localhost:7104`) and re-issue the activation. A link is
+never fabricated from the IdP's own address: the activation page is served by
+the UI, not by the IdP, so such a link would not load.
+
+### Re-issuing
+
+If the credential is lost or expired (24 hours), re-issue it — this
+invalidates the previous one:
+
+```
+POST /api/v1/organizations/<org-id>/resend-activation
+```
+
+The response has the same shape, link included.
+
 ## Factory reset (DESTROYS ALL DATA)
 
 ```

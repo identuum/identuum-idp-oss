@@ -85,12 +85,19 @@ func HandleResendActivation(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 		// Echo the raw token (OSS operator retrieval path). The token is a
 		// secret: it appears ONLY in this response body — never in logs or
 		// audit metadata.
-		c.JSON(http.StatusOK, gin.H{
+		//
+		// THE-UNUSABLE-TOKEN: it now ships with the link that CONSUMES it
+		// (or the honest reason no link can be built). A bare token had no
+		// consumption path with email unconfigured — /activate reads ?token
+		// from the query string and has no input field.
+		body := gin.H{
 			"success":          true,
 			"activation_token": rawToken,
 			"admin_email":      adminEmail,
 			"expires_at":       expiresAt.UTC().Format(time.RFC3339),
-		})
+		}
+		applyActivationLinkFields(body, deps.ActivationLinkBaseURL, rawToken)
+		c.JSON(http.StatusOK, body)
 
 		// Best-effort audit (P-018). The raw token is deliberately NOT
 		// recorded; only identifier-shaped fields.

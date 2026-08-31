@@ -1206,8 +1206,13 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	hidePublicIDPEmailDomains := resolveHidePublicIDPEmailDomains(r.cfg.Getenv)
 
 	deps := api.OSSRouterDeps{
-		Version:                           r.cfg.Version,
-		DiscoveryConfig:                   server.OIDCDiscoveryConfig{Issuer: r.cfg.Issuer},
+		Version:         r.cfg.Version,
+		DiscoveryConfig: server.OIDCDiscoveryConfig{Issuer: r.cfg.Issuer},
+		// THE-UNUSABLE-TOKEN: the raw UI base URL — deliberately NOT
+		// linkBaseURL, which falls back to the issuer. /activate is a UI
+		// page, so an issuer-based activation link would 404; when this is
+		// unset the handlers say so instead of guessing.
+		UIPublicBaseURL:                   r.cfg.UIPublicBaseURL,
 		JWKSProvider:                      jwksProvider,
 		KeyService:                        keyService,
 		TokenVerifier:                     tokenVerifier,
