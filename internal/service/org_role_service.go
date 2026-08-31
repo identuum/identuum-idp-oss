@@ -146,18 +146,41 @@ func (s *OrgRoleService) GetRoleForActor(ctx context.Context, actor *domain.Prin
 	return role, nil
 }
 
+// UpdateOrgRoleOptions carries an org-role update. THE-SILENT-DROP: the
+// fields are POINTERS so the service can tell "not supplied" (nil) from
+// "supplied blank". They were plain strings, which cannot express that
+// difference — so a blank was silently dropped and the caller was told 200.
+type UpdateOrgRoleOptions struct {
+	// Name is REQUIRED when supplied: a blank value is refused, never ignored.
+	Name *string
+	// Description is OPTIONAL: a supplied empty value CLEARS it, which the
+	// previous plain-string form could not express at all.
+	Description *string
+}
+
 // UpdateRoleForActor updates name + description for a role in the
 // actor's tenant. site_admin may act across tenants.
-func (s *OrgRoleService) UpdateRoleForActor(ctx context.Context, actor *domain.Principal, roleID uuid.UUID, name, description string) (*domain.OrgRole, error) {
+//
+// THE-SILENT-DROP (2026-08-31): this method ran NO validator. It read
+// `if n := strings.TrimSpace(name); n != "" { role.Name = n }`, so
+// PUT {"name":"   "} assigned nothing, wrote the unchanged row and answered
+// 200 OK — the operator asked for a rename and was told it succeeded. The
+// create path has trimmed and refused a blank name since it was written; this
+// is the same rule, applied to a supplied value.
+func (s *OrgRoleService) UpdateRoleForActor(ctx context.Context, actor *domain.Principal, roleID uuid.UUID, opts UpdateOrgRoleOptions) (*domain.OrgRole, error) {
 	role, err := s.GetRoleForActor(ctx, actor, roleID)
 	if err != nil {
 		return nil, err
 	}
-	if n := strings.TrimSpace(name); n != "" {
+	if opts.Name != nil {
+		n := strings.TrimSpace(*opts.Name)
+		if n == "" {
+			return nil, fmt.Errorf("%w: role name is required", errOrgRoleInvalid)
+		}
 		role.Name = n
 	}
-	if d := strings.TrimSpace(description); d != "" {
-		role.Description = d
+	if opts.Description != nil {
+		role.Description = strings.TrimSpace(*opts.Description)
 	}
 	if err := s.repo.Update(ctx, role); err != nil {
 		return nil, err
@@ -467,6 +490,7 @@ func (s *OrgRoleService) GetScopesForUserForActor(ctx context.Context, actor *do
 
 var (
 	errOrgRoleNotFound               = errors.New("service: org role not found")
+	errOrgRoleInvalid                = errors.New("service: org role invalid")
 	errOrgRoleAPIResourceRepoMissing = errors.New("service: AddScope requires an APIResourceRepository")
 
 	// ErrUserRepositoryUnavailable is returned by
@@ -479,3 +503,8 @@ var (
 
 // ErrOrgRoleNotFound exposes the OSS not-found sentinel.
 func ErrOrgRoleNotFound() error { return errOrgRoleNotFound }
+
+// ErrOrgRoleInvalid exposes the field-validation sentinel so the handler can
+// answer 400. Before THE-SILENT-DROP there was nothing to expose: the update
+// path ran no validator at all and a blank rename answered 200.
+func ErrOrgRoleInvalid() error { return errOrgRoleInvalid }

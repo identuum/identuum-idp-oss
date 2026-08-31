@@ -215,7 +215,8 @@ func TestOrgRole_UpdateOrgAdminCrossOrgForbidden(t *testing.T) {
 	other := &domain.OrgRole{ID: uuid.New(), OrgID: uuid.New(), Name: "Other"}
 	_ = repo.Create(context.Background(), other)
 	actor := &domain.Principal{Role: domain.RoleOrgAdmin, OrganizationID: uuid.New()}
-	_, err := svc.UpdateRoleForActor(context.Background(), actor, other.ID, "X", "")
+	name := "X"
+	_, err := svc.UpdateRoleForActor(context.Background(), actor, other.ID, UpdateOrgRoleOptions{Name: &name})
 	if !errors.Is(err, domain.ErrForbidden) {
 		t.Errorf("cross-org Update = %v, want ErrForbidden", err)
 	}

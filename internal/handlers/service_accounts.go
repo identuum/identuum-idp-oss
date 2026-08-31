@@ -217,12 +217,16 @@ func HandleUpdateServiceAccount(deps ServiceAccountsHandlerDeps) gin.HandlerFunc
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
-		sa, err := deps.ServiceAccountService.UpdateForActor(c.Request.Context(), actor, saID, service.ServiceAccountAdminInput{
+		in := service.ServiceAccountUpdateInput{
 			Name:        req.Name,
 			Description: req.Description,
-			Role:        domain.UserRole(req.Role),
 			ExpiresAt:   req.ExpiresAt,
-		})
+		}
+		if req.Role != nil {
+			role := domain.UserRole(*req.Role)
+			in.Role = &role
+		}
+		sa, err := deps.ServiceAccountService.UpdateForActor(c.Request.Context(), actor, saID, in)
 		if err != nil {
 			respondSAError(c, err)
 			return
@@ -326,10 +330,11 @@ type serviceAccountCreateRequest struct {
 	ExpiresAt   *time.Time `json:"expires_at"`
 }
 
+// THE-SILENT-DROP: pointers so absent and supplied-blank differ on the wire.
 type serviceAccountUpdateRequest struct {
-	Name        string     `json:"name"`
-	Description string     `json:"description"`
-	Role        string     `json:"role"`
+	Name        *string    `json:"name"`
+	Description *string    `json:"description"`
+	Role        *string    `json:"role"`
 	ExpiresAt   *time.Time `json:"expires_at"`
 }
 

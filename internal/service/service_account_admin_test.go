@@ -196,8 +196,9 @@ func TestUpdateForActor_AppliesPatchSafely(t *testing.T) {
 	repo.byID[saID] = &domain.ServiceAccount{
 		ID: saID, OrganizationID: orgID, Active: true, Role: domain.RoleOrgUser, Name: "ci",
 	}
-	updated, err := svc.UpdateForActor(context.Background(), newOrgAdmin(orgID), saID, ServiceAccountAdminInput{
-		Name: "ci-v2", Role: domain.RoleOrgAdmin,
+	newName, newRole := "ci-v2", domain.RoleOrgAdmin
+	updated, err := svc.UpdateForActor(context.Background(), newOrgAdmin(orgID), saID, ServiceAccountUpdateInput{
+		Name: &newName, Role: &newRole,
 	})
 	if err != nil {
 		t.Fatalf("update: %v", err)
@@ -212,8 +213,9 @@ func TestUpdateForActor_RoleInvalidRejected(t *testing.T) {
 	orgID := uuid.New()
 	saID := uuid.New()
 	repo.byID[saID] = &domain.ServiceAccount{ID: saID, OrganizationID: orgID, Active: true, Role: domain.RoleOrgUser}
-	_, err := svc.UpdateForActor(context.Background(), newOrgAdmin(orgID), saID, ServiceAccountAdminInput{
-		Role: domain.RoleSiteAdmin,
+	badRole := domain.RoleSiteAdmin
+	_, err := svc.UpdateForActor(context.Background(), newOrgAdmin(orgID), saID, ServiceAccountUpdateInput{
+		Role: &badRole,
 	})
 	if !errors.Is(err, ErrSARoleInvalid) {
 		t.Errorf("err = %v", err)

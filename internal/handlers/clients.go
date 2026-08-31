@@ -470,7 +470,9 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		var req struct {
-			Name                              string     `json:"name,omitempty"`
+			// THE-SILENT-DROP: Name is a pointer so absent and supplied-blank
+			// differ; {"name":""} was answering 200 with an unchanged row.
+			Name                              *string    `json:"name,omitempty"`
 			Scope                             string     `json:"scope,omitempty"`
 			ServiceAccountID                  *uuid.UUID `json:"service_account_id,omitempty"`
 			RedirectURIs                      []string   `json:"redirect_uris,omitempty"`

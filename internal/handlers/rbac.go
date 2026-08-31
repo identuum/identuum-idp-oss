@@ -389,16 +389,22 @@ func HandleUpdateOrgRole(deps RBACHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid role id"})
 			return
 		}
+		// THE-SILENT-DROP: POINTERS, so absent and supplied-blank are
+		// distinguishable on the wire. As plain strings they were not, and a
+		// blank rename was dropped and answered 200.
 		var req struct {
-			Name        string `json:"name,omitempty"`
-			Description string `json:"description,omitempty"`
+			Name        *string `json:"name,omitempty"`
+			Description *string `json:"description,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
 		actor, _ := principalForCtx(c)
-		role, err := deps.OrgRoleService.UpdateRoleForActor(c.Request.Context(), actor, roleID, req.Name, req.Description)
+		role, err := deps.OrgRoleService.UpdateRoleForActor(c.Request.Context(), actor, roleID, service.UpdateOrgRoleOptions{
+			Name:        req.Name,
+			Description: req.Description,
+		})
 		if errors.Is(err, domain.ErrForbidden) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
@@ -412,6 +418,11 @@ func HandleUpdateOrgRole(deps RBACHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			case errors.Is(err, domain.ErrOrgRoleAlreadyExists):
 				c.JSON(http.StatusConflict, gin.H{"error": "name_exists"})
+			case errors.Is(err, service.ErrOrgRoleInvalid()):
+				// THE-SILENT-DROP: a supplied blank name is a BAD REQUEST.
+				// It used to be dropped and answered 200 OK, so a rename
+				// that changed nothing was reported as a success.
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			}

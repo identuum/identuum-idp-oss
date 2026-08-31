@@ -103,7 +103,14 @@ type RegisterClientOptions struct {
 // binding-validator seam (if wired) verifies the SA exists +
 // active + not-expired + org-match before persisting.
 type UpdateClientOptions struct {
-	Name                        string
+	// Name is a POINTER (THE-SILENT-DROP): nil is "not supplied"; a supplied
+	// value is validated, so PUT {"name":""} is a 400 instead of the 200
+	// with an unchanged row it was MEASURED answering. The remaining
+	// plain-string fields below are OPTIONAL with no create-time rule, so a
+	// blank there means "no change requested" rather than a lost rename —
+	// and TokenEndpointAuthMethod carries secret-clearing semantics that a
+	// blank-means-clear reading would change. They are deliberately left.
+	Name                        *string
 	Scope                       string
 	ServiceAccountID            *uuid.UUID
 	RedirectURIs                []string
@@ -279,13 +286,15 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 		return nil, errClientNotFound
 	}
 	// THE-UNVALIDATED-REST: a SUPPLIED value must pass the same rule create
-	// applies. `!= ""` / `!= nil` stays the "was it supplied" sentinel; what
-	// changed is that a supplied value is now checked rather than trusted.
-	if opts.Name != "" {
-		if err := validateClientName(opts.Name); err != nil {
+	// applies. THE-SILENT-DROP: Name is now a POINTER, because `!= ""` could
+	// not tell "not supplied" from "supplied blank" — PUT {"name":""} was
+	// MEASURED answering 200 with an unchanged row, reporting a rename that
+	// never happened. nil is absent; a supplied value is validated.
+	if opts.Name != nil {
+		if err := validateClientName(*opts.Name); err != nil {
 			return nil, err
 		}
-		client.Name = opts.Name
+		client.Name = *opts.Name
 	}
 	if opts.Scope != "" {
 		client.Scope = opts.Scope

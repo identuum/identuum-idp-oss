@@ -138,22 +138,41 @@ func (s *ServiceAccountService) GetForActor(ctx context.Context, actor *domain.P
 // UpdateForActor mutates Name / Description / Role / ExpiresAt.
 // Empty Name / Description / Role are interpreted as "leave
 // unchanged". ExpiresAt update is applied verbatim when non-nil.
-func (s *ServiceAccountService) UpdateForActor(ctx context.Context, actor *domain.Principal, saID uuid.UUID, in ServiceAccountAdminInput) (*domain.ServiceAccount, error) {
+// ServiceAccountUpdateInput carries a service-account update. THE-SILENT-DROP:
+// separate from ServiceAccountAdminInput (which create still uses) because
+// an update needs to tell "not supplied" from "supplied blank" and the shared
+// plain-string form could not — PUT {"name":"   "} and PUT {"name":""} were
+// both MEASURED answering 200 with an unchanged row.
+type ServiceAccountUpdateInput struct {
+	// Name is REQUIRED when supplied: blank is refused, never ignored.
+	Name *string
+	// Description is OPTIONAL: a supplied empty value clears it.
+	Description *string
+	Role        *domain.UserRole
+	ExpiresAt   *time.Time
+}
+
+func (s *ServiceAccountService) UpdateForActor(ctx context.Context, actor *domain.Principal, saID uuid.UUID, in ServiceAccountUpdateInput) (*domain.ServiceAccount, error) {
 	sa, err := s.GetForActor(ctx, actor, saID)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(in.Name) != "" {
-		sa.Name = strings.TrimSpace(in.Name)
+	if in.Name != nil {
+		// The same rule buildForActor applies at create, on a supplied value.
+		n := strings.TrimSpace(*in.Name)
+		if n == "" {
+			return nil, ErrSAInvalidInput
+		}
+		sa.Name = n
 	}
-	if in.Description != "" {
-		sa.Description = in.Description
+	if in.Description != nil {
+		sa.Description = *in.Description
 	}
-	if in.Role != "" {
-		if !domain.IsAllowedSARole(in.Role) {
+	if in.Role != nil {
+		if !domain.IsAllowedSARole(*in.Role) {
 			return nil, ErrSARoleInvalid
 		}
-		sa.Role = in.Role
+		sa.Role = *in.Role
 	}
 	if in.ExpiresAt != nil {
 		if !in.ExpiresAt.After(s.now()) {

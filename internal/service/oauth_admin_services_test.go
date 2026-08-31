@@ -396,7 +396,8 @@ func TestScopeTemplateService_CreateHappy(t *testing.T) {
 
 func TestScopeTemplateService_UpdateNotFound(t *testing.T) {
 	svc := NewScopeTemplateService(nil, newScopeTemplateRepo())
-	_, err := svc.Update(context.Background(), uuid.New(), uuid.New(), UpdateScopeTemplateOptions{Name: "n"})
+	name := "n"
+	_, err := svc.Update(context.Background(), uuid.New(), uuid.New(), UpdateScopeTemplateOptions{Name: &name})
 	if !errors.Is(err, ErrScopeTemplateNotFound()) {
 		t.Errorf("Update(missing) = %v, want ErrScopeTemplateNotFound", err)
 	}

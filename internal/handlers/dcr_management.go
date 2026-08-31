@@ -215,9 +215,11 @@ func HandleDCRManagementPut(deps DCRManagementHandlerDeps) gin.HandlerFunc {
 			}
 		}
 		opts := service.UpdateClientOptions{}
-		if req.ClientName != nil {
-			opts.Name = *req.ClientName
-		}
+		// THE-SILENT-DROP: the wire already distinguished absent from
+		// supplied-blank here, and this flattened it into a plain string so
+		// the service could not — a supplied "" became indistinguishable
+		// from "not supplied". Pass the pointer through instead.
+		opts.Name = req.ClientName
 		if req.RedirectURIs != nil {
 			opts.RedirectURIs = req.RedirectURIs
 		}

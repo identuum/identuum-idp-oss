@@ -322,9 +322,10 @@ func HandleUpdateScopeTemplate(deps ScopeTemplatesHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
+		// THE-SILENT-DROP: pointers so absent and supplied-blank differ.
 		var req struct {
-			Name        string   `json:"name,omitempty"`
-			Description string   `json:"description,omitempty"`
+			Name        *string  `json:"name,omitempty"`
+			Description *string  `json:"description,omitempty"`
 			Scopes      []string `json:"scopes,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {

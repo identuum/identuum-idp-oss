@@ -59,8 +59,9 @@ func TestClientServiceUpdate_RefusesMalformedBeforeReachingTheRepository(t *test
 		why  string
 		opts UpdateClientOptions
 	}{
-		{"a name that is whitespace only", UpdateClientOptions{Name: "   "}},
-		{"a name that is a single tab", UpdateClientOptions{Name: "\t"}},
+		{"a name that is whitespace only", UpdateClientOptions{Name: strPtr("   ")}},
+		{"a name that is a single tab", UpdateClientOptions{Name: strPtr("\t")}},
+		{"a name that is SUPPLIED EMPTY — a rename to nothing", UpdateClientOptions{Name: strPtr("")}},
 		{"an EMPTY redirect-URI list — the client could never complete a flow", UpdateClientOptions{RedirectURIs: []string{}}},
 		{"a redirect URI with a dangerous scheme", UpdateClientOptions{RedirectURIs: []string{"javascript:alert(1)"}}},
 		{"a redirect URI with no scheme", UpdateClientOptions{RedirectURIs: []string{"not-a-uri"}}},
@@ -80,7 +81,7 @@ func TestClientServiceUpdate_RefusesMalformedBeforeReachingTheRepository(t *test
 		opts UpdateClientOptions
 	}{
 		{"an empty option set changes nothing", UpdateClientOptions{}},
-		{"a real name", UpdateClientOptions{Name: "Billing Portal"}},
+		{"a real name", UpdateClientOptions{Name: strPtr("Billing Portal")}},
 		{"one redirect URI", UpdateClientOptions{RedirectURIs: []string{"https://app.example.com/cb"}}},
 		{"several redirect URIs", UpdateClientOptions{RedirectURIs: []string{"https://a.example.com/cb", "https://b.example.com/cb"}}},
 		{"a custom-scheme native redirect", UpdateClientOptions{RedirectURIs: []string{"com.example.app:/oauth"}}},
@@ -97,7 +98,7 @@ func TestClientServiceUpdate_RefusesMalformedBeforeReachingTheRepository(t *test
 	// ── a refused update must leave the STORED values untouched ──
 	svc, repo := newRecordingClientService()
 	if _, err := svc.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{
-		Name:         "New Name",
+		Name:         strPtr("New Name"),
 		RedirectURIs: []string{},
 	}); err == nil {
 		t.Fatal("UpdateClient accepted an empty redirect-URI list alongside a valid name")
@@ -109,7 +110,7 @@ func TestClientServiceUpdate_RefusesMalformedBeforeReachingTheRepository(t *test
 	// ── NOT trimmed, deliberately: prepareClient stores opts.Name verbatim,
 	// so trimming on update only would make one spelling become two rows.
 	svc, repo = newRecordingClientService()
-	if _, err := svc.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{Name: "  Padded  "}); err != nil {
+	if _, err := svc.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{Name: strPtr("  Padded  ")}); err != nil {
 		t.Fatalf("UpdateClient rejected a padded but non-blank name: %v", err)
 	}
 	if repo.last == nil || repo.last.Name != "  Padded  " {

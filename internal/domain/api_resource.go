@@ -34,10 +34,14 @@ type APIScope struct {
 
 // Validate checks if the APIResource is reasonably valid
 func (a *APIResource) Validate() error {
-	if a.Name == "" {
+	// THE-SILENT-DROP: `== ""` let a whitespace-only value through even
+	// though the option DTO is already pointer-typed, so PUT {"name":"   "}
+	// was MEASURED storing "   " as the resource name while {"name":""}
+	// correctly answered 400. Required means required after trimming.
+	if strings.TrimSpace(a.Name) == "" {
 		return errors.New("API resource name is required")
 	}
-	if a.Audience == "" {
+	if strings.TrimSpace(a.Audience) == "" {
 		return errors.New("API resource audience is required")
 	}
 	if a.TokenTTLSecs <= 0 {
@@ -112,7 +116,11 @@ var reservedScopePrefixes = []string{"system:", "keys:", "backups:"}
 // — RFC 6749 §3.3 forbids whitespace inside a scope token in the first
 // place, so the reject is both spec-compliant and security-load-bearing.
 func (t *ScopeTemplate) Validate() error {
-	if t.Name == "" {
+	// THE-SILENT-DROP: `== ""` let a whitespace-only name through, and a
+	// PUT of {"name":"   "} was MEASURED storing it as the template's name.
+	// A required field is required after trimming, on create and update
+	// alike — this is the one check both paths run.
+	if strings.TrimSpace(t.Name) == "" {
 		return errors.New("scope template name is required")
 	}
 	if len(t.Name) > 100 {

@@ -41,8 +41,11 @@ type CreateScopeTemplateOptions struct {
 // Scopes replaces the prior value; empty Description is treated as
 // "leave unchanged".
 type UpdateScopeTemplateOptions struct {
-	Name        string
-	Description string
+	// THE-SILENT-DROP: pointers, so nil is "not supplied" and a supplied
+	// blank is a value the validator gets to refuse. Name is REQUIRED;
+	// Description is optional and a supplied empty value clears it.
+	Name        *string
+	Description *string
 	Scopes      []string
 }
 
@@ -108,11 +111,16 @@ func (s *ScopeTemplateService) Update(ctx context.Context, id, orgID uuid.UUID, 
 	// which returns a fresh row, but correct against any repo that hands back
 	// its stored pointer).
 	next := *template
-	if opts.Name != "" {
-		next.Name = opts.Name
+	// THE-SILENT-DROP (2026-08-31): these were plain strings compared against
+	// "", so a supplied blank name was DROPPED and answered 200 with an
+	// unchanged row, and a description could never be cleared. As pointers,
+	// nil is "not supplied" and a supplied value is validated below —
+	// including the whitespace-only name that Validate used to accept.
+	if opts.Name != nil {
+		next.Name = *opts.Name
 	}
-	if opts.Description != "" {
-		next.Description = opts.Description
+	if opts.Description != nil {
+		next.Description = *opts.Description
 	}
 	if opts.Scopes != nil {
 		next.Scopes = opts.Scopes
