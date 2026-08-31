@@ -8,7 +8,7 @@ requirement: what runs, where it lives, what every floor means, and how the
 evidence chain works. The operator tier is
 [`TESTING-OPERATORS.md`](TESTING-OPERATORS.md).
 
-## The three layers
+## The layers
 
 1. **`make verify` (this repo)** — the per-commit gate: build, unit tests,
    staticcheck, govulncheck, grype, rulefloor ledger check (FLOOR 173),
@@ -18,7 +18,18 @@ evidence chain works. The operator tier is
    the run saw. `identuum-ui` has the same shape (`make verify`, FLOOR 62).
 2. **`make integration-test` (this repo)** — build-tagged suites against a
    dedicated `*_test` database (`TEST-DB-ISOLATION-1` refuses any other DSN).
-3. **`make test-full` (this repo)** — the full-behavior disposable harness,
+3. **The by-hand stack targets (this repo)** — not a gate, but the same
+   machinery an operator drives manually, kept honest because the harness
+   uses the same compose file and entrypoint: `oss-fresh` (destroy → up →
+   bootstrap → print where to sign in; refuses without
+   `I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1`), `oss-up` / `fast-down` /
+   `fast-clean` (all `--profile app`, so the profiled app container never
+   survives a teardown), `oss-bootstrap` and `oss-recover-site-admin` (exec
+   the binary DIRECTLY — the runtime image is distroless, so `sh -c` cannot
+   work), and `oss-setup-code` (prints the first-run code from the
+   container's own `/app/data`; no volume mount is required or made). See
+   [`TESTING-OPERATORS.md`](TESTING-OPERATORS.md) "Running it by hand".
+4. **`make test-full` (this repo)** — the full-behavior disposable harness,
    anchored here (T2): a sibling-checkout guard, delegation to the canonical
    runner (`identuum-ui/e2e-full/scripts/full-run.sh` — its body stays there
    because four ui source-invariant tests pin its content in ui's

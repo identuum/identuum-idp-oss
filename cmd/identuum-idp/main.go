@@ -225,10 +225,18 @@ func requirePositionalURL(sub string, rest []string, stderr io.Writer) (string, 
 
 // dispatchShowSetupCode parses the show-setup-code subcommand:
 //
-//	identuum-idp show-setup-code <data-dir> [--database-url <url>]
+//	identuum-idp show-setup-code [--database-url <url>] <data-dir>
+//
+// FLAGS COME FIRST. Go's flag package stops parsing at the first
+// non-flag argument, so the documented-but-wrong
+// `show-setup-code <data-dir> --database-url <url>` left the flag and
+// its value sitting in fs.Args() — NArg()==3 — and the command died
+// with "requires exactly one <data-dir> argument" (THE-MANUAL-TARGETS,
+// measured live by the operator).
 //
 // The data dir is the single positional argument; --database-url
-// overrides IDENTUUM_IDP_DATABASE_URL. Behavior is otherwise identical
+// overrides IDENTUUM_IDP_DATABASE_URL (and the compose-shaped
+// IDENTUUM_IDP_OSS_DB fallback). Behavior is otherwise identical
 // to the prior --show-setup-code flag: it prints the appliance setup
 // code only while the database reports setup_required, and the URL is
 // never echoed.
@@ -269,7 +277,10 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "                                     (reads IDENTUUM_IDP_BOOTSTRAP_PASSWORD)")
 	fmt.Fprintln(w, "  recover-site-admin <database-url>  reset the site_admin password + MFA")
 	fmt.Fprintln(w, "                                     (reads IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD)")
-	fmt.Fprintln(w, "  show-setup-code <data-dir>         print the setup code while setup_required")
+	fmt.Fprintln(w, "  show-setup-code [--database-url <url>] <data-dir>")
+	fmt.Fprintln(w, "                                     print the setup code while setup_required")
+	fmt.Fprintln(w, "                                     (flags BEFORE the positional — Go's parser")
+	fmt.Fprintln(w, "                                     stops at the first non-flag argument)")
 	fmt.Fprintln(w, "  doctor [database-url]              READ-ONLY diagnosis: named states for version,")
 	fmt.Fprintln(w, "                                     db, at-rest key, setup, signing-key seal;")
 	fmt.Fprintln(w, "                                     exit 0 healthy, non-zero names the failing state")

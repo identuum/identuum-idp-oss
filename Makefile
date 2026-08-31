@@ -355,6 +355,7 @@ verify:
 		'r-suite=$(MAKE) --no-print-directory r-suite' \
 		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
 		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
+		'distroless-exec-check=$(MAKE) --no-print-directory distroless-exec-check' \
 		'clock-fuse-report=$(MAKE) --no-print-directory clock-fuse-report' \
 		'clock-fuse-gate=$(MAKE) --no-print-directory clock-fuse-gate' \
 		'tagged-vet=$(MAKE) --no-print-directory tagged-vet' \
@@ -509,6 +510,7 @@ ci-verify:
 		'r-suite=$(MAKE) --no-print-directory r-suite' \
 		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
 		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
+		'distroless-exec-check=$(MAKE) --no-print-directory distroless-exec-check' \
 		'clock-fuse-report=$(MAKE) --no-print-directory clock-fuse-report' \
 		'tagged-vet=$(MAKE) --no-print-directory tagged-vet' \
 		'integration-inventory=$(MAKE) --no-print-directory integration-inventory' \
@@ -854,6 +856,35 @@ image-policy-restate-check:
 		exit 1; \
 	fi
 
+## distroless-exec-check: the runtime image ships NO SHELL, so any make rule that
+## wraps a container exec in `sh -c` / `bash -c` is dead on arrival (exec: "sh":
+## executable file not found, exit 127).
+##
+## THE-MANUAL-TARGETS (2026-08-31): this exact defect was fixed once in
+## oss-recover-site-admin and left standing in oss-bootstrap, where it made the
+## documented bootstrap path unusable — the harness worked around it and the
+## operator lost an hour to it. Nothing failed, because nothing checked. This
+## gate is the teeth: exec the binary directly, always.
+distroless-exec-check:
+	@# Match the container-exec ARGV line itself (`app sh -c …`), not the
+	@# `compose … exec` line: these rules span backslash continuations, so the
+	@# shell wrapper and the word `exec` are on DIFFERENT lines. A pattern
+	@# requiring both on one line matched nothing — including the original
+	@# defect (caught by this gate's own red-proof before it was trusted).
+	@# Comment lines are EXCLUDED deliberately: the rules above and this gate's
+	@# own prose quote the broken form to explain it. Recipe lines are what
+	@# execute, so only they are scanned (a doc line must never fail a build).
+	@out="$$(grep -nE '(^|[[:space:]])app[[:space:]]+(sh|bash)[[:space:]]+-c' Makefile \
+		| grep -vE '^[0-9]+:[[:space:]]*@?#' || true)"; \
+	if [ -n "$$out" ]; then \
+		echo "SHELL-WRAPPED CONTAINER EXEC (the runtime image is distroless — no shell):"; \
+		echo "$$out"; \
+		echo "Exec the binary DIRECTLY: '... exec app /app/identuum-idp <subcommand>'."; \
+		echo "Subcommands taking [database-url] read IDENTUUM_IDP_DATABASE_URL /"; \
+		echo "IDENTUUM_IDP_OSS_DB from the container env, so no shell expansion is needed."; \
+		exit 1; \
+	fi
+
 ## grype-scan: Anchore Grype filesystem scan; fails on any High or Critical finding.
 ## Requires grype to be installed (https://github.com/anchore/grype).
 ## Runs both locally (via `verify`) AND in CI (via `ci-verify`) — CI installs a
@@ -981,13 +1012,20 @@ fast-up:
 	echo "PostgreSQL is ready (127.0.0.1:$(DEV_PG_HOST_PORT))."
 
 ## fast-down: stop and remove the local development containers (volume preserved).
+##
+## `--profile app` is REQUIRED (THE-MANUAL-TARGETS): compose only stops
+## containers whose profile is active, so a plain `down` left the profiled app
+## container RUNNING — holding the network open and serving against a database
+## that had just been removed. Measured on the operator's box.
 fast-down:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE) down
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app down
 
 ## fast-clean: stop containers AND remove the named volume (full reset).
 ## Use this to start with a fresh empty database. validate uses this automatically.
+## Same `--profile app` requirement as fast-down — without it the app container
+## survives the volume removal and keeps serving on a destroyed database.
 fast-clean:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE) down --volumes
+	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app down --volumes
 
 ## dev-up: start the local IDP OSS app + Postgres stack (volumes preserved).
 dev-up:
@@ -1521,20 +1559,101 @@ oss-logs:
 ##     IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<choose-a-strong-local-demo-password>' \
 ##       make oss-bootstrap
 ##
-##   The bootstrap binary runs identuum-idp bootstrap "$$IDENTUUM_IDP_OSS_DB"
-##   inside the existing identuum-idp-oss container. The container
-##   keeps serving HTTP — this is a side-channel one-shot.
+##   The bootstrap binary runs identuum-idp bootstrap inside the existing
+##   identuum-idp-oss container. The container keeps serving HTTP — this is a
+##   side-channel one-shot.
 oss-bootstrap:
 	@if [ -z "$$IDENTUUM_IDP_BOOTSTRAP_PASSWORD" ]; then \
 		echo "ERROR: IDENTUUM_IDP_BOOTSTRAP_PASSWORD is not set in the caller's environment."; \
 		echo "       Set it before running make oss-bootstrap (it is never echoed)."; \
 		exit 2; \
 	fi
+	@# Exec the binary DIRECTLY — no `sh -c`. The runtime image is distroless
+	@# (no shell), so `app sh -c '…'` died with exec: "sh": executable file not
+	@# found and this target could never have worked (THE-MANUAL-TARGETS; the
+	@# same defect RECOVERY-BINARY-PATH-1 already fixed in oss-recover-site-admin
+	@# below). bootstrap with no positional URL reads the container's own
+	@# IDENTUUM_IDP_DATABASE_URL / IDENTUUM_IDP_OSS_DB (requirePositionalURL) —
+	@# no DSN assembly, no shell, and the URL never crosses the host boundary.
 	@$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app exec \
 		-e IDENTUUM_IDP_BOOTSTRAP_PASSWORD \
 		-e IDENTUUM_IDP_BOOTSTRAP_EMAIL \
 		-e IDENTUUM_IDP_BOOTSTRAP_ALGORITHM \
-		app sh -c '/app/identuum-idp bootstrap "$$IDENTUUM_IDP_OSS_DB"'
+		app /app/identuum-idp bootstrap
+
+## oss-setup-code: print the first-run setup code for the RUNNING OSS app
+##   container, for the browser wizard at http://localhost:7104/setup.
+##
+##   NO COMPOSE CHANGE WAS NEEDED, and none was made (THE-MANUAL-TARGETS,
+##   measured 2026-08-31): /app/data is created by the appliance entrypoint
+##   (appliance.PrepareDataDir → MkdirAll 0700) inside the container's own
+##   writable layer, and the boot banner writes the token there. The command
+##   was verified live against a container with ZERO mounts. Mounting a
+##   /app/data volume was considered and REJECTED as unnecessary; the
+##   SIGNING-KEY-SEAL-1 note in docker-compose.dev.yml is unaffected either
+##   way, because ResolveEncryptionKey returns KeyFromOperator the moment
+##   IDENTUUM_IDP_ENCRYPTION_KEY is set (which dev compose always sets) and
+##   never consults the data dir for the key.
+##
+##   The code is only valid while the DB reports setup_required; once setup
+##   completes the command says so and exits 2. The token is per-container:
+##   recreating the app container regenerates it (the new one is printed on
+##   the boot banner), so read it AFTER the container you intend to set up.
+##
+##   Prints the code to the operator's terminal — treat that terminal like
+##   the boot log: it is a credential for the wizard.
+oss-setup-code:
+	@$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app exec \
+		app /app/identuum-idp show-setup-code /app/data
+
+## oss-fresh: DESTROY the local OSS stack and stand a bootstrapped one up.
+##
+##   *** THIS DESTROYS DATA. *** It removes the app + Postgres containers AND
+##   the named Postgres volume — every organization, user, client, key and
+##   audit row in the local dev database is gone. It refuses to run without
+##   an explicit opt-in, which is deliberately not a default:
+##
+##     IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<strong-local-demo-password>' \
+##       make oss-fresh I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1
+##
+##   Sequence: fast-clean (profile-aware, so nothing survives) → oss-up →
+##   wait for /health → oss-bootstrap → print where to sign in. Bootstrap
+##   and the browser wizard are MUTUALLY EXCLUSIVE paths; this target takes
+##   the bootstrap path, so /setup will report setup already complete.
+oss-fresh:
+	@if [ "$(I_UNDERSTAND_THIS_DESTROYS_ALL_DATA)" != "1" ]; then \
+		echo "REFUSING: oss-fresh DESTROYS ALL LOCAL DEV DATA."; \
+		echo "  It removes: the identuum-idp-oss app container, the postgres-idp-oss"; \
+		echo "  container, and the named Postgres volume (every org, user, client,"; \
+		echo "  signing key and audit row in the local dev database)."; \
+		echo "  Re-run with an explicit opt-in if that is what you want:"; \
+		echo "    IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<password>' make oss-fresh I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1"; \
+		exit 2; \
+	fi
+	@if [ -z "$$IDENTUUM_IDP_BOOTSTRAP_PASSWORD" ]; then \
+		echo "ERROR: IDENTUUM_IDP_BOOTSTRAP_PASSWORD is not set in the caller's environment."; \
+		echo "       Set it before running make oss-fresh (it is never echoed)."; \
+		exit 2; \
+	fi
+	@echo "oss-fresh: destroying the local OSS stack (containers + Postgres volume)..."
+	@$(MAKE) --no-print-directory fast-clean
+	@echo "oss-fresh: building + starting the appliance..."
+	@$(MAKE) --no-print-directory oss-up
+	@echo "oss-fresh: waiting for the appliance to serve..."
+	@i=0; until curl -fsS --max-time 2 http://127.0.0.1:7113/health >/dev/null 2>&1; do \
+		i=$$((i+1)); \
+		if [ $$i -ge 60 ]; then echo "oss-fresh: appliance never became healthy (120s)"; exit 1; fi; \
+		sleep 2; \
+	done
+	@echo "oss-fresh: bootstrapping site_admin..."
+	@$(MAKE) --no-print-directory oss-bootstrap
+	@echo ""
+	@echo "oss-fresh: READY."
+	@echo "  IdP:  http://localhost:7113   (health, OIDC discovery, API)"
+	@echo "  UI:   http://localhost:7104   (start it from ../identuum-ui: pnpm dev)"
+	@echo "  Sign in at http://localhost:7104/login as site_admin@system.local"
+	@echo "  with the password you exported. Setup is ALREADY COMPLETE (bootstrap"
+	@echo "  path) — do not run the /setup wizard; it will refuse."
 
 ## oss-recover-site-admin: explicit operator-run recovery for site_admin@system.local.
 ##   Use when the bootstrap row exists but the original password is lost.

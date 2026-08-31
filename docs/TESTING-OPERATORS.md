@@ -52,6 +52,78 @@ passwords the run needs are generated fresh for that run and never shown.
      ran and what it saw) and report it. That file plus the printed failure
      is everything a developer needs to start.
 
+## Running it by hand
+
+Sometimes you do not want the whole suite — you want a working local stack to
+click around in. Every step below is a `make` target run from
+`identuum-idp-oss`; none of it needs a hand-written `docker` command.
+
+**The whole thing, one command** (destroys the local dev database, so it asks
+you to say so explicitly):
+
+```bash
+IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<choose-a-strong-local-password>' \
+  make oss-fresh I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1
+```
+
+That destroys the old stack, builds and starts the appliance, waits for it to
+answer, creates the site administrator, and prints where to sign in. Without
+the opt-in it refuses and lists exactly what it would remove.
+
+**Or step by step:**
+
+```bash
+make fast-clean        # destroy: containers AND the Postgres volume (all data)
+make oss-up            # build + start the appliance on 127.0.0.1:7113
+make oss-bootstrap     # create site_admin (needs IDENTUUM_IDP_BOOTSTRAP_PASSWORD)
+make oss-logs          # follow the app log (Ctrl-C detaches)
+make fast-down         # stop + remove containers, KEEP the database
+```
+
+`make oss-bootstrap` needs the password in your environment; it is never
+printed:
+
+```bash
+IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<password>' make oss-bootstrap
+```
+
+### The two ways to create the first administrator — pick ONE
+
+They are **mutually exclusive**. Both create the site administrator; whichever
+runs first wins, and the other then refuses.
+
+| | Bootstrap (CLI) | Wizard (browser) |
+|---|---|---|
+| How | `make oss-bootstrap` | open `/setup`, paste the setup code |
+| Code needed | no | yes — `make oss-setup-code` prints it |
+| After it runs | `/setup` reports setup already complete | `make oss-bootstrap` reports the same |
+
+If you want the wizard, start the stack (`make fast-clean && make oss-up`) and
+do **not** bootstrap. Then:
+
+```bash
+make oss-setup-code    # prints the first-run setup code
+```
+
+Treat that code like a password: it authorises the wizard. It is also printed
+in the boot log. It is regenerated whenever the app container is recreated, so
+read it after starting the container you intend to set up. Once setup is
+complete the command tells you so and stops — it never prints a stale code.
+
+### The URLs — and two that look alike but are not
+
+- **`http://localhost:7113`** — the IdP itself (health, OIDC discovery, API).
+- **`http://localhost:7104`** — the UI. **Not 3000.** The dev server is pinned
+  to 7104 (`next dev --port 7104`); start it from the `identuum-ui` checkout
+  with `pnpm dev`. The docker install path serves the UI on the same port.
+- **`http://localhost:7104/setup`** — the IdP's first-run wizard: enter the
+  setup code, create the first organization and site administrator.
+- **`http://localhost:7104/setup-required`** — a *different* page with a
+  similar name. It means the **UI's own runtime configuration file is
+  missing** (the UI does not know where the IdP is), not that the IdP needs
+  setting up. Its fix is the UI's one-shot config helper, not the wizard. If
+  you land here, no amount of setup-code pasting will help.
+
 ## What the suite does NOT cover (known, recorded — not forgotten)
 
 - **Backup / restore** — there is no product backup procedure yet to test;
