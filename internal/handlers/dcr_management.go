@@ -226,21 +226,14 @@ func HandleDCRManagementPut(deps DCRManagementHandlerDeps) gin.HandlerFunc {
 		if req.PostLogoutRedirectURIs != nil {
 			opts.PostLogoutRedirectURIs = req.PostLogoutRedirectURIs
 		}
-		if req.TokenEndpointAuthMethod != nil {
-			opts.TokenEndpointAuthMethod = *req.TokenEndpointAuthMethod
-		}
-		if req.TokenEndpointAuthSigningAlg != nil {
-			opts.TokenEndpointAuthSigningAlg = *req.TokenEndpointAuthSigningAlg
-		}
-		if req.Scope != nil {
-			opts.Scope = *req.Scope
-		}
-		if req.JWKSUri != nil {
-			opts.JWKSUri = *req.JWKSUri
-		}
-		if req.JWKS != nil {
-			opts.JWKS = *req.JWKS
-		}
+		// THE-SILENT-DROP-2: the wire already distinguished absent from
+		// supplied-blank for all five, and each was flattened into a plain
+		// string so the service could not. Pass the pointers through.
+		opts.TokenEndpointAuthMethod = req.TokenEndpointAuthMethod
+		opts.TokenEndpointAuthSigningAlg = req.TokenEndpointAuthSigningAlg
+		opts.Scope = req.Scope
+		opts.JWKSUri = req.JWKSUri
+		opts.JWKS = req.JWKS
 		if req.FrontchannelLogoutURI != nil {
 			opts.FrontchannelLogoutURI = req.FrontchannelLogoutURI
 		}

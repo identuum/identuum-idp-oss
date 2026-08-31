@@ -43,8 +43,9 @@ func TestUpdateClient_ClearsSecretWhenMethodStopsUsingOne(t *testing.T) {
 				t.Fatalf("precondition: a confidential client must start WITH a secret hash")
 			}
 
+			method := tc.method
 			got, err := svc.UpdateClient(context.Background(), c.ID, UpdateClientOptions{
-				TokenEndpointAuthMethod: tc.method,
+				TokenEndpointAuthMethod: &method,
 			})
 			if err != nil {
 				t.Fatalf("UpdateClient: %v", err)

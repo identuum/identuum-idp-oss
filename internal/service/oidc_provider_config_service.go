@@ -98,10 +98,14 @@ func ErrOIDCProviderInvalidInput() error { return errOIDCProviderInvalidInput }
 // ClientSecret is allowed (public / PKCE-only clients); a non-empty one is
 // encrypted via SecretCipher.
 type OIDCProviderInput struct {
-	OrganizationID       uuid.UUID
-	Type                 domain.IdentityProviderType
-	Name                 string
-	Slug                 string
+	OrganizationID uuid.UUID
+	Type           domain.IdentityProviderType
+	Name           string
+	// Slug is a POINTER (THE-SILENT-DROP-2): nil is "not supplied" — create
+	// defaults it to "oidc", update keeps the stored one — and a supplied
+	// blank is refused on BOTH paths rather than silently becoming the
+	// default on one and the old value on the other.
+	Slug                 *string
 	IssuerURL            string
 	ClientID             string
 	ClientSecret         string
@@ -142,9 +146,15 @@ func (s *OIDCProviderConfigService) CreateOIDCProvider(ctx context.Context, in O
 		}
 	}
 
-	slug := strings.TrimSpace(in.Slug)
-	if slug == "" {
-		slug = "oidc"
+	// Absent keeps the documented default; a SUPPLIED blank is refused, the
+	// same answer the update path gives.
+	slug := "oidc"
+	if in.Slug != nil {
+		supplied := strings.TrimSpace(*in.Slug)
+		if supplied == "" {
+			return nil, errOIDCProviderInvalidInput
+		}
+		slug = supplied
 	}
 
 	provider := &domain.IdentityProvider{
@@ -224,9 +234,25 @@ func (s *OIDCProviderConfigService) UpdateOIDCProvider(ctx context.Context, orgI
 		}
 	}
 
-	slug := strings.TrimSpace(in.Slug)
-	if slug == "" {
-		slug = existing.Slug
+	// THE-SILENT-DROP-2: Slug is a POINTER, so the three cases are distinct.
+	//
+	// THE CONTRACT, changed for this field ONLY — the other fields keep the
+	// full-document replace semantics this PUT already had:
+	//   absent (nil)        -> keep the stored slug. Unchanged behaviour, now
+	//                          explicit rather than a side effect of blankness.
+	//   supplied non-blank  -> replace.
+	//   supplied blank      -> 400. A slug cannot be cleared: create defaults
+	//                          it to "oidc" when absent, and the row always
+	//                          carries one, so there is no unset state to
+	//                          move to. Previously this silently kept the old
+	//                          value and answered 200.
+	slug := existing.Slug
+	if in.Slug != nil {
+		supplied := strings.TrimSpace(*in.Slug)
+		if supplied == "" {
+			return nil, errOIDCProviderInvalidInput
+		}
+		slug = supplied
 	}
 
 	updated := &domain.IdentityProvider{

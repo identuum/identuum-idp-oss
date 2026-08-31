@@ -125,6 +125,31 @@ var AllowedClientAuthMethods = map[string]struct{}{
 	"private_key_jwt":     {},
 }
 
+// ValidateClientAuthMethod and ValidateClientSigningAlg enforce the two
+// allow-lists above. THE-SILENT-DROP-2: both maps existed with ZERO
+// production callers, so the oauth_clients_auth_method_check and
+// oauth_clients_signing_alg_check CHECK constraints were the only thing
+// actually refusing an unlisted value — the service handed anything through
+// and read the answer back from the database.
+//
+// Neither accepts the empty string, and that is why blank cannot mean CLEAR
+// for these two fields: both columns are NOT NULL with a DEFAULT, and the
+// repository silently substitutes that default for a blank value. "Clearing"
+// them would hand the caller client_secret_basic / EdDSA without being asked.
+func ValidateClientAuthMethod(method string) error {
+	if _, ok := AllowedClientAuthMethods[method]; !ok {
+		return fmt.Errorf("%w: token_endpoint_auth_method %q is not a supported value", ErrInvalidRequest, method)
+	}
+	return nil
+}
+
+func ValidateClientSigningAlg(alg string) error {
+	if _, ok := PrivateKeyJWTSigningAlgorithms[alg]; !ok {
+		return fmt.Errorf("%w: token_endpoint_auth_signing_alg %q is not a supported value", ErrInvalidRequest, alg)
+	}
+	return nil
+}
+
 // AuthMethodUsesClientSecret reports whether a token_endpoint_auth_method
 // authenticates the client with a shared secret.
 //

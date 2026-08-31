@@ -98,7 +98,7 @@ func (s *ServiceAccountService) buildForActor(actor *domain.Principal, orgID uui
 	sa := &domain.ServiceAccount{
 		OrganizationID: orgID,
 		Name:           strings.TrimSpace(in.Name),
-		Description:    in.Description,
+		Description:    strings.TrimSpace(in.Description),
 		Role:           role,
 		Active:         true,
 		ExpiresAt:      in.ExpiresAt,
@@ -166,7 +166,13 @@ func (s *ServiceAccountService) UpdateForActor(ctx context.Context, actor *domai
 		sa.Name = n
 	}
 	if in.Description != nil {
-		sa.Description = *in.Description
+		// THE-SILENT-DROP-2: TRIMMED, matching OrgRoleService. The previous
+		// slice left this assigning the raw value, so a whitespace-only
+		// description CLEARED an org role and was STORED as "   " on a
+		// service account — one convention, two answers. Trimming makes ""
+		// and "   " both mean "cleared" on every surface. buildForActor
+		// trims too, so create and update stay aligned.
+		sa.Description = strings.TrimSpace(*in.Description)
 	}
 	if in.Role != nil {
 		if !domain.IsAllowedSARole(*in.Role) {

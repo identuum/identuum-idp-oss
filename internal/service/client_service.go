@@ -103,23 +103,34 @@ type RegisterClientOptions struct {
 // binding-validator seam (if wired) verifies the SA exists +
 // active + not-expired + org-match before persisting.
 type UpdateClientOptions struct {
-	// Name is a POINTER (THE-SILENT-DROP): nil is "not supplied"; a supplied
-	// value is validated, so PUT {"name":""} is a 400 instead of the 200
-	// with an unchanged row it was MEASURED answering. The remaining
-	// plain-string fields below are OPTIONAL with no create-time rule, so a
-	// blank there means "no change requested" rather than a lost rename —
-	// and TokenEndpointAuthMethod carries secret-clearing semantics that a
-	// blank-means-clear reading would change. They are deliberately left.
+	// Every string field is a POINTER: nil is "not supplied", and a supplied
+	// value is acted on. THE-SILENT-DROP-2 settled what a supplied BLANK
+	// means, per field, from what the storage layer can actually represent:
+	//
+	//   Name                        REFUSED — required, has a create-time rule
+	//   Scope                       CLEARS  — nullable; an empty scope set is legitimate
+	//   JWKSUri, JWKS               CLEAR   — nullable; the repository already maps
+	//                                         "" to NULL, which is what the
+	//                                         oauth_clients_pkj_key_source_check
+	//                                         constraint compares against, and
+	//                                         resolveKey already trims and treats
+	//                                         a blank as absent
+	//   TokenEndpointAuthMethod     REFUSED — NOT NULL with a CHECK allow-list that
+	//   TokenEndpointAuthSigningAlg REFUSED   does not include ""; the repository
+	//                                         silently substitutes the column
+	//                                         DEFAULT for a blank, so "clearing"
+	//                                         would store client_secret_basic /
+	//                                         EdDSA without the caller asking
 	Name                        *string
-	Scope                       string
+	Scope                       *string
 	ServiceAccountID            *uuid.UUID
 	RedirectURIs                []string
 	PostLogoutRedirectURIs      []string
 	AllowedAudiences            []string
-	TokenEndpointAuthMethod     string
-	TokenEndpointAuthSigningAlg string
-	JWKSUri                     string
-	JWKS                        string
+	TokenEndpointAuthMethod     *string
+	TokenEndpointAuthSigningAlg *string
+	JWKSUri                     *string
+	JWKS                        *string
 	// The four logout-URI fields are tri-state:
 	//   nil   = leave unchanged
 	//   &""   = clear (set NULL / false)
@@ -296,8 +307,11 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 		}
 		client.Name = *opts.Name
 	}
-	if opts.Scope != "" {
-		client.Scope = opts.Scope
+	// CLEARS: an empty scope set is a legitimate state, and the column takes
+	// it verbatim. Under the old plain string this was indistinguishable
+	// from "not supplied", so a scope could be added but never removed.
+	if opts.Scope != nil {
+		client.Scope = *opts.Scope
 	}
 	if opts.RedirectURIs != nil {
 		if err := validateClientRedirectURIs(opts.RedirectURIs); err != nil {
@@ -311,8 +325,18 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 	if opts.AllowedAudiences != nil {
 		client.AllowedAudiences = opts.AllowedAudiences
 	}
-	if opts.TokenEndpointAuthMethod != "" {
-		client.TokenEndpointAuthMethod = opts.TokenEndpointAuthMethod
+	// REFUSED, not cleared. The column is NOT NULL with a CHECK allow-list
+	// that has no empty member, and the repository silently substitutes the
+	// column default for a blank — so a "clear" would quietly move the client
+	// to client_secret_basic. Validating the supplied value also closes a
+	// second hole: domain.AllowedClientAuthMethods had no production caller,
+	// so an unlisted method reached the database and came back as an error
+	// the handler flattened.
+	if opts.TokenEndpointAuthMethod != nil {
+		if err := domain.ValidateClientAuthMethod(*opts.TokenEndpointAuthMethod); err != nil {
+			return nil, err
+		}
+		client.TokenEndpointAuthMethod = *opts.TokenEndpointAuthMethod
 		// P0-7b — CLEAR THE SECRET ON A METHOD SWITCH. Moving a client to
 		// private_key_jwt or none leaves it authenticating by assertion or not at
 		// all, so the stored hash becomes credential material that can never be
@@ -323,14 +347,23 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 			client.ClientSecretHash = ""
 		}
 	}
-	if opts.TokenEndpointAuthSigningAlg != "" {
-		client.TokenEndpointAuthSigningAlg = opts.TokenEndpointAuthSigningAlg
+	// REFUSED for the same reason: NOT NULL, CHECK allow-list with no empty
+	// member, and a blank silently becomes EdDSA in the repository.
+	if opts.TokenEndpointAuthSigningAlg != nil {
+		if err := domain.ValidateClientSigningAlg(*opts.TokenEndpointAuthSigningAlg); err != nil {
+			return nil, err
+		}
+		client.TokenEndpointAuthSigningAlg = *opts.TokenEndpointAuthSigningAlg
 	}
-	if opts.JWKSUri != "" {
-		client.JWKSUri = opts.JWKSUri
+	// CLEAR: these two are nullable, the repository already maps "" to NULL —
+	// which is exactly what oauth_clients_pkj_key_source_check compares — and
+	// resolveKey already trims and treats a blank as absent. Removing key
+	// material was previously impossible: it could only ever be replaced.
+	if opts.JWKSUri != nil {
+		client.JWKSUri = *opts.JWKSUri
 	}
-	if opts.JWKS != "" {
-		client.JWKS = opts.JWKS
+	if opts.JWKS != nil {
+		client.JWKS = *opts.JWKS
 	}
 	if opts.FrontchannelLogoutURI != nil {
 		if err := domain.ValidateLogoutURI(*opts.FrontchannelLogoutURI); err != nil {

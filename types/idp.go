@@ -22,7 +22,12 @@ type UpdateIdentityProviderRequest struct {
 	Active   *bool          `json:"active"`
 	Config   map[string]any `json:"config"`
 	Name     string         `json:"name"`
-	Slug     string         `json:"slug"`
+	// Slug is a POINTER (THE-SILENT-DROP-2). As a plain string an omitted
+	// slug and a supplied blank one both arrived as "", and the service
+	// answered both by silently keeping the stored value — so an operator
+	// who sent {"slug":""} was told 200 and nothing changed. The JSON shape
+	// is unchanged for any caller that sends a string.
+	Slug *string `json:"slug"`
 }
 
 // IdentityProviderResponse defines the API response for an IDP

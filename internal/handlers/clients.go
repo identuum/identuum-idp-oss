@@ -473,15 +473,15 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			// THE-SILENT-DROP: Name is a pointer so absent and supplied-blank
 			// differ; {"name":""} was answering 200 with an unchanged row.
 			Name                              *string    `json:"name,omitempty"`
-			Scope                             string     `json:"scope,omitempty"`
+			Scope                             *string    `json:"scope,omitempty"`
 			ServiceAccountID                  *uuid.UUID `json:"service_account_id,omitempty"`
 			RedirectURIs                      []string   `json:"redirect_uris,omitempty"`
 			PostLogoutRedirectURIs            []string   `json:"post_logout_redirect_uris,omitempty"`
 			AllowedAudiences                  []string   `json:"allowed_audiences,omitempty"`
-			TokenEndpointAuthMethod           string     `json:"token_endpoint_auth_method,omitempty"`
-			TokenEndpointAuthSigningAlg       string     `json:"token_endpoint_auth_signing_alg,omitempty"`
-			JWKSUri                           string     `json:"jwks_uri,omitempty"`
-			JWKS                              string     `json:"jwks,omitempty"`
+			TokenEndpointAuthMethod           *string    `json:"token_endpoint_auth_method,omitempty"`
+			TokenEndpointAuthSigningAlg       *string    `json:"token_endpoint_auth_signing_alg,omitempty"`
+			JWKSUri                           *string    `json:"jwks_uri,omitempty"`
+			JWKS                              *string    `json:"jwks,omitempty"`
 			FrontchannelLogoutURI             *string    `json:"frontchannel_logout_uri,omitempty"`
 			FrontchannelLogoutSessionRequired *bool      `json:"frontchannel_logout_session_required,omitempty"`
 			BackchannelLogoutURI              *string    `json:"backchannel_logout_uri,omitempty"`

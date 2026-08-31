@@ -167,7 +167,10 @@ func HandleCreateOrganizationIdentityProvider(deps OrganizationIdentityProviderH
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
-		in := oidcInputFromConfig(orgID, req.Type, req.Name, req.Slug, req.Config)
+		// CreateIdentityProviderRequest.Slug carries binding:"required", so
+		// the wire has already refused an absent or empty slug here; passing
+		// a pointer keeps the service contract identical on both paths.
+		in := oidcInputFromConfig(orgID, req.Type, req.Name, &req.Slug, req.Config)
 		provider, err := deps.OIDCProviderConfigService.CreateOIDCProvider(c.Request.Context(), in)
 		if err != nil {
 			respondOIDCConfigError(c, err)
@@ -299,7 +302,7 @@ func HandleDeleteOrganizationIdentityProvider(deps OrganizationIdentityProviderH
 // service input. Structured fields come from the typed types.ProviderConfig
 // (which has NO secret field); the write-only client_secret is read
 // separately from the raw map so it never round-trips through a response DTO.
-func oidcInputFromConfig(orgID uuid.UUID, typ domain.IdentityProviderType, name, slug string, cfg map[string]any) service.OIDCProviderInput {
+func oidcInputFromConfig(orgID uuid.UUID, typ domain.IdentityProviderType, name string, slug *string, cfg map[string]any) service.OIDCProviderInput {
 	var dto types.ProviderConfig
 	if len(cfg) > 0 {
 		if raw, err := json.Marshal(cfg); err == nil {
