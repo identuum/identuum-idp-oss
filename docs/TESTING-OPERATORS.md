@@ -67,8 +67,14 @@ IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<choose-a-strong-local-password>' \
 ```
 
 That destroys the old stack, builds and starts the appliance, waits for it to
-answer, creates the site administrator, and prints where to sign in. Without
-the opt-in it refuses and lists exactly what it would remove.
+answer, and creates the site administrator. Without the opt-in it refuses and
+lists exactly what it would remove.
+
+It starts the **backend only**. The UI is a separate process, so when the run
+finishes it probes port 7104 and tells you which situation you are in: if the
+UI is already running it prints the sign-in URL; if it is not — the normal
+case — it says so and gives you the command to start it, instead of pointing
+you at a page that would not load.
 
 **Or step by step:**
 
@@ -112,10 +118,17 @@ complete the command tells you so and stops — it never prints a stale code.
 
 ### The URLs — and two that look alike but are not
 
+Two processes, two ports. **The make targets in this repo start the backend
+only** — nothing here ever starts the UI, so every `7104` address below is
+dark until you start that process yourself. If a 7104 link does not load,
+that is the first thing to check.
+
 - **`http://localhost:7113`** — the IdP itself (health, OIDC discovery, API).
+  Started by `make oss-up` / `make oss-fresh`.
 - **`http://localhost:7104`** — the UI. **Not 3000.** The dev server is pinned
-  to 7104 (`next dev --port 7104`); start it from the `identuum-ui` checkout
-  with `pnpm dev`. The docker install path serves the UI on the same port.
+  to 7104 (`next dev --port 7104`). Start it yourself, in its own terminal:
+  `cd ../identuum-ui && pnpm dev`. The docker install path serves the UI on
+  the same port.
 - **`http://localhost:7104/setup`** — the IdP's first-run wizard: enter the
   setup code, create the first organization and site administrator.
 - **`http://localhost:7104/setup-required`** — a *different* page with a

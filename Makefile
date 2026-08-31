@@ -1524,8 +1524,14 @@ oss-build:
 ##   first (non-destructive; revert with `docker start identuum-idp-app`).
 oss-up: oss-build
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app up -d
-	@echo "OSS app container starting on 127.0.0.1:7113 (Postgres on 127.0.0.1:5513)"
-	@echo "Smoke probes:"
+	@# THE-LYING-READY: `up -d` returns as soon as the container is CREATED, and
+	@# the entrypoint still has to migrate before it serves — so this target
+	@# cannot claim 7113 is answering, and does not. The probes below are
+	@# commands to run ONCE it is serving, not a statement that they work now.
+	@echo "OSS app container STARTING on 127.0.0.1:7113 (Postgres on 127.0.0.1:5513)."
+	@echo "It is not serving yet — the entrypoint migrates first. Wait for health:"
+	@echo "  until curl -fsS --max-time 2 http://127.0.0.1:7113/health >/dev/null; do sleep 2; done"
+	@echo "Then smoke it:"
 	@echo "  curl -s http://127.0.0.1:7113/system/info"
 	@echo "  curl -i http://127.0.0.1:7113/api/v1/organizations"
 	@echo "  curl -i http://127.0.0.1:7113/api/v1/organizations/00000000-0000-7000-0000-000000000000/protocol-settings"
@@ -1648,12 +1654,33 @@ oss-fresh:
 	@echo "oss-fresh: bootstrapping site_admin..."
 	@$(MAKE) --no-print-directory oss-bootstrap
 	@echo ""
-	@echo "oss-fresh: READY."
-	@echo "  IdP:  http://localhost:7113   (health, OIDC discovery, API)"
-	@echo "  UI:   http://localhost:7104   (start it from ../identuum-ui: pnpm dev)"
-	@echo "  Sign in at http://localhost:7104/login as site_admin@system.local"
-	@echo "  with the password you exported. Setup is ALREADY COMPLETE (bootstrap"
-	@echo "  path) — do not run the /setup wizard; it will refuse."
+	@# THE-LYING-READY: never name a destination we have not probed. The UI is a
+	@# SEPARATE process this target neither starts nor depends on, so its absence
+	@# is the NORMAL outcome here and must never fail the run — the probe is
+	@# hard-bounded (1s connect, 2s total) and its failure is an expected branch,
+	@# not an error.
+	@echo ""
+	@if curl -fsS --connect-timeout 1 --max-time 2 -o /dev/null http://127.0.0.1:7104/ 2>/dev/null; then \
+		echo "oss-fresh: BACKEND READY — and the UI answered on 7104 (probed just now)."; \
+		echo "  IdP: http://localhost:7113   (health, OIDC discovery, API)"; \
+		echo "  UI:  http://localhost:7104   (already running)"; \
+		echo "  Sign in: http://localhost:7104/login as site_admin@system.local,"; \
+		echo "  with the password you exported (this run never echoed it)."; \
+	else \
+		echo "oss-fresh: BACKEND READY — the IdP appliance is up and bootstrapped."; \
+		echo "  IdP: http://localhost:7113   (health, OIDC discovery, API)"; \
+		echo ""; \
+		echo "  THE UI IS NOT RUNNING. It is a separate process; this target does"; \
+		echo "  not start it, and nothing is listening on 7104 right now (probed)."; \
+		echo "  There is no sign-in page to open until you start it:"; \
+		echo ""; \
+		echo "      cd ../identuum-ui && pnpm dev"; \
+		echo ""; \
+		echo "  Then sign in at http://localhost:7104/login as site_admin@system.local,"; \
+		echo "  with the password you exported (this run never echoed it)."; \
+	fi
+	@echo "  Setup is ALREADY COMPLETE (bootstrap path) — do not run the /setup"
+	@echo "  wizard; it will refuse."
 
 ## oss-recover-site-admin: explicit operator-run recovery for site_admin@system.local.
 ##   Use when the bootstrap row exists but the original password is lost.
