@@ -93,3 +93,4 @@ docs/design/
 # uploaded as a CI artifact; never committed — a local run must not read as
 # an edit to the committed GATE-RUN.txt record's tree digest.
 /GATE-RUN.ci.txt
+TEST-spec.MD
