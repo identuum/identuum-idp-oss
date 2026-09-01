@@ -189,7 +189,12 @@ finalize_into() { # <record> — green ONLY if every planned target recorded exi
 			local xr xname xpath
 			for xr in $GATE_WITNESS_XREPO; do
 				xname="${xr%%=*}"; xpath="${xr#*=}"
-				echo "xrepo: $xname head=$(repo_state "$xpath" "GATE-RUN.txt") tree=sha256:$(tree_digest "$xpath" "/nonexistent-no-exclusion")" >>"$rec"
+				# The exclusion must be a RELATIVE never-existing name: an
+				# absolute path makes git's pathspec fail, the file list
+				# comes back empty, and BOTH sides compute EMPTY-TREE — a
+				# digest comparison with no teeth (caught live at the first
+				# two-repo mint; check also refuses EMPTY-TREE outright).
+				echo "xrepo: $xname head=$(repo_state "$xpath" "GATE-RUN.txt") tree=sha256:$(tree_digest "$xpath" ".gate-witness-nonexistent")" >>"$rec"
 			done
 		fi
 		echo "result: green" >>"$rec"
@@ -374,7 +379,12 @@ check_mode() {
 			elif (cd "$xdir" && git status --porcelain -- . ":(exclude)GATE-RUN.txt" 2>/dev/null | grep -q .); then
 				echo "GATE-WITNESS DIRTY-NOW: sibling $xname has uncommitted changes — the record cannot witness a moving tree"
 				bad=1
-			elif [ "$(tree_digest "$xdir" "/nonexistent-no-exclusion")" != "$xdigest" ]; then
+			elif ! echo "$xdigest" | grep -qE '^[0-9a-f]{64}$'; then
+				# A recorded EMPTY-TREE (or garbage) would recompute to the
+				# same value and "match" — a pin with no teeth. Refuse it.
+				echo "GATE-WITNESS FAIL: $path pins $xname with a vacuous digest ($xdigest) — the record does not actually pin that repo's content; re-mint"
+				bad=1
+			elif [ "$(tree_digest "$xdir" ".gate-witness-nonexistent")" != "$xdigest" ]; then
 				echo "GATE-WITNESS STALE-XREPO: $xname content no longer matches the digest $path recorded"
 				bad=1
 			fi
@@ -503,6 +513,7 @@ selftest() {
 		(cd "$xtmp/main2" && git init -q . && echo m >m.txt && git add m.txt && git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm main0)
 		(cd "$xtmp/main2" && GATE_WITNESS_XREPO="sib=../sib" bash "$self" run GATE-RUN.txt "selftest xrepo gate" 'a=true' >/dev/null 2>&1) || { echo "SELFTEST FAIL 13a: xrepo run failed"; exit 1; }
 		grep -q '^xrepo: sib head=' "$xtmp/main2/GATE-RUN.txt" || { echo "SELFTEST FAIL 13b: record carries no xrepo pin"; exit 1; }
+		grep -qE '^xrepo: sib head=.* tree=sha256:[0-9a-f]{64}$' "$xtmp/main2/GATE-RUN.txt" || { echo "SELFTEST FAIL 13b2: xrepo digest is not a real sha (EMPTY-TREE regression)"; exit 1; }
 		bash "$self" check "$xtmp/main2" GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 13c: fresh xrepo record did not pass"; exit 1; }
 		(cd "$xtmp/sib" && git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm sibnext --allow-empty)
 		bash "$self" check "$xtmp/main2" GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS STALE-XREPO' || { echo "SELFTEST FAIL 13d: moved sibling did not read STALE-XREPO"; exit 1; }

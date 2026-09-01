@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -128,6 +129,13 @@ func TestGateWitness_RecordMustNameTheCurrentCleanHead(t *testing.T) {
 	}
 	if !strings.Contains(string(rec), "xrepo: identuum-idp-oss head=") {
 		t.Fatal("the record carries no sibling pin — the two-repo witness is gone")
+	}
+	// The first live two-repo mint recorded tree=sha256:EMPTY-TREE — an
+	// absolute exclusion path broke git's pathspec, both sides computed the
+	// same empty value, and the digest comparison had no teeth. The pin must
+	// be a real content hash.
+	if !regexp.MustCompile(`(?m)^xrepo: identuum-idp-oss head=\S+ tree=sha256:[0-9a-f]{64}$`).Match(rec) {
+		t.Fatalf("the sibling pin's digest is not a real sha256 — the EMPTY-TREE regression is back:\n%s", rec)
 	}
 	if out, code := sh(t, main2, "bash", script, "check", ".", "GATE-RUN.txt"); code != 0 {
 		t.Fatalf("a fresh two-repo record failed check:\n%s", out)
