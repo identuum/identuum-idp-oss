@@ -137,6 +137,67 @@ that is the first thing to check.
   setting up. Its fix is the UI's one-shot config helper, not the wizard. If
   you land here, no amount of setup-code pasting will help.
 
+## The pre-upgrade audit (`audit-preupgrade`)
+
+Recent releases moved a set of validation rules from the database into the
+service. New writes are guarded on every path; rows written by an OLDER
+binary can still hold shapes the new guards refuse. For three entities the
+guard validates the **whole document on update**, so one bad stored field
+makes **any** update to that row fail — the operator discovers it when an
+unrelated rename starts answering 400.
+
+**When to run it:** against your production database, with the OLD binary
+still serving, BEFORE deploying an upgrade. It is strictly read-only — every
+statement it issues is a `SELECT`, pinned by rule `AUDIT-PREUPGRADE-1`.
+
+```
+identuum-idp audit-preupgrade <database-url>
+```
+
+**Exit codes:**
+
+- `0` — clean. No stored row matches a shape the guards refuse. Upgrade.
+- `1` — findings. The output lists each shape with a count and the rule ID
+  that refuses it. Fix the rows first (below), then re-run until clean.
+- `2` — the audit could not run (bad URL, unreachable database). This is
+  **not** clean; do not treat it as a pass.
+
+**What a hit means, per severity:**
+
+- `CRITICAL` (clients, api-resources, scope-templates): any update to that
+  row fails after the upgrade. Fix before upgrading: give the row a valid
+  value through the current API (rename the client, set a real audience,
+  replace the scope list), or delete rows that are debris. Each shape's rule
+  ID names the guard; `RULE-FLOOR.md` holds the rule's full sentence.
+- `advisory` (organizations, users, service accounts, org roles): the row
+  only fails when that specific field is re-supplied. Fix at leisure, but
+  before the next edit of that field.
+
+**Which shapes can actually be out there:** the audit sweeps everything, but
+the database always refused some shapes itself (user emails and roles,
+whitespace org/service-account names, unlisted client auth methods and
+signing algorithms, private_key_jwt key-source pairing). Hits on those
+indicate schema drift, not history. The shapes with a real historical write
+path are: organization domains that fail the DNS grammar or were stored
+un-normalized (`ORG-DOMAIN-FORMAT-1` / `ORG-UPDATE-VALIDATION-1`), blank or
+whitespace client names and empty redirect-URI lists
+(`CLIENT-UPDATE-VALIDATION-1`), confidential clients on method `none`
+(`CLIENT-UPDATE-DOCUMENT-1`), whitespace api-resource names/audiences and
+scope-template names (`REQUIRED-NAME-NOT-WHITESPACE-1`), and pre-2026
+reserved-prefix scopes on either (`API-RESOURCE-REFUSAL-STATUS-1`,
+`SCOPE-TEMPLATE-UPDATE-BLANK-1`).
+
+**One migration that needs a decision, not a fix:** a confidential client on
+`token_endpoint_auth_method: "none"` can no longer be moved to `none` — and
+cannot stay there coherently either. `none` means "does not authenticate",
+which is only valid for a public client, and `is_public` is create-only by
+design: flipping it changes the client's entire security model (secret
+issuance, service-account bindings, consent semantics), so it is an identity
+property, not a setting. The migration path is: create a new **public**
+client (it gets `none` by default), move the redirect URIs over, update the
+relying application's client_id, then delete the old row. The audit counts
+these under `CLIENT-UPDATE-DOCUMENT-1`.
+
 ## What the suite does NOT cover (known, recorded — not forgotten)
 
 - **Backup / restore** — there is no product backup procedure yet to test;

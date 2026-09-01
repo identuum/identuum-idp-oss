@@ -112,6 +112,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return dispatchShowSetupCode(rest, stdout, stderr)
 		case "doctor":
 			return dispatchDoctor(context.Background(), rest, stdout, stderr)
+		case "audit-preupgrade":
+			url, ok := requirePositionalURL(sub, rest, stderr)
+			if !ok {
+				return 2
+			}
+			return runAuditPreupgrade(context.Background(), url, stdout, stderr)
 		case "factory-reset":
 			return dispatchFactoryReset(context.Background(), rest, stdout, stderr)
 		case "rotate-encryption-key":
@@ -281,6 +287,9 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "                                     print the setup code while setup_required")
 	fmt.Fprintln(w, "                                     (flags BEFORE the positional — Go's parser")
 	fmt.Fprintln(w, "                                     stops at the first non-flag argument)")
+	fmt.Fprintln(w, "  audit-preupgrade <database-url>    READ-ONLY pre-upgrade sweep for stored rows the")
+	fmt.Fprintln(w, "                                     current validation guards refuse; counts per shape")
+	fmt.Fprintln(w, "                                     with rule IDs; exit 0 clean, 1 findings, 2 error")
 	fmt.Fprintln(w, "  doctor [database-url]              READ-ONLY diagnosis: named states for version,")
 	fmt.Fprintln(w, "                                     db, at-rest key, setup, signing-key seal;")
 	fmt.Fprintln(w, "                                     exit 0 healthy, non-zero names the failing state")
