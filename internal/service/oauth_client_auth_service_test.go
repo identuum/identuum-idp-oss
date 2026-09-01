@@ -108,9 +108,14 @@ func TestOAuthClientAuth_PublicClientPresentingSecretRejected(t *testing.T) {
 func TestClientService_RegisterClient_PrivateKeyJWTGetsNoSecret(t *testing.T) {
 	svc := NewClientService(nil, newClientRepo())
 	c, secret, err := svc.RegisterClient(context.Background(), RegisterClientOptions{
-		Name:                    "pkjwt",
-		RedirectURIs:            []string{"https://app.example.com/cb"},
+		Name:         "pkjwt",
+		RedirectURIs: []string{"https://app.example.com/cb"},
+		// THE-MIRROR: create now runs the full document validator, and a
+		// private_key_jwt client REQUIRES exactly one key source — the rule
+		// the DB CHECK always enforced; this test's fake repo just never
+		// fired it. A key-source-less pkj client was never persistable.
 		TokenEndpointAuthMethod: "private_key_jwt",
+		JWKSUri:                 "https://app.example.com/jwks.json",
 	})
 	if err != nil {
 		t.Fatalf("register: %v", err)

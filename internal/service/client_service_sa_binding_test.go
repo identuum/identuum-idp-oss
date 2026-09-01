@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -32,8 +33,11 @@ func TestRegisterClient_PublicClientCannotBindSA(t *testing.T) {
 		IsPublic:         true,
 		ServiceAccountID: &saID,
 	})
-	if err == nil || err.Error() != "public client may not bind a service account" {
-		t.Errorf("err = %v", err)
+	// THE-MIRROR: the refusal now fires in Client.Validate (the full-document
+	// check prepareClient runs), one step before RegisterClient's own binding
+	// gate — same refusal, earlier and with the domain message.
+	if err == nil || !strings.Contains(err.Error(), "service account") {
+		t.Errorf("err = %v, want a public-client/service-account refusal", err)
 	}
 }
 

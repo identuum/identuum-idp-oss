@@ -285,12 +285,24 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 		CreatedAt:                         now,
 		UpdatedAt:                         now,
 	}
+	// THE-MIRROR (2026-09-01): the update path validated the auth method and
+	// signing alg while this create path assigned both RAW — the original
+	// defect inverted, in the very fields the previous slice decided. The
+	// FULL document validator runs here: it calls the SAME
+	// ValidateClientAuthMethod/ValidateClientSigningAlg the update path
+	// calls, and adds the cross-field rules only a whole document can check
+	// (method↔public consistency, private_key_jwt's exactly-one-key-source,
+	// jwks-absent-for-non-pkj) — each of which was previously refused only
+	// by a DB CHECK constraint answering a flattened "invalid request".
+	if err := client.Validate(); err != nil {
+		return nil, "", err
+	}
 	return client, plaintextSecret, nil
 }
 
-// UpdateClient mutates an existing client by id. Empty string
-// fields are interpreted as "leave unchanged"; non-nil slices
-// replace the prior value.
+// UpdateClient mutates an existing client by id. A nil pointer field means
+// "leave unchanged"; a supplied value is validated and applied per the field
+// table on UpdateClientOptions; non-nil slices replace the prior value.
 func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts UpdateClientOptions) (*domain.Client, error) {
 	client, err := s.repo.GetClientByID(ctx, id)
 	if err != nil || client == nil {

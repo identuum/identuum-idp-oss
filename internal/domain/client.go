@@ -275,7 +275,8 @@ func (c *Client) Validate() error {
 	if c.ClientID == "" {
 		return errors.New("client_id is required")
 	}
-	if c.Name == "" {
+	// Required means required after trimming (REQUIRED-NAME-NOT-WHITESPACE-1).
+	if strings.TrimSpace(c.Name) == "" {
 		return errors.New("name is required")
 	}
 	if len(c.RedirectURIs) == 0 {
@@ -293,10 +294,11 @@ func (c *Client) Validate() error {
 
 	method := c.EffectiveAuthMethod()
 
-	// Validate auth method value.
+	// Validate auth method value — via the SAME function the update path
+	// calls, not a second spelling of the map lookup (THE-MIRROR).
 	if c.TokenEndpointAuthMethod != "" {
-		if _, ok := AllowedClientAuthMethods[c.TokenEndpointAuthMethod]; !ok {
-			return fmt.Errorf("%w: token_endpoint_auth_method %q is not valid", ErrInvalidRequest, c.TokenEndpointAuthMethod)
+		if err := ValidateClientAuthMethod(c.TokenEndpointAuthMethod); err != nil {
+			return err
 		}
 	}
 
@@ -338,10 +340,10 @@ func (c *Client) Validate() error {
 		}
 	}
 
-	// Validate signing alg if explicitly set.
+	// Validate signing alg if explicitly set — same function as update.
 	if c.TokenEndpointAuthSigningAlg != "" {
-		if _, ok := PrivateKeyJWTSigningAlgorithms[c.TokenEndpointAuthSigningAlg]; !ok {
-			return fmt.Errorf("%w: token_endpoint_auth_signing_alg %q is not allowed", ErrInvalidRequest, c.TokenEndpointAuthSigningAlg)
+		if err := ValidateClientSigningAlg(c.TokenEndpointAuthSigningAlg); err != nil {
+			return err
 		}
 	}
 
