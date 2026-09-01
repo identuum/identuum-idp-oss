@@ -1,7 +1,8 @@
 # conformance/compose.suite-override.yml — THE-CONFORMANCE-HARNESS.
 #
-# Layered OVER the suite's own docker-compose-prebuilt.yml (in the gitignored
-# .conformance-suite clone). The clone is a TOOL REPO: run, never modified —
+# Layered OVER the suite's own docker-compose-prebuilt.yml (in the
+# ../.conformance-suite-cache clone, kept outside every repo tree). The
+# clone is a TOOL REPO: run, never modified —
 # every deviation from their defaults lives HERE.
 #
 #   - mongo data moves from a bind mount INSIDE the clone to a named volume,

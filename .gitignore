@@ -95,8 +95,9 @@ docs/design/
 /GATE-RUN.ci.txt
 TEST-spec.MD
 
-# THE-CONFORMANCE-HARNESS: the cached OpenID conformance-suite clone
-# (pinned by conformance/PIN; a tool repo — run, never modified, never committed)
-/.conformance-suite/
+# THE-CONFORMANCE-HARNESS: the suite clone lives OUTSIDE this repo
+# (../.conformance-suite-cache, pinned by conformance/PIN) so the shared
+# image-base gate never scans third-party Dockerfiles. Only the per-run
+# TLS work dirs appear inside the tree:
 # THE-CONFORMANCE-HARNESS: per-run TLS work dirs (teardown removes them)
 /.conformance-work.*/

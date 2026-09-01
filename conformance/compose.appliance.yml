@@ -30,7 +30,10 @@ services:
 
   conformance-idp:
     build:
-      context: ..
+      # Absolute, via env: with multiple -f files compose resolves relative
+      # paths against the FIRST file's directory — the suite cache, which
+      # now lives outside this repo. run.sh exports CONFORMANCE_REPO.
+      context: ${CONFORMANCE_REPO:?run.sh exports this}
       dockerfile: deployment/Dockerfile.local
     image: identuum-idp-oss:conformance
     depends_on:

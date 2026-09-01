@@ -32,7 +32,11 @@ set -u
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO=$(dirname "$HERE")
-CACHE="$REPO/.conformance-suite"
+# The clone lives OUTSIDE the repo tree: the image-base gate block is shared
+# md5-verbatim across four repos (IMG-GATE-4), two of them out of this
+# harness's reach, so the third-party clone must simply never be where any
+# repo's scanners look. A sibling cache dir is uncommittable by construction.
+CACHE="$(dirname "$REPO")/.conformance-suite-cache"
 PIN_FILE="$HERE/PIN"
 PROJECT="identuum-conformance"
 
@@ -43,7 +47,7 @@ PIN_SHA=$(sed -n 's/^sha: //p' "$PIN_FILE")
 COMPOSE_FILES=(-f "$CACHE/docker-compose-prebuilt.yml" -f "$HERE/compose.suite-override.yml" -f "$HERE/compose.appliance.yml" -f "$HERE/compose.tls.yml")
 
 compose() {
-	IMAGE_TAG="$PIN_TAG" docker compose -p "$PROJECT" "${COMPOSE_FILES[@]}" "$@"
+	IMAGE_TAG="$PIN_TAG" CONFORMANCE_REPO="$REPO" docker compose -p "$PROJECT" "${COMPOSE_FILES[@]}" "$@"
 }
 
 WORK=""

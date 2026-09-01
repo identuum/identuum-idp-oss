@@ -208,8 +208,9 @@ finding stays a finding until a product slice addresses it and the floor is
 re-recorded deliberately.
 
 **Prerequisites:** Docker (compose v2), network access on the FIRST run only
-(clones the suite into the gitignored `.conformance-suite/` and pulls its
-pinned images), python3, node, openssl. Roughly 4 GB of images.
+(clones the suite into `../.conformance-suite-cache` — a sibling of this
+repo, outside every repo's scanners — and pulls its pinned images), python3,
+node, openssl. Roughly 4 GB of images.
 
 **Runtime:** first run ~10–20 min (clone + pulls + appliance build);
 afterwards ~5 min. Everything runs on an isolated compose project

@@ -738,9 +738,9 @@ clock-fuse-report:
 ## IMG-NONALPINE (owner decision 2026-07-31): every image WE build must be
 ## musl-free. The Postgres SERVICE image is EXEMPT — it lives in compose, never
 ## in a Dockerfile, so this scan never sees it and must not be widened until it
-## does. The gitignored .conformance-suite/ clone is EXCLUDED (THE-CONFORMANCE-
-## HARNESS): it is a third-party tool repo we run, never modify, never build
-## our images from — its own test Dockerfiles are not images we build.
+## does. (THE-CONFORMANCE-HARNESS keeps its third-party suite clone OUTSIDE
+## this repo tree — ../.conformance-suite-cache — precisely so this shared,
+## md5-paritied block never has to learn about it.)
 ##
 ## THREE RULES, because a literal `^FROM.*alpine` check has a hole (IMG-GATE-2):
 ##   1. a FROM line that resolves to an Alpine base;
@@ -770,7 +770,7 @@ clock-fuse-report:
 ## list: it ships NO Dockerfile, so it has nothing to gate and the missing
 ## target there is correct, not an oversight.
 image-base-check:
-	@out="$$(find . -name 'Dockerfile*' -not -path './.git/*' -not -path './vendor/*' -not -path './.conformance-suite/*' -exec awk 'FNR==1{delete A} /^ARG[ \t]+[A-Za-z_][A-Za-z0-9_]*=/{s=$$0;sub(/^ARG[ \t]+/,"",s);p=index(s,"=");n=substr(s,1,p-1);v=substr(s,p+1);sub(/[ \t].*$$/,"",v);gsub(/^"|"$$/,"",v);A[n]=v;if(v~/alpine/){printf "%s:%d: ARG default is an Alpine base: %s\n",FILENAME,FNR,$$0}} /^FROM[ \t]/{r=$$0;for(i=0;i<10;i++){ch=0;for(n in A)if(index(r,"$${" n "}")>0){gsub("[$$][{]" n "[}]",A[n],r);ch=1}if(!ch)break}if(r~/alpine/){printf "%s:%d: FROM resolves to an Alpine base: %s\n",FILENAME,FNR,$$0}else if(r~/[$$]/){printf "%s:%d: FROM has an UNRESOLVED variable, no ARG default in this file - failing loud: %s\n",FILENAME,FNR,$$0}}' {} + 2>/dev/null || true)"; \
+	@out="$$(find . -name 'Dockerfile*' -not -path './.git/*' -not -path './vendor/*' -exec awk 'FNR==1{delete A} /^ARG[ \t]+[A-Za-z_][A-Za-z0-9_]*=/{s=$$0;sub(/^ARG[ \t]+/,"",s);p=index(s,"=");n=substr(s,1,p-1);v=substr(s,p+1);sub(/[ \t].*$$/,"",v);gsub(/^"|"$$/,"",v);A[n]=v;if(v~/alpine/){printf "%s:%d: ARG default is an Alpine base: %s\n",FILENAME,FNR,$$0}} /^FROM[ \t]/{r=$$0;for(i=0;i<10;i++){ch=0;for(n in A)if(index(r,"$${" n "}")>0){gsub("[$$][{]" n "[}]",A[n],r);ch=1}if(!ch)break}if(r~/alpine/){printf "%s:%d: FROM resolves to an Alpine base: %s\n",FILENAME,FNR,$$0}else if(r~/[$$]/){printf "%s:%d: FROM has an UNRESOLVED variable, no ARG default in this file - failing loud: %s\n",FILENAME,FNR,$$0}}' {} + 2>/dev/null || true)"; \
 	if [ -n "$$out" ]; then \
 		echo "ALPINE BASE IMAGE FOUND (IMG-NONALPINE):"; \
 		echo "$$out"; \
