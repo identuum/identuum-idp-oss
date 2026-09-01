@@ -17,7 +17,10 @@ services:
     image: postgres:18
     environment:
       POSTGRES_USER: idp_oss_user
-      POSTGRES_PASSWORD: conformance-only-not-a-secret
+      # The declared throwaway-placeholder convention the
+      # credential-transparency gate enforces (dev-<user>-not-a-secret);
+      # this database lives only inside one disposable harness run.
+      POSTGRES_PASSWORD: dev-idp_oss_user-not-a-secret
       POSTGRES_DB: identuum_idp_oss
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U idp_oss_user -d identuum_idp_oss"]
@@ -36,7 +39,7 @@ services:
     ports:
       - "127.0.0.1:27113:7113"
     environment:
-      IDENTUUM_IDP_OSS_DB: "postgres://idp_oss_user:conformance-only-not-a-secret@conformance-postgres:5432/identuum_idp_oss?sslmode=disable"
+      IDENTUUM_IDP_OSS_DB: "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@conformance-postgres:5432/identuum_idp_oss?sslmode=disable"
       # The issuer is the IN-NETWORK URL the suite (server + browser) sees.
       # run.sh sets CONFORMANCE_OP_ISSUER — http first (the DO-3 measurement),
       # https via the TLS sidecar if the suite refuses http.
