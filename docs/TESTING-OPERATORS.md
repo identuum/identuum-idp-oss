@@ -240,15 +240,15 @@ suite release-v5.2.4):**
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
   zero findings). The former signing-alg finding is FIXED — discovery now
   advertises `[EdDSA, ES256, RS256]` (see "RS256 — testing only" above).
-- Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules
-  (per-client PKCE retired the old mandatory-PKCE abort). 1744 conditions
-  pass. The recorded floor:
-  - 2 module FAILURES + 2 INCOMPLETE modules, one finding: `prompt=login`
-    and `max_age=1` require the OP to FORCE re-authentication; the OP
-    re-issues on the live session, so `auth_time` does not advance and both
-    modules stall (`conformance/expected-basic-incomplete.txt` +
-    `expected-failures-basic.json`). Needs a forced-login ceremony (own
-    slice).
+- Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
+  completion (per-client PKCE retired the old mandatory-PKCE abort;
+  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1746
+  conditions pass, ZERO condition failures. The recorded floor:
+  - `conformance/expected-basic-incomplete.txt` is EMPTY: `oidcc-prompt-login`
+    and `oidcc-max-age-1` now run to completion with 0 failing conditions
+    (result REVIEW — these modules ask for a screenshot of the second login,
+    which the browser automation uploads; REVIEW is the accepted terminal
+    state of that module class, exactly like the two redirect_uri modules).
   - 7 recorded WARNINGS across 5 modules
     (`conformance/expected-failures-basic.json`, comments name each):
     partial profile claims (only `name`), email-in-id_token + unscoped
@@ -261,7 +261,8 @@ suite release-v5.2.4):**
     address/phone scopes are not modeled, and the request-object module
     skips because the OP compliantly rejects request objects as
     unsupported.
-  - 2 modules end in REVIEW (unregistered redirect_uri, request-object
+  - 4 modules end in REVIEW: the two second-login modules above, and the
+    two error-page modules (unregistered redirect_uri, request-object
     redirect_uri): the OP correctly refuses without redirecting and the
     suite records the error-page screenshot for human review — REVIEW is an
     accepted terminal result, not a floor entry.
@@ -311,6 +312,29 @@ one. A CONFIDENTIAL client MAY omit PKCE entirely. But PKCE is only optional
 to SEND, never to HONOR: any challenge that was supplied is validated and
 its verifier is enforced at the token endpoint, and a code minted without a
 challenge refuses a gratuitous verifier.
+
+## Forced re-authentication — prompt=login and max_age
+
+THE-SECOND-LOGIN (2026-09-01). The authorize endpoint honors OIDC Core
+§3.1.2.1's two re-authentication controls on an ALREADY-authenticated
+browser:
+
+- `prompt=login` sends the user back through the OP login form even though a
+  live session exists. The ceremony consumes the prompt: the resumed request
+  in `return_to` no longer carries `prompt=login` (otherwise login would be
+  forced forever); every other parameter — and any other prompt token —
+  survives.
+- `max_age=N` compares the session's `auth_time` (its creation, or its last
+  ACR uplift) with now; older than N seconds forces the same login ceremony.
+  `max_age` stays in the resumed request — a fresh session passes it. A
+  non-integer or negative `max_age` is refused redirect-safe as
+  `invalid_request`.
+- A fresh login mints a NEW session (the first survives it, subject to the
+  organization's per-user session cap), so `auth_time` advances monotonically
+  with each forced ceremony; the id_token always carries `auth_time`.
+- `prompt=none` is unchanged: no form, ever — a stale `max_age` under
+  `prompt=none` is the OIDC-required `error=login_required` redirect to the
+  client.
 
 ## What the suite does NOT cover (known, recorded — not forgotten)
 

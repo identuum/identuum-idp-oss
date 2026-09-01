@@ -154,6 +154,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			CodeChallenge:       param("code_challenge"),
 			CodeChallengeMethod: param("code_challenge_method"),
 			Prompt:              param("prompt"),
+			MaxAge:              param("max_age"),
 			RequestObject:       param("request"),
 			RequestURIParam:     param("request_uri"),
 			Principal:           principal,
@@ -234,6 +235,8 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 		redirectAuthorizeError(c, deps, req, "request_not_supported")
 	case errors.Is(err, service.ErrAuthorizeRequestURINotSupported):
 		redirectAuthorizeError(c, deps, req, "request_uri_not_supported")
+	case errors.Is(err, service.ErrAuthorizeInvalidMaxAge):
+		redirectAuthorizeError(c, deps, req, "invalid_request")
 	case errors.Is(err, service.ErrAuthorizeLoginRequired):
 		// THE-PKCE-DECISION (DO-3): an unauthenticated BROWSER is sent to
 		// the OP's own login form with the full authorize URL as return_to,
@@ -242,8 +245,11 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 		// prompt=none keeps the error redirect: OIDC 3.1.2.6 REQUIRES
 		// login_required back to the client when no interaction is allowed.
 		if strings.TrimSpace(req.Prompt) != "none" {
+			// THE-SECOND-LOGIN: the ceremony satisfies prompt=login ONCE —
+			// the resumed request must not carry it, or login would be
+			// forced forever. max_age stays: a fresh session passes it.
 			c.Redirect(http.StatusFound,
-				"/api/v1/auth/browser-login?return_to="+url.QueryEscape("/api/v1/oauth/authorize?"+authorizeQuery))
+				"/api/v1/auth/browser-login?return_to="+url.QueryEscape("/api/v1/oauth/authorize?"+stripPromptLogin(authorizeQuery)))
 			return
 		}
 		redirectAuthorizeError(c, deps, req, "login_required")
@@ -267,6 +273,35 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 			"error_description": "Internal server error",
 		})
 	}
+}
+
+// stripPromptLogin removes the consumed `login` token from the prompt
+// parameter of an authorize query (OIDC Core §3.1.2.1: prompt is a
+// space-separated list). The OP satisfies prompt=login by running the
+// ceremony ONCE; a return_to that still carried it would force login
+// forever. Every other token and parameter survives; the query is
+// re-encoded only when something was removed.
+func stripPromptLogin(rawQuery string) string {
+	v, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return rawQuery
+	}
+	tokens := strings.Fields(v.Get("prompt"))
+	kept := make([]string, 0, len(tokens))
+	for _, p := range tokens {
+		if !strings.EqualFold(p, "login") {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == len(tokens) {
+		return rawQuery
+	}
+	if len(kept) == 0 {
+		v.Del("prompt")
+	} else {
+		v.Set("prompt", strings.Join(kept, " "))
+	}
+	return v.Encode()
 }
 
 // respondAuthorizeDirectError answers a pre-redirect-uri authorize

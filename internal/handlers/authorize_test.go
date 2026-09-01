@@ -259,6 +259,109 @@ func TestAuthorize_NoSessionPromptNoneRedirectsLoginRequired(t *testing.T) {
 	}
 }
 
+// THE-SECOND-LOGIN: prompt=login on an ALREADY-authenticated, pre-approved
+// request sends the browser back through the login ceremony — and the
+// resumed request in return_to no longer carries `login` (or login would be
+// forced forever); other prompt tokens and every other parameter survive.
+func TestAuthorize_PromptLoginRedirectsToLoginAndStripsIt(t *testing.T) {
+	r := authorizeEngine(t, preApprovedClient(), authorizePrincipal())
+
+	// Baseline: the same authenticated request WITHOUT prompt=login mints a
+	// code straight away, so the login redirect below is the prompt's doing.
+	w0 := httptest.NewRecorder()
+	r.ServeHTTP(w0, httptest.NewRequest(http.MethodGet, authorizeURL(map[string]string{
+		"client_id":             "cli-1",
+		"redirect_uri":          "https://app.example.com/cb",
+		"code_challenge":        "x",
+		"code_challenge_method": "S256",
+		"state":                 "abc",
+	}), nil))
+	if w0.Code != http.StatusFound || !strings.Contains(w0.Header().Get("Location"), "code=") {
+		t.Fatalf("baseline: status=%d location=%q, want a code redirect", w0.Code, w0.Header().Get("Location"))
+	}
+
+	cases := map[string]string{ // prompt sent -> prompt expected in return_to ("" = absent)
+		"login":         "",
+		"login consent": "consent",
+	}
+	for sent, want := range cases {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, authorizeURL(map[string]string{
+			"client_id":             "cli-1",
+			"redirect_uri":          "https://app.example.com/cb",
+			"code_challenge":        "x",
+			"code_challenge_method": "S256",
+			"state":                 "abc",
+			"prompt":                sent,
+			"max_age":               "3600",
+		}), nil))
+		if w.Code != http.StatusFound {
+			t.Fatalf("prompt=%q status = %d, want 302", sent, w.Code)
+		}
+		loc := w.Header().Get("Location")
+		if !strings.HasPrefix(loc, "/api/v1/auth/browser-login?return_to=") {
+			t.Fatalf("prompt=%q location = %q, want the login ceremony", sent, loc)
+		}
+		returnTo, err := url.QueryUnescape(strings.TrimPrefix(loc, "/api/v1/auth/browser-login?return_to="))
+		if err != nil {
+			t.Fatal(err)
+		}
+		u, err := url.Parse(returnTo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		q := u.Query()
+		if got := q.Get("prompt"); got != want {
+			t.Errorf("prompt=%q: resumed prompt = %q, want %q (login consumed by the ceremony)", sent, got, want)
+		}
+		if q.Get("max_age") != "3600" || q.Get("state") != "abc" || q.Get("client_id") != "cli-1" {
+			t.Errorf("prompt=%q: resumed request lost parameters: %q", sent, returnTo)
+		}
+	}
+}
+
+// prompt=none is untouched by THE-SECOND-LOGIN: a stale max_age under
+// prompt=none is the OIDC-required error redirect, never a form. (The
+// service-level max_age gate is pinned in internal/service; here the handler
+// mapping for prompt=none is what matters.)
+func TestAuthorize_PromptNoneLoginRequiredStaysAnErrorRedirect(t *testing.T) {
+	r := authorizeEngine(t, preApprovedClient(), nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, authorizeURL(map[string]string{
+		"client_id":             "cli-1",
+		"redirect_uri":          "https://app.example.com/cb",
+		"code_challenge":        "x",
+		"code_challenge_method": "S256",
+		"state":                 "abc",
+		"prompt":                "none",
+		"max_age":               "1",
+	}), nil))
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	loc := w.Header().Get("Location")
+	if !strings.HasPrefix(loc, "https://app.example.com/cb") || !strings.Contains(loc, "error=login_required") {
+		t.Errorf("prompt=none must error-redirect to the client, got %q", loc)
+	}
+}
+
+// A malformed max_age is a redirect-safe invalid_request.
+func TestAuthorize_InvalidMaxAgeRedirectsInvalidRequest(t *testing.T) {
+	r := authorizeEngine(t, preApprovedClient(), authorizePrincipal())
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, authorizeURL(map[string]string{
+		"client_id":             "cli-1",
+		"redirect_uri":          "https://app.example.com/cb",
+		"code_challenge":        "x",
+		"code_challenge_method": "S256",
+		"state":                 "abc",
+		"max_age":               "soon",
+	}), nil))
+	if w.Code != http.StatusFound || !strings.Contains(w.Header().Get("Location"), "error=invalid_request") {
+		t.Errorf("status=%d location=%q, want a 302 error=invalid_request redirect", w.Code, w.Header().Get("Location"))
+	}
+}
+
 // THE-PKCE-DECISION (DO-3): a signed-in user who has not yet consented is
 // sent to the OP's own consent form carrying the full authorize query.
 // prompt=none keeps the OIDC-required error redirect, pinned below.

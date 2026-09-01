@@ -27,6 +27,7 @@
                     "optional": true,
                     "match": "__OP_ISSUER__/api/v1/auth/browser-login*",
                     "commands": [
+                        ["wait", "xpath", "//*", 10, ".*", "update-image-placeholder-optional"],
                         ["text", "name", "email", "conformance-user@conformance.test", "optional"],
                         ["text", "name", "password", "__USER_PASSWORD__", "optional"],
                         ["click", "xpath", "//button[@type='submit']"]

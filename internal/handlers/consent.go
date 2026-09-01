@@ -252,6 +252,9 @@ func readConsentForm(c *gin.Context) service.AuthorizeRequest {
 		Nonce:               firstNonEmpty(c.PostForm("nonce"), c.Query("nonce")),
 		CodeChallenge:       firstNonEmpty(c.PostForm("code_challenge"), c.Query("code_challenge")),
 		CodeChallengeMethod: firstNonEmpty(c.PostForm("code_challenge_method"), c.Query("code_challenge_method")),
+		// THE-SECOND-LOGIN: the resumed request keeps max_age so the
+		// post-consent re-run applies the same freshness rule.
+		MaxAge: firstNonEmpty(c.PostForm("max_age"), c.Query("max_age")),
 	}
 }
 

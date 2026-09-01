@@ -1,23 +1,5 @@
 [
     {
-        "test-name": "oidcc-prompt-login",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "CheckSecondIdTokenAuthTimeIsLaterIfPresent",
-        "expected-result": "failure",
-        "comment": "FINDING, recorded not fixed (THE-PKCE-DECISION, measured 2026-09-01): prompt=login must force RE-AUTHENTICATION; the OP re-issues on the live session so the second id_token's auth_time is not later. Needs a forced-login ceremony (own slice). The module also ends INCOMPLETE — see expected-basic-incomplete.txt."
-    },
-    {
-        "test-name": "oidcc-max-age-1",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "CheckSecondIdTokenAuthTimeIsLaterIfPresent",
-        "expected-result": "failure",
-        "comment": "FINDING, recorded not fixed: max_age=1 must force re-authentication once the session's auth_time is older than max_age; same re-auth gap as oidcc-prompt-login. Also ends INCOMPLETE — see expected-basic-incomplete.txt."
-    },
-    {
         "test-name": "oidcc-scope-profile",
         "variant": "*",
         "configuration-filename": "*/plan-basic.json",

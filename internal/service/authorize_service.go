@@ -39,6 +39,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -159,6 +160,13 @@ type AuthorizeRequest struct {
 	CodeChallengeMethod string
 	Prompt              string
 
+	// MaxAge is the OIDC Core §3.1.2.1 max_age parameter, raw as received
+	// (seconds since the End-User's authentication). "" = not requested.
+	// Authorize parses it: a non-integer or negative value is refused with
+	// the redirect-safe ErrAuthorizeInvalidMaxAge; an exceeded value forces
+	// the login ceremony (THE-SECOND-LOGIN).
+	MaxAge string
+
 	// RequestObject / RequestURIParam carry the OIDC §6 `request` and
 	// `request_uri` wire parameters. The OSS OP does not support request
 	// objects: a non-empty value is refused with the corresponding
@@ -214,7 +222,22 @@ var (
 	// measurement: ignoring `request` dropped the object's state/nonce).
 	ErrAuthorizeRequestNotSupported    = errors.New("service: authorize request_not_supported")
 	ErrAuthorizeRequestURINotSupported = errors.New("service: authorize request_uri_not_supported")
+	// THE-SECOND-LOGIN: max_age must be a non-negative integer (OIDC Core
+	// §3.1.2.1); anything else is a malformed request, refused redirect-safe
+	// as invalid_request.
+	ErrAuthorizeInvalidMaxAge = errors.New("service: authorize invalid max_age")
 )
+
+// promptHas reports whether the OIDC prompt value — a space-separated list
+// (OIDC Core §3.1.2.1) — carries the given token, case-insensitively.
+func promptHas(prompt, token string) bool {
+	for _, p := range strings.Fields(prompt) {
+		if strings.EqualFold(p, token) {
+			return true
+		}
+	}
+	return false
+}
 
 // Authorize runs the request through the validation pipeline. On
 // success it returns an AuthorizeResult; on failure it returns one
@@ -309,6 +332,18 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		}
 	}
 
+	// max_age is parsed BEFORE the authentication phase so a malformed value
+	// is refused as invalid_request whether or not a session exists
+	// (THE-SECOND-LOGIN). -1 = not requested.
+	maxAge := -1
+	if raw := strings.TrimSpace(req.MaxAge); raw != "" {
+		n, convErr := strconv.Atoi(raw)
+		if convErr != nil || n < 0 {
+			return nil, ErrAuthorizeInvalidMaxAge
+		}
+		maxAge = n
+	}
+
 	// Phase 3: caller must be authenticated.
 	if req.Principal == nil ||
 		req.Principal.UserID == uuid.Nil ||
@@ -316,12 +351,34 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		return nil, ErrAuthorizeLoginRequired
 	}
 
+	var authSession *domain.Session
 	if s.sessions != nil {
 		session, sessErr := s.sessions.GetByID(ctx, req.Principal.SessionID)
 		if sessErr != nil || session == nil {
 			return nil, ErrAuthorizeLoginRequired
 		}
 		if canUse, _ := session.CanBeUsed(s.now().UTC()); !canUse {
+			return nil, ErrAuthorizeLoginRequired
+		}
+		authSession = session
+	}
+
+	// THE-SECOND-LOGIN — forced re-authentication (OIDC Core §3.1.2.1).
+	// prompt=login: the OP MUST re-authenticate the End-User even though a
+	// live session exists. max_age=N: if the session's auth_time
+	// (Session.EffectiveAuthTime — the session's creation, or its last ACR
+	// uplift) is older than N seconds the OP MUST re-authenticate. Both
+	// surface as ErrAuthorizeLoginRequired: the handler sends an interactive
+	// browser back through the login ceremony (dropping the consumed `login`
+	// prompt from the resumed request, keeping max_age — a fresh session
+	// passes it), and a prompt=none request gets the OIDC-required
+	// login_required error redirect. A fresh login mints a NEW session, so
+	// auth_time advances monotonically with each forced ceremony.
+	if promptHas(req.Prompt, "login") {
+		return nil, ErrAuthorizeLoginRequired
+	}
+	if maxAge >= 0 && authSession != nil {
+		if s.now().UTC().Sub(authSession.EffectiveAuthTime()) > time.Duration(maxAge)*time.Second {
 			return nil, ErrAuthorizeLoginRequired
 		}
 	}
@@ -358,7 +415,7 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	//   4. Otherwise → ErrAuthorizeConsentRequired (handler routes
 	//      to the consent page or, with prompt=none, returns the
 	//      consent_required redirect error).
-	if strings.EqualFold(req.Prompt, "consent") {
+	if promptHas(req.Prompt, "consent") {
 		return nil, ErrAuthorizeConsentRequired
 	}
 	if !client.SkipConsent {

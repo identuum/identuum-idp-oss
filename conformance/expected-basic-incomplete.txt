@@ -1,19 +1,14 @@
-# THE-PKCE-DECISION — recorded INCOMPLETE modules of the oidcc-basic plan
-# (measured 2026-09-01 at suite release-v5.2.4; replaces the retired
-# expected-basic-abort.txt whose mandatory-PKCE abort no longer happens).
+# THE-SECOND-LOGIN — the oidcc-basic plan's INCOMPLETE-module floor is EMPTY.
 #
-# FINDING, recorded not fixed: prompt=login and max_age=1 require the OP to
-# FORCE RE-AUTHENTICATION on the second authorize; the OP re-issues on the
-# live session instead, so each module's auth_time condition fails (floored
-# in expected-failures-basic.json) AND the module then ends stuck in WAITING
-# — run-test-plan counts that as "did not run to completion", which the
-# suite's expected-failures format cannot express. This file is the floor
-# for exactly that: run.sh passes the basic plan only when the set of
-# incomplete modules EQUALS the list below and no other failure marker is
-# present. A run where these complete (the re-auth slice landed) fails until
-# this floor is re-recorded deliberately — floor semantics, rule
-# CONFORMANCE-FLOOR-1.
+# THE-PKCE-DECISION recorded oidcc-prompt-login and oidcc-max-age-1 here:
+# both stalled in WAITING because the OP re-issued on the live session
+# instead of forcing re-authentication. THE-SECOND-LOGIN honors prompt=login
+# and max_age (a fresh login mints a new session, so auth_time advances), and
+# both modules now run to completion — their entries moved OUT of this floor
+# AND of expected-failures-basic.json, nothing else moved.
 #
-# One module name per non-comment line, exact, sorted.
-oidcc-max-age-1
-oidcc-prompt-login
+# With no module lines below, run.sh treats run-test-plan's own exit code as
+# authoritative for the basic plan (the expected-failures/skips files remain
+# the floor for conditions). If a module ever stalls again, record it here
+# deliberately — one exact module name per non-comment line, sorted — and the
+# incomplete-set equality floor re-engages (rule CONFORMANCE-FLOOR-1).
