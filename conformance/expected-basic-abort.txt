@@ -1,0 +1,20 @@
+# THE-CONFORMANCE-HARNESS — the recorded state of the oidcc-basic plan
+# (measured 2026-09-01 at suite release-v5.2.4, appliance behind self-signed
+# https).
+#
+# FINDING, recorded not fixed: the OP MANDATES PKCE on every authorization
+# request (AuthorizeService.Authorize phase 2 returns "Missing required
+# parameter" when code_challenge is absent). The OIDC Basic certification
+# profile is the plain code flow WITHOUT PKCE, so every browser-flow module
+# receives a direct 400 from the authorization endpoint, no callback ever
+# reaches the suite, the module times out to INTERRUPTED, and after three
+# consecutive incompletions run-test-plan's circuit breaker aborts the whole
+# plan with ServerUnhealthyError. The suite's expected-failures format can
+# express failed CONDITIONS but not interrupted MODULES, so this file is the
+# floor for the abort itself: run.sh passes the plan only when the abort
+# matches this signature EXACTLY, and fails when the plan improves OR
+# degrades — either way the floor moved and must be re-recorded on purpose.
+#
+# The line below must appear verbatim (module names, in order) in the
+# ServerUnhealthyError abort message:
+oidcc-server[client_auth_type=client_secret_basic][response_mode=default][response_type=code], oidcc-response-type-missing[client_auth_type=client_secret_basic][response_mode=default][response_type=code], oidcc-userinfo-get[client_auth_type=client_secret_basic][response_mode=default][response_type=code]

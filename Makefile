@@ -1612,6 +1612,21 @@ oss-setup-code:
 	@$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app exec \
 		app /app/identuum-idp show-setup-code /app/data
 
+## openid-conformance: MANUAL OpenID Foundation conformance run
+##   (THE-CONFORMANCE-HARNESS). Stands up the pinned conformance suite AND a
+##   fresh disposable appliance with a conformance org on an ISOLATED compose
+##   project (identuum-conformance; host ports 127.0.0.1:28443/28444/27113 —
+##   never the dev stack or its data), runs the config-certification plan and
+##   the basic plan headless, reports the suite's verdicts VERBATIM against
+##   the committed expected-failure floor, and tears BOTH stacks down
+##   (down --volumes) on success, failure or interrupt. Only the cached
+##   suite clone (.conformance-suite/, pinned by conformance/PIN) survives.
+##   NOT part of verify or test-full. Fixes nothing; findings are reported.
+##   See docs/TESTING-OPERATORS.md ("The OpenID conformance harness").
+.PHONY: openid-conformance
+openid-conformance:
+	@bash conformance/run.sh
+
 ## oss-fresh: DESTROY the local OSS stack and stand a bootstrapped one up.
 ##
 ##   *** THIS DESTROYS DATA. *** It removes the app + Postgres containers AND

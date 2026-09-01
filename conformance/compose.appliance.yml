@@ -1,0 +1,50 @@
+# conformance/compose.appliance.yml — THE-CONFORMANCE-HARNESS.
+#
+# The FRESH disposable idp-oss appliance that stands BESIDE the conformance
+# suite, in the SAME isolated compose project and network — so the suite's
+# server and its in-container browser reach the OP by service name
+# (conformance-idp), and one project-level `down --volumes` tears down both
+# stacks together.
+#
+# This file deliberately does NOT touch deployment/docker-compose.dev.yml or
+# its volumes: separate service names, separate (anonymous) volumes, separate
+# host ports (127.0.0.1:27113 for the provisioning glue only). The dev
+# stack's data cannot be reached from here.
+#
+# postgres:18 (bookworm-based), NOT -alpine: our images follow IMG-NONALPINE.
+services:
+  conformance-postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: idp_oss_user
+      POSTGRES_PASSWORD: conformance-only-not-a-secret
+      POSTGRES_DB: identuum_idp_oss
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U idp_oss_user -d identuum_idp_oss"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  conformance-idp:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.local
+    image: identuum-idp-oss:conformance
+    depends_on:
+      conformance-postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:27113:7113"
+    environment:
+      IDENTUUM_IDP_OSS_DB: "postgres://idp_oss_user:conformance-only-not-a-secret@conformance-postgres:5432/identuum_idp_oss?sslmode=disable"
+      # The issuer is the IN-NETWORK URL the suite (server + browser) sees.
+      # run.sh sets CONFORMANCE_OP_ISSUER — http first (the DO-3 measurement),
+      # https via the TLS sidecar if the suite refuses http.
+      IDENTUUM_IDP_OSS_ISSUER: "${CONFORMANCE_OP_ISSUER:-http://conformance-idp:7113}"
+      IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
+      # The same well-known NON-SECRET dev constant the dev compose defaults
+      # to — this appliance is disposable and never holds real data.
+      IDENTUUM_IDP_ENCRYPTION_KEY: "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
+      # Rate limiting off for the harness (same escape hatch e2e-full uses):
+      # the suite fires many same-IP logins in quick succession.
+      IDENTUUM_IDP_INSECURE_DEV_MODE: "true"

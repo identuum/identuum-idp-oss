@@ -1,0 +1,29 @@
+# conformance/compose.suite-override.yml — THE-CONFORMANCE-HARNESS.
+#
+# Layered OVER the suite's own docker-compose-prebuilt.yml (in the gitignored
+# .conformance-suite clone). The clone is a TOOL REPO: run, never modified —
+# every deviation from their defaults lives HERE.
+#
+#   - mongo data moves from a bind mount INSIDE the clone to a named volume,
+#     so `down --volumes` leaves nothing behind but the clone itself.
+#   - host ports move to 127.0.0.1:28443/28444 so the suite can never collide
+#     with the dev stack. The IN-NETWORK port stays 8443: BASE_URL and the
+#     localhost.emobix.co.uk network alias (their own trick for making the
+#     suite's browser and server resolve the public-DNS-127.0.0.1 name to
+#     nginx) both depend on it.
+#   - images are pinned to the release tag recorded in conformance/PIN via
+#     IMAGE_TAG, exported by run.sh. mongo:6.0.13 is the suite's own default
+#     infrastructure image (Ubuntu-based; the no-Alpine image policy
+#     IMG-NONALPINE governs OUR images — the tool repo's own stack is run
+#     as shipped, not modified).
+services:
+  mongodb:
+    volumes: !override
+      - conformance-mongo-data:/data/db
+  nginx:
+    ports: !override
+      - "127.0.0.1:28443:8443"
+      - "127.0.0.1:28444:8444"
+
+volumes:
+  conformance-mongo-data:

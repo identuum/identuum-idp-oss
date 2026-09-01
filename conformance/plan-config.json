@@ -1,0 +1,7 @@
+{
+    "description": "identuum-idp-oss OIDC config certification (local conformance harness)",
+    "alias": "identuum-oss",
+    "server": {
+        "discoveryUrl": "__OP_ISSUER__/.well-known/openid-configuration"
+    }
+}

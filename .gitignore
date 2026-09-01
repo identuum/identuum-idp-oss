@@ -94,3 +94,9 @@ docs/design/
 # an edit to the committed GATE-RUN.txt record's tree digest.
 /GATE-RUN.ci.txt
 TEST-spec.MD
+
+# THE-CONFORMANCE-HARNESS: the cached OpenID conformance-suite clone
+# (pinned by conformance/PIN; a tool repo — run, never modified, never committed)
+/.conformance-suite/
+# THE-CONFORMANCE-HARNESS: per-run TLS work dirs (teardown removes them)
+/.conformance-work.*/

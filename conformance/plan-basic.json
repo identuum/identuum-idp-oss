@@ -1,0 +1,53 @@
+{
+    "description": "identuum-idp-oss OIDC basic certification (local conformance harness)",
+    "alias": "identuum-oss",
+    "server": {
+        "discoveryUrl": "__OP_ISSUER__/.well-known/openid-configuration",
+        "login_hint": "conformance-user@conformance.test"
+    },
+    "client": {
+        "client_id": "__CLIENT1_ID__",
+        "client_secret": "__CLIENT1_SECRET__"
+    },
+    "client_secret_post": {
+        "client_id": "__CLIENT1_ID__",
+        "client_secret": "__CLIENT1_SECRET__"
+    },
+    "client2": {
+        "client_id": "__CLIENT2_ID__",
+        "client_secret": "__CLIENT2_SECRET__"
+    },
+    "browser": [
+        {
+            "comment": "OP-native ceremony: /api/v1/auth/browser-login renders the login form (inputs name=email/password, one unnamed submit button), then /api/v1/oauth/consent renders approve/deny submit buttons named 'action'. NOTE, measured: an unauthenticated /oauth/authorize currently error-redirects login_required to the client instead of sending the browser to this form — these tasks are the automation for the ceremony the OP defines, and they run whenever the browser actually lands on those pages.",
+            "match": "__OP_ISSUER__/api/v1/oauth/authorize*",
+            "tasks": [
+                {
+                    "task": "Login",
+                    "optional": true,
+                    "match": "__OP_ISSUER__/api/v1/auth/browser-login*",
+                    "commands": [
+                        ["text", "name", "email", "conformance-user@conformance.test", "optional"],
+                        ["text", "name", "password", "__USER_PASSWORD__", "optional"],
+                        ["click", "xpath", "//button[@type='submit']"]
+                    ]
+                },
+                {
+                    "task": "Consent",
+                    "optional": true,
+                    "match": "__OP_ISSUER__/api/v1/oauth/consent*",
+                    "commands": [
+                        ["click", "xpath", "//button[@name='action'][@value='approve']"]
+                    ]
+                },
+                {
+                    "task": "Verify Complete",
+                    "match": "*/test/a/identuum-oss/callback*",
+                    "commands": [
+                        ["wait", "id", "submission_complete", 10]
+                    ]
+                }
+            ]
+        }
+    ]
+}

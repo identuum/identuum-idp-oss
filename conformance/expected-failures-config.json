@@ -1,0 +1,14 @@
+[
+    {
+        "test-name": "oidcc-discovery-endpoint-verification",
+        "variant": {
+            "server_metadata": "discovery",
+            "client_registration": "static_client"
+        },
+        "configuration-filename": "*/plan-config.json",
+        "current-block": "",
+        "condition": "OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported",
+        "expected-result": "failure",
+        "comment": "FINDING, recorded not fixed (THE-CONFORMANCE-HARNESS, measured 2026-09-01 at release-v5.2.4): discovery advertises id_token_signing_alg_values_supported [EdDSA, ES256]; OIDC Discovery 1.0 section 3 requires RS256 to be included. Floor semantics: if this starts passing, the run fails until this entry is deliberately removed."
+    }
+]

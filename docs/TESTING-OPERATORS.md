@@ -198,6 +198,64 @@ client (it gets `none` by default), move the redirect URIs over, update the
 relying application's client_id, then delete the old row. The audit counts
 these under `CLIENT-UPDATE-DOCUMENT-1`.
 
+## The OpenID conformance harness (`make openid-conformance`)
+
+A MANUAL target — never part of `make verify` or the disposable suite. It
+runs the OpenID Foundation conformance suite (pinned in `conformance/PIN`)
+against a fresh disposable appliance, and reports the suite's verdicts
+verbatim against a committed expected-failure floor. It fixes nothing: a
+finding stays a finding until a product slice addresses it and the floor is
+re-recorded deliberately.
+
+**Prerequisites:** Docker (compose v2), network access on the FIRST run only
+(clones the suite into the gitignored `.conformance-suite/` and pulls its
+pinned images), python3, node, openssl. Roughly 4 GB of images.
+
+**Runtime:** first run ~10–20 min (clone + pulls + appliance build);
+afterwards ~5 min. Everything runs on an isolated compose project
+(`identuum-conformance`) with host ports 127.0.0.1:28443/28444/27113 — your
+dev stack, its ports and its data are untouched. Teardown (`down --volumes`
+for both stacks) fires on success, failure or Ctrl-C; only the cached suite
+clone (and its python venv) survives between runs.
+
+**Reading the result:**
+
+- `RESULT: GREEN against the committed expected-failure floor` — the OP
+  behaves exactly as the committed baseline records, INCLUDING its known
+  findings. This is the healthy steady state.
+- Nonzero exit — one of, and the output says which:
+  - an UNEXPECTED failure: new behavior; read the verbatim condition list
+    the suite prints.
+  - an EXPECTED failure that now PASSES (floor semantics, rule
+    `CONFORMANCE-FLOOR-1`): something improved; update
+    `conformance/expected-failures-*.json` / `expected-basic-abort.txt`
+    deliberately, the same way a rulefloor floor is raised.
+  - `could not run` (exit 2): infrastructure, not conformance.
+
+**The committed baseline (measured 2026-09-01, suite release-v5.2.4):**
+
+- Plan `oidcc-config-certification-test-plan`: 34 conditions pass, ONE
+  recorded finding — discovery advertises
+  `id_token_signing_alg_values_supported: [EdDSA, ES256]` and OIDC Discovery
+  requires RS256 in that list
+  (`OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported`).
+- Plan `oidcc-basic-certification-test-plan`: ABORTS by recorded signature.
+  The OP mandates PKCE on every authorization request; the Basic profile is
+  the plain code flow, so every browser module gets a direct 400
+  ("Missing required parameter"), times out INTERRUPTED, and the suite's
+  circuit breaker stops the plan. `conformance/expected-basic-abort.txt`
+  floors that exact abort.
+- Transport measurement: the suite RUNS against an http OP but fails seven
+  endpoint conditions on scheme alone, so the harness fronts the OP with a
+  per-run self-signed https sidecar inside the isolated network
+  (`conformance/compose.tls.yml`).
+
+The suite clone is a tool repo: run, never modified — `run.sh` refuses to
+proceed if the clone has local changes or is not at the pinned sha.
+Browser-automation for the OP's own login/consent pages is committed in
+`conformance/plan-basic.json`; it exercises whenever the browser actually
+reaches those pages.
+
 ## What the suite does NOT cover (known, recorded — not forgotten)
 
 - **Backup / restore** — there is no product backup procedure yet to test;
