@@ -116,6 +116,20 @@ now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # that limitation is stated in the header of every record this writes.
 EVIDENCE_RE='^check OK:|Tests  [0-9]|Test Files |wiki freshness:|sync violations:|SELFTEST OK|gate-witness OK:'
 
+# repo_state <repo-dir> <exclude-path> — "<short-sha>[ (dirty)]", where dirty
+# ignores ONLY the excluded record file (the record being written is not
+# evidence against the tree it is about to witness).
+repo_state() {
+	local repo="$1" rec="$2"
+	(
+		cd "$repo" || { echo none; exit 0; }
+		local head dirty
+		head=$(git rev-parse --short HEAD 2>/dev/null || echo none)
+		dirty=$(git status --porcelain -- . ":(exclude)$rec" 2>/dev/null | grep -q . && echo ' (dirty)')
+		echo "$head$dirty"
+	)
+}
+
 write_header() { # <record> <label> <plan name>...
 	local rec="$1" label="$2"; shift 2
 	{
@@ -123,7 +137,7 @@ write_header() { # <record> <label> <plan name>...
 		echo "gate: $label"
 		echo "note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code"
 		[ -n "${GATE_WITNESS_CITES:-}" ] && echo "cites: $GATE_WITNESS_CITES"
-		echo "repo-head: $(git rev-parse --short HEAD 2>/dev/null || echo none)$(git status --porcelain 2>/dev/null | grep -q . && echo ' (dirty)')"
+		echo "repo-head: $(repo_state . "$rec")"
 		echo "started: $(now_utc)"
 		local n
 		printf 'plan:'
@@ -165,6 +179,18 @@ finalize_into() { # <record> — green ONLY if every planned target recorded exi
 			echo "tree: commit=$(git rev-parse HEAD 2>/dev/null || echo none)$(git status --porcelain 2>/dev/null | grep -q . && echo ' (dirty-at-finalize)')" >>"$rec"
 		else
 			echo "tree: sha256=$(tree_digest . "$rec")" >>"$rec"
+		fi
+		# THE-STALE-WITNESS (two-repo witness): a gate that exercises MORE
+		# than this repo must pin every repo it exercised. Each entry in
+		# GATE_WITNESS_XREPO ("name=path", space-separated) records that
+		# sibling's HEAD, dirty state and content digest at finalize time;
+		# check verifies all of them against the siblings as they are NOW.
+		if [ -n "${GATE_WITNESS_XREPO:-}" ]; then
+			local xr xname xpath
+			for xr in $GATE_WITNESS_XREPO; do
+				xname="${xr%%=*}"; xpath="${xr#*=}"
+				echo "xrepo: $xname head=$(repo_state "$xpath" "GATE-RUN.txt") tree=sha256:$(tree_digest "$xpath" "/nonexistent-no-exclusion")" >>"$rec"
+			done
 		fi
 		echo "result: green" >>"$rec"
 	else
@@ -282,6 +308,78 @@ check_mode() {
 			fi
 		fi
 	fi
+	# THE-STALE-WITNESS: the digest proves CONTENT; these prove the NAME. A
+	# record that admits a dirty mint, or names any commit but the current
+	# clean HEAD, fails — with one allowance: a tracked record cannot live
+	# inside the commit it witnesses, so HEAD may be exactly one commit
+	# beyond the recorded one PROVIDED that commit changed nothing but the
+	# record itself (the witness commit).
+	if [ "$bad" -eq 0 ] && ! grep -q '^tree: commit=' "$path"; then
+		local rechead reclean curhead
+		rechead=$(sed -n 's/^repo-head: //p' "$path" | head -1)
+		case "$rechead" in
+		*' (dirty)')
+			echo "GATE-WITNESS DIRTY-MINT: $path was minted on a dirty tree ($rechead) — commit first, mint at clean HEAD"
+			bad=1
+			;;
+		none | '') : ;; # no git at mint time — nothing to compare
+		*)
+			rechead=$(cd "$repo" && git rev-parse --verify --quiet "$rechead^{commit}" || echo unknown)
+			curhead=$(cd "$repo" && git rev-parse HEAD 2>/dev/null || echo none)
+			reclean=$(cd "$repo" && git status --porcelain -- . ":(exclude)$rec" 2>/dev/null | grep -c . || true)
+			if [ "$rechead" = "unknown" ]; then
+				echo "GATE-WITNESS STALE-HEAD: $path names a commit this repository does not have"
+				bad=1
+			elif [ "${reclean:-0}" -ne 0 ]; then
+				echo "GATE-WITNESS DIRTY-NOW: the tree at $repo has changes beyond $rec — the record cannot witness a moving tree"
+				bad=1
+			elif [ "$rechead" != "$curhead" ]; then
+				# The ONLY tolerated divergence: HEAD is the witness commit —
+				# the DIRECT CHILD of the recorded commit, changing nothing
+				# but the record file. Anything else (a later work commit, an
+				# empty commit stacked on top) is a stale name.
+				if [ "$(cd "$repo" && git rev-parse HEAD~1 2>/dev/null)" != "$rechead" ] ||
+					[ "$(cd "$repo" && git diff --name-only "$rechead" HEAD 2>/dev/null)" != "$rec" ]; then
+					echo "GATE-WITNESS STALE-HEAD: $path names $(echo "$rechead" | cut -c1-7) but HEAD is $(echo "$curhead" | cut -c1-7) and it is not the record's own witness commit — re-mint at the current clean HEAD"
+					bad=1
+				fi
+			fi
+			;;
+		esac
+	fi
+	# Verify every sibling repo the record pins (the two-repo witness).
+	if [ "$bad" -eq 0 ]; then
+		local xline xname xhead xdigest xdir xcur
+		while IFS= read -r xline; do
+			xname=$(echo "$xline" | sed -n 's/^xrepo: \([^ ]*\) .*/\1/p')
+			xhead=$(echo "$xline" | sed -n 's/.* head=\(.*\) tree=sha256:.*/\1/p')
+			xdigest=$(echo "$xline" | sed -n 's/.*tree=sha256:\(.*\)$/\1/p')
+			xdir="$repo/../$xname"
+			case "$xhead" in
+			*' (dirty)')
+				echo "GATE-WITNESS DIRTY-MINT: $path pinned $xname at a dirty tree ($xhead) — the gate cannot say which $xname it exercised"
+				bad=1
+				continue
+				;;
+			esac
+			if [ ! -d "$xdir/.git" ] && [ ! -f "$xdir/.git" ]; then
+				echo "GATE-WITNESS FAIL: $path pins sibling $xname but $xdir is not a git repository"
+				bad=1
+				continue
+			fi
+			xcur=$(cd "$xdir" && git rev-parse --short HEAD 2>/dev/null || echo none)
+			if [ "$(cd "$xdir" && git rev-parse --verify --quiet "$xhead^{commit}")" != "$(cd "$xdir" && git rev-parse HEAD 2>/dev/null)" ]; then
+				echo "GATE-WITNESS STALE-XREPO: $path pins $xname at $xhead but its HEAD is $xcur — the sibling moved after the run"
+				bad=1
+			elif (cd "$xdir" && git status --porcelain -- . ":(exclude)GATE-RUN.txt" 2>/dev/null | grep -q .); then
+				echo "GATE-WITNESS DIRTY-NOW: sibling $xname has uncommitted changes — the record cannot witness a moving tree"
+				bad=1
+			elif [ "$(tree_digest "$xdir" "/nonexistent-no-exclusion")" != "$xdigest" ]; then
+				echo "GATE-WITNESS STALE-XREPO: $xname content no longer matches the digest $path recorded"
+				bad=1
+			fi
+		done < <(grep '^xrepo: ' "$path")
+	fi
 	if [ "$bad" -eq 0 ]; then
 		echo "gate-witness OK: '$label' green on the tree it claims ($(grep -c '^target: ' "$path") targets)"
 	fi
@@ -331,6 +429,10 @@ selftest() {
 		git init -q .
 		echo alpha >f.txt
 		git add f.txt
+		# THE-STALE-WITNESS: check now refuses a record minted on a dirty
+		# tree or naming anything but the current clean HEAD, so the
+		# fixture commits its base before any run.
+		git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm base0
 
 		# 1 FIRE: no record at all
 		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 && { echo "SELFTEST FAIL 1: missing record passed"; exit 1; }
@@ -373,7 +475,47 @@ selftest() {
 		grep -q '^result: red$' GATE-RUN.txt || { echo "SELFTEST FAIL 8b: unfinished stepwise record is not red"; exit 1; }
 		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q "INCOMPLETE: target 'b'" || { echo "SELFTEST FAIL 8c: check did not name the unrun step"; exit 1; }
 
+		# 10 FIRE (THE-STALE-WITNESS): a green mint on a DIRTY tree fails check
+		echo drift >>f.txt
+		bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' >/dev/null 2>&1
+		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS DIRTY-MINT' || { echo "SELFTEST FAIL 10: dirty mint did not fail check"; exit 1; }
+		git checkout -q -- f.txt
+
+		# 11 PASS: clean mint, then the WITNESS COMMIT (record only) still passes
+		bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 11a: clean green run exited nonzero"; exit 1; }
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 11b: clean-HEAD mint did not pass pre-commit"; exit 1; }
+		git add GATE-RUN.txt
+		git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm witness
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 11c: the witness commit (record only) did not pass"; exit 1; }
+
+		# 12 FIRE: HEAD moves beyond the witness commit — STALE-HEAD even though
+		# the content digest is unchanged (an empty commit)
+		git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm next --allow-empty
+		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS STALE-HEAD' || { echo "SELFTEST FAIL 12: moved HEAD with unchanged content did not read STALE-HEAD"; exit 1; }
+		git reset -q --hard HEAD~1
+
+		# 13 the TWO-REPO witness: the record pins a sibling; the sibling moving
+		# or dirtying fails check. Fixture repos live OUTSIDE this selftest
+		# repo's work tree so they cannot dirty it.
+		xtmp=$(mktemp -d "${TMPDIR:-/tmp}/gate-witness-xrepo.XXXXXX")
+		mkdir -p "$xtmp/main2" "$xtmp/sib"
+		(cd "$xtmp/sib" && git init -q . && echo s >s.txt && git add s.txt && git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm sib0)
+		(cd "$xtmp/main2" && git init -q . && echo m >m.txt && git add m.txt && git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm main0)
+		(cd "$xtmp/main2" && GATE_WITNESS_XREPO="sib=../sib" bash "$self" run GATE-RUN.txt "selftest xrepo gate" 'a=true' >/dev/null 2>&1) || { echo "SELFTEST FAIL 13a: xrepo run failed"; exit 1; }
+		grep -q '^xrepo: sib head=' "$xtmp/main2/GATE-RUN.txt" || { echo "SELFTEST FAIL 13b: record carries no xrepo pin"; exit 1; }
+		bash "$self" check "$xtmp/main2" GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 13c: fresh xrepo record did not pass"; exit 1; }
+		(cd "$xtmp/sib" && git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm sibnext --allow-empty)
+		bash "$self" check "$xtmp/main2" GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS STALE-XREPO' || { echo "SELFTEST FAIL 13d: moved sibling did not read STALE-XREPO"; exit 1; }
+		(cd "$xtmp/sib" && git reset -q --hard HEAD~1)
+		echo dirt >>"$xtmp/sib/s.txt"
+		bash "$self" check "$xtmp/main2" GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS DIRTY-NOW' || { echo "SELFTEST FAIL 13e: dirty sibling did not fail"; exit 1; }
+		# a mint while the SIBLING is dirty must record it and fail check
+		(cd "$xtmp/main2" && GATE_WITNESS_XREPO="sib=../sib" bash "$self" run GATE-RUN.txt "selftest xrepo gate" 'a=true' >/dev/null 2>&1)
+		bash "$self" check "$xtmp/main2" GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS DIRTY-MINT' || { echo "SELFTEST FAIL 13f: sibling-dirty mint did not fail"; exit 1; }
+		rm -rf "$xtmp"
+
 		# 9 commit-tie (the CI shape): green pins HEAD; a new commit reads STALE
+		git rm -q --cached GATE-RUN.txt
 		echo 'GATE-RUN.txt' >.gitignore
 		git add -A
 		git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm base
@@ -386,7 +528,7 @@ selftest() {
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 9 case(s): fire (missing, stale x3, red, incomplete x2) and pass (run, stepwise, commit-tie) proven"
+		echo "SELFTEST OK — 13 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling) and pass (run, stepwise, witness-commit, xrepo, commit-tie) proven"
 		return 0
 	fi
 	return 1
