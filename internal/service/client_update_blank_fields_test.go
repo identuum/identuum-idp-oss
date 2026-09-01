@@ -28,6 +28,11 @@ import (
 //
 // RULE: CLIENT-UPDATE-BLANK-FIELDS-1
 func TestClientUpdate_BlankFieldsClearOrRefusePerField(t *testing.T) {
+	// THE-INCONSISTENT-DOCUMENT: fixtures must be documents the DATABASE
+	// could hold. The earlier fixture stored jwks material on a
+	// client_secret_post client — a row oauth_clients_pkj_key_source_check
+	// has always refused — which the recording repository accepted only
+	// because fakes have no constraints. Two consistent fixtures instead.
 	seed := func() (*ClientService, *recordingClientRepo) {
 		repo := &recordingClientRepo{stored: domain.Client{
 			ID:                          uuid.New(),
@@ -35,37 +40,57 @@ func TestClientUpdate_BlankFieldsClearOrRefusePerField(t *testing.T) {
 			Name:                        "Billing Portal",
 			RedirectURIs:                []string{"https://app.example.test/cb"},
 			Scope:                       "read write",
-			JWKSUri:                     "https://app.example.test/jwks.json",
-			JWKS:                        `{"keys":[]}`,
 			TokenEndpointAuthMethod:     "client_secret_post",
 			TokenEndpointAuthSigningAlg: "RS256",
 		}}
 		return NewClientService(nil, repo), repo
 	}
+	seedPKJ := func(inline bool) (*ClientService, *recordingClientRepo) {
+		stored := domain.Client{
+			ID:                          uuid.New(),
+			ClientID:                    "cid",
+			Name:                        "Billing Portal",
+			RedirectURIs:                []string{"https://app.example.test/cb"},
+			TokenEndpointAuthMethod:     "private_key_jwt",
+			TokenEndpointAuthSigningAlg: "RS256",
+		}
+		if inline {
+			stored.JWKS = `{"keys":[]}`
+		} else {
+			stored.JWKSUri = "https://app.example.test/jwks.json"
+		}
+		repo := &recordingClientRepo{stored: stored}
+		return NewClientService(nil, repo), repo
+	}
 
 	// ── CLEARABLE: a supplied blank must actually reach the repository as
 	// empty. Under the old plain string these could be set but never unset.
-	for _, c := range []struct {
-		field string
-		opts  UpdateClientOptions
-		read  func(*domain.Client) string
-	}{
-		{"scope", UpdateClientOptions{Scope: strPtr("")}, func(c *domain.Client) string { return c.Scope }},
-		{"jwks_uri", UpdateClientOptions{JWKSUri: strPtr("")}, func(c *domain.Client) string { return c.JWKSUri }},
-		{"jwks", UpdateClientOptions{JWKS: strPtr("")}, func(c *domain.Client) string { return c.JWKS }},
-	} {
-		svc, repo := seed()
-		if _, err := svc.UpdateClient(context.Background(), uuid.New(), c.opts); err != nil {
-			t.Errorf("clearing %s was rejected: %v", c.field, err)
-			continue
-		}
-		if repo.updateCalls != 1 || repo.last == nil {
-			t.Errorf("clearing %s never reached the repository", c.field)
-			continue
-		}
-		if got := c.read(repo.last); got != "" {
-			t.Errorf("clearing %s left %q — the supplied blank was DROPPED, not applied", c.field, got)
-		}
+	// Clearing key material stands alone only alongside a method switch —
+	// a pkj client without a key source is not a valid document.
+	basicMethod := "client_secret_basic"
+	svcScope, repoScope := seed()
+	if _, err := svcScope.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{Scope: strPtr("")}); err != nil {
+		t.Errorf("clearing scope was rejected: %v", err)
+	} else if repoScope.last == nil || repoScope.last.Scope != "" {
+		t.Errorf("clearing scope was DROPPED, not applied")
+	}
+	svcURI, repoURI := seedPKJ(false)
+	if _, err := svcURI.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{
+		JWKSUri:                 strPtr(""),
+		TokenEndpointAuthMethod: &basicMethod,
+	}); err != nil {
+		t.Errorf("clearing jwks_uri alongside the method switch was rejected: %v", err)
+	} else if repoURI.last == nil || repoURI.last.JWKSUri != "" {
+		t.Errorf("clearing jwks_uri was DROPPED, not applied")
+	}
+	svcJWKS, repoJWKS := seedPKJ(true)
+	if _, err := svcJWKS.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{
+		JWKS:                    strPtr(""),
+		TokenEndpointAuthMethod: &basicMethod,
+	}); err != nil {
+		t.Errorf("clearing jwks alongside the method switch was rejected: %v", err)
+	} else if repoJWKS.last == nil || repoJWKS.last.JWKS != "" {
+		t.Errorf("clearing jwks was DROPPED, not applied")
 	}
 
 	// ── REFUSED: a supplied blank must not become the column default ──
@@ -86,8 +111,9 @@ func TestClientUpdate_BlankFieldsClearOrRefusePerField(t *testing.T) {
 	}
 
 	// ── and an UNLISTED value must be refused by the SERVICE, not by the
-	// database. domain.AllowedClientAuthMethods and
-	// PrivateKeyJWTSigningAlgorithms both had zero production callers. ──
+	// database. Neither allow-list had a caller on the client WRITE paths
+	// (corrected by THE-MIRROR: PrivateKeyJWTSigningAlgorithms always had
+	// readers in the assertion validator; the write paths consulted neither). ──
 	for _, c := range []struct {
 		why  string
 		opts UpdateClientOptions
@@ -106,14 +132,39 @@ func TestClientUpdate_BlankFieldsClearOrRefusePerField(t *testing.T) {
 		}
 	}
 
-	// ── CONTROLS: every listed value is still accepted, so a service that
-	// refused everything would not pass. ──
-	for _, m := range []string{"client_secret_basic", "client_secret_post", "none", "private_key_jwt"} {
+	// ── CONTROLS: every listed value is still accepted IN a valid document,
+	// so a service that refused everything would not pass. Since
+	// THE-INCONSISTENT-DOCUMENT the whole document must hold: "none" needs a
+	// public client, and "private_key_jwt" needs its key source. ──
+	for _, m := range []string{"client_secret_basic", "client_secret_post"} {
 		svc, _ := seed()
 		if _, err := svc.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{
 			TokenEndpointAuthMethod: &m,
 		}); err != nil {
 			t.Errorf("the listed auth method %q was rejected: %v", m, err)
+		}
+	}
+	{
+		repo := &recordingClientRepo{stored: domain.Client{
+			ID: uuid.New(), ClientID: "cid", Name: "Public App",
+			RedirectURIs: []string{"https://app.example.test/cb"}, IsPublic: true,
+		}}
+		svc := NewClientService(nil, repo)
+		noneMethod := "none"
+		if _, err := svc.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{
+			TokenEndpointAuthMethod: &noneMethod,
+		}); err != nil {
+			t.Errorf("the listed auth method %q was rejected on a public client: %v", noneMethod, err)
+		}
+	}
+	{
+		svc, _ := seed()
+		pkj, uri := "private_key_jwt", "https://app.example.test/jwks.json"
+		if _, err := svc.UpdateClient(context.Background(), uuid.New(), UpdateClientOptions{
+			TokenEndpointAuthMethod: &pkj,
+			JWKSUri:                 &uri,
+		}); err != nil {
+			t.Errorf("the listed auth method %q with its key source was rejected: %v", pkj, err)
 		}
 	}
 	for _, a := range []string{"EdDSA", "ES256", "ES384", "RS256", "RS384", "RS512", "PS256", "PS384", "PS512"} {
@@ -133,7 +184,7 @@ func TestClientUpdate_BlankFieldsClearOrRefusePerField(t *testing.T) {
 	if repo.last == nil {
 		t.Fatal("an empty option set never reached the repository")
 	}
-	if repo.last.Scope != "read write" || repo.last.JWKSUri == "" || repo.last.JWKS == "" ||
+	if repo.last.Scope != "read write" ||
 		repo.last.TokenEndpointAuthMethod != "client_secret_post" || repo.last.TokenEndpointAuthSigningAlg != "RS256" {
 		t.Errorf("an absent field was treated as supplied: %+v", repo.last)
 	}

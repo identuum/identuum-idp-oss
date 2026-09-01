@@ -414,6 +414,20 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 		}
 	}
 	client.UpdatedAt = time.Now().UTC()
+	// THE-INCONSISTENT-DOCUMENT (2026-09-01): validate the UPDATED document,
+	// not just the supplied fields. Per-field checks cannot see combinations,
+	// so PUT could move a client onto private_key_jwt with no key source,
+	// onto method none while confidential, or leave jwks material on a
+	// secret-based client — each refused only by a DB CHECK constraint
+	// answering a flattened 400. The service now owns those cross-field
+	// rules (method↔public consistency, pkj exactly-one-key-source,
+	// jwks-absent-for-non-pkj, jwks_uri-must-be-https) via the SAME
+	// Client.Validate the create path runs. Wired after a read-only sweep of
+	// every stored row measured ZERO that would newly fail (0 rows exist in
+	// this environment's disposable DB — caveat recorded in the wiki pin).
+	if err := client.Validate(); err != nil {
+		return nil, err
+	}
 	if err := s.repo.Update(ctx, client); err != nil {
 		return nil, err
 	}
