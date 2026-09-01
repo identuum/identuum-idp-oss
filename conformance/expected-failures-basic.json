@@ -1,1 +1,83 @@
-[]
+[
+    {
+        "test-name": "oidcc-prompt-login",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "CheckSecondIdTokenAuthTimeIsLaterIfPresent",
+        "expected-result": "failure",
+        "comment": "FINDING, recorded not fixed (THE-PKCE-DECISION, measured 2026-09-01): prompt=login must force RE-AUTHENTICATION; the OP re-issues on the live session so the second id_token's auth_time is not later. Needs a forced-login ceremony (own slice). The module also ends INCOMPLETE — see expected-basic-incomplete.txt."
+    },
+    {
+        "test-name": "oidcc-max-age-1",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "CheckSecondIdTokenAuthTimeIsLaterIfPresent",
+        "expected-result": "failure",
+        "comment": "FINDING, recorded not fixed: max_age=1 must force re-authentication once the session's auth_time is older than max_age; same re-auth gap as oidcc-prompt-login. Also ends INCOMPLETE — see expected-basic-incomplete.txt."
+    },
+    {
+        "test-name": "oidcc-scope-profile",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "VerifyScopesReturnedInUserInfoClaims",
+        "expected-result": "warning",
+        "comment": "FINDING, recorded not fixed: profile scope returns only `name` at userinfo (family_name/given_name/preferred_username etc. are not modeled). Voluntary claims per OIDC 5.4, so warning-level is honest."
+    },
+    {
+        "test-name": "oidcc-scope-email",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "EnsureIdTokenDoesNotContainEmailForScopeEmail",
+        "expected-result": "warning",
+        "comment": "FINDING, recorded not fixed: the id_token carries email under the email scope (the suite prefers claims at userinfo only). Deliberate emission today; revisit with consented-scope-on-token plumbing."
+    },
+    {
+        "test-name": "oidcc-scope-email",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "EnsureUserInfoDoesNotContainName",
+        "expected-result": "warning",
+        "comment": "FINDING, recorded not fixed: userinfo serves `name` for every human subject because the access token carries only ROLE-derived scopes, not the consented OAuth scope — consented-scope gating at userinfo is not representable until the exchange stamps the consented scope on the token (own slice, same root as the codereuse-30seconds finding)."
+    },
+    {
+        "test-name": "oidcc-alternate-happy-flow",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "EnsureIdTokenDoesNotContainEmailForScopeEmail",
+        "expected-result": "warning",
+        "comment": "Same finding as oidcc-scope-email (email in id_token under email scope)."
+    },
+    {
+        "test-name": "oidcc-alternate-happy-flow",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "EnsureUserInfoDoesNotContainName",
+        "expected-result": "warning",
+        "comment": "Same finding as oidcc-scope-email (unscoped `name` at userinfo — consented scope not on the token)."
+    },
+    {
+        "test-name": "oidcc-ensure-request-with-acr-values-succeeds",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "ValidateIdTokenACRClaimAgainstAcrValuesRequest",
+        "expected-result": "warning",
+        "comment": "DELIBERATE posture, not a defect: the OP stamps the session's REAL acr and refuses to echo a requested acr_values it did not perform — faking authentication context would be worse than this warning (acr is a voluntary claim)."
+    },
+    {
+        "test-name": "oidcc-codereuse-30seconds",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "current-block": "*",
+        "condition": "EnsureHttpStatusCodeIs4xx",
+        "expected-result": "warning",
+        "comment": "FINDING, recorded not fixed (security-relevant SHOULD, RFC 6749 4.1.2): replaying a consumed code refuses the exchange but does NOT revoke the access token minted at the first exchange. MEASURED root cause: the AuthCodeReuseRevoker seam has zero production implementations and zero production wiring, and precise revocation needs the exchange to record the minted access JTI on the code row (own slice)."
+    }
+]

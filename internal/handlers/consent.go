@@ -191,7 +191,7 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 		})
 		result, err := deps.AuthorizeService.Authorize(c.Request.Context(), req)
 		if err != nil {
-			emitAuthorizeError(c, AuthorizeHandlerDeps{AuthorizeService: deps.AuthorizeService, Audit: deps.Audit}, req, err)
+			emitAuthorizeError(c, AuthorizeHandlerDeps{AuthorizeService: deps.AuthorizeService, Audit: deps.Audit}, req, authorizeQueryFromRequest(req), err)
 			return
 		}
 		c.Redirect(http.StatusFound, result.RedirectURL)

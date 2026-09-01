@@ -12,16 +12,20 @@ type KeyAlgorithm string
 const (
 	KeyAlgorithmEdDSA KeyAlgorithm = "EdDSA"
 	KeyAlgorithmES256 KeyAlgorithm = "ES256"
-	// KeyAlgorithmRS256 is verification-capable only — Identuum signs with
-	// EdDSA/ES256 only (modern crypto by default, per
-	// docs/ID_JAG_DESIGN.md cross-Q finding #15). RS256 verification was
-	// added in Q6 to support inbound foreign-IdP-signed assertions for
-	// the ID-JAG Resource-Server-side path. The asymmetric posture is
-	// enforced architecturally: parseKey rejects any RS256 key that
-	// carries a non-empty PrivateKey field, and SignBytes /
-	// GenerateJWTToken / GenerateIDToken / GenerateIDJagAssertion all
-	// continue to refuse RS256 as their signing algorithm via their
-	// default-case rejections.
+	// KeyAlgorithmRS256: Identuum's defaults are EdDSA/ES256 (modern
+	// crypto by default, per docs/ID_JAG_DESIGN.md cross-Q finding #15);
+	// RS256 verification supports inbound foreign-IdP-signed assertions
+	// (Q6, ID-JAG Resource-Server-side path).
+	//
+	// THE-PKCE-DECISION (owner ruling, verbatim): "Add RS256 into the
+	// list BUT DO NOT USE except testing and put this into documentation
+	// CLEARLY." RS256 SIGNING is now a real capability — key generation
+	// (GenerateRS256Key), JWKS publication, id_token signing — but it is
+	// NEVER the default: it fires only for a client that explicitly
+	// registered id_token_signed_response_alg=RS256, the issuer default
+	// key selection never picks an RSA key, AutoGenerateInitialKey never
+	// generates one, and auth.KeyManager still refuses to sign with it.
+	// Testing-only; see docs/TESTING-OPERATORS.md.
 	KeyAlgorithmRS256 KeyAlgorithm = "RS256"
 )
 

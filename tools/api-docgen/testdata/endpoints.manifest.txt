@@ -93,6 +93,7 @@ POST /api/v1/me/mfa/recovery-codes/regenerate
 POST /api/v1/me/sessions/revoke-all
 POST /api/v1/me/sessions/revoke-current
 POST /api/v1/me/sessions/revoke-others
+POST /api/v1/oauth/authorize
 POST /api/v1/oauth/consent
 POST /api/v1/oauth/introspection
 POST /api/v1/oauth/register

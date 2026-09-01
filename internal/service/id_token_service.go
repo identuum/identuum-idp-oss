@@ -116,6 +116,13 @@ type IDTokenInput struct {
 	// Scope is the consented scope string. Used to gate email +
 	// email_verified emission.
 	Scope string
+
+	// SigningAlg is the client's explicitly registered
+	// id_token_signed_response_alg, or empty for the issuer default
+	// (EdDSA-preferred / ES256-fallback, never RS256). RS256 here is
+	// honored only because the client explicitly asked — testing-only
+	// per THE-PKCE-DECISION.
+	SigningAlg string
 }
 
 // IDTokenResponse carries the signed ID token and its lifecycle
@@ -203,14 +210,15 @@ func (s *IDTokenService) Issue(ctx context.Context, in IDTokenInput) (*IDTokenRe
 	}
 
 	idToken, err := s.idIssuer.IssueIDToken(ctx, oidc.IDTokenClaims{
-		Issuer:    s.issuer,
-		Subject:   in.User.ID.String(),
-		Audience:  in.Audience,
-		Nonce:     in.Nonce,
-		IssuedAt:  now,
-		ExpiresAt: exp,
-		JTI:       jti,
-		Extra:     extra,
+		Issuer:     s.issuer,
+		Subject:    in.User.ID.String(),
+		Audience:   in.Audience,
+		Nonce:      in.Nonce,
+		IssuedAt:   now,
+		ExpiresAt:  exp,
+		JTI:        jti,
+		Extra:      extra,
+		SigningAlg: in.SigningAlg,
 	})
 	if err != nil {
 		return nil, err

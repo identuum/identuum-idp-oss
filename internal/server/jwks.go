@@ -5,20 +5,23 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"math/big"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 )
 
 // JWK is the RFC 7517 JSON Web Key shape narrowed to the algorithms
-// Identuum issues with: EdDSA (OKP/Ed25519) and ES256 (EC/P-256).
-// Private fields (notably d) are deliberately not modeled here; the
-// PublicJWKS contract guarantees they are never serialised.
+// Identuum issues with: EdDSA (OKP/Ed25519), ES256 (EC/P-256), and —
+// testing-only, per THE-PKCE-DECISION — RS256 (RSA). Private fields
+// (notably d) are deliberately not modeled here; the PublicJWKS
+// contract guarantees they are never serialised.
 type JWK struct {
 	Kty string `json:"kty"`
 	Crv string `json:"crv,omitempty"`
@@ -27,6 +30,8 @@ type JWK struct {
 	Alg string `json:"alg"`
 	X   string `json:"x,omitempty"`
 	Y   string `json:"y,omitempty"`
+	N   string `json:"n,omitempty"`
+	E   string `json:"e,omitempty"`
 }
 
 // JWKS is the RFC 7517 §5 JSON Web Key Set wrapper.
@@ -53,9 +58,6 @@ func (EmptyJWKSProvider) PublicJWKS(_ context.Context) (JWKS, error) {
 
 // errUnsupportedAlgorithm is the sentinel returned by PublicKeyToJWK
 // when asked to serialise an algorithm Identuum does not issue with.
-// RS256 lands here even though Identuum may verify inbound RS256
-// tokens — verification is an inbound concern; JWKS publication is
-// strictly outbound issuance.
 var errUnsupportedAlgorithm = errors.New("jwks: unsupported issuance algorithm")
 
 // PublicKeyToJWK converts a single OSS signing-key row to its
@@ -63,6 +65,11 @@ var errUnsupportedAlgorithm = errors.New("jwks: unsupported issuance algorithm")
 // algorithm Identuum does not issue with. The caller should treat
 // per-key errors as filter signals, not fatal failures, when
 // building a JWKS.
+//
+// RS256 serialises since THE-PKCE-DECISION: an RS256 key is a real
+// (testing-only, never-default) id_token signing capability, and a
+// published id_token is unverifiable without its JWK. Discovery must
+// advertise nothing it cannot do — and vice versa.
 func PublicKeyToJWK(kid string, alg domain.KeyAlgorithm, publicKeyPEM string) (JWK, error) {
 	if publicKeyPEM == "" {
 		return JWK{}, errors.New("jwks: empty public key material")
@@ -73,6 +80,8 @@ func PublicKeyToJWK(kid string, alg domain.KeyAlgorithm, publicKeyPEM string) (J
 		return ed25519PEMToJWK(kid, publicKeyPEM)
 	case domain.KeyAlgorithmES256:
 		return p256PEMToJWK(kid, publicKeyPEM)
+	case domain.KeyAlgorithmRS256:
+		return rsaPEMToJWK(kid, publicKeyPEM)
 	default:
 		return JWK{}, fmt.Errorf("%w: %s", errUnsupportedAlgorithm, alg)
 	}
@@ -137,6 +146,28 @@ func p256PEMToJWK(kid, publicKeyPEM string) (JWK, error) {
 	}, nil
 }
 
+func rsaPEMToJWK(kid, publicKeyPEM string) (JWK, error) {
+	pub, err := parsePublicKeyPEM(publicKeyPEM)
+	if err != nil {
+		return JWK{}, fmt.Errorf("jwks: parse RS256 public key: %w", err)
+	}
+	rsaPub, ok := pub.(*rsa.PublicKey)
+	if !ok {
+		return JWK{}, fmt.Errorf("jwks: expected *rsa.PublicKey, got %T", pub)
+	}
+	// RFC 7518 §6.3.1: n is the unsigned big-endian modulus octets, e the
+	// unsigned big-endian exponent octets, both base64url without padding.
+	eBytes := big.NewInt(int64(rsaPub.E)).Bytes()
+	return JWK{
+		Kty: "RSA",
+		Kid: kid,
+		Use: "sig",
+		Alg: "RS256",
+		N:   base64.RawURLEncoding.EncodeToString(rsaPub.N.Bytes()),
+		E:   base64.RawURLEncoding.EncodeToString(eBytes),
+	}, nil
+}
+
 func parsePublicKeyPEM(data string) (any, error) {
 	block, _ := pem.Decode([]byte(data))
 	if block == nil {
@@ -147,10 +178,11 @@ func parsePublicKeyPEM(data string) (any, error) {
 
 // RepositoryJWKSProvider adapts a KeyRepository to JWKSProvider.
 // PublicJWKS calls GetActiveSigningKeys (active + rotating per the
-// interface contract), filters out unsupported algorithms (notably
-// RS256 — verify-only, never published), and emits the public-key
-// JWK set with no private material. Deprecated keys are not
-// included; the verifier path uses a different repository method.
+// interface contract), filters out unsupported algorithms, and emits
+// the public-key JWK set with no private material. Deprecated keys
+// are not included; the verifier path uses a different repository
+// method. RS256 keys publish since THE-PKCE-DECISION (real
+// testing-only capability — its id_tokens must be verifiable).
 type RepositoryJWKSProvider struct {
 	Repo repository.KeyRepository
 }

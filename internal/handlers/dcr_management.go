@@ -132,6 +132,7 @@ type dcrPutRequest struct {
 	FrontchannelLogoutSessionRequired *bool    `json:"frontchannel_logout_session_required,omitempty"`
 	BackchannelLogoutURI              *string  `json:"backchannel_logout_uri,omitempty"`
 	BackchannelLogoutSessionRequired  *bool    `json:"backchannel_logout_session_required,omitempty"`
+	IDTokenSignedResponseAlg          *string  `json:"id_token_signed_response_alg,omitempty"`
 }
 
 // HandleDCRManagementGet returns the safe dcrResponse projection
@@ -231,6 +232,7 @@ func HandleDCRManagementPut(deps DCRManagementHandlerDeps) gin.HandlerFunc {
 		// string so the service could not. Pass the pointers through.
 		opts.TokenEndpointAuthMethod = req.TokenEndpointAuthMethod
 		opts.TokenEndpointAuthSigningAlg = req.TokenEndpointAuthSigningAlg
+		opts.IDTokenSignedResponseAlg = req.IDTokenSignedResponseAlg
 		opts.Scope = req.Scope
 		opts.JWKSUri = req.JWKSUri
 		opts.JWKS = req.JWKS
@@ -429,5 +431,6 @@ func buildDCRReadResponse(client *domain.Client) dcrResponse {
 		FrontchannelLogoutSessionRequired: client.FrontchannelLogoutSessionRequired,
 		BackchannelLogoutURI:              client.BackchannelLogoutURI,
 		BackchannelLogoutSessionRequired:  client.BackchannelLogoutSessionRequired,
+		IDTokenSignedResponseAlg:          client.IDTokenSignedResponseAlg,
 	}
 }

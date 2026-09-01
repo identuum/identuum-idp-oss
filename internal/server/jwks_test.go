@@ -97,8 +97,7 @@ func genP256PEM(t *testing.T) string {
 }
 
 // genRSAPEM produces a fresh RSA keypair and returns the public key
-// encoded as PKIX PEM. Used only to confirm RS256 is filtered out
-// at the JWK conversion layer.
+// encoded as PKIX PEM.
 func genRSAPEM(t *testing.T) string {
 	t.Helper()
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -166,16 +165,54 @@ func TestPublicKeyToJWK_ES256(t *testing.T) {
 	}
 }
 
-// TestPublicKeyToJWK_RS256RejectedForIssuance pins the Identuum
-// no-RS256-issuance policy at the JWK serializer layer. Even with a
-// structurally valid PKIX RSA public key, the conversion must fail
-// with errUnsupportedAlgorithm so the JWKS endpoint never advertises
-// RS256 keys.
-func TestPublicKeyToJWK_RS256RejectedForIssuance(t *testing.T) {
+// TestPublicKeyToJWK_RS256 pins THE-PKCE-DECISION posture at the JWK
+// serializer layer: RS256 is a REAL (testing-only, never-default) id_token
+// signing capability, so its public JWK must serialise correctly — kty RSA,
+// n/e populated per RFC 7518 §6.3.1, and no private material.
+func TestPublicKeyToJWK_RS256(t *testing.T) {
 	pemStr := genRSAPEM(t)
-	_, err := PublicKeyToJWK("rsa-test-1", domain.KeyAlgorithmRS256, pemStr)
+	jwk, err := PublicKeyToJWK("rsa-test-1", domain.KeyAlgorithmRS256, pemStr)
+	if err != nil {
+		t.Fatalf("PublicKeyToJWK(RS256) error: %v", err)
+	}
+	if jwk.Kty != "RSA" || jwk.Alg != "RS256" || jwk.Use != "sig" {
+		t.Errorf("RS256 JWK fields wrong: %+v", jwk)
+	}
+	if jwk.Kid != "rsa-test-1" {
+		t.Errorf("kid = %q, want rsa-test-1", jwk.Kid)
+	}
+	n, err := base64.RawURLEncoding.DecodeString(jwk.N)
+	if err != nil {
+		t.Fatalf("n is not base64url: %v", err)
+	}
+	if len(n) != 256 {
+		t.Errorf("n length = %d bytes, want 256 (2048-bit modulus)", len(n))
+	}
+	e, err := base64.RawURLEncoding.DecodeString(jwk.E)
+	if err != nil {
+		t.Fatalf("e is not base64url: %v", err)
+	}
+	if len(e) == 0 {
+		t.Error("e is empty")
+	}
+	// RSA JWK must not reuse the EC/OKP coordinate fields.
+	if jwk.X != "" || jwk.Y != "" || jwk.Crv != "" {
+		t.Errorf("RSA JWK carries EC/OKP fields: %+v", jwk)
+	}
+	raw, err := json.Marshal(jwk)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if strings.Contains(string(raw), `"d"`) {
+		t.Errorf("RSA JWK JSON contains private field d: %s", raw)
+	}
+}
+
+// The serializer still refuses algorithms outside the issuance set.
+func TestPublicKeyToJWK_UnknownAlgorithmRejected(t *testing.T) {
+	_, err := PublicKeyToJWK("hs-test-1", domain.KeyAlgorithm("HS256"), genRSAPEM(t))
 	if err == nil {
-		t.Fatal("PublicKeyToJWK(RS256) returned nil error; expected unsupported-algorithm")
+		t.Fatal("PublicKeyToJWK(HS256) returned nil error; expected unsupported-algorithm")
 	}
 	if !errors.Is(err, errUnsupportedAlgorithm) {
 		t.Errorf("expected errUnsupportedAlgorithm sentinel; got %v", err)
@@ -284,30 +321,28 @@ func TestJWKSEndpoint_PopulatedProvider(t *testing.T) {
 	}
 }
 
-// TestJWKSEndpoint_RS256NotAdvertised verifies that if a future
-// upstream were to mistakenly add an RS256 entry to its JWKS payload,
-// the smoke handler still serves it as JSON (it cannot infer policy
-// post-conversion). The defense is at the JWK serializer (already
-// tested in TestPublicKeyToJWK_RS256RejectedForIssuance). This test
-// records the wire contract: the smoke handler is a passthrough
-// AFTER the conversion layer applies policy.
-func TestJWKSEndpoint_RS256NotAdvertised(t *testing.T) {
-	// Build a JWKS the "correct" way — RS256 is filtered out by
-	// PublicKeyToJWK so RepositoryJWKSProvider never adds it. The
-	// stub provider mimics the post-filter shape.
-	edJWK, err := PublicKeyToJWK("ed-only", domain.KeyAlgorithmEdDSA, genEd25519PEM(t))
+// TestJWKSEndpoint_RS256PublicOnly (THE-PKCE-DECISION): an RS256 key now
+// serves over the wire — its id_tokens must be verifiable — but strictly
+// public-only: modulus + exponent, never a private scalar.
+func TestJWKSEndpoint_RS256PublicOnly(t *testing.T) {
+	rsaJWK, err := PublicKeyToJWK("rsa-wire", domain.KeyAlgorithmRS256, genRSAPEM(t))
 	if err != nil {
-		t.Fatalf("EdDSA conversion: %v", err)
+		t.Fatalf("RS256 conversion: %v", err)
 	}
-	h := NewSmokeHandlerWithJWKS(OIDCDiscoveryConfig{}, stubKeyProvider{set: JWKS{Keys: []JWK{edJWK}}})
+	h := NewSmokeHandlerWithJWKS(OIDCDiscoveryConfig{}, stubKeyProvider{set: JWKS{Keys: []JWK{rsaJWK}}})
 
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/jwks.json", nil)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
-	if strings.Contains(body, `"alg":"RS256"`) || strings.Contains(body, `"RS256"`) {
-		t.Errorf("JWKS body advertises RS256: %s", body)
+	if !strings.Contains(body, `"alg":"RS256"`) || !strings.Contains(body, `"n":`) || !strings.Contains(body, `"e":`) {
+		t.Errorf("JWKS body does not serve the RS256 public key: %s", body)
+	}
+	for _, banned := range []string{`"d":`, `"p":`, `"q":`, `"dp":`, `"dq":`, `"qi":`} {
+		if strings.Contains(body, banned) {
+			t.Errorf("JWKS body contains private field %s; body=%s", banned, body)
+		}
 	}
 }
 
@@ -346,16 +381,17 @@ func TestJWKSEndpoint_ProviderError(t *testing.T) {
 	}
 }
 
-// TestRepositoryJWKSProvider_FiltersRS256 verifies that even if the
-// underlying KeyRepository returns an RS256 row, the JWKS produced
-// by RepositoryJWKSProvider drops it silently. This is the policy
-// boundary between "store any algorithm" and "publish only issuance
-// algorithms".
-func TestRepositoryJWKSProvider_FiltersRS256(t *testing.T) {
+// TestRepositoryJWKSProvider_PublishesRS256 (THE-PKCE-DECISION): an active
+// RS256 row now publishes its public JWK alongside EdDSA — the id_tokens it
+// signs (explicit-registration, testing-only) must be verifiable. A row with
+// an algorithm outside the issuance set still drops silently, keeping the
+// per-key filter boundary pinned.
+func TestRepositoryJWKSProvider_PublishesRS256(t *testing.T) {
 	repo := &stubKeyRepository{
 		active: []domain.SigningKey{
 			{KID: "ed-keep", Algorithm: domain.KeyAlgorithmEdDSA, PublicKey: genEd25519PEM(t)},
-			{KID: "rsa-drop", Algorithm: domain.KeyAlgorithmRS256, PublicKey: genRSAPEM(t)},
+			{KID: "rsa-keep", Algorithm: domain.KeyAlgorithmRS256, PublicKey: genRSAPEM(t)},
+			{KID: "hs-drop", Algorithm: domain.KeyAlgorithm("HS256"), PublicKey: genRSAPEM(t)},
 		},
 	}
 	provider := RepositoryJWKSProvider{Repo: repo}
@@ -363,11 +399,15 @@ func TestRepositoryJWKSProvider_FiltersRS256(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PublicJWKS: %v", err)
 	}
-	if len(set.Keys) != 1 {
-		t.Fatalf("Keys has %d entries; want 1 (RS256 must drop)", len(set.Keys))
+	if len(set.Keys) != 2 {
+		t.Fatalf("Keys has %d entries; want 2 (EdDSA + RS256 publish, HS256 drops)", len(set.Keys))
 	}
-	if set.Keys[0].Kid != "ed-keep" {
-		t.Errorf("Kept key kid = %q, want ed-keep", set.Keys[0].Kid)
+	kids := map[string]bool{}
+	for _, k := range set.Keys {
+		kids[k.Kid] = true
+	}
+	if !kids["ed-keep"] || !kids["rsa-keep"] {
+		t.Errorf("published kids = %v, want ed-keep + rsa-keep", kids)
 	}
 }
 

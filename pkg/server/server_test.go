@@ -113,10 +113,11 @@ func TestResolveDiscoveryConfig_PublicMatchesInternal(t *testing.T) {
 	}
 }
 
-// TestDiscoveryDocument_PublicMatchesInternal pins the OSS no-RS256
-// signing policy + every advertised discovery field as single-sourced
-// at the internal layer. The two payloads must be byte-for-byte equal
-// after JSON marshalling.
+// TestDiscoveryDocument_PublicMatchesInternal pins the OSS signing-alg
+// policy (THE-PKCE-DECISION: exactly EdDSA/ES256/RS256, RS256 explicit-
+// registration testing-only) + every advertised discovery field as
+// single-sourced at the internal layer. The two payloads must be
+// byte-for-byte equal after JSON marshalling.
 func TestDiscoveryDocument_PublicMatchesInternal(t *testing.T) {
 	cases := []pkgserver.OIDCDiscoveryConfig{
 		{},
@@ -134,14 +135,17 @@ func TestDiscoveryDocument_PublicMatchesInternal(t *testing.T) {
 		gotInternal := internalserver.DiscoveryDocument(in)
 		assert.Equalf(t, gotInternal, gotPublic, "case %d: discovery payload must match internal authority", i)
 
-		// Confirm the no-RS256 issuance policy survives the public
-		// seam: alg list must contain EdDSA + ES256 and never RS256.
+		// Confirm the signing-alg policy survives the public seam:
+		// exactly EdDSA + ES256 + RS256 (THE-PKCE-DECISION — RS256 is
+		// a real, explicit-registration, testing-only capability),
+		// and nothing weaker.
 		algs, ok := gotPublic["id_token_signing_alg_values_supported"].([]string)
 		require.Truef(t, ok, "case %d: alg list missing or wrong type", i)
 		assert.Containsf(t, algs, "EdDSA", "case %d: EdDSA must be advertised", i)
 		assert.Containsf(t, algs, "ES256", "case %d: ES256 must be advertised", i)
-		assert.NotContainsf(t, algs, "RS256", "case %d: RS256 must NOT be advertised", i)
+		assert.Containsf(t, algs, "RS256", "case %d: RS256 must be advertised (real testing-only capability)", i)
 		assert.NotContainsf(t, algs, "none", "case %d: 'none' must NOT be advertised", i)
+		assert.NotContainsf(t, algs, "HS256", "case %d: HS256 must NOT be advertised", i)
 	}
 }
 
@@ -223,8 +227,9 @@ func TestRepositoryJWKSProvider_PublicConstructionMatchesInternal(t *testing.T) 
 
 // TestPublicKeyToJWK_AgreesWithInternal pins that the public seam's
 // PublicKeyToJWK pass-through produces the same JWK as the internal
-// authority for an EdDSA key, and that RS256 is rejected at the same
-// boundary on both sides.
+// authority — for EdDSA and (since THE-PKCE-DECISION, where RS256 became a
+// real testing-only capability) for RS256 — and that an algorithm outside
+// the issuance set is rejected identically on both sides.
 func TestPublicKeyToJWK_AgreesWithInternal(t *testing.T) {
 	edPEM := genEd25519PEM(t)
 	gotPublic, errPublic := pkgserver.PublicKeyToJWK("kid-pub", domain.KeyAlgorithmEdDSA, edPEM)
@@ -236,12 +241,23 @@ func TestPublicKeyToJWK_AgreesWithInternal(t *testing.T) {
 	assert.Equal(t, "Ed25519", gotPublic.Crv)
 	assert.Equal(t, "EdDSA", gotPublic.Alg)
 
-	// RS256 must be rejected identically on both sides — this is the
-	// no-RS256-issuance policy that JWKS publication enforces.
-	_, errPublic = pkgserver.PublicKeyToJWK("kid-rs", domain.KeyAlgorithmRS256, genRSAPEM(t))
-	_, errInternal = internalserver.PublicKeyToJWK("kid-rs", domain.KeyAlgorithmRS256, genRSAPEM(t))
-	require.Error(t, errPublic, "public PublicKeyToJWK must reject RS256 for issuance")
-	require.Error(t, errInternal, "internal PublicKeyToJWK must reject RS256 for issuance")
+	// RS256 serialises identically on both sides — public-only material.
+	rsaPEM := genRSAPEM(t)
+	gotPublic, errPublic = pkgserver.PublicKeyToJWK("kid-rs", domain.KeyAlgorithmRS256, rsaPEM)
+	gotInternal, errInternal = internalserver.PublicKeyToJWK("kid-rs", domain.KeyAlgorithmRS256, rsaPEM)
+	require.NoError(t, errPublic, "public PublicKeyToJWK must serialise RS256 (THE-PKCE-DECISION)")
+	require.NoError(t, errInternal, "internal PublicKeyToJWK must serialise RS256 (THE-PKCE-DECISION)")
+	assert.Equal(t, gotInternal, gotPublic, "RS256 JWK via public seam must match internal authority")
+	assert.Equal(t, "RSA", gotPublic.Kty)
+	assert.Equal(t, "RS256", gotPublic.Alg)
+	assert.NotEmpty(t, gotPublic.N)
+	assert.NotEmpty(t, gotPublic.E)
+
+	// An algorithm outside the issuance set is rejected on both sides.
+	_, errPublic = pkgserver.PublicKeyToJWK("kid-hs", domain.KeyAlgorithm("HS256"), rsaPEM)
+	_, errInternal = internalserver.PublicKeyToJWK("kid-hs", domain.KeyAlgorithm("HS256"), rsaPEM)
+	require.Error(t, errPublic, "public PublicKeyToJWK must reject non-issuance algorithms")
+	require.Error(t, errInternal, "internal PublicKeyToJWK must reject non-issuance algorithms")
 }
 
 // TestPublicTypes_HaveIdenticalReflectType is a defensive runtime

@@ -91,6 +91,10 @@ type RegisterClientOptions struct {
 	FrontchannelLogoutSessionRequired bool
 	BackchannelLogoutURI              string
 	BackchannelLogoutSessionRequired  bool
+	// IDTokenSignedResponseAlg: "" = issuer default (EdDSA). "RS256" is
+	// honored only as this explicit registration — testing-only, never the
+	// default (THE-PKCE-DECISION).
+	IDTokenSignedResponseAlg string
 }
 
 // UpdateClientOptions captures every field operators can mutate
@@ -139,6 +143,10 @@ type UpdateClientOptions struct {
 	FrontchannelLogoutSessionRequired *bool
 	BackchannelLogoutURI              *string
 	BackchannelLogoutSessionRequired  *bool
+	// IDTokenSignedResponseAlg: supplied BLANK is REFUSED for the same
+	// reason as TokenEndpointAuthSigningAlg — NOT NULL, CHECK allow-list
+	// with no empty member, repository substitutes 'EdDSA' for a blank.
+	IDTokenSignedResponseAlg *string
 }
 
 // errClientNotFound is the sentinel for missing rows. Handlers map
@@ -282,6 +290,7 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 		FrontchannelLogoutSessionRequired: opts.FrontchannelLogoutSessionRequired,
 		BackchannelLogoutURI:              opts.BackchannelLogoutURI,
 		BackchannelLogoutSessionRequired:  opts.BackchannelLogoutSessionRequired,
+		IDTokenSignedResponseAlg:          opts.IDTokenSignedResponseAlg,
 		CreatedAt:                         now,
 		UpdatedAt:                         now,
 	}
@@ -366,6 +375,15 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 			return nil, err
 		}
 		client.TokenEndpointAuthSigningAlg = *opts.TokenEndpointAuthSigningAlg
+	}
+	// REFUSED for the same reason. RS256 passes the allow-list here only as
+	// the client's EXPLICIT registration (THE-PKCE-DECISION: testing-only,
+	// never the issuer default).
+	if opts.IDTokenSignedResponseAlg != nil {
+		if err := domain.ValidateClientIDTokenAlg(*opts.IDTokenSignedResponseAlg); err != nil {
+			return nil, err
+		}
+		client.IDTokenSignedResponseAlg = *opts.IDTokenSignedResponseAlg
 	}
 	// CLEAR: these two are nullable, the repository already maps "" to NULL —
 	// which is exactly what oauth_clients_pkj_key_source_check compares — and

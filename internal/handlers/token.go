@@ -98,6 +98,17 @@ type TokenHandlerDeps struct {
 	// endpoint. Without it, offline_access in the consented scope
 	// is silently dropped from the response.
 	UserSession *service.UserSessionService
+
+	// RefreshTokens, when wired, makes offline_access mint an OAUTH
+	// refresh token — the kind the advertised refresh_token GRANT on
+	// this very endpoint consumes and rotates. THE-PKCE-DECISION
+	// conformance measurement (oidcc-refresh-token): the session-based
+	// token above is redeemable ONLY at /api/v1/auth/session/refresh,
+	// so a standard OAuth client that presented it at
+	// grant_type=refresh_token always got invalid_grant — the grant
+	// was advertised but unusable. When wired this takes precedence
+	// over UserSession for the refresh_token response field.
+	RefreshTokens *service.RefreshTokenService
 }
 
 // RegisterTokenRoutes mounts
@@ -377,6 +388,10 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 			Audience: client.ClientID,
 			Nonce:    consumed.Nonce,
 			Scope:    consumed.Scope,
+			// The client's registered id_token_signed_response_alg
+			// (default EdDSA). RS256 fires ONLY via this explicit
+			// registration — testing-only (THE-PKCE-DECISION).
+			SigningAlg: client.IDTokenAlg,
 		})
 		if idErr != nil {
 			return nil, service.ErrTokenServiceSigningFailed
@@ -384,28 +399,43 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 		resp.IDToken = idt.IDToken
 	}
 	// OIDC §11: the offline_access scope SHOULD trigger a refresh
-	// token. The OSS slice mints a fresh user session bound to the
-	// requesting OAuth client and returns its one-time refresh
-	// token — the browser session cookie is NOT rotated (it stays
-	// usable). The rotation surface is the existing
-	// /api/v1/auth/session/refresh route.
-	if deps.UserSession != nil && hasOfflineAccessScope(consumed.Scope) {
-		clientIDCopy := client.ClientID
-		maxSessions := 0
-		if user.OrgMaxSessionsPerUser != nil {
-			maxSessions = *user.OrgMaxSessionsPerUser
-		}
-		issued, refreshErr := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
-			UserID:             user.ID,
-			ClientID:           &clientIDCopy,
-			Acr:                session.EffectiveACR(),
-			Amr:                session.Amr,
-			MaxSessionsPerUser: maxSessions,
-			OrganizationID:     user.OrganizationID,
-			Role:               string(user.Role),
-		})
-		if refreshErr == nil && issued != nil {
-			resp.RefreshToken = issued.RefreshToken
+	// token. Preferred shape (THE-PKCE-DECISION): an OAUTH refresh
+	// token from RefreshTokenService — the kind this endpoint's own
+	// refresh_token grant consumes and rotates, so the token we hand
+	// out is redeemable where we advertise it. Legacy fallback for
+	// compositions without RefreshTokenService: the session-based
+	// token, redeemable at /api/v1/auth/session/refresh only.
+	if hasOfflineAccessScope(consumed.Scope) {
+		switch {
+		case deps.RefreshTokens != nil:
+			issued, refreshErr := deps.RefreshTokens.Issue(c.Request.Context(), service.IssueRefreshTokenInput{
+				ClientID:  client.ClientID,
+				Subject:   user.ID.String(),
+				Scope:     consumed.Scope,
+				Audience:  consumed.Audience,
+				AccessJTI: access.JTI,
+			})
+			if refreshErr == nil && issued != nil {
+				resp.RefreshToken = issued.Token
+			}
+		case deps.UserSession != nil:
+			clientIDCopy := client.ClientID
+			maxSessions := 0
+			if user.OrgMaxSessionsPerUser != nil {
+				maxSessions = *user.OrgMaxSessionsPerUser
+			}
+			issued, refreshErr := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
+				UserID:             user.ID,
+				ClientID:           &clientIDCopy,
+				Acr:                session.EffectiveACR(),
+				Amr:                session.Amr,
+				MaxSessionsPerUser: maxSessions,
+				OrganizationID:     user.OrganizationID,
+				Role:               string(user.Role),
+			})
+			if refreshErr == nil && issued != nil {
+				resp.RefreshToken = issued.RefreshToken
+			}
 		}
 		// On error: leave refresh_token empty. The access token +
 		// id_token still went out; the client can retry the

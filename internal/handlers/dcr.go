@@ -147,6 +147,9 @@ type dcrRequest struct {
 	BackchannelLogoutURI              string   `json:"backchannel_logout_uri,omitempty"`
 	BackchannelLogoutSessionRequired  bool     `json:"backchannel_logout_session_required,omitempty"`
 	SoftwareStatement                 string   `json:"software_statement,omitempty"`
+	// OIDC DCR §2. "" = issuer default (EdDSA). RS256 is honored only as
+	// this explicit registration — testing-only (THE-PKCE-DECISION).
+	IDTokenSignedResponseAlg string `json:"id_token_signed_response_alg,omitempty"`
 }
 
 // dcrResponse is the RFC 7591 §3.2.1 client-information response.
@@ -178,6 +181,7 @@ type dcrResponse struct {
 	FrontchannelLogoutSessionRequired bool     `json:"frontchannel_logout_session_required,omitempty"`
 	BackchannelLogoutURI              string   `json:"backchannel_logout_uri,omitempty"`
 	BackchannelLogoutSessionRequired  bool     `json:"backchannel_logout_session_required,omitempty"`
+	IDTokenSignedResponseAlg          string   `json:"id_token_signed_response_alg,omitempty"`
 }
 
 // dcrAllowedGrantTypes is the handler-wide allowlist. An IAT may
@@ -293,6 +297,12 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 			respondDCRError(c, http.StatusBadRequest, "invalid_client_metadata", "token_endpoint_auth_method is not supported")
 			return
 		}
+		if req.IDTokenSignedResponseAlg != "" {
+			if err := domain.ValidateClientIDTokenAlg(req.IDTokenSignedResponseAlg); err != nil {
+				respondDCRError(c, http.StatusBadRequest, "invalid_client_metadata", "id_token_signed_response_alg is not supported")
+				return
+			}
+		}
 
 		// IAT-imposed allowlist enforcement (in addition to the
 		// handler-wide allowlists above).
@@ -361,6 +371,7 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 			FrontchannelLogoutSessionRequired: req.FrontchannelLogoutSessionRequired,
 			BackchannelLogoutURI:              req.BackchannelLogoutURI,
 			BackchannelLogoutSessionRequired:  req.BackchannelLogoutSessionRequired,
+			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
 		})
 		if err != nil {
 			respondDCRError(c, http.StatusBadRequest, "invalid_client_metadata", "client metadata rejected by the registration service")
@@ -406,6 +417,7 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 			FrontchannelLogoutSessionRequired: client.FrontchannelLogoutSessionRequired,
 			BackchannelLogoutURI:              client.BackchannelLogoutURI,
 			BackchannelLogoutSessionRequired:  client.BackchannelLogoutSessionRequired,
+			IDTokenSignedResponseAlg:          client.IDTokenSignedResponseAlg,
 		}
 		c.JSON(http.StatusCreated, resp)
 

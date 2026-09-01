@@ -229,23 +229,42 @@ clone (and its python venv) survives between runs.
     the suite prints.
   - an EXPECTED failure that now PASSES (floor semantics, rule
     `CONFORMANCE-FLOOR-1`): something improved; update
-    `conformance/expected-failures-*.json` / `expected-basic-abort.txt`
+    `conformance/expected-failures-*.json` / `expected-skips-*.json` /
+    `expected-basic-incomplete.txt`
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (measured 2026-09-01, suite release-v5.2.4):**
+**The committed baseline (re-measured 2026-09-01 after THE-PKCE-DECISION,
+suite release-v5.2.4):**
 
-- Plan `oidcc-config-certification-test-plan`: 34 conditions pass, ONE
-  recorded finding — discovery advertises
-  `id_token_signing_alg_values_supported: [EdDSA, ES256]` and OIDC Discovery
-  requires RS256 in that list
-  (`OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported`).
-- Plan `oidcc-basic-certification-test-plan`: ABORTS by recorded signature.
-  The OP mandates PKCE on every authorization request; the Basic profile is
-  the plain code flow, so every browser module gets a direct 400
-  ("Missing required parameter"), times out INTERRUPTED, and the suite's
-  circuit breaker stops the plan. `conformance/expected-basic-abort.txt`
-  floors that exact abort.
+- Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
+  zero findings). The former signing-alg finding is FIXED — discovery now
+  advertises `[EdDSA, ES256, RS256]` (see "RS256 — testing only" above).
+- Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules
+  (per-client PKCE retired the old mandatory-PKCE abort). 1744 conditions
+  pass. The recorded floor:
+  - 2 module FAILURES + 2 INCOMPLETE modules, one finding: `prompt=login`
+    and `max_age=1` require the OP to FORCE re-authentication; the OP
+    re-issues on the live session, so `auth_time` does not advance and both
+    modules stall (`conformance/expected-basic-incomplete.txt` +
+    `expected-failures-basic.json`). Needs a forced-login ceremony (own
+    slice).
+  - 7 recorded WARNINGS across 5 modules
+    (`conformance/expected-failures-basic.json`, comments name each):
+    partial profile claims (only `name`), email-in-id_token + unscoped
+    `name` at userinfo (the access token carries role-derived scopes, not
+    the consented OAuth scope — own slice), the deliberate
+    refuse-to-fake-`acr` posture, and access-token revocation after
+    authorization-code replay (the `AuthCodeReuseRevoker` seam is unwired —
+    own slice, security-relevant SHOULD).
+  - 4 recorded SKIPS (`conformance/expected-skips-basic.json`):
+    address/phone scopes are not modeled, and the request-object module
+    skips because the OP compliantly rejects request objects as
+    unsupported.
+  - 2 modules end in REVIEW (unregistered redirect_uri, request-object
+    redirect_uri): the OP correctly refuses without redirecting and the
+    suite records the error-page screenshot for human review — REVIEW is an
+    accepted terminal result, not a floor entry.
 - Transport measurement: the suite RUNS against an http OP but fails seven
   endpoint conditions on scheme alone, so the harness fronts the OP with a
   per-run self-signed https sidecar inside the isolated network
@@ -256,6 +275,42 @@ proceed if the clone has local changes or is not at the pinned sha.
 Browser-automation for the OP's own login/consent pages is committed in
 `conformance/plan-basic.json`; it exercises whenever the browser actually
 reaches those pages.
+
+## RS256 — testing only, NEVER the default
+
+Owner ruling (THE-PKCE-DECISION, 2026-09-01, verbatim): **"Add RS256 into the
+list BUT DO NOT USE except testing and put this into documentation
+CLEARLY."**
+
+What that means in this product:
+
+- **RS256 is a real capability.** `POST /api/v1/keys/generate` with
+  `{"algorithm":"RS256"}` mints a real RSA-2048 signing key; it publishes in
+  `/.well-known/jwks.json`; and it signs ID tokens. Discovery advertises
+  `id_token_signing_alg_values_supported: [EdDSA, ES256, RS256]` because the
+  OP can genuinely do all three — the list advertises nothing the OP cannot
+  do.
+- **RS256 is NEVER the default.** The issuer default is EdDSA (ES256
+  fallback). An RS256 key — even present, active, and signing-capable —
+  signs an ID token ONLY for a client that explicitly registered
+  `id_token_signed_response_alg: "RS256"` (admin API or Dynamic Client
+  Registration). Initial key generation never produces RS256; the access-
+  and logout-token signer never selects it; the auth KeyManager refuses to
+  sign with it.
+- **It exists for conformance and interoperability TESTING, not
+  operation.** The OpenID conformance suite and some legacy relying parties
+  require RS256. Do not register production clients with RS256; do not
+  generate an RS256 key on a production installation unless you are running
+  an interop test against it. EdDSA is the operational algorithm.
+
+## PKCE — required for public clients, optional to send, never optional to honor
+
+PKCE posture (same ruling): **per-client**. A PUBLIC client (no credential)
+MUST send a `code_challenge` (S256 only) — the request is refused without
+one. A CONFIDENTIAL client MAY omit PKCE entirely. But PKCE is only optional
+to SEND, never to HONOR: any challenge that was supplied is validated and
+its verifier is enforced at the token endpoint, and a code minted without a
+challenge refuses a gratuitous verifier.
 
 ## What the suite does NOT cover (known, recorded — not forgotten)
 

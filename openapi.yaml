@@ -880,7 +880,7 @@ paths:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/oauth/authorize":
     get:
-      operationId: "identuum-idp-oss.oauth.authorize"
+      operationId: "identuum-idp-oss.oauth.authorize_get"
       summary: "OAuth 2.1 authorize endpoint — validates the request and either redirects to login, prompts for consent, or returns an authorization_code via redirect."
       tags:
         - "oauth"
@@ -889,6 +889,18 @@ paths:
       responses:
         "200":
           description: "OAuth 2.1 authorize endpoint — validates the request and either redirects to login, prompts for consent, or returns an authorization_code via redirect."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+    post:
+      operationId: "identuum-idp-oss.oauth.authorize_post"
+      summary: "OIDC Core §3.1.2.1 form-serialized variant of the authorize endpoint — identical semantics to GET with parameters in the request body."
+      tags:
+        - "oauth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "OIDC Core §3.1.2.1 form-serialized variant of the authorize endpoint — identical semantics to GET with parameters in the request body."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/oauth/consent":
@@ -1636,7 +1648,7 @@ paths:
   "/api/v1/organizations/{id}/service-accounts":
     get:
       operationId: "identuum-idp-oss.service-accounts.list_service_accounts"
-      summary: "List service accounts in an organization (handler enforces site_admin OR same-org membership)."
+      summary: "List service accounts in an organization (service enforces site_admin OR the org's own org_admin)."
       tags:
         - "service-accounts"
       parameters:
@@ -1649,12 +1661,12 @@ paths:
         - cookieAuth: []
       responses:
         "200":
-          description: "List service accounts in an organization (handler enforces site_admin OR same-org membership)."
+          description: "List service accounts in an organization (service enforces site_admin OR the org's own org_admin)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
     post:
       operationId: "identuum-idp-oss.service-accounts.create_service_account"
-      summary: "Create a service account in an organization (handler enforces site_admin OR same-org membership)."
+      summary: "Create a service account in an organization (service enforces site_admin OR the org's own org_admin)."
       tags:
         - "service-accounts"
       parameters:
@@ -1667,7 +1679,7 @@ paths:
         - cookieAuth: []
       responses:
         "201":
-          description: "Create a service account in an organization (handler enforces site_admin OR same-org membership)."
+          description: "Create a service account in an organization (service enforces site_admin OR the org's own org_admin)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/organizations/{id}/service-accounts/with-client":

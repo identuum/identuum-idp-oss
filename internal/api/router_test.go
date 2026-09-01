@@ -222,7 +222,10 @@ func TestNewOSSEngine_MetricsNotOnPublicRouter(t *testing.T) {
 	}
 }
 
-func TestNewOSSEngine_DiscoveryNoRS256(t *testing.T) {
+// THE-PKCE-DECISION: the advertised set is exactly {EdDSA, ES256, RS256}.
+// RS256 is present because it is a REAL capability (explicit-registration,
+// testing-only, never the default); everything else stays banned.
+func TestNewOSSEngine_DiscoverySigningAlgSet(t *testing.T) {
 	e := NewOSSEngine(OSSRouterDeps{})
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil)
 	rec := httptest.NewRecorder()
@@ -245,10 +248,10 @@ func TestNewOSSEngine_DiscoveryNoRS256(t *testing.T) {
 			algSet[s] = true
 		}
 	}
-	if !algSet["EdDSA"] || !algSet["ES256"] {
-		t.Errorf("missing required EdDSA + ES256; got %v", algSet)
+	if !algSet["EdDSA"] || !algSet["ES256"] || !algSet["RS256"] {
+		t.Errorf("missing required EdDSA + ES256 + RS256; got %v", algSet)
 	}
-	for _, banned := range []string{"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "HS256"} {
+	for _, banned := range []string{"RS384", "RS512", "PS256", "PS384", "PS512", "HS256"} {
 		if algSet[banned] {
 			t.Errorf("discovery advertises banned algorithm %q", banned)
 		}

@@ -45,6 +45,7 @@ var expectedOSSFiles = []string{
 	"0029_org_primary_domain_backfill.sql",
 	"0030_service_account_name_unique.sql",
 	"0031_setup_complete_coherence.sql",
+	"0032_client_id_token_alg.sql",
 }
 
 // excludedCommercialTables is the set of commercial-only table names that
@@ -161,7 +162,7 @@ func TestExactFileSetMatches(t *testing.T) {
 // one was removed without updating it.
 func TestCurrentReturnsLatestMigration(t *testing.T) {
 	got := migrations.Current()
-	want := "0031"
+	want := "0032"
 	if got != want {
 		t.Errorf("Current() = %q, want %q", got, want)
 	}

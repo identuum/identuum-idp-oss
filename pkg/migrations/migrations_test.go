@@ -70,6 +70,7 @@ var expectedOSSFiles = []string{
 	"0029_org_primary_domain_backfill.sql",
 	"0030_service_account_name_unique.sql",
 	"0031_setup_complete_coherence.sql",
+	"0032_client_id_token_alg.sql",
 }
 
 // TestEmbedFS_Opens verifies the embedded migration FS exposed by the
@@ -119,8 +120,8 @@ func TestEmbedFS_StableFirstAndLast(t *testing.T) {
 	require.NotEmpty(t, actual, "EmbedFS must have at least one SQL file")
 	assert.Equal(t, "0001_identity_credentials.sql", actual[0],
 		"first OSS migration must be 0001_identity_credentials.sql")
-	assert.Equal(t, "0031_setup_complete_coherence.sql", actual[len(actual)-1],
-		"last OSS migration must be 0031_setup_complete_coherence.sql")
+	assert.Equal(t, "0032_client_id_token_alg.sql", actual[len(actual)-1],
+		"last OSS migration must be 0032_client_id_token_alg.sql")
 }
 
 // TestEmbedFS_NoFileIsEmpty guarantees every embedded SQL file has
@@ -144,8 +145,8 @@ func TestEmbedFS_NoFileIsEmpty(t *testing.T) {
 func TestCurrent_MatchesCore(t *testing.T) {
 	assert.Equal(t, coremigrations.Current(), pkgmigrations.Current(),
 		"pkg/migrations.Current must agree with core migrations.Current")
-	assert.Equal(t, "0031", pkgmigrations.Current(),
-		"pkg/migrations.Current must report the highest pinned version 0026")
+	assert.Equal(t, "0032", pkgmigrations.Current(),
+		"pkg/migrations.Current must report the highest pinned version 0032")
 }
 
 // TestConstants_AreStable pins the three string constants the CE

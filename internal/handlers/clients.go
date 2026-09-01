@@ -267,6 +267,7 @@ type safeClient struct {
 	FrontchannelLogoutSessionRequired bool       `json:"frontchannel_logout_session_required,omitempty"`
 	BackchannelLogoutURI              string     `json:"backchannel_logout_uri,omitempty"`
 	BackchannelLogoutSessionRequired  bool       `json:"backchannel_logout_session_required,omitempty"`
+	IDTokenSignedResponseAlg          string     `json:"id_token_signed_response_alg,omitempty"`
 	CreatedAt                         time.Time  `json:"created_at"`
 	UpdatedAt                         time.Time  `json:"updated_at"`
 }
@@ -293,6 +294,7 @@ func toSafeClient(c *domain.Client) safeClient {
 		FrontchannelLogoutSessionRequired: c.FrontchannelLogoutSessionRequired,
 		BackchannelLogoutURI:              c.BackchannelLogoutURI,
 		BackchannelLogoutSessionRequired:  c.BackchannelLogoutSessionRequired,
+		IDTokenSignedResponseAlg:          c.IDTokenSignedResponseAlg,
 		CreatedAt:                         c.CreatedAt,
 		UpdatedAt:                         c.UpdatedAt,
 	}
@@ -397,6 +399,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			FrontchannelLogoutSessionRequired bool       `json:"frontchannel_logout_session_required,omitempty"`
 			BackchannelLogoutURI              string     `json:"backchannel_logout_uri,omitempty"`
 			BackchannelLogoutSessionRequired  bool       `json:"backchannel_logout_session_required,omitempty"`
+			IDTokenSignedResponseAlg          string     `json:"id_token_signed_response_alg,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -429,6 +432,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			FrontchannelLogoutSessionRequired: req.FrontchannelLogoutSessionRequired,
 			BackchannelLogoutURI:              req.BackchannelLogoutURI,
 			BackchannelLogoutSessionRequired:  req.BackchannelLogoutSessionRequired,
+			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -486,6 +490,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			FrontchannelLogoutSessionRequired *bool      `json:"frontchannel_logout_session_required,omitempty"`
 			BackchannelLogoutURI              *string    `json:"backchannel_logout_uri,omitempty"`
 			BackchannelLogoutSessionRequired  *bool      `json:"backchannel_logout_session_required,omitempty"`
+			IDTokenSignedResponseAlg          *string    `json:"id_token_signed_response_alg,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -518,6 +523,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			FrontchannelLogoutSessionRequired: req.FrontchannelLogoutSessionRequired,
 			BackchannelLogoutURI:              req.BackchannelLogoutURI,
 			BackchannelLogoutSessionRequired:  req.BackchannelLogoutSessionRequired,
+			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
 		})
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})

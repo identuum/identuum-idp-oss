@@ -1,1 +1,26 @@
-[]
+[
+    {
+        "test-name": "oidcc-scope-address",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "comment": "SKIP is honest: the OP does not model address claims and discovery does not advertise the address scope, so the module skips itself."
+    },
+    {
+        "test-name": "oidcc-scope-phone",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "comment": "SKIP is honest: the OP does not model phone claims and discovery does not advertise the phone scope."
+    },
+    {
+        "test-name": "oidcc-scope-all",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "comment": "SKIP is honest: requests every standard scope; address/phone are not advertised, so the module skips itself."
+    },
+    {
+        "test-name": "oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported",
+        "variant": "*",
+        "configuration-filename": "*/plan-basic.json",
+        "comment": "SKIP is the COMPLIANT outcome (THE-PKCE-DECISION): the OP refuses request objects with request_not_supported and advertises request_parameter_supported=false, so the module records rejected-as-unsupported and skips."
+    }
+]

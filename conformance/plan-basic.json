@@ -10,8 +10,8 @@
         "client_secret": "__CLIENT1_SECRET__"
     },
     "client_secret_post": {
-        "client_id": "__CLIENT1_ID__",
-        "client_secret": "__CLIENT1_SECRET__"
+        "client_id": "__CLIENT3_ID__",
+        "client_secret": "__CLIENT3_SECRET__"
     },
     "client2": {
         "client_id": "__CLIENT2_ID__",
@@ -19,7 +19,7 @@
     },
     "browser": [
         {
-            "comment": "OP-native ceremony: /api/v1/auth/browser-login renders the login form (inputs name=email/password, one unnamed submit button), then /api/v1/oauth/consent renders approve/deny submit buttons named 'action'. NOTE, measured: an unauthenticated /oauth/authorize currently error-redirects login_required to the client instead of sending the browser to this form — these tasks are the automation for the ceremony the OP defines, and they run whenever the browser actually lands on those pages.",
+            "comment": "OP-native ceremony (THE-PKCE-DECISION): an unauthenticated /oauth/authorize 302s the browser to /api/v1/auth/browser-login (login form: inputs name=email/password, one submit button), then /api/v1/oauth/consent renders approve/deny submit buttons named 'action', then the suite callback. The 'Expect direct error' task covers modules whose CORRECT outcome is the OP refusing without a redirect (an unregistered redirect_uri renders a 200 HTML error page at the authorize URL — HtmlUnit throws on 4xx) — it waits for the error body and satisfies the module's screenshot placeholder. 'Verify Complete' is optional AND its match is ANCHORED to the callback origin: task matches use Spring simpleMatch, and a '*/test/...' pattern also matches the AUTHORIZE URL because the callback string appears inside the redirect_uri query parameter — that mis-match ran the 10s submission_complete wait on the error page and interrupted every expected-refusal module (measured, THE-PKCE-DECISION run 4). An expected-refusal module never reaches the callback; a happy-path module that fails to reach it still fails its own conditions, so no verdict is weakened.",
             "match": "__OP_ISSUER__/api/v1/oauth/authorize*",
             "tasks": [
                 {
@@ -41,8 +41,17 @@
                     ]
                 },
                 {
+                    "task": "Expect direct error",
+                    "optional": true,
+                    "match": "__OP_ISSUER__/api/v1/oauth/authorize*",
+                    "commands": [
+                        ["wait", "xpath", "//*", 10, "error", "update-image-placeholder"]
+                    ]
+                },
+                {
                     "task": "Verify Complete",
-                    "match": "*/test/a/identuum-oss/callback*",
+                    "optional": true,
+                    "match": "https://localhost.emobix.co.uk:8443/test/a/identuum-oss/callback*",
                     "commands": [
                         ["wait", "id", "submission_complete", 10]
                     ]

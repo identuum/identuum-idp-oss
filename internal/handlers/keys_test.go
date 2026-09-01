@@ -166,7 +166,11 @@ func TestListSigningKeys_OmitsPrivateMaterial(t *testing.T) {
 	}
 }
 
-func TestGenerateSigningKey_RejectsRS256(t *testing.T) {
+// THE-PKCE-DECISION: RS256 generation is now ALLOWED — a real, testing-only
+// capability requested explicitly by an operator. The response must carry the
+// public key only. The never-DEFAULT posture is pinned in
+// internal/service (selectIDTokenSigningKey) and auth (primary selection).
+func TestGenerateSigningKey_AllowsRS256(t *testing.T) {
 	repo := &fakeKeyRepo{}
 	r := newTestEngine(t, repo, nil)
 
@@ -176,14 +180,37 @@ func TestGenerateSigningKey_RejectsRS256(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%q", rec.Code, rec.Body.String())
+	}
+	if repo.createCalls != 1 {
+		t.Errorf("CreateSigningKey calls = %d, want 1", repo.createCalls)
+	}
+	respBody := rec.Body.String()
+	if !strings.Contains(respBody, `"algorithm":"RS256"`) {
+		t.Errorf("body missing RS256 algorithm; got %q", respBody)
+	}
+	if strings.Contains(respBody, `"private_key"`) || strings.Contains(respBody, "BEGIN PRIVATE KEY") {
+		t.Errorf("body leaked private key material: %q", respBody)
+	}
+}
+
+// The allow-list still refuses algorithms outside {EdDSA, ES256, RS256}.
+func TestGenerateSigningKey_RejectsUnknownAlgorithm(t *testing.T) {
+	repo := &fakeKeyRepo{}
+	r := newTestEngine(t, repo, nil)
+
+	body, _ := json.Marshal(map[string]string{"algorithm": "HS256"})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/keys/generate", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%q", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "rs256_issuance_ban") {
-		t.Errorf("body missing rs256_issuance_ban flag; got %q", rec.Body.String())
-	}
 	if repo.createCalls != 0 {
-		t.Errorf("CreateSigningKey was called for an RS256 request (%d times)", repo.createCalls)
+		t.Errorf("CreateSigningKey was called for an HS256 request (%d times)", repo.createCalls)
 	}
 }
 

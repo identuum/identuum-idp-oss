@@ -107,6 +107,12 @@ type AuthenticatedClient struct {
 	// TokenService MUST intersect requested scopes against this
 	// set — never grant a scope not present here.
 	AllowedScopes []string
+	// IDTokenAlg is the client's effective id_token_signed_response_alg
+	// (Client.EffectiveIDTokenAlg — default "EdDSA"). Empty on the
+	// api_resource path, which never receives id_tokens. RS256 lands
+	// here only via the client's explicit registration —
+	// testing-only, never the issuer default (THE-PKCE-DECISION).
+	IDTokenAlg string
 }
 
 // AuthenticatedClientKind disambiguates client vs api-resource
@@ -154,6 +160,7 @@ func (s *OAuthClientAuthService) Authenticate(ctx context.Context, clientID, cli
 			AuthRecordID: c.ID,
 			Name:         c.Name,
 			IsPublic:     c.IsPublic,
+			IDTokenAlg:   c.EffectiveIDTokenAlg(),
 		}
 		if c.OrganizationID != nil {
 			out.OrganizationID = *c.OrganizationID
@@ -240,6 +247,7 @@ func (s *OAuthClientAuthService) AuthenticateAssertion(ctx context.Context, clie
 		AuthRecordID: client.ID,
 		Name:         client.Name,
 		IsPublic:     client.IsPublic,
+		IDTokenAlg:   client.EffectiveIDTokenAlg(),
 	}
 	if client.OrganizationID != nil {
 		out.OrganizationID = *client.OrganizationID

@@ -71,13 +71,14 @@ func TestKeyManager_RS256VerifyOnly_HappyPath(t *testing.T) {
 	assert.Equal(t, "RS256", parsed.Method.Alg())
 }
 
-// TestKeyManager_RS256_PrivateKeyRejected confirms parseKey refuses an
-// RS256 row that carries any non-empty PrivateKey field. This is the
-// data-layer enforcement of the verify-only invariant — a misconfigured
-// row that includes a private key cannot be loaded; the KeyManager
-// fails-fast at construction rather than silently allowing a hypothetical
-// RS256 signing path to develop later.
-func TestKeyManager_RS256_PrivateKeyRejected(t *testing.T) {
+// TestKeyManager_RS256_PrivateKeyNeverLoaded (THE-PKCE-DECISION): an RS256
+// row MAY now carry a private key — GenerateRS256Key stores one so the
+// id_token minter in internal/service can sign with it, testing-only, on an
+// explicit per-client registration. THIS manager still never signs RS256:
+// parseKey loads the PUBLIC key only and the ParsedKey carries no RSA
+// signing capability, so the KeyManager-side verify-only posture holds even
+// with the private material present in the row.
+func TestKeyManager_RS256_PrivateKeyNeverLoaded(t *testing.T) {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	require.NoError(t, err)
 
@@ -93,14 +94,26 @@ func TestKeyManager_RS256_PrivateKeyRejected(t *testing.T) {
 		KID:        "rs256-with-private",
 		Algorithm:  domain.KeyAlgorithmRS256,
 		PublicKey:  string(pubPEM),
-		PrivateKey: string(privPEM), // INVALID — RS256 must be verify-only
+		PrivateKey: string(privPEM), // present in the row — ignored by THIS manager
 		State:      domain.KeyStateActive,
 	}
 
-	_, err = parseKey(dbKey)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "verify-only",
-		"parseKey must reject RS256 keys carrying a PrivateKey; got %v", err)
+	parsed, err := parseKey(dbKey)
+	require.NoError(t, err, "an RS256 row with a private key must parse (public-only) since THE-PKCE-DECISION")
+	assert.Nil(t, parsed.PrivateKey, "parseKey must NOT load RSA private material — KeyManager never signs RS256")
+	assert.NotNil(t, parsed.PublicKey, "the public key must still load for verification")
+
+	// A KeyManager holding this row alongside an EdDSA primary keeps its
+	// EdDSA primary — the primary-selection cascade has no RS256 branch.
+	edKey, err := AutoGenerateInitialKey("EdDSA")
+	require.NoError(t, err)
+	km, err := NewKeyManager([]domain.SigningKey{*edKey, dbKey})
+	require.NoError(t, err)
+	km.mu.RLock()
+	primaryAlg := km.primaryKey.Algorithm
+	km.mu.RUnlock()
+	assert.Equal(t, domain.KeyAlgorithmEdDSA, primaryAlg,
+		"primary must stay EdDSA even with an RS256 signing-capable row present")
 }
 
 // TestKeyManager_RS256_RejectsUndersizedKey ensures the 2048-bit floor

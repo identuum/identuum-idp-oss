@@ -184,12 +184,20 @@ func (s *AuthorizationCodeService) Create(ctx context.Context, in CreateAuthoriz
 	if strings.TrimSpace(in.ClientID) == "" ||
 		in.UserID == uuid.Nil ||
 		in.SessionID == uuid.Nil ||
-		strings.TrimSpace(in.RedirectURI) == "" ||
-		strings.TrimSpace(in.CodeChallenge) == "" {
+		strings.TrimSpace(in.RedirectURI) == "" {
 		return nil, ErrAuthCodeInvalidInput
 	}
-	if in.CodeChallengeMethod != "S256" {
-		return nil, ErrAuthCodeUnsupportedChallenge
+	// THE-PKCE-DECISION: a challenge is OPTIONAL at bind time — the
+	// authorize service enforces the per-client posture (public clients
+	// must send one) BEFORE this call. When one IS bound it must be S256,
+	// and Consume verifies the verifier against it unconditionally:
+	// optional to send, never to honor.
+	if strings.TrimSpace(in.CodeChallenge) != "" {
+		if in.CodeChallengeMethod != "S256" {
+			return nil, ErrAuthCodeUnsupportedChallenge
+		}
+	} else if strings.TrimSpace(in.CodeChallengeMethod) != "" {
+		return nil, ErrAuthCodeInvalidInput
 	}
 	rawCode, err := crypto.GenerateRandomString(32)
 	if err != nil {
@@ -232,19 +240,24 @@ func (s *AuthorizationCodeService) Create(ctx context.Context, in CreateAuthoriz
 // consumed. Returns the safe policy projection on success.
 //
 // Failure semantics:
-//   - Empty code / clientID / redirectURI / codeVerifier → invalid_grant.
+//   - Empty code / clientID / redirectURI → invalid_grant.
 //   - Unknown / expired / already-consumed code → invalid_grant.
 //   - ClientID mismatch → invalid_grant.
 //   - RedirectURI mismatch (constant-time) → invalid_grant.
-//   - PKCE verification failure → invalid_grant.
+//   - PKCE mismatch, verifier missing on a bound challenge, or a
+//     gratuitous verifier on a challenge-less code → invalid_grant.
+//
+// The code_verifier is NOT in the always-required set since
+// THE-PKCE-DECISION: a code minted without a challenge (confidential
+// client, per-client-optional PKCE) legitimately consumes without one.
+// The challenge-conditional block below enforces both directions.
 //
 // The raw code is consumed exactly once. A second attempt with
 // the same code returns invalid_grant.
 func (s *AuthorizationCodeService) Consume(ctx context.Context, in ConsumeAuthorizationCodeInput) (*ConsumedAuthorizationCode, error) {
 	if strings.TrimSpace(in.Code) == "" ||
 		strings.TrimSpace(in.ClientID) == "" ||
-		strings.TrimSpace(in.RedirectURI) == "" ||
-		strings.TrimSpace(in.CodeVerifier) == "" {
+		strings.TrimSpace(in.RedirectURI) == "" {
 		return nil, ErrAuthCodeInvalidGrant
 	}
 	codeHash := hashAuthCode(in.Code)
@@ -269,7 +282,17 @@ func (s *AuthorizationCodeService) Consume(ctx context.Context, in ConsumeAuthor
 	if subtle.ConstantTimeCompare([]byte(row.RedirectURI), []byte(in.RedirectURI)) != 1 {
 		return nil, ErrAuthCodeInvalidGrant
 	}
-	if !pkce.Verify(in.CodeVerifier, row.CodeChallenge) {
+	// THE-PKCE-DECISION: never to HONOR — a bound challenge is ALWAYS
+	// verified. A code bound without a challenge (confidential client that
+	// chose not to send one) must not receive a verifier either: accepting
+	// a gratuitous verifier would let a downgrade pass silently, so it is
+	// invalid_grant (OAuth Security BCP posture, stricter than RFC 7636's
+	// server-may-ignore).
+	if row.CodeChallenge != "" {
+		if !pkce.Verify(in.CodeVerifier, row.CodeChallenge) {
+			return nil, ErrAuthCodeInvalidGrant
+		}
+	} else if strings.TrimSpace(in.CodeVerifier) != "" {
 		return nil, ErrAuthCodeInvalidGrant
 	}
 	won, err := s.repo.MarkConsumed(ctx, row.ID, now)

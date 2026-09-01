@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"errors"
+	"html"
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -59,10 +62,13 @@ type AuthorizeHandlerDeps struct {
 
 // RegisterAuthorizeRoutes mounts
 //
-//	GET /api/v1/oauth/authorize
+//	GET  /api/v1/oauth/authorize
+//	POST /api/v1/oauth/authorize
 //
-// onto router. The route registers ONLY when AuthorizeService is
-// wired.
+// onto router. The routes register ONLY when AuthorizeService is
+// wired. POST is required by OIDC Core §3.1.2.1 (the Authorization
+// Server MUST support both GET and form-serialized POST); the
+// conformance suite exercises it via oidcc-ensure-post-request-succeeds.
 func RegisterAuthorizeRoutes(router gin.IRouter, deps AuthorizeHandlerDeps) {
 	if deps.AuthorizeService == nil {
 		return
@@ -79,6 +85,15 @@ func RegisterAuthorizeRoutes(router gin.IRouter, deps AuthorizeHandlerDeps) {
 	// docgen:auth=session
 	// docgen:notes=Anonymous callers are redirected to /api/v1/auth/browser-login; the route itself runs the AuthorizeService validation pipeline whether or not a session cookie is present.
 	router.GET("/api/v1/oauth/authorize", HandleAuthorize(deps))
+	// docgen:endpoint
+	// docgen:surface=oauth
+	// docgen:method=POST
+	// docgen:path=/api/v1/oauth/authorize
+	// docgen:summary=OIDC Core §3.1.2.1 form-serialized variant of the authorize endpoint — identical semantics to GET with parameters in the request body.
+	// docgen:tier=oss
+	// docgen:auth=session
+	// docgen:notes=Login/consent redirects rebuild the request as a GET authorize URL carrying every submitted parameter, so the resumed ceremony is identical to the GET flow.
+	router.POST("/api/v1/oauth/authorize", HandleAuthorize(deps))
 }
 
 // HandleAuthorize is the OSS /authorize Gin handler. It runs the
@@ -114,23 +129,39 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			}
 		}
 
+		// OIDC Core §3.1.2.1: parameters arrive as query (GET) or as a
+		// form-serialized body (POST). param reads either; authorizeQuery
+		// is the canonical query string the login/consent redirects loop
+		// back through — for POST it re-encodes EVERY submitted form
+		// parameter (not just the ones this handler reads) so the resumed
+		// GET carries the request unchanged.
+		param := c.Query
+		authorizeQuery := c.Request.URL.RawQuery
+		if c.Request.Method == http.MethodPost {
+			param = c.PostForm
+			_ = c.Request.ParseForm()
+			authorizeQuery = c.Request.PostForm.Encode()
+		}
+
 		req := service.AuthorizeRequest{
-			ResponseType:        c.Query("response_type"),
-			ClientID:            c.Query("client_id"),
-			RedirectURI:         c.Query("redirect_uri"),
-			Scope:               c.Query("scope"),
-			Audience:            c.Query("audience"),
-			State:               c.Query("state"),
-			Nonce:               c.Query("nonce"),
-			CodeChallenge:       c.Query("code_challenge"),
-			CodeChallengeMethod: c.Query("code_challenge_method"),
-			Prompt:              c.Query("prompt"),
+			ResponseType:        param("response_type"),
+			ClientID:            param("client_id"),
+			RedirectURI:         param("redirect_uri"),
+			Scope:               param("scope"),
+			Audience:            param("audience"),
+			State:               param("state"),
+			Nonce:               param("nonce"),
+			CodeChallenge:       param("code_challenge"),
+			CodeChallengeMethod: param("code_challenge_method"),
+			Prompt:              param("prompt"),
+			RequestObject:       param("request"),
+			RequestURIParam:     param("request_uri"),
 			Principal:           principal,
 		}
 
 		result, err := deps.AuthorizeService.Authorize(c.Request.Context(), req)
 		if err != nil {
-			emitAuthorizeError(c, deps, req, err)
+			emitAuthorizeError(c, deps, req, authorizeQuery, err)
 			return
 		}
 
@@ -149,26 +180,46 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 	}
 }
 
+// authorizeQueryFromRequest re-encodes an AuthorizeRequest's wire
+// parameters as a canonical authorize query string. Used where the
+// original raw query is no longer available (the consent-approve POST),
+// so an error path can still rebuild the authorize URL for redirects.
+func authorizeQueryFromRequest(req service.AuthorizeRequest) string {
+	v := url.Values{}
+	set := func(k, val string) {
+		if val != "" {
+			v.Set(k, val)
+		}
+	}
+	set("response_type", req.ResponseType)
+	set("client_id", req.ClientID)
+	set("redirect_uri", req.RedirectURI)
+	set("scope", req.Scope)
+	set("audience", req.Audience)
+	set("state", req.State)
+	set("nonce", req.Nonce)
+	set("code_challenge", req.CodeChallenge)
+	set("code_challenge_method", req.CodeChallengeMethod)
+	set("prompt", req.Prompt)
+	return v.Encode()
+}
+
 // emitAuthorizeError maps an AuthorizeService sentinel to the
-// correct response shape.
-func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.AuthorizeRequest, err error) {
+// correct response shape. authorizeQuery is the canonical query string
+// of the authorize request (the raw GET query, or the re-encoded POST
+// form) used to rebuild the request behind the login/consent redirects.
+func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.AuthorizeRequest, authorizeQuery string, err error) {
 	switch {
-	// Pre-redirect-uri failures → 400 direct.
+	// Pre-redirect-uri failures → 400 direct. These render for the HUMAN
+	// at the browser (there is no validated redirect_uri to send them
+	// back through), so a browser gets a small HTML error page; API
+	// clients keep the JSON envelope.
 	case errors.Is(err, service.ErrAuthorizeMissingParameters):
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             "invalid_request",
-			"error_description": "Missing required parameter",
-		})
+		respondAuthorizeDirectError(c, "invalid_request", "Missing required parameter")
 	case errors.Is(err, service.ErrAuthorizeInvalidClient):
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             "invalid_client",
-			"error_description": "Unknown or inactive client",
-		})
+		respondAuthorizeDirectError(c, "invalid_client", "Unknown or inactive client")
 	case errors.Is(err, service.ErrAuthorizeInvalidRedirectURI):
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":             "invalid_request",
-			"error_description": "redirect_uri is not registered for this client",
-		})
+		respondAuthorizeDirectError(c, "invalid_request", "redirect_uri is not registered for this client")
 
 	// Redirect-safe failures → 302 with error= + state=.
 	case errors.Is(err, service.ErrAuthorizeUnsupportedResponseType):
@@ -179,9 +230,34 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 		redirectAuthorizeError(c, deps, req, "invalid_scope")
 	case errors.Is(err, service.ErrAuthorizeInvalidTarget):
 		redirectAuthorizeError(c, deps, req, "invalid_target")
+	case errors.Is(err, service.ErrAuthorizeRequestNotSupported):
+		redirectAuthorizeError(c, deps, req, "request_not_supported")
+	case errors.Is(err, service.ErrAuthorizeRequestURINotSupported):
+		redirectAuthorizeError(c, deps, req, "request_uri_not_supported")
 	case errors.Is(err, service.ErrAuthorizeLoginRequired):
+		// THE-PKCE-DECISION (DO-3): an unauthenticated BROWSER is sent to
+		// the OP's own login form with the full authorize URL as return_to,
+		// so the ceremony continues where it began — this is what any
+		// interactive flow (and the conformance suite's browser) needs.
+		// prompt=none keeps the error redirect: OIDC 3.1.2.6 REQUIRES
+		// login_required back to the client when no interaction is allowed.
+		if strings.TrimSpace(req.Prompt) != "none" {
+			c.Redirect(http.StatusFound,
+				"/api/v1/auth/browser-login?return_to="+url.QueryEscape("/api/v1/oauth/authorize?"+authorizeQuery))
+			return
+		}
 		redirectAuthorizeError(c, deps, req, "login_required")
 	case errors.Is(err, service.ErrAuthorizeConsentRequired):
+		// Same shape as login_required below: an interactive browser is
+		// sent to the OP's OWN consent form carrying the full authorize
+		// query (readConsentForm reads the same parameter names), so
+		// approve mints the code and completes the ceremony. prompt=none
+		// keeps the OIDC-required error redirect.
+		if strings.TrimSpace(req.Prompt) != "none" {
+			c.Redirect(http.StatusFound,
+				"/api/v1/oauth/consent?"+authorizeQuery)
+			return
+		}
 		redirectAuthorizeError(c, deps, req, "consent_required")
 	case errors.Is(err, service.ErrAuthorizeServerError):
 		redirectAuthorizeError(c, deps, req, "server_error")
@@ -191,6 +267,33 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 			"error_description": "Internal server error",
 		})
 	}
+}
+
+// respondAuthorizeDirectError answers a pre-redirect-uri authorize
+// failure. These errors are shown to the HUMAN at the browser — OIDC
+// Core §3.1.2.4: without a validated redirect_uri the OP MUST NOT
+// redirect and SHOULD inform the end-user — so a client that accepts
+// text/html gets a minimal HTML error page; everything else keeps the
+// 400 JSON envelope. The HTML variant is served with 200: it is a
+// terminal human-facing page, not a protocol response (no status is
+// mandated for it), and browsers — including the conformance suite's
+// scripted HtmlUnit, which THROWS on 4xx by default — must be able to
+// render it. Never a redirect either way.
+func respondAuthorizeDirectError(c *gin.Context, code, description string) {
+	if strings.Contains(c.GetHeader("Accept"), "text/html") {
+		c.Data(http.StatusOK, "text/html; charset=utf-8", []byte(
+			`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">`+
+				`<title>Authorization error</title></head><body><main>`+
+				`<h1>Authorization error</h1>`+
+				`<p>error: `+html.EscapeString(code)+`</p>`+
+				`<p>`+html.EscapeString(description)+`</p>`+
+				`</main></body></html>`))
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error":             code,
+		"error_description": description,
+	})
 }
 
 // redirectAuthorizeError builds and emits a 302 to redirect_uri with

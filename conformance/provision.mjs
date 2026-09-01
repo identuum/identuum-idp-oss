@@ -1,8 +1,11 @@
 // conformance/provision.mjs — THE-CONFORMANCE-HARNESS.
 //
 // Provisions the conformance fixtures on the FRESH disposable appliance:
-// one organization (mfa_policy=optional), one test user WITHOUT MFA, and two
-// confidential OAuth clients registered for the suite's callback.
+// one organization (mfa_policy=optional), one test user WITHOUT MFA, an
+// active RS256 signing key (testing-only, THE-PKCE-DECISION), and three
+// confidential OAuth clients registered for the suite's callback (one
+// default, one with id_token_signed_response_alg=RS256, one with
+// token_endpoint_auth_method=client_secret_post).
 //
 // This is the SAME API provisioning path the e2e-full provisioner drives
 // (bootstrapped site_admin -> org -> activation -> org_admin -> resources).
@@ -10,9 +13,9 @@
 // suite's static browser automation cannot type — so the conformance user is
 // deliberately provisioned WITHOUT MFA on an mfa_policy=optional org.
 //
-// stdout: exactly one JSON line {client1_id, client1_secret, client2_id,
-// client2_secret} for run.sh to substitute into the plan config. Secrets go
-// no further than the gitignored work directory of one run.
+// stdout: exactly one JSON line {clientN_id, clientN_secret for N in 1..3}
+// for run.sh to substitute into the plan config. Secrets go no further than
+// the gitignored work directory of one run.
 import { createHmac } from "node:crypto";
 
 const BASE = process.env.CONFORMANCE_OP_BASE ?? "http://127.0.0.1:27113";
@@ -119,15 +122,39 @@ must(await api("PUT", `/api/v1/users/${userId}`, { email_verified: true }, oaTok
   }
 }
 
-// 6. Two confidential clients registered for the suite callback.
+// 6. RS256 signing key — THE-PKCE-DECISION: a real, testing-only capability.
+// The conformance suite is EXACTLY the sanctioned use ("DO NOT USE except
+// testing"); discovery advertises RS256, so the OP must hold a key that can
+// honor an explicit RS256 registration.
+must(await api("POST", "/api/v1/keys/generate", { algorithm: "RS256", state: "active" }, saToken), 201, "generate RS256 key");
+
+// 7. Three confidential clients registered for the suite callback. Client
+// TWO explicitly registers id_token_signed_response_alg=RS256 — the live
+// proof that RS256 fires ONLY on explicit registration (client one stays on
+// the EdDSA default). Client THREE registers client_secret_post.
+// Registered scope is the CLAMP set (ClampScopeToRegistered): anything not
+// listed here is silently narrowed out of every grant. Register the full
+// scope surface discovery advertises so the suite's scope/refresh modules
+// measure the real behavior instead of the clamp.
+const SCOPES = "openid profile email offline_access";
 const c1 = must(await api("POST", "/api/v1/clients", {
-  name: "Conformance Client One", redirect_uris: [CALLBACK], scope: "openid",
+  name: "Conformance Client One", redirect_uris: [CALLBACK], scope: SCOPES,
 }, oaToken), 201, "create client1");
 const c2 = must(await api("POST", "/api/v1/clients", {
-  name: "Conformance Client Two", redirect_uris: [CALLBACK], scope: "openid",
+  name: "Conformance Client Two", redirect_uris: [CALLBACK], scope: SCOPES,
+  id_token_signed_response_alg: "RS256",
 }, oaToken), 201, "create client2");
+// Client THREE registers token_endpoint_auth_method=client_secret_post for
+// the suite's client_secret_post variant: the OP enforces the EXACT
+// registered method (P0-7), so the basic-registered client1 rightly refuses
+// POST-body authentication.
+const c3 = must(await api("POST", "/api/v1/clients", {
+  name: "Conformance Client Three", redirect_uris: [CALLBACK], scope: SCOPES,
+  token_endpoint_auth_method: "client_secret_post",
+}, oaToken), 201, "create client3");
 
 process.stdout.write(JSON.stringify({
   client1_id: c1.client?.client_id, client1_secret: c1.client_secret,
   client2_id: c2.client?.client_id, client2_secret: c2.client_secret,
+  client3_id: c3.client?.client_id, client3_secret: c3.client_secret,
 }) + "\n");

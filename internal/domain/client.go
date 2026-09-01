@@ -150,6 +150,16 @@ func ValidateClientSigningAlg(alg string) error {
 	return nil
 }
 
+// ValidateClientIDTokenAlg validates an explicit id_token_signed_response_alg
+// value against the closed IDTokenSigningAlgorithms set. Both the create and
+// update paths call THIS function (THE-MIRROR: one spelling of the check).
+func ValidateClientIDTokenAlg(alg string) error {
+	if _, ok := IDTokenSigningAlgorithms[alg]; !ok {
+		return fmt.Errorf("%w: id_token_signed_response_alg %q is not a supported value", ErrInvalidRequest, alg)
+	}
+	return nil
+}
+
 // AuthMethodUsesClientSecret reports whether a token_endpoint_auth_method
 // authenticates the client with a shared secret.
 //
@@ -243,6 +253,25 @@ type Client struct {
 	// BackchannelLogoutSessionRequired reports whether the RP
 	// requires the `sid` claim in the logout_token.
 	BackchannelLogoutSessionRequired bool
+	// IDTokenSignedResponseAlg is the JWS algorithm this client's ID
+	// tokens are signed with. One of IDTokenSigningAlgorithms; empty
+	// string defaults to "EdDSA" via EffectiveIDTokenAlg.
+	//
+	// THE-PKCE-DECISION (owner ruling): "RS256" is accepted here so
+	// the OP's advertised algorithm list is honest, but it fires ONLY
+	// on this explicit per-client registration — it is NEVER the
+	// issuer default and exists for conformance/interop testing, not
+	// operation. See docs/TESTING-OPERATORS.md.
+	IDTokenSignedResponseAlg string
+}
+
+// IDTokenSigningAlgorithms is the closed set of values accepted for
+// id_token_signed_response_alg. It matches — and must stay in sync with —
+// the discovery document's id_token_signing_alg_values_supported list.
+var IDTokenSigningAlgorithms = map[string]struct{}{
+	"EdDSA": {},
+	"ES256": {},
+	"RS256": {},
 }
 
 // EffectiveAuthMethod returns the resolved token_endpoint_auth_method, applying
@@ -263,6 +292,16 @@ func (c *Client) EffectiveAuthMethod() string {
 func (c *Client) EffectiveSigningAlg() string {
 	if c.TokenEndpointAuthSigningAlg != "" {
 		return c.TokenEndpointAuthSigningAlg
+	}
+	return "EdDSA"
+}
+
+// EffectiveIDTokenAlg returns the JWS algorithm for this client's ID tokens,
+// defaulting to "EdDSA" when the stored value is empty. RS256 is returned
+// only when explicitly registered (THE-PKCE-DECISION: never the default).
+func (c *Client) EffectiveIDTokenAlg() string {
+	if c.IDTokenSignedResponseAlg != "" {
+		return c.IDTokenSignedResponseAlg
 	}
 	return "EdDSA"
 }
@@ -343,6 +382,13 @@ func (c *Client) Validate() error {
 	// Validate signing alg if explicitly set — same function as update.
 	if c.TokenEndpointAuthSigningAlg != "" {
 		if err := ValidateClientSigningAlg(c.TokenEndpointAuthSigningAlg); err != nil {
+			return err
+		}
+	}
+
+	// Validate id_token alg if explicitly set — same function as update.
+	if c.IDTokenSignedResponseAlg != "" {
+		if err := ValidateClientIDTokenAlg(c.IDTokenSignedResponseAlg); err != nil {
 			return err
 		}
 	}

@@ -33,6 +33,13 @@ type UserinfoHandlerDeps struct {
 	// verdict the bearer middleware applies, never a second one. Nil skips the
 	// gate (today's behaviour for callers that wire no session lookup).
 	SubjectResolver oidc.SubjectResolver
+
+	// UserLookup, when non-nil, backs the OIDC `profile`-scope claims:
+	// a human token whose scope grants "profile" gets `name` from the
+	// user record (the access token deliberately does not carry it).
+	// Nil keeps the pre-THE-PKCE-DECISION projection (no profile
+	// claims), so existing compositions are unchanged.
+	UserLookup UserByIDLookup
 }
 
 // RegisterUserinfoRoutes mounts
@@ -80,7 +87,9 @@ func RegisterUserinfoRoutes(router gin.IRouter, deps UserinfoHandlerDeps) {
 //   - On success: 200 with the OIDC standard claims projection.
 //     `sub` is REQUIRED per §5.3.2; `email`, `organization_id`,
 //     and `role` are echoed only when the token's claims carry
-//     them (the principal model defines what may be there).
+//     them (the principal model defines what may be there);
+//     `name` is looked up from the user record for human subjects
+//     when a UserLookup is wired.
 //
 // The raw access token NEVER appears in the response or in audit
 // metadata. The jti claim is consumed for the revocation check
@@ -139,6 +148,20 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 		}
 		if !isServiceAccount {
 			out.Email = claims.Email
+		}
+		// OIDC `name` (THE-PKCE-DECISION, conformance-measured gap: the
+		// profile scope granted NO claims). Emitted for every human
+		// subject, mirroring the email posture above — the access
+		// token's `scope` claim is ROLE-DERIVED (SessionScopesForRole,
+		// authz-load-bearing for the admin guards), NOT the consented
+		// OAuth scope, so consented-scope gating is not representable
+		// here today. Lookup failure degrades to the claim being
+		// absent — profile claims are voluntary (§5.4), never worth a
+		// 500.
+		if !isServiceAccount && deps.UserLookup != nil && claims.UserID != uuid.Nil {
+			if u, uerr := deps.UserLookup.GetByID(c.Request.Context(), claims.UserID); uerr == nil && u != nil && u.Name != nil {
+				out.Name = *u.Name
+			}
 		}
 		if claims.OrgID != uuid.Nil {
 			out.OrganizationID = claims.OrgID.String()

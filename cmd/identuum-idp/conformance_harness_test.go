@@ -10,20 +10,24 @@ import (
 	"time"
 )
 
-// THE-CONFORMANCE-HARNESS (2026-09-01). Two invariants of
-// conformance/run.sh worth pinning, proven through its committed test seams
-// (CONFORMANCE_STUB_STACK / CONFORMANCE_STUB_PLAN / CONFORMANCE_STUB_TEARDOWN
-// plus a recording `docker` shim on PATH — no real docker, no network):
+// THE-CONFORMANCE-HARNESS, floor re-recorded by THE-PKCE-DECISION
+// (2026-09-01). Two invariants of conformance/run.sh worth pinning, proven
+// through its committed test seams (CONFORMANCE_STUB_STACK /
+// CONFORMANCE_STUB_PLAN / CONFORMANCE_STUB_TEARDOWN plus a recording
+// `docker` shim on PATH — no real docker, no network):
 //
 //  1. GUARANTEED TEARDOWN: `down --volumes` on the identuum-conformance
 //     project fires on success, on failure, AND on interrupt mid-plan. A
 //     harness that leaves two stacks running after Ctrl-C is exactly the
 //     debris the owner ruling forbids.
-//  2. FLOOR SEMANTICS: an expected failure that PASSES fails the run. The
-//     basic plan's recorded abort (mandatory PKCE; the suite's own
-//     expected-failures format cannot express an interrupted module) is a
-//     floor — a run where that plan COMPLETES must exit nonzero until the
-//     baseline is re-recorded deliberately.
+//  2. FLOOR SEMANTICS: the basic plan is green ONLY when its
+//     incomplete-module set EQUALS conformance/expected-basic-incomplete.txt
+//     exactly (the re-auth finding: prompt=login / max_age=1 stall in
+//     WAITING, which the suite's expected-failures format cannot express)
+//     and no other failure marker fired. A plan that IMPROVES (the recorded
+//     modules complete, exit 0) must ALSO fail — the floor moves only by
+//     deliberate re-recording. So must a plan whose incompletes differ, and
+//     one with unexpected condition failures.
 //
 // RULE: CONFORMANCE-FLOOR-1
 func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.T) {
@@ -35,21 +39,20 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 	if _, err := os.Stat(script); err != nil {
 		t.Fatalf("conformance/run.sh missing: %v", err)
 	}
-	abortLine := ""
+	var incompleteModules []string
 	{
-		raw, err := os.ReadFile(filepath.Join(repo, "conformance", "expected-basic-abort.txt"))
+		raw, err := os.ReadFile(filepath.Join(repo, "conformance", "expected-basic-incomplete.txt"))
 		if err != nil {
-			t.Fatalf("expected-basic-abort.txt missing: %v", err)
+			t.Fatalf("expected-basic-incomplete.txt missing: %v", err)
 		}
 		for _, l := range strings.Split(string(raw), "\n") {
 			if l != "" && !strings.HasPrefix(l, "#") {
-				abortLine = l
-				break
+				incompleteModules = append(incompleteModules, strings.TrimSpace(l))
 			}
 		}
 	}
-	if abortLine == "" {
-		t.Fatal("expected-basic-abort.txt carries no abort signature line")
+	if len(incompleteModules) == 0 {
+		t.Fatal("expected-basic-incomplete.txt carries no module lines — if the floor was retired, rewrite this test for the plan-completes contract")
 	}
 
 	// A recording `docker` shim: every invocation is appended to a log the
@@ -98,12 +101,20 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 	perPlan := func(basicScript string) string {
 		return `case "$1" in *config*) exit 0;; *) ` + basicScript + `;; esac`
 	}
+	// incompleteBlock emits the exact "Incomplete test modules:" block
+	// run-test-plan prints for the RECORDED floor; recordedIncomplete
+	// additionally exits nonzero the way run-test-plan does.
+	incompleteBlock := "echo 'Incomplete test modules:'"
+	for _, m := range incompleteModules {
+		incompleteBlock += "; echo '  " + m + " StubModuleId000 (status: WAITING)'"
+	}
+	recordedIncomplete := incompleteBlock + "; exit 1"
 
-	// ── 1a. SUCCESS path: both plans green-against-floor -> exit 0, and the
-	// teardown still ran down --volumes on the project ──
-	code, calls := runHarness(t, perPlan("echo '"+abortLine+"'; exit 1"), false)
+	// ── 1a. SUCCESS path: incompletes match the recorded floor exactly ->
+	// exit 0, and the teardown still ran down --volumes on the project ──
+	code, calls := runHarness(t, perPlan(recordedIncomplete), false)
 	if code != 0 {
-		t.Fatalf("green-against-floor run exited %d, want 0 (the recorded abort matched)", code)
+		t.Fatalf("green-against-floor run exited %d, want 0 (the recorded incomplete set matched)", code)
 	}
 	if !strings.Contains(calls, "compose -p identuum-conformance") || !strings.Contains(calls, "down --volumes") {
 		t.Fatalf("teardown did not run 'down --volumes' on the isolated project after success; docker calls:\n%s", calls)
@@ -118,20 +129,27 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 		t.Fatalf("Ctrl-C mid-plan did NOT tear the stacks down; docker calls:\n%s", calls)
 	}
 
-	// ── 2. FLOOR: the basic plan COMPLETING (exit 0) must FAIL the run —
-	// an expected failure that passes is floor movement ──
+	// ── 2a. FLOOR (improvement): the basic plan COMPLETING (exit 0) while
+	// the incomplete floor is non-empty must FAIL the run ──
 	code, calls = runHarness(t, perPlan("echo 'all modules passed'; exit 0"), false)
 	if code == 0 {
-		t.Fatal("the recorded basic-plan abort no longer happened and the harness still exited 0 — the floor moved silently")
+		t.Fatal("the recorded incompletes no longer happened and the harness still exited 0 — the floor moved silently")
 	}
 	if !strings.Contains(calls, "down --volumes") {
 		t.Fatalf("teardown missing on the floor-moved path; docker calls:\n%s", calls)
 	}
 
-	// ── 2b. a DIFFERENT abort (neither the recorded one nor completion)
-	// also fails ──
-	code, _ = runHarness(t, perPlan("echo 'some other explosion'; exit 1"), false)
+	// ── 2b. FLOOR (different incompletes): a nonzero run whose incomplete
+	// set differs from the record also fails ──
+	code, _ = runHarness(t, perPlan("echo 'Incomplete test modules:'; echo '  oidcc-some-other-module Stub1 (status: WAITING)'; exit 1"), false)
 	if code == 0 {
-		t.Fatal("a basic-plan failure DIFFERENT from the recorded abort passed as green")
+		t.Fatal("a basic plan with DIFFERENT incomplete modules passed as green")
+	}
+
+	// ── 2c. FLOOR (extra damage): the recorded incompletes PLUS unexpected
+	// condition failures also fails ──
+	code, _ = runHarness(t, perPlan(incompleteBlock+"; echo '** Exiting with failure - some test modules have unexpected condition failures/warnings **'; exit 1"), false)
+	if code == 0 {
+		t.Fatal("recorded incompletes plus unexpected condition failures passed as green")
 	}
 }

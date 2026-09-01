@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -248,6 +249,102 @@ func TestUserinfo_ServiceAccountOmitsEmail(t *testing.T) {
 	}
 	if !fired {
 		t.Errorf("audit oidc_userinfo.served not fired")
+	}
+}
+
+// ---------- profile claims (name) ----------
+
+// fakeUserinfoUserLookup answers GetByID with one canned user.
+type fakeUserinfoUserLookup struct {
+	user *domain.User
+	err  error
+}
+
+func (f *fakeUserinfoUserLookup) GetByID(_ context.Context, _ uuid.UUID) (*domain.User, error) {
+	return f.user, f.err
+}
+
+func userinfoStrPtr(s string) *string { return &s }
+
+// THE-PKCE-DECISION (conformance-measured gap): a human subject gets `name`
+// from the user record when a UserLookup is wired; a service-account token
+// NEVER gets one (no display name to expose); a lookup failure degrades to
+// the claim being absent, never a 500.
+func TestUserinfo_NameFromUserRecord(t *testing.T) {
+	uid := uuid.New()
+	v := &userinfoFakeVerifier{claims: &service.IntrospectionClaims{
+		Sub: uid.String(), UserID: uid, Email: "user@example.com",
+	}}
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	intro := service.NewIntrospectionService(nil, v, nil)
+	RegisterUserinfoRoutes(r, UserinfoHandlerDeps{
+		IntrospectionService: intro,
+		UserLookup:           &fakeUserinfoUserLookup{user: &domain.User{ID: uid, Name: userinfoStrPtr("Alice Example")}},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer ANY")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body=%q", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if body["name"] != "Alice Example" {
+		t.Errorf("name = %v, want the user record's display name", body["name"])
+	}
+}
+
+// RULE: USERINFO-HUMAN-NAME-1
+func TestUserinfo_ServiceAccountNeverGetsName(t *testing.T) {
+	saID := uuid.New()
+	v := &userinfoFakeVerifier{claims: &service.IntrospectionClaims{
+		Sub: saID.String(), UserID: saID, ClientID: "cli-1",
+		ActorType: service.ActorTypeServiceAccount,
+	}}
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	intro := service.NewIntrospectionService(nil, v, nil)
+	RegisterUserinfoRoutes(r, UserinfoHandlerDeps{
+		IntrospectionService: intro,
+		UserLookup:           &fakeUserinfoUserLookup{user: &domain.User{ID: saID, Name: userinfoStrPtr("MUST-NOT-APPEAR")}},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer ANY")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "MUST-NOT-APPEAR") {
+		t.Errorf("service-account token got a name claim: %q", w.Body.String())
+	}
+}
+
+func TestUserinfo_NameLookupFailureDegradesToAbsent(t *testing.T) {
+	uid := uuid.New()
+	v := &userinfoFakeVerifier{claims: &service.IntrospectionClaims{
+		Sub: uid.String(), UserID: uid,
+	}}
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	intro := service.NewIntrospectionService(nil, v, nil)
+	RegisterUserinfoRoutes(r, UserinfoHandlerDeps{
+		IntrospectionService: intro,
+		UserLookup:           &fakeUserinfoUserLookup{err: errors.New("db down")},
+	})
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/userinfo", nil)
+	req.Header.Set("Authorization", "Bearer ANY")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (claim degrades, never a 500)", w.Code)
+	}
+	var body map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &body)
+	if _, ok := body["name"]; ok {
+		t.Errorf("name present despite lookup failure: %v", body["name"])
 	}
 }
 

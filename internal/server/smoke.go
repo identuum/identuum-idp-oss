@@ -219,14 +219,19 @@ func discoveryDocument(cfg OIDCDiscoveryConfig) map[string]any {
 		"subject_types_supported": []string{
 			"public",
 		},
-		// Identuum no-RS256-issuance policy: only ES256 and EdDSA are
-		// advertised. EdDSA is the Identuum default. RS256 is
-		// deliberately ABSENT here even though Identuum may accept
-		// RS256 from external issuers in inbound paths (verification
-		// only, never issuance).
+		// THE-PKCE-DECISION (owner ruling, verbatim): "Add RS256 into
+		// the list BUT DO NOT USE except testing and put this into
+		// documentation CLEARLY." RS256 here is a REAL capability —
+		// key generation, JWKS publication, id_token signing — but it
+		// fires ONLY when a client explicitly registers
+		// id_token_signed_response_alg=RS256. EdDSA is, and stays, the
+		// Identuum default; RS256 exists for conformance/interop
+		// TESTING, not operation (docs/TESTING-OPERATORS.md). Must stay
+		// in sync with domain.IDTokenSigningAlgorithms.
 		"id_token_signing_alg_values_supported": []string{
 			"EdDSA",
 			"ES256",
+			"RS256",
 		},
 		"scopes_supported": []string{
 			"openid",
@@ -246,6 +251,12 @@ func discoveryDocument(cfg OIDCDiscoveryConfig) map[string]any {
 		"code_challenge_methods_supported": []string{
 			"S256",
 		},
+		// OIDC §6 request objects are unsupported and REFUSED with
+		// request_not_supported / request_uri_not_supported. Both flags
+		// are explicit because the Discovery DEFAULT for
+		// request_uri_parameter_supported is true when omitted.
+		"request_parameter_supported":     false,
+		"request_uri_parameter_supported": false,
 		// NOTE: this document deliberately omits any non-standard
 		// "mode" / "build" / "tier" key. The OIDC conformance suite
 		// flags vendor-specific top-level keys, so the OSS discovery

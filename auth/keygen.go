@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -93,6 +94,51 @@ func GenerateES256Key() (*domain.SigningKey, error) {
 	return &domain.SigningKey{
 		KID:        kid,
 		Algorithm:  domain.KeyAlgorithmES256,
+		PublicKey:  string(publicKeyPEM),
+		PrivateKey: string(privateKeyPEM),
+		State:      domain.KeyStateActive,
+		CreatedBy:  nil, // system-generated, no user ID
+	}, nil
+}
+
+// GenerateRS256Key generates a new RSA-2048 key pair.
+//
+// THE-PKCE-DECISION (owner ruling 2026-09-01): RS256 is a REAL capability —
+// key, JWKS publication, id_token signing on EXPLICIT client request — so
+// discovery advertises nothing it cannot do. It is NEVER the default: the
+// primary signer stays EdDSA (KeyManager's primary selection never picks
+// RSA, AutoGenerateInitialKey never generates it), and it exists for
+// conformance/interop TESTING, not operation. See
+// docs/TESTING-OPERATORS.md ("RS256 — testing only").
+func GenerateRS256Key() (*domain.SigningKey, error) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate RSA-2048 key: %w", err)
+	}
+
+	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal private key: %w", err)
+	}
+	privateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: privateKeyBytes,
+	})
+
+	publicKeyBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal public key: %w", err)
+	}
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: publicKeyBytes,
+	})
+
+	kid := fmt.Sprintf("rs256-%s", time.Now().UTC().Format("20060102-150405"))
+
+	return &domain.SigningKey{
+		KID:        kid,
+		Algorithm:  domain.KeyAlgorithmRS256,
 		PublicKey:  string(publicKeyPEM),
 		PrivateKey: string(privateKeyPEM),
 		State:      domain.KeyStateActive,

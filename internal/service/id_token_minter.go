@@ -5,14 +5,18 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/pkg/oidc"
 )
 
 // jwtIDTokenIssuer is the OSS JWT implementation of oidc.IDTokenIssuer (A-4
-// Phase 4). It reproduces the pre-A-4 inline id-token signing posture
-// verbatim — selectUserSigningKey (EdDSA-preferred / ES256-fallback /
-// RS256-banned) + parsePrivateKeyPEM + jwt.NewWithClaims + SignedString — so
-// rewiring IDTokenService.Issue through it produces byte-identical tokens.
+// Phase 4). The DEFAULT signing posture is the pre-A-4 inline one verbatim —
+// selectUserSigningKey (EdDSA-preferred / ES256-fallback, never RS256) +
+// parsePrivateKeyPEM + jwt.NewWithClaims + SignedString — so default-path
+// tokens are byte-identical to the pre-A-4 path. THE-PKCE-DECISION adds one
+// escape hatch: when the client explicitly registered
+// id_token_signed_response_alg, selectIDTokenSigningKey honors that exact
+// algorithm (including RS256, testing-only, never default).
 // It lives in `internal/` because it needs the SigningKeyProvider seam,
 // domain.SigningKey, and the internal key-parsing helper.
 //
@@ -39,10 +43,12 @@ func newJWTIDTokenIssuer(keys SigningKeyProvider) *jwtIDTokenIssuer {
 //     email_verified, ...).
 //
 // The header carries alg (from the selected key's method) + kid. Errors
-// mirror the previous inline path: ErrIDTokenNoSigningKey when no EdDSA/ES256
-// active key exists, ErrIDTokenSigningFailed on a key-parse or signing failure.
+// mirror the previous inline path: ErrIDTokenNoSigningKey when no active key
+// satisfies the selection (default EdDSA/ES256 order, or the client's
+// explicit SigningAlg), ErrIDTokenSigningFailed on a key-parse or signing
+// failure.
 func (i *jwtIDTokenIssuer) IssueIDToken(ctx context.Context, tc oidc.IDTokenClaims) (string, error) {
-	signingKey, method, err := selectUserSigningKey(ctx, i.keys)
+	signingKey, method, err := selectIDTokenSigningKey(ctx, i.keys, tc.SigningAlg)
 	if err != nil {
 		return "", ErrIDTokenNoSigningKey
 	}
@@ -71,6 +77,52 @@ func (i *jwtIDTokenIssuer) IssueIDToken(ctx context.Context, tc oidc.IDTokenClai
 		return "", ErrIDTokenSigningFailed
 	}
 	return signed, nil
+}
+
+// selectIDTokenSigningKey resolves the signing key for an ID token.
+//
+// alg is the client's explicitly registered id_token_signed_response_alg
+// ("EdDSA", "ES256", "RS256") or empty for "issuer default".
+//
+// THE-PKCE-DECISION (owner ruling): the DEFAULT path is exactly
+// selectUserSigningKey — EdDSA preferred, ES256 fallback, RS256 NEVER.
+// An RS256 key, even when present and active, signs ONLY when the
+// client explicitly registered RS256; that capability exists for
+// conformance/interop testing, not operation (docs/TESTING-OPERATORS.md).
+func selectIDTokenSigningKey(ctx context.Context, keys SigningKeyProvider, alg string) (*domain.SigningKey, jwt.SigningMethod, error) {
+	// "" and "EdDSA" are BOTH the issuer default order (EdDSA-preferred /
+	// ES256-fallback): EdDSA *is* the default, and every pre-existing row
+	// reads back the migration's 'EdDSA' column default — a strict match
+	// here would break deployments whose only active key is ES256, which
+	// the pre-THE-PKCE-DECISION path served via the fallback. ES256 and
+	// RS256 are explicit deviations and match strictly.
+	if alg == "" || alg == string(domain.KeyAlgorithmEdDSA) {
+		return selectUserSigningKey(ctx, keys)
+	}
+	var want domain.KeyAlgorithm
+	var method jwt.SigningMethod
+	switch alg {
+	case string(domain.KeyAlgorithmES256):
+		want, method = domain.KeyAlgorithmES256, jwt.SigningMethodES256
+	case string(domain.KeyAlgorithmRS256):
+		want, method = domain.KeyAlgorithmRS256, jwt.SigningMethodRS256
+	default:
+		return nil, nil, ErrTokenServiceNoSigningKey
+	}
+	if keys == nil {
+		return nil, nil, ErrTokenServiceNoSigningKey
+	}
+	out, err := keys.ListActive(ctx)
+	if err != nil {
+		return nil, nil, ErrTokenServiceNoSigningKey
+	}
+	for i := range out {
+		k := &out[i]
+		if k.Algorithm == want && k.PrivateKey != "" {
+			return k, method, nil
+		}
+	}
+	return nil, nil, ErrTokenServiceNoSigningKey
 }
 
 // Compile-time proof the JWT issuer satisfies the format-neutral seam.

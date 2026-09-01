@@ -57,6 +57,12 @@ func (s *KeyService) Generate(ctx context.Context, opts GenerateKeyOptions) (*do
 		key, err = auth.GenerateEdDSAKey()
 	case string(domain.KeyAlgorithmES256):
 		key, err = auth.GenerateES256Key()
+	case string(domain.KeyAlgorithmRS256):
+		// THE-PKCE-DECISION: real RS256 capability, generated only on an
+		// explicit operator request; NEVER the default signer (primary
+		// selection and AutoGenerateInitialKey are EdDSA/ES256-only) and
+		// used only for id_tokens of clients that explicitly asked.
+		key, err = auth.GenerateRS256Key()
 	default:
 		return nil, domain.ErrInvalidRequest
 	}

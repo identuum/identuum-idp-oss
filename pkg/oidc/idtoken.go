@@ -27,6 +27,13 @@ type IDTokenClaims struct {
 	// Extra holds additional claims copied verbatim into the ID token.
 	// Values must be JSON-serialisable. Nil is treated as empty.
 	Extra map[string]any
+
+	// SigningAlg names the JWS algorithm the client explicitly
+	// registered for its ID tokens ("EdDSA", "ES256", "RS256"). Empty
+	// means "issuer default" — the issuer's own preference order, which
+	// never selects RS256 (THE-PKCE-DECISION: RS256 signs only on an
+	// explicit per-client request, for conformance/interop testing).
+	SigningAlg string
 }
 
 // IDTokenIssuer signs IDTokenClaims into a compact OIDC ID token. It returns

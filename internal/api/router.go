@@ -1255,6 +1255,9 @@ func mountIntrospectionAndRevocation(router gin.IRouter, resolved OSSRouterDeps)
 		// design) cannot admit a banned user the header door refuses. One
 		// construction site: mw.NewSessionSubjectResolver.
 		SubjectResolver: mw.NewSessionSubjectResolver(resolved.SessionLookup),
+		// profile-scope claims (`name`) come from the user record; nil
+		// (a composition without a user lookup) omits them.
+		UserLookup: resolved.UserLookup,
 	})
 }
 
@@ -1286,7 +1289,10 @@ func mountToken(router gin.IRouter, resolved OSSRouterDeps) {
 		OrgLookup:      resolved.OrganizationRepo,
 		IDToken:        resolved.IDTokenService,
 		UserSession:    resolved.UserSessionService,
-		StartupReport:  resolved.StartupReport,
+		// offline_access mints an OAuth refresh token (the kind the
+		// refresh_token grant consumes) when this is wired.
+		RefreshTokens: resolved.RefreshTokenService,
+		StartupReport: resolved.StartupReport,
 		// Per-client token-endpoint rate limit (generous). Noop when
 		// RateLimitConfig is zero-value (matching login/register).
 		Limiter: mw.NewRateLimitMiddlewareWithKeyFn(resolved.RateLimitConfig.TokenLimit, "oauth-token", oauthClientRateLimitKey),
@@ -1632,7 +1638,16 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				scopes = append(scopes, "offline_access")
 			}
 			body["scopes_supported"] = scopes
-			body["id_token_signing_alg_values_supported"] = []string{"EdDSA", "ES256"}
+			// THE-PKCE-DECISION (owner ruling, verbatim): "Add RS256
+			// into the list BUT DO NOT USE except testing and put this
+			// into documentation CLEARLY." RS256 is a real capability —
+			// key, JWKS, id_token signing — but fires ONLY on an
+			// explicit per-client id_token_signed_response_alg=RS256
+			// registration; EdDSA stays the default. Testing-only:
+			// docs/TESTING-OPERATORS.md. Must stay in sync with
+			// domain.IDTokenSigningAlgorithms and the smoke-handler list
+			// in internal/server/smoke.go.
+			body["id_token_signing_alg_values_supported"] = []string{"EdDSA", "ES256", "RS256"}
 			body["subject_types_supported"] = []string{"public"}
 			// claims_supported enumerates the OIDC claims the
 			// IDTokenService actually emits. Same gate as
@@ -1643,8 +1658,9 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				"auth_time", "nonce", "acr", "amr",
 				"email", "email_verified",
 			}
-			// Identuum issuance posture: never RS256, never `none`,
-			// never HS*. Asserted in tests as well.
+			// Identuum issuance posture beyond the three listed: never
+			// `none`, never HS*, never RS384/512 or PS*. Asserted in
+			// tests as well.
 		}
 		// end_session_endpoint is advertised only when the OSS
 		// logout route is live (CookieSession + UserSession both

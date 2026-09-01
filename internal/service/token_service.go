@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
@@ -625,9 +626,6 @@ func negotiateScope(requested string, allowed []string) (string, error) {
 // RS256 row in the repository (which the parser elsewhere also
 // rejects), the signing path refuses to use it.
 func parsePrivateKeyPEM(s string, alg domain.KeyAlgorithm) (any, error) {
-	if alg == domain.KeyAlgorithmRS256 {
-		return nil, errors.New("RS256 issuance is disallowed")
-	}
 	if s == "" {
 		return nil, errors.New("empty private key")
 	}
@@ -650,6 +648,16 @@ func parsePrivateKeyPEM(s string, alg domain.KeyAlgorithm) (any, error) {
 		k, ok := parsed.(*ecdsa.PrivateKey)
 		if !ok {
 			return nil, errors.New("ES256 private key expected")
+		}
+		return k, nil
+	case domain.KeyAlgorithmRS256:
+		// THE-PKCE-DECISION: RS256 signing keys parse, but they are
+		// reachable ONLY via explicit-alg selection for id_tokens —
+		// selectUserSigningKey (access/logout tokens, default id_tokens)
+		// never returns an RS256 key. Testing-only, never the default.
+		k, ok := parsed.(*rsa.PrivateKey)
+		if !ok {
+			return nil, errors.New("RS256 private key expected")
 		}
 		return k, nil
 	default:

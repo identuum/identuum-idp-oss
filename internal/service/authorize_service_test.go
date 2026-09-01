@@ -365,13 +365,18 @@ func TestBuildErrorRedirect_StateEchoedIssAppended(t *testing.T) {
 
 // ---------- DefaultResponseTypeAndMethod (RFC 6749 / OIDC defaults) ----------
 
-func TestAuthorize_EmptyResponseTypeDefaultsToCode(t *testing.T) {
+// response_type is REQUIRED (RFC 6749 §4.1.1) — an absent value is refused
+// with the redirect-safe unsupported_response_type sentinel, never silently
+// defaulted to "code". THE-PKCE-DECISION conformance measurement: the old
+// default minted a code for a malformed request (oidcc-response-type-missing).
+// RULE: AUTHZ-RESPONSE-TYPE-REQUIRED-1
+func TestAuthorize_EmptyResponseTypeRejected(t *testing.T) {
 	svc, _, sess := newAuthorizeHarness(t, true)
 	_, challenge := authorizeChallenge(t)
 	req := newAuthorizeRequest(challenge, authorizePrincipal(sess.session.ID))
 	req.ResponseType = ""
-	if _, err := svc.Authorize(context.Background(), req); err != nil {
-		t.Errorf("err = %v", err)
+	if _, err := svc.Authorize(context.Background(), req); !errors.Is(err, ErrAuthorizeUnsupportedResponseType) {
+		t.Errorf("err = %v, want ErrAuthorizeUnsupportedResponseType", err)
 	}
 }
 

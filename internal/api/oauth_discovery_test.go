@@ -419,22 +419,11 @@ func TestDiscovery_TokenEndpointAuthSigningAlgIsInboundOnly(t *testing.T) {
 	if !inboundHasRS256 {
 		t.Errorf("inbound private_key_jwt allowlist must include RS256 for confidential-client compat; got %v", inbound)
 	}
-	// The outbound `id_token_signing_alg_values_supported` field
-	// only lands when the AuthorizeService + AuthorizationCodeService
-	// + UserToken + UserLookup + SessionLookup are wired (see the
-	// discovery composer). The minimal wiring used above
-	// deliberately omits them, so this assertion does not need
-	// the outbound field to be present — when it IS present, RS256
-	// MUST be absent; when it isn't, the prior slice's
-	// TestDiscovery_NeverAdvertisesRS256ForIDTokens pins the outbound
-	// shape under fullChainDiscovery.
-	if outbound, ok := body["id_token_signing_alg_values_supported"].([]any); ok {
-		for _, a := range outbound {
-			if a == "RS256" {
-				t.Errorf("outbound id_token signing MUST exclude RS256: %v", outbound)
-			}
-		}
-	}
+	// The outbound `id_token_signing_alg_values_supported` shape is
+	// pinned by TestDiscovery_SigningAlgSetForIDTokens under
+	// fullChainDiscovery (THE-PKCE-DECISION: exactly EdDSA/ES256/RS256).
+	// This test's concern is only the INBOUND private_key_jwt allowlist
+	// asserted above.
 }
 
 // TestDiscovery_NoNonStandardTopLevelKeys pins the OIDC-Conformance
@@ -450,11 +439,24 @@ func TestDiscovery_NoNonStandardTopLevelKeys(t *testing.T) {
 	}
 }
 
-func TestDiscovery_NeverAdvertisesRS256ForIDTokens(t *testing.T) {
+// THE-PKCE-DECISION: the full-chain outbound set is exactly
+// {EdDSA, ES256, RS256}. RS256 advertises because the OP genuinely signs
+// with it — on an explicit per-client registration only, testing-only,
+// never the default. Everything beyond the three stays forbidden.
+func TestDiscovery_SigningAlgSetForIDTokens(t *testing.T) {
 	body := fullChainDiscovery(t)
 	algs, _ := body["id_token_signing_alg_values_supported"].([]any)
+	algSet := make(map[string]bool, len(algs))
 	for _, a := range algs {
-		if a == "RS256" || a == "RS384" || a == "RS512" ||
+		if s, ok := a.(string); ok {
+			algSet[s] = true
+		}
+	}
+	if !algSet["EdDSA"] || !algSet["ES256"] || !algSet["RS256"] {
+		t.Errorf("advertised set must include EdDSA + ES256 + RS256; got %v", algSet)
+	}
+	for _, a := range algs {
+		if a == "RS384" || a == "RS512" ||
 			a == "PS256" || a == "PS384" || a == "PS512" ||
 			a == "HS256" || a == "none" {
 			t.Errorf("forbidden alg advertised: %v", a)

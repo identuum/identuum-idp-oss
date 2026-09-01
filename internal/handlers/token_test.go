@@ -1210,6 +1210,191 @@ func TestToken_AuthorizationCodeGrant_ReusedCodeInvalidGrant(t *testing.T) {
 	}
 }
 
+// inMemoryRefreshRepo is a minimal in-memory RefreshTokenRepository for the
+// offline_access → refresh_token grant round-trip pin.
+type inMemoryRefreshRepo struct {
+	rows map[uuid.UUID]*domain.RefreshToken
+}
+
+func newInMemoryRefreshRepo() *inMemoryRefreshRepo {
+	return &inMemoryRefreshRepo{rows: map[uuid.UUID]*domain.RefreshToken{}}
+}
+
+func (r *inMemoryRefreshRepo) Insert(_ context.Context, row *domain.RefreshToken) error {
+	cp := *row
+	r.rows[row.ID] = &cp
+	return nil
+}
+
+func (r *inMemoryRefreshRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.RefreshToken, error) {
+	row, ok := r.rows[id]
+	if !ok {
+		return nil, nil
+	}
+	cp := *row
+	return &cp, nil
+}
+
+func (r *inMemoryRefreshRepo) MarkRevoked(_ context.Context, id uuid.UUID, at time.Time) error {
+	if row, ok := r.rows[id]; ok {
+		row.RevokedAt = &at
+	}
+	return nil
+}
+
+func (r *inMemoryRefreshRepo) MarkRotated(_ context.Context, oldID, newID uuid.UUID, at time.Time) error {
+	if row, ok := r.rows[oldID]; ok {
+		row.RevokedAt = &at
+		id := newID
+		row.ReplacedBy = &id
+	}
+	return nil
+}
+
+func (r *inMemoryRefreshRepo) SetAccessJTI(_ context.Context, id uuid.UUID, jti string, _ time.Time) error {
+	if row, ok := r.rows[id]; ok {
+		row.AccessJTI = jti
+	}
+	return nil
+}
+
+func (r *inMemoryRefreshRepo) RevokeAllBySubject(_ context.Context, subject string, at time.Time) (int64, error) {
+	var n int64
+	for _, row := range r.rows {
+		if row.Subject == subject && row.RevokedAt == nil {
+			row.RevokedAt = &at
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (r *inMemoryRefreshRepo) RevokeByFamily(_ context.Context, familyID string, at time.Time) (int64, error) {
+	var n int64
+	for _, row := range r.rows {
+		if row.FamilyID == familyID && row.RevokedAt == nil {
+			row.RevokedAt = &at
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (r *inMemoryRefreshRepo) DeleteExpiredBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	var n int64
+	for id, row := range r.rows {
+		if row.ExpiresAt.Before(cutoff) {
+			delete(r.rows, id)
+			n++
+		}
+	}
+	return n, nil
+}
+
+// THE-PKCE-DECISION (conformance-measured defect, oidcc-refresh-token): the
+// refresh_token an offline_access exchange hands out MUST be redeemable at
+// this endpoint's own refresh_token grant. The session-based token was
+// redeemable only at /api/v1/auth/session/refresh, so the advertised grant
+// always answered invalid_grant. Pin the full round trip.
+// RULE: TOKEN-REFRESH-REDEEMABLE-1
+func TestToken_OfflineAccessRefreshTokenRedeemsAtRefreshGrant(t *testing.T) {
+	r, codes, _, _, session := newAuthCodeEngineWithRefreshSvc(t)
+	verifier, challenge := authCodePKCEPair(t)
+	created, _ := codes.Create(context.Background(), service.CreateAuthorizationCodeInput{
+		ClientID:            "cli-1",
+		UserID:              session.UserID,
+		SessionID:           session.ID,
+		RedirectURI:         "https://app.example.com/cb",
+		Scope:               "openid offline_access",
+		CodeChallenge:       challenge,
+		CodeChallengeMethod: "S256",
+	})
+	body := strings.NewReader("grant_type=authorization_code&code=" + created.Code +
+		"&client_id=cli-1&client_secret=S&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb" +
+		"&code_verifier=" + verifier)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/oauth/token", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("exchange status = %d, body = %q", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	refreshToken, ok := resp["refresh_token"].(string)
+	if !ok || refreshToken == "" {
+		t.Fatalf("refresh_token missing for offline_access: %+v", resp)
+	}
+
+	// The minted token redeems at grant_type=refresh_token on the SAME
+	// endpoint — the grant we advertise in discovery.
+	body2 := strings.NewReader("grant_type=refresh_token&refresh_token=" + refreshToken +
+		"&client_id=cli-1&client_secret=S")
+	req2 := httptest.NewRequest(http.MethodPost, "/api/v1/oauth/token", body2)
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w2 := httptest.NewRecorder()
+	r.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("refresh grant status = %d, want 200; body = %q", w2.Code, w2.Body.String())
+	}
+	var resp2 map[string]any
+	_ = json.Unmarshal(w2.Body.Bytes(), &resp2)
+	if at, _ := resp2["access_token"].(string); at == "" {
+		t.Errorf("refresh grant returned no access_token: %+v", resp2)
+	}
+	if rt, _ := resp2["refresh_token"].(string); rt == "" || rt == refreshToken {
+		t.Errorf("refresh grant must rotate the refresh token; got %q", rt)
+	}
+}
+
+// newAuthCodeEngineWithRefreshSvc mirrors newAuthCodeEngineWithSessionSvc
+// but wires a RefreshTokenService into BOTH seams: the deps (offline_access
+// issuance) and the TokenService (the refresh_token grant that consumes it).
+func newAuthCodeEngineWithRefreshSvc(t *testing.T) (*gin.Engine, *service.AuthorizationCodeService, *service.RefreshTokenService, *domain.User, *domain.Session) {
+	t.Helper()
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	ed := genEdDSA(t, "kid-eddsa")
+	keys := &keyProvider{keys: []domain.SigningKey{ed}}
+
+	codes := service.NewAuthorizationCodeService(nil, newAuthCodeRepoForHandlers(), service.AuthorizationCodeServiceOptions{TTL: time.Hour})
+	tokenSvc := service.NewTokenService(nil, keys, service.TokenServiceOptions{Issuer: "https://idp.test"})
+	refresh := service.NewRefreshTokenService(nil, newInMemoryRefreshRepo(), service.RefreshTokenServiceOptions{})
+	tokenSvc.WithRefreshTokenService(refresh)
+	userTokens := service.NewUserTokenService(nil, keys, service.UserTokenServiceOptions{Issuer: "https://idp.test", AccessTokenTTL: time.Hour})
+
+	user := &domain.User{
+		ID:             uuid.New(),
+		OrganizationID: uuid.New(),
+		Email:          "alice@example.com",
+		EmailVerified:  true,
+		Role:           domain.RoleOrgUser,
+	}
+	session := &domain.Session{
+		ID:        uuid.New(),
+		UserID:    user.ID,
+		CreatedAt: time.Now().Add(-time.Minute),
+		ExpiresAt: time.Now().Add(time.Hour),
+		IsValid:   true,
+		Acr:       "0",
+		Amr:       []string{"pwd"},
+	}
+
+	deps := TokenHandlerDeps{
+		TokenService:    tokenSvc,
+		ClientAuth:      tokenStubAllow{kind: service.AuthenticatedClientKindOAuth},
+		Audit:           &audit.Recorder{},
+		AuthCodeService: codes,
+		UserToken:       userTokens,
+		UserLookup:      &fakeUserLookup{user: user},
+		SessionLookup:   &fakeSessionLookup{session: session},
+		OrgLookup:       &fakeOrgLookup{org: &domain.Organization{ID: user.OrganizationID, Active: true}},
+		RefreshTokens:   refresh,
+	}
+	RegisterTokenRoutes(r, deps)
+	return r, codes, refresh, user, session
+}
+
 func TestToken_AuthorizationCodeGrant_OfflineAccessIssuesRefreshToken(t *testing.T) {
 	r, codes, _, _, session := newAuthCodeEngineWithSessionSvc(t, true, true)
 	verifier, challenge := authCodePKCEPair(t)

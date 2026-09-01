@@ -155,6 +155,8 @@ if [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
 		-e "s|__CLIENT1_SECRET__|$(jqget client1_secret)|g" \
 		-e "s|__CLIENT2_ID__|$(jqget client2_id)|g" \
 		-e "s|__CLIENT2_SECRET__|$(jqget client2_secret)|g" \
+		-e "s|__CLIENT3_ID__|$(jqget client3_id)|g" \
+		-e "s|__CLIENT3_SECRET__|$(jqget client3_secret)|g" \
 		-e "s|__USER_PASSWORD__|$CONFORMANCE_USER_PASSWORD|g" \
 		"$HERE/plan-basic.json" >"$WORK/plan-basic.json"
 fi
@@ -167,7 +169,9 @@ login_smoke() {
 	local base=http://127.0.0.1:27113 jar="$WORK/smoke-cookies" page csrf code loc
 	local c1 cb="https://localhost.emobix.co.uk:8443/test/a/identuum-oss/callback"
 	c1=$(jqget client1_id)
-	# PKCE pair (the OP mandates PKCE; a recorded conformance finding).
+	# PKCE pair (optional for this confidential client since
+	# THE-PKCE-DECISION; the smoke keeps sending one — a supplied
+	# challenge must still round-trip).
 	local verifier challenge
 	verifier=$(openssl rand -hex 32)
 	challenge=$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '=')
@@ -242,26 +246,42 @@ run_plan "oidcc-config-certification-test-plan" "$WORK/plan-config.json" \
 	"$HERE/expected-failures-config.json" "$HERE/expected-skips-config.json" || overall=1
 
 echo "openid-conformance: PLAN 2/2 — oidcc-basic-certification-test-plan"
-# FLOOR FOR AN ABORT the suite's expected-failures format cannot express
-# (see expected-basic-abort.txt): the OP mandates PKCE, the Basic profile is
-# plain code, every browser module goes INTERRUPTED and the circuit breaker
-# aborts. The plan is GREEN-AGAINST-FLOOR only when the abort matches the
-# recorded signature exactly; a plan that IMPROVES also fails, so the floor
-# moves only by deliberately re-recording it.
+# FLOOR FOR INCOMPLETE MODULES the suite's expected-failures format cannot
+# express (see expected-basic-incomplete.txt): prompt=login / max_age=1 end
+# stuck in WAITING (the re-auth finding), which run-test-plan counts as
+# "did not run to completion" regardless of the expected-failures files.
+# The plan is GREEN-AGAINST-FLOOR only when the incomplete-module set
+# EQUALS the recorded list exactly AND no other failure marker fired; a
+# plan that IMPROVES (the recorded modules complete) also fails, so the
+# floor moves only by deliberately re-recording it.
 BASIC_LOG="$WORK/plan-basic-output.log"
 run_plan "oidcc-basic-certification-test-plan[server_metadata=discovery][client_registration=static_client]" \
 	"$WORK/plan-basic.json" \
 	"$HERE/expected-failures-basic.json" "$HERE/expected-skips-basic.json" 2>&1 | tee "$BASIC_LOG"
 basic_ec=${PIPESTATUS[0]}
-EXPECTED_ABORT=$(grep -v '^#' "$HERE/expected-basic-abort.txt" | grep -v '^$' | head -1)
+EXPECTED_INCOMPLETE=$(grep -v '^#' "$HERE/expected-basic-incomplete.txt" | grep -v '^$' | sort)
 if [ "$basic_ec" -eq 0 ]; then
-	echo "openid-conformance: BASIC PLAN COMPLETED — the recorded PKCE abort no longer happens. The floor MOVED: re-measure, update expected-basic-abort.txt (or retire it) and the expected-failures files deliberately."
-	overall=1
-elif grep -qF "$EXPECTED_ABORT" "$BASIC_LOG"; then
-	echo "openid-conformance: basic plan aborted exactly as recorded (mandatory-PKCE finding; see conformance/expected-basic-abort.txt) — green against the committed floor"
+	if [ -n "$EXPECTED_INCOMPLETE" ]; then
+		echo "openid-conformance: BASIC PLAN RAN TO FULL COMPLETION — the recorded incomplete modules (see conformance/expected-basic-incomplete.txt) no longer stall. The floor MOVED: re-measure and re-record the expected files deliberately."
+		overall=1
+	else
+		echo "openid-conformance: basic plan green against the committed expected-failures floor"
+	fi
 else
-	echo "openid-conformance: basic plan failed DIFFERENTLY than the recorded abort — an unexpected change; read the output above"
-	overall=1
+	# Extract the "Incomplete test modules:" names (indented lines of the
+	# form '  <module-name> <id> (status: ...)').
+	ACTUAL_INCOMPLETE=$(sed -n '/Incomplete test modules:/,$p' "$BASIC_LOG" | sed -n 's/^.\{0,25\}  \(oidcc-[a-z0-9-]*\) [A-Za-z0-9]* (status: .*$/\1/p' | sort -u)
+	if [ -n "$EXPECTED_INCOMPLETE" ] && [ "$ACTUAL_INCOMPLETE" = "$EXPECTED_INCOMPLETE" ] &&
+		! grep -q 'unexpected condition failures/warnings' "$BASIC_LOG" &&
+		! grep -q 'expected failures were not found' "$BASIC_LOG" &&
+		! grep -q 'expected skips were not found' "$BASIC_LOG" &&
+		! grep -q 'UNEXPECTEDLY SKIPPED' "$BASIC_LOG" &&
+		! grep -q 'EXPECTED TO BE SKIPPED BUT COMPLETED' "$BASIC_LOG"; then
+		echo "openid-conformance: basic plan incomplete EXACTLY as recorded (re-auth finding; see conformance/expected-basic-incomplete.txt) — green against the committed floor"
+	else
+		echo "openid-conformance: basic plan failed BEYOND the recorded floor — an unexpected change; read the output above"
+		overall=1
+	fi
 fi
 
 if [ "$overall" -ne 0 ]; then

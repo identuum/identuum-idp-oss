@@ -155,12 +155,13 @@ func TestSmokeHandler_DiscoveryDefaults(t *testing.T) {
 	}
 }
 
-// TestSmokeHandler_DiscoveryIdentuumSigningPolicy enforces the
-// Identuum no-RS256-issuance policy at the discovery layer.
-// id_token_signing_alg_values_supported MUST include EdDSA and ES256;
-// it MUST NOT include any RS* / PS* algorithm because Identuum does
-// not issue with those. Inbound verification of external RS256 is a
-// separate concern not advertised here.
+// TestSmokeHandler_DiscoveryIdentuumSigningPolicy enforces the Identuum
+// signing policy at the discovery layer (THE-PKCE-DECISION).
+// id_token_signing_alg_values_supported MUST be exactly
+// {EdDSA, ES256, RS256}: EdDSA is the default; RS256 is advertised because
+// it is a REAL capability — but it fires only on an explicit per-client
+// registration, testing-only (owner ruling: "Add RS256 into the list BUT DO
+// NOT USE except testing"). Every other RS*/PS*/HS*/none stays banned.
 func TestSmokeHandler_DiscoveryIdentuumSigningPolicy(t *testing.T) {
 	h := NewSmokeHandler()
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil)
@@ -182,16 +183,43 @@ func TestSmokeHandler_DiscoveryIdentuumSigningPolicy(t *testing.T) {
 		}
 	}
 
-	// Required.
-	for _, must := range []string{"EdDSA", "ES256"} {
+	// Required: the full advertised set. RS256 is present because the
+	// capability is real (THE-PKCE-DECISION) — discovery advertises
+	// nothing it cannot do, and nothing more.
+	for _, must := range []string{"EdDSA", "ES256", "RS256"} {
 		if !algs[must] {
 			t.Errorf("id_token_signing_alg_values_supported missing required %q (got %v)", must, algs)
 		}
 	}
 	// Forbidden for issuance (Identuum policy).
-	for _, banned := range []string{"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "HS256", "HS384", "HS512", "none"} {
+	for _, banned := range []string{"RS384", "RS512", "PS256", "PS384", "PS512", "HS256", "HS384", "HS512", "none"} {
 		if algs[banned] {
 			t.Errorf("id_token_signing_alg_values_supported MUST NOT include %q (Identuum no-issuance policy); got %v", banned, algs)
+		}
+	}
+}
+
+// Request objects are refused (OIDC §6.1), and discovery must say so
+// EXPLICITLY — the Discovery default for request_uri_parameter_supported is
+// TRUE when omitted, which would advertise support the OP refuses.
+func TestSmokeHandler_DiscoveryRequestObjectFlagsExplicitlyFalse(t *testing.T) {
+	h := NewSmokeHandler()
+	req := httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("discovery body is not JSON: %v", err)
+	}
+	for _, k := range []string{"request_parameter_supported", "request_uri_parameter_supported"} {
+		v, ok := body[k]
+		if !ok {
+			t.Errorf("%s missing; explicit false is REQUIRED (the omitted default for request_uri_parameter_supported is true)", k)
+			continue
+		}
+		if v != false {
+			t.Errorf("%s = %v, want false — the OP refuses request objects", k, v)
 		}
 	}
 }

@@ -159,6 +159,15 @@ type AuthorizeRequest struct {
 	CodeChallengeMethod string
 	Prompt              string
 
+	// RequestObject / RequestURIParam carry the OIDC §6 `request` and
+	// `request_uri` wire parameters. The OSS OP does not support request
+	// objects: a non-empty value is refused with the corresponding
+	// redirect-safe §6.1 sentinel rather than silently ignored — ignoring
+	// one would drop the client's REAL requested parameters (state, nonce,
+	// redirect_uri inside the object) on the floor.
+	RequestObject   string
+	RequestURIParam string
+
 	// Principal is the authenticated user (populated upstream by
 	// the bearer middleware). Required.
 	Principal *domain.Principal
@@ -200,6 +209,11 @@ var (
 	ErrAuthorizeLoginRequired   = errors.New("service: authorize login_required")
 	ErrAuthorizeConsentRequired = errors.New("service: authorize consent_required")
 	ErrAuthorizeServerError     = errors.New("service: authorize server_error")
+	// OIDC Core §6.1: request objects are not supported by the OSS OP and
+	// are REFUSED, never silently ignored (THE-PKCE-DECISION conformance
+	// measurement: ignoring `request` dropped the object's state/nonce).
+	ErrAuthorizeRequestNotSupported    = errors.New("service: authorize request_not_supported")
+	ErrAuthorizeRequestURINotSupported = errors.New("service: authorize request_uri_not_supported")
 )
 
 // Authorize runs the request through the validation pipeline. On
@@ -240,22 +254,49 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	}
 
 	// Phase 2: redirect-safe validation.
-	rt := strings.TrimSpace(req.ResponseType)
-	if rt == "" {
-		rt = "code"
+	// Request objects (OIDC §6) are unsupported — refused with the §6.1
+	// sentinels so the client learns its parameters were NOT honored.
+	if strings.TrimSpace(req.RequestObject) != "" {
+		return nil, ErrAuthorizeRequestNotSupported
 	}
+	if strings.TrimSpace(req.RequestURIParam) != "" {
+		return nil, ErrAuthorizeRequestURINotSupported
+	}
+	// response_type is REQUIRED (RFC 6749 §4.1.1 / OIDC Core §3.1.2.1) —
+	// an absent value is refused with the same redirect-safe sentinel as
+	// an unsupported one, never silently defaulted to "code". Measured by
+	// the conformance suite (oidcc-response-type-missing): the old
+	// default-to-code minted a code for a malformed request.
+	rt := strings.TrimSpace(req.ResponseType)
 	if rt != "code" {
 		return nil, ErrAuthorizeUnsupportedResponseType
 	}
-	if strings.TrimSpace(req.CodeChallenge) == "" {
+	// PKCE is PER-CLIENT (THE-PKCE-DECISION, owner ruling 2026-09-01):
+	// REQUIRED for public clients — they cannot keep a secret, PKCE is
+	// their only code-interception defence — OPTIONAL for confidential
+	// clients, whose token-endpoint authentication already binds the
+	// exchange. Optional to SEND, never to HONOR: a supplied challenge is
+	// still validated here (S256 only) and the token endpoint still
+	// verifies the verifier whenever a challenge was bound to the code.
+	// Mandatory-for-all was the conformance harness's biggest finding: the
+	// OIDC Basic profile (plain code flow) could not run at all.
+	challenge := strings.TrimSpace(req.CodeChallenge)
+	challengeMethod := ""
+	if challenge == "" && client.IsPublic {
 		return nil, ErrAuthorizeMissingParameters
 	}
-	method := req.CodeChallengeMethod
-	if method == "" {
-		method = "S256"
-	}
-	if method != "S256" {
-		return nil, ErrAuthorizeUnsupportedChallenge
+	if challenge != "" {
+		challengeMethod = req.CodeChallengeMethod
+		if challengeMethod == "" {
+			challengeMethod = "S256"
+		}
+		if challengeMethod != "S256" {
+			return nil, ErrAuthorizeUnsupportedChallenge
+		}
+	} else if strings.TrimSpace(req.CodeChallengeMethod) != "" {
+		// A method without a challenge is a malformed request, not a
+		// downgrade to accept quietly.
+		return nil, ErrAuthorizeMissingParameters
 	}
 
 	// Audience validation. Only when both an audience is supplied
@@ -340,8 +381,8 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		RedirectURI:         req.RedirectURI,
 		Scope:               req.Scope,
 		Audience:            req.Audience,
-		CodeChallenge:       req.CodeChallenge,
-		CodeChallengeMethod: method,
+		CodeChallenge:       challenge,
+		CodeChallengeMethod: challengeMethod,
 		Nonce:               req.Nonce,
 	})
 	if err != nil {

@@ -206,13 +206,15 @@ func (km *KeyManager) VerifyBytes(payload, signature []byte, kid string) error {
 
 // parseKey converts a database SigningKey to a ParsedKey with crypto primitives.
 //
-// RS256 is verify-only (docs/ID_JAG_DESIGN.md cross-Q finding #15): keys
-// with Algorithm=RS256 parse a PUBLIC key only (no PrivateKey field
-// allowed). This branch lands BEFORE the private-key PEM decode below
-// because EdDSA / ES256 keys are required to carry a private key for
-// signing, but RS256 keys never have one (Identuum doesn't sign with
-// RS256). Defense-in-depth: a non-empty PrivateKey on an RS256 row is
-// rejected loudly.
+// RS256 remains verify-only IN THIS MANAGER: an RS256 row parses its PUBLIC
+// key only, and the ParsedKey never carries RSA signing capability — the
+// KeyManager's primary-key selection stays EdDSA/ES256. Since
+// THE-PKCE-DECISION an RS256 row MAY carry a private key (the id_token
+// minter in internal/service signs with it, testing-only, on an explicit
+// per-client registration); this manager deliberately does not load it.
+// This branch lands BEFORE the private-key PEM decode below because EdDSA /
+// ES256 keys are required to carry a private key for signing, but RS256
+// keys never sign here.
 func parseKey(dbKey domain.SigningKey) (*ParsedKey, error) {
 	parsed := &ParsedKey{
 		KID:       dbKey.KID,
@@ -221,10 +223,6 @@ func parseKey(dbKey domain.SigningKey) (*ParsedKey, error) {
 	}
 
 	if dbKey.Algorithm == domain.KeyAlgorithmRS256 {
-		// Architectural enforcement: RS256 verify-only.
-		if dbKey.PrivateKey != "" {
-			return nil, fmt.Errorf("RS256 keys are verify-only; PrivateKey field must be empty (per docs/ID_JAG_DESIGN.md cross-Q finding #15)")
-		}
 		pubBlock, _ := pem.Decode([]byte(dbKey.PublicKey))
 		if pubBlock == nil {
 			return nil, fmt.Errorf("invalid RS256 public key PEM format")
