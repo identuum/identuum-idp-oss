@@ -412,6 +412,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 	// out is redeemable where we advertise it. Legacy fallback for
 	// compositions without RefreshTokenService: the session-based
 	// token, redeemable at /api/v1/auth/session/refresh only.
+	var issuedRefreshID *uuid.UUID
 	if hasOfflineAccessScope(consumed.Scope) {
 		switch {
 		case deps.RefreshTokens != nil:
@@ -424,6 +425,8 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 			})
 			if refreshErr == nil && issued != nil {
 				resp.RefreshToken = issued.Token
+				rid := issued.ID
+				issuedRefreshID = &rid
 			}
 		case deps.UserSession != nil:
 			clientIDCopy := client.ClientID
@@ -447,6 +450,16 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 		// On error: leave refresh_token empty. The access token +
 		// id_token still went out; the client can retry the
 		// authorization with offline_access at the next /authorize.
+	}
+	// THE-CODE-REUSE-REVOKER (RFC 6749 §4.1.2): write back onto the
+	// consumed code row what this exchange minted, so a replay of the code
+	// revokes exactly these through AuthCodeReuseRevocation. Fail CLOSED:
+	// nothing has been transmitted yet, so refusing here leaks no usable
+	// token, whereas answering with tokens that could never be revoked on
+	// reuse would. (The session-based legacy refresh token is not an OAuth
+	// refresh row and is not recorded — its lifecycle is the session's.)
+	if err := deps.AuthCodeService.RecordIssuedTokens(c.Request.Context(), consumed.ID, access.JTI, access.ExpiresAt, issuedRefreshID); err != nil {
+		return nil, service.ErrTokenServiceSigningFailed
 	}
 	return resp, nil
 }

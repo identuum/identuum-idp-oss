@@ -142,6 +142,9 @@ type ConsumeAuthorizationCodeInput struct {
 // successful Consume. Carries the policy fields the token-side
 // grant handler needs to mint an access token.
 type ConsumedAuthorizationCode struct {
+	// ID is the consumed row's id — the handle RecordIssuedTokens takes so
+	// the exchange can write back what it minted (THE-CODE-REUSE-REVOKER).
+	ID             uuid.UUID
 	UserID         uuid.UUID
 	OrganizationID *uuid.UUID
 	SessionID      uuid.UUID
@@ -313,6 +316,7 @@ func (s *AuthorizationCodeService) Consume(ctx context.Context, in ConsumeAuthor
 		return nil, ErrAuthCodeInvalidGrant
 	}
 	return &ConsumedAuthorizationCode{
+		ID:             row.ID,
 		UserID:         row.UserID,
 		OrganizationID: row.OrganizationID,
 		SessionID:      row.SessionID,
@@ -320,6 +324,20 @@ func (s *AuthorizationCodeService) Consume(ctx context.Context, in ConsumeAuthor
 		Audience:       row.Audience,
 		Nonce:          row.Nonce,
 	}, nil
+}
+
+// RecordIssuedTokens writes back onto the consumed code row what the exchange
+// minted: the access token's jti + expiry and, when offline_access issued
+// one, the refresh token's id (THE-CODE-REUSE-REVOKER, RFC 6749 §4.1.2). A
+// later replay of the code hands that row to the AuthCodeReuseRevoker, which
+// revokes exactly these. The token endpoint calls this once, after minting
+// and before answering; a failure here fails the exchange, because tokens
+// that could never be revoked on reuse must not go out.
+func (s *AuthorizationCodeService) RecordIssuedTokens(ctx context.Context, codeID uuid.UUID, accessJTI string, accessExpiresAt time.Time, refreshTokenID *uuid.UUID) error {
+	if codeID == uuid.Nil || strings.TrimSpace(accessJTI) == "" || accessExpiresAt.IsZero() {
+		return ErrAuthCodeInvalidInput
+	}
+	return s.repo.RecordIssuedTokens(ctx, codeID, accessJTI, accessExpiresAt, refreshTokenID)
 }
 
 // DeleteExpired prunes expired rows. The cleanup driver loops

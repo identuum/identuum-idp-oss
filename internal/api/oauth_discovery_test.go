@@ -592,6 +592,9 @@ func (discoveryFakeAuthCodeRepo) MarkConsumed(context.Context, uuid.UUID, time.T
 func (discoveryFakeAuthCodeRepo) DeleteExpiredBefore(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
+func (discoveryFakeAuthCodeRepo) RecordIssuedTokens(context.Context, uuid.UUID, string, time.Time, *uuid.UUID) error {
+	return nil
+}
 
 type discoveryFakeClientLookup struct{}
 

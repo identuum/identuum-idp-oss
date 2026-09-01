@@ -74,6 +74,18 @@ func (r *inMemoryAuthCodeRepo) MarkConsumed(_ context.Context, id uuid.UUID, at 
 	return true, nil
 }
 
+func (r *inMemoryAuthCodeRepo) RecordIssuedTokens(_ context.Context, id uuid.UUID, accessJTI string, accessExpiresAt time.Time, refreshTokenID *uuid.UUID) error {
+	c, ok := r.byID[id]
+	if !ok {
+		return errors.New("no such code")
+	}
+	c.IssuedAccessJTI = accessJTI
+	exp := accessExpiresAt
+	c.IssuedAccessExpiresAt = &exp
+	c.IssuedRefreshTokenID = refreshTokenID
+	return nil
+}
+
 func (r *inMemoryAuthCodeRepo) DeleteExpiredBefore(_ context.Context, cutoff time.Time) (int64, error) {
 	var n int64
 	for id, c := range r.byID {

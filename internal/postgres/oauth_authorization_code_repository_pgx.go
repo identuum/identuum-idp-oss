@@ -108,7 +108,8 @@ func (r *PgxOAuthAuthorizationCodeRepository) GetByCodeHashAnyState(ctx context.
 		SELECT id, code_hash, client_id, user_id, organization_id,
 		       session_id, redirect_uri, scope, audience,
 		       code_challenge, code_challenge_method, nonce,
-		       expires_at, consumed_at, created_at, metadata
+		       expires_at, consumed_at, created_at, metadata,
+		       issued_access_jti, issued_access_expires_at, issued_refresh_token_id
 		FROM   oauth_authorization_codes
 		WHERE  code_hash = $1`
 	row := r.db.QueryRow(ctx, q, codeHash)
@@ -130,7 +131,8 @@ func (r *PgxOAuthAuthorizationCodeRepository) GetActiveByCodeHash(ctx context.Co
 		SELECT id, code_hash, client_id, user_id, organization_id,
 		       session_id, redirect_uri, scope, audience,
 		       code_challenge, code_challenge_method, nonce,
-		       expires_at, consumed_at, created_at, metadata
+		       expires_at, consumed_at, created_at, metadata,
+		       issued_access_jti, issued_access_expires_at, issued_refresh_token_id
 		FROM   oauth_authorization_codes
 		WHERE  code_hash = $1
 		  AND  consumed_at IS NULL
@@ -164,6 +166,29 @@ func (r *PgxOAuthAuthorizationCodeRepository) MarkConsumed(ctx context.Context, 
 	return ct.RowsAffected() == 1, nil
 }
 
+// RecordIssuedTokens stamps what the exchange minted onto the consumed code
+// row (THE-CODE-REUSE-REVOKER). Plain UPDATE by id: the row was consumed a
+// moment ago by the same request, and a later replay reads these columns
+// through GetByCodeHashAnyState to revoke exactly what they name.
+func (r *PgxOAuthAuthorizationCodeRepository) RecordIssuedTokens(ctx context.Context, id uuid.UUID, accessJTI string, accessExpiresAt time.Time, refreshTokenID *uuid.UUID) error {
+	if id == uuid.Nil {
+		return errors.New("postgres: RecordIssuedTokens requires a code id")
+	}
+	if accessJTI == "" || accessExpiresAt.IsZero() {
+		return errors.New("postgres: RecordIssuedTokens requires the access token jti and expiry")
+	}
+	const q = `
+		UPDATE oauth_authorization_codes
+		SET    issued_access_jti = $2,
+		       issued_access_expires_at = $3,
+		       issued_refresh_token_id = $4
+		WHERE  id = $1`
+	if _, err := r.db.Exec(ctx, q, id, accessJTI, accessExpiresAt, refreshTokenID); err != nil {
+		return fmt.Errorf("postgres: record issued tokens on oauth_authorization_codes: %w", err)
+	}
+	return nil
+}
+
 // DeleteExpiredBefore prunes rows whose expires_at is at or
 // before the supplied cutoff.
 func (r *PgxOAuthAuthorizationCodeRepository) DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error) {
@@ -193,31 +218,40 @@ func scanOAuthAuthorizationCode(row pgx.Row) (*domain.OAuthAuthorizationCode, er
 		consumedAt          *time.Time
 		createdAt           time.Time
 		metaBytes           []byte
+		issuedAccessJTI     *string
+		issuedAccessExpires *time.Time
+		issuedRefreshID     *uuid.UUID
 	)
 	if err := row.Scan(
 		&id, &codeHash, &clientID, &userID, &orgID,
 		&sessionID, &redirectURI, &scope, &audience,
 		&codeChallenge, &codeChallengeMethod, &nonce,
 		&expiresAt, &consumedAt, &createdAt, &metaBytes,
+		&issuedAccessJTI, &issuedAccessExpires, &issuedRefreshID,
 	); err != nil {
 		return nil, err
 	}
 	out := &domain.OAuthAuthorizationCode{
-		ID:                  id,
-		CodeHash:            codeHash,
-		ClientID:            clientID,
-		UserID:              userID,
-		OrganizationID:      orgID,
-		SessionID:           sessionID,
-		RedirectURI:         redirectURI,
-		Scope:               scope,
-		Audience:            audience,
-		CodeChallenge:       codeChallenge,
-		CodeChallengeMethod: codeChallengeMethod,
-		Nonce:               nonce,
-		ExpiresAt:           expiresAt,
-		ConsumedAt:          consumedAt,
-		CreatedAt:           createdAt,
+		ID:                    id,
+		CodeHash:              codeHash,
+		ClientID:              clientID,
+		UserID:                userID,
+		OrganizationID:        orgID,
+		SessionID:             sessionID,
+		RedirectURI:           redirectURI,
+		Scope:                 scope,
+		Audience:              audience,
+		CodeChallenge:         codeChallenge,
+		CodeChallengeMethod:   codeChallengeMethod,
+		Nonce:                 nonce,
+		ExpiresAt:             expiresAt,
+		ConsumedAt:            consumedAt,
+		CreatedAt:             createdAt,
+		IssuedAccessExpiresAt: issuedAccessExpires,
+		IssuedRefreshTokenID:  issuedRefreshID,
+	}
+	if issuedAccessJTI != nil {
+		out.IssuedAccessJTI = *issuedAccessJTI
 	}
 	if len(metaBytes) > 0 {
 		var meta map[string]any

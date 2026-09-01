@@ -234,7 +234,7 @@ clone (and its python venv) survives between runs.
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (re-measured 2026-09-01 after THE-CONSENTED-SCOPE,
+**The committed baseline (re-measured 2026-09-02 after THE-CODE-REUSE-REVOKER,
 suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
@@ -252,18 +252,17 @@ suite release-v5.2.4):**
     (result REVIEW — these modules ask for a screenshot of the second login,
     which the browser automation uploads; REVIEW is the accepted terminal
     state of that module class, exactly like the two redirect_uri modules).
-  - 4 recorded WARNINGS across 4 modules
+  - 3 recorded WARNINGS across 3 modules
     (`conformance/expected-failures-basic.json`, comments name each):
     partial profile claims (the suite wants all 14 profile standard claims;
     the user model holds only `name`), the `claims` request parameter
     (unsupported — `oidcc-claims-essential` asks for `name` by claim, not by
-    the `profile` scope; own slice), the deliberate refuse-to-fake-`acr`
-    posture, and access-token revocation after authorization-code replay
-    (the `AuthCodeReuseRevoker` seam is unwired — own slice,
-    security-relevant SHOULD). THE-CONSENTED-SCOPE retired the four
-    email-in-id_token / unscoped-`name` warnings (`oidcc-scope-email`,
-    `oidcc-alternate-happy-flow` now pass clean) — see "Consented scope on
-    the access token" below.
+    the `profile` scope; own slice), and the deliberate refuse-to-fake-`acr`
+    posture. THE-CONSENTED-SCOPE retired the four email-in-id_token /
+    unscoped-`name` warnings (`oidcc-scope-email`,
+    `oidcc-alternate-happy-flow` pass clean); THE-CODE-REUSE-REVOKER retired
+    the `oidcc-codereuse-30seconds` warning (a replayed code now revokes the
+    first exchange's tokens) — see the two sections below.
   - 4 recorded SKIPS (`conformance/expected-skips-basic.json`):
     address/phone scopes are not modeled, and the request-object module
     skips because the OP compliantly rejects request objects as
@@ -319,6 +318,39 @@ restricts."** Rule `TOKEN-SCOPE-INTERSECTION-1`.
 - **The id_token carries no email.** In the code flow scope-requested claims
   belong to userinfo; only a `claims` request parameter (unsupported) would
   put them in the id_token.
+
+## Authorization-code reuse revokes what the code minted
+
+THE-CODE-REUSE-REVOKER (2026-09-02). RFC 6749 §4.1.2: on reuse of an
+authorization code the server MUST deny the request and SHOULD revoke all
+tokens previously issued based on that code. Rule `CODE-REUSE-REVOKES-1`.
+
+- **Recorded at the exchange.** Right after minting, the token endpoint
+  writes the access token's `jti` + expiry and, with `offline_access`, the
+  OAuth refresh token's id onto the consumed code row (migration 0033:
+  `issued_access_jti`, `issued_access_expires_at`,
+  `issued_refresh_token_id`). The write is fail-closed: if it cannot be
+  recorded, the exchange answers `server_error` and no token goes out —
+  tokens that could never be revoked on reuse must not exist.
+- **Revoked on replay through the EXISTING paths, no new mechanism.**
+  `AuthorizationCodeService.Consume` already detected the replay (P0-1b);
+  `service.AuthCodeReuseRevocation` now implements its seam: the access
+  `jti` goes into `oauth_token_revocations` via `TokenRevocationService`
+  (the RFC 7009 `/revoke` store, read fail-closed by the bearer middleware
+  and by introspection/userinfo), and the refresh token's whole rotation
+  family is revoked via `RefreshTokenService.RevokeLineageByID` (the same
+  cascade a refresh-token replay triggers), which also revokes the access
+  tokens linked to that family.
+- **The replay is still refused exactly as before** (`invalid_grant`,
+  400), and the client learns nothing about whether revocation happened.
+- **Idempotent.** A code replayed N times revokes once. A code row with
+  nothing recorded (pre-0033 rows, or an exchange that failed after
+  consume) revokes nothing; an unknown code never revokes anything.
+- **Accepted cost (ruled 2026-08-04, P0-1b):** a client that
+  double-submits one code revokes its own user's tokens from that code.
+- **Window.** Reuse is detectable while the code row exists — the
+  10-minute code TTL plus the cleanup lag. After the row is pruned a replay
+  is indistinguishable from an unknown code.
 
 ## RS256 — testing only, NEVER the default
 

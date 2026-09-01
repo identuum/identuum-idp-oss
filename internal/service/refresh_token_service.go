@@ -380,6 +380,27 @@ func (s *RefreshTokenService) Consume(ctx context.Context, in ConsumeRefreshToke
 // Fail-soft: every error (revoking rows, or denylisting jtis inside
 // revokeLinkedAccessJTIs) is swallowed here so the reuse path always returns
 // a single domain.ErrRefreshTokenReuse regardless of denylist-store health.
+// RevokeLineageByID revokes the refresh token identified by id together with
+// its whole rotation family and the access tokens linked to it — the same
+// cascade a detected refresh-token replay triggers. It exists for the
+// authorization-code reuse revoker (THE-CODE-REUSE-REVOKER): the code row
+// records the refresh token's id, not its raw value, so RevokeByRawToken is
+// not usable there. An unknown id revokes nothing and is not an error.
+func (s *RefreshTokenService) RevokeLineageByID(ctx context.Context, id uuid.UUID, at time.Time) error {
+	if id == uuid.Nil {
+		return nil
+	}
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if row == nil {
+		return nil
+	}
+	s.revokeReuseLineage(ctx, row, at.UTC())
+	return nil
+}
+
 func (s *RefreshTokenService) revokeReuseLineage(ctx context.Context, row *domain.RefreshToken, now time.Time) {
 	if extRepo, hasExt := s.repo.(repository.RefreshTokenAccessJTIRevocationRepository); s.tokenRevocations != nil && hasExt {
 		var jtis []repository.RevokedRefreshTokenAccessJTI

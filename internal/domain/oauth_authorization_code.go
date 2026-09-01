@@ -29,4 +29,12 @@ type OAuthAuthorizationCode struct {
 	ConsumedAt          *time.Time
 	CreatedAt           time.Time
 	Metadata            map[string]any
+
+	// What the FIRST exchange of this code minted (THE-CODE-REUSE-REVOKER,
+	// RFC 6749 §4.1.2). Written once by the token endpoint after minting;
+	// read by the reuse revoker so a replayed code revokes exactly these.
+	// Zero/nil = nothing recorded.
+	IssuedAccessJTI       string
+	IssuedAccessExpiresAt *time.Time
+	IssuedRefreshTokenID  *uuid.UUID
 }

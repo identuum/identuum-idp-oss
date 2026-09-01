@@ -46,4 +46,10 @@ type OAuthAuthorizationCodeRepository interface {
 	// DeleteExpiredBefore prunes rows whose expires_at is at or
 	// before the supplied cutoff. Returns the deleted-row count.
 	DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error)
+
+	// RecordIssuedTokens stamps what the exchange of the code identified
+	// by id minted — the access token's jti + expiry and, when one was
+	// issued, the refresh token's id — so a later replay of the code can
+	// revoke exactly those (RFC 6749 §4.1.2). refreshTokenID may be nil.
+	RecordIssuedTokens(ctx context.Context, id uuid.UUID, accessJTI string, accessExpiresAt time.Time, refreshTokenID *uuid.UUID) error
 }

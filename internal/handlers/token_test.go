@@ -792,6 +792,18 @@ func (r *handlerAuthCodeRepo) DeleteExpiredBefore(_ context.Context, _ time.Time
 	return 0, nil
 }
 
+func (r *handlerAuthCodeRepo) RecordIssuedTokens(_ context.Context, id uuid.UUID, accessJTI string, accessExpiresAt time.Time, refreshTokenID *uuid.UUID) error {
+	row, ok := r.byID[id]
+	if !ok {
+		return errors.New("no such code")
+	}
+	row.IssuedAccessJTI = accessJTI
+	exp := accessExpiresAt
+	row.IssuedAccessExpiresAt = &exp
+	row.IssuedRefreshTokenID = refreshTokenID
+	return nil
+}
+
 // newHandlersSessionRepo is a minimal SessionRepository for the
 // handlers package — used by the offline_access auth-code grant
 // tests so UserSessionService can mint a refresh token.
@@ -1446,6 +1458,74 @@ func newAuthCodeEngineWithRefreshSvc(t *testing.T) (*gin.Engine, *service.Author
 	}
 	RegisterTokenRoutes(r, deps)
 	return r, codes, refresh, user, session
+}
+
+// recordingReuseRevoker captures the code rows the reuse seam hands over.
+type recordingReuseRevoker struct {
+	rows []*domain.OAuthAuthorizationCode
+}
+
+func (r *recordingReuseRevoker) RevokeForReusedCode(_ context.Context, code *domain.OAuthAuthorizationCode, _ time.Time) error {
+	r.rows = append(r.rows, code)
+	return nil
+}
+
+// THE-CODE-REUSE-REVOKER through the real handler: the exchange records the
+// minted access token's jti + expiry and the OAuth refresh token's id on the
+// code row, so a replay hands exactly those to the reuse revoker.
+func TestToken_AuthorizationCodeGrant_RecordsIssuedTokensForReuseRevocation(t *testing.T) {
+	r, codes, refresh, _, session := newAuthCodeEngineWithRefreshSvc(t)
+	rec := &recordingReuseRevoker{}
+	codes.WithReuseRevoker(rec)
+	verifier, challenge := authCodePKCEPair(t)
+	created, _ := codes.Create(context.Background(), service.CreateAuthorizationCodeInput{
+		ClientID: "cli-1", UserID: session.UserID, SessionID: session.ID,
+		RedirectURI: "https://app.example.com/cb", Scope: "openid offline_access",
+		CodeChallenge: challenge, CodeChallengeMethod: "S256",
+	})
+	exchange := func() *httptest.ResponseRecorder {
+		body := strings.NewReader("grant_type=authorization_code&code=" + created.Code +
+			"&client_id=cli-1&client_secret=S&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb" +
+			"&code_verifier=" + verifier)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/oauth/token", body)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	first := exchange()
+	if first.Code != http.StatusOK {
+		t.Fatalf("first exchange status = %d, body = %q", first.Code, first.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(first.Body.Bytes(), &resp)
+	tok, _, _ := jwt.NewParser(jwt.WithValidMethods([]string{"EdDSA"})).ParseUnverified(resp["access_token"].(string), jwt.MapClaims{})
+	wantJTI, _ := tok.Claims.(jwt.MapClaims)["jti"].(string)
+	if wantJTI == "" {
+		t.Fatalf("access token carries no jti")
+	}
+
+	second := exchange()
+	if second.Code != http.StatusBadRequest {
+		t.Fatalf("replay status = %d, want 400 invalid_grant exactly as before", second.Code)
+	}
+	if len(rec.rows) != 1 {
+		t.Fatalf("replay must hand the code row to the revoker once, got %d", len(rec.rows))
+	}
+	row := rec.rows[0]
+	if row.IssuedAccessJTI != wantJTI {
+		t.Errorf("recorded access jti = %q, want the minted token's jti %q", row.IssuedAccessJTI, wantJTI)
+	}
+	if row.IssuedAccessExpiresAt == nil || !row.IssuedAccessExpiresAt.After(time.Now()) {
+		t.Errorf("recorded access expiry = %v, want the minted token's future expiry", row.IssuedAccessExpiresAt)
+	}
+	if row.IssuedRefreshTokenID == nil {
+		t.Fatalf("offline_access exchange must record the refresh token id")
+	}
+	// The recorded refresh id is the row the refresh_token grant would rotate.
+	if _, err := refresh.Consume(context.Background(), service.ConsumeRefreshTokenInput{RawToken: resp["refresh_token"].(string), ClientID: "cli-1"}); err != nil {
+		t.Fatalf("control: the issued refresh token must still rotate (no revoker wired here): %v", err)
+	}
 }
 
 func TestToken_AuthorizationCodeGrant_OfflineAccessIssuesRefreshToken(t *testing.T) {

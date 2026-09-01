@@ -1113,6 +1113,11 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		WithTokenRevocationService(tokenRevocationSvc).
 		WithUserOrgLookup(repos.User)
 	tokenSvc = tokenSvc.WithRefreshTokenService(refreshTokenSvc)
+	// THE-CODE-REUSE-REVOKER: a replayed authorization code revokes what its
+	// first exchange minted (RFC 6749 §4.1.2) through the existing JTI
+	// revocation store and refresh-family cascade. authorizeSvc above holds
+	// the same *AuthorizationCodeService, so it sees this seam too.
+	authCodeSvc.WithReuseRevoker(service.NewAuthCodeReuseRevocation(tokenRevocationSvc, refreshTokenSvc))
 
 	var webAuthnSvc *service.WebAuthnService
 	webAuthnBaseURL := tokenSvcIssuer
