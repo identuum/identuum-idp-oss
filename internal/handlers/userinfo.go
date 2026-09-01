@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 	"github.com/identuum/identuum-idp-oss/pkg/oidc"
 	"github.com/identuum/identuum-idp-oss/types"
@@ -143,25 +144,34 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 		// "service_account" is the load-bearing signal.
 		isServiceAccount := claims.ActorType == service.ActorTypeServiceAccount
 		out := types.OIDCUserInfo{
-			Sub:           userinfoSub(claims),
-			EmailVerified: false,
+			Sub: userinfoSub(claims),
 		}
-		if !isServiceAccount {
-			out.Email = claims.Email
-		}
-		// OIDC `name` (THE-PKCE-DECISION, conformance-measured gap: the
-		// profile scope granted NO claims). Emitted for every human
-		// subject, mirroring the email posture above — the access
-		// token's `scope` claim is ROLE-DERIVED (SessionScopesForRole,
-		// authz-load-bearing for the admin guards), NOT the consented
-		// OAuth scope, so consented-scope gating is not representable
-		// here today. Lookup failure degrades to the claim being
-		// absent — profile claims are voluntary (§5.4), never worth a
-		// 500.
-		if !isServiceAccount && deps.UserLookup != nil && claims.UserID != uuid.Nil {
-			if u, uerr := deps.UserLookup.GetByID(c.Request.Context(), claims.UserID); uerr == nil && u != nil && u.Name != nil {
-				out.Name = *u.Name
+		// THE-CONSENTED-SCOPE: profile claims are released under the scope
+		// the token CARRIES (OIDC Core §5.4) — `email`/`email_verified`
+		// under "email", `name` under "profile" — for human subjects only.
+		// The access token's `scope` claim is the consented ∩ role-permitted
+		// set for client-bound tokens and the role-derived set for login
+		// sessions; neither grants identity claims it does not name, so a
+		// session token gets `sub` (+ org/role) and nothing personal.
+		// Conformance-measured (EnsureUserInfoDoesNotContainName): name
+		// landed without profile. Lookup failure degrades to the claim
+		// being absent — voluntary claims are never worth a 500.
+		grants := userinfoScopeSet(claims.Scope)
+		var user *domain.User
+		if !isServiceAccount && deps.UserLookup != nil && claims.UserID != uuid.Nil && (grants[domain.ScopeEmail] || grants[domain.ScopeProfile]) {
+			if u, uerr := deps.UserLookup.GetByID(c.Request.Context(), claims.UserID); uerr == nil {
+				user = u
 			}
+		}
+		if !isServiceAccount && grants[domain.ScopeEmail] {
+			out.Email = claims.Email
+			if user != nil {
+				verified := user.EmailVerified
+				out.EmailVerified = &verified
+			}
+		}
+		if !isServiceAccount && grants[domain.ScopeProfile] && user != nil && user.Name != nil {
+			out.Name = *user.Name
 		}
 		if claims.OrgID != uuid.Nil {
 			out.OrganizationID = claims.OrgID.String()
@@ -187,6 +197,16 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 		})
 		c.JSON(http.StatusOK, out)
 	}
+}
+
+// userinfoScopeSet splits the token's space-separated scope claim into a
+// membership set.
+func userinfoScopeSet(scope string) map[string]bool {
+	out := make(map[string]bool)
+	for _, s := range strings.Fields(scope) {
+		out[s] = true
+	}
+	return out
 }
 
 // userinfoSub returns the value to use for the `sub` field. Prefer

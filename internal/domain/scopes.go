@@ -447,3 +447,69 @@ func SessionScopesForRole(role UserRole) string {
 	}
 	return ""
 }
+
+// OIDCIdentityScopes are the OpenID Connect scope values every authenticated
+// human may consent to. They name CLAIMS about the subject (OIDC Core §5.4),
+// not permissions over resources, so no role can forbid them — which is why
+// PermittedScopesForRole includes them for every role.
+var OIDCIdentityScopes = []string{ScopeOpenID, ScopeProfile, ScopeEmail, ScopeOfflineAccess}
+
+// PermittedScopesForRole is the set a user's ROLE authorizes an OAuth client
+// to receive on the user's behalf: the OIDC identity scopes plus the
+// role-derived admin scopes (SessionScopesForRole). Roles authorize; consent
+// (IntersectConsentedScope) only restricts within this set.
+func PermittedScopesForRole(role UserRole) []string {
+	out := append([]string(nil), OIDCIdentityScopes...)
+	if sc := SessionScopesForRole(role); sc != "" {
+		out = append(out, strings.Fields(sc)...)
+	}
+	return out
+}
+
+// IntersectConsentedScope implements TOKEN-SCOPE-INTERSECTION-1 (owner
+// ruling, THE-CONSENTED-SCOPE): the scope an authorization_code access token
+// carries is the CONSENTED scope INTERSECTED with PermittedScopesForRole.
+// Consent NARROWS, never grants beyond the role — a consented scope the role
+// does not permit is dropped silently (the token response's `scope` reports
+// the narrowed set per RFC 6749 §5.1); a permitted scope the user did not
+// consent to never appears. Order follows the consented string; duplicates
+// collapse. Empty consent yields the empty string.
+func IntersectConsentedScope(consented string, role UserRole) string {
+	return keepScopes(consented, PermittedScopesForRole(role), nil)
+}
+
+// NarrowScopeToLive is the introspection-side companion of
+// IntersectConsentedScope: given a client-bound token's `scope` claim and the
+// user's LIVE RBAC scope set, it keeps every OIDC identity scope the token
+// carries and every other token scope the live set still grants. The live
+// set may REVOKE (a role removed after issuance disappears) but never WIDEN
+// the token beyond what was consented — a consented token and its
+// introspection response always mean the same thing.
+func NarrowScopeToLive(tokenScope string, live []string) string {
+	return keepScopes(tokenScope, live, OIDCIdentityScopes)
+}
+
+// keepScopes returns the tokens of scope (in order, deduplicated) that appear
+// in either allowed set.
+func keepScopes(scope string, allowed, alwaysAllowed []string) string {
+	ok := make(map[string]struct{}, len(allowed)+len(alwaysAllowed))
+	for _, s := range allowed {
+		ok[s] = struct{}{}
+	}
+	for _, s := range alwaysAllowed {
+		ok[s] = struct{}{}
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, s := range strings.Fields(scope) {
+		if _, permitted := ok[s]; !permitted {
+			continue
+		}
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+	}
+	return strings.Join(out, " ")
+}

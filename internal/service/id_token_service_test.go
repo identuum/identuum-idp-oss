@@ -120,11 +120,15 @@ func TestIDToken_StampsCanonicalClaims(t *testing.T) {
 	if claims["nonce"] != "nonce-1" {
 		t.Errorf("nonce = %v", claims["nonce"])
 	}
-	if claims["email"] != "alice@example.com" {
-		t.Errorf("email = %v", claims["email"])
+	// THE-CONSENTED-SCOPE: even with the email scope consented, the id_token
+	// carries no email/email_verified — in the code flow those are userinfo
+	// claims (OIDC Core §5.4; conformance
+	// EnsureIdTokenDoesNotContainEmailForScopeEmail).
+	if v, present := claims["email"]; present {
+		t.Errorf("email = %v, want absent from the id_token", v)
 	}
-	if claims["email_verified"] != true {
-		t.Errorf("email_verified = %v", claims["email_verified"])
+	if v, present := claims["email_verified"]; present {
+		t.Errorf("email_verified = %v, want absent from the id_token", v)
 	}
 	if claims["acr"] != "0" {
 		t.Errorf("acr = %v", claims["acr"])

@@ -202,12 +202,17 @@ func (s *IDTokenService) Issue(ctx context.Context, in IDTokenInput) (*IDTokenRe
 	// Email scope gating. The OSS service does not enable
 	// implicit-all-claims emission; `email` only lands when the
 	// consented scope explicitly contains "email".
-	if scopeContains(in.Scope, "email") {
-		if in.User.Email != "" {
-			extra["email"] = in.User.Email
-		}
-		extra["email_verified"] = in.User.EmailVerified
-	}
+	// THE-CONSENTED-SCOPE: in the authorization-code flow an access token is
+	// issued, so the claims the `email` scope requests belong to the userinfo
+	// response, NOT the id_token (OIDC Core §5.4: scope-requested claims are
+	// returned from UserInfo whenever an access token is issued; only a
+	// `claims` request parameter puts them in the id_token, which this OP
+	// does not support). Conformance-measured
+	// (EnsureIdTokenDoesNotContainEmailForScopeEmail): the id_token carried
+	// email under scope=email, exposing user data to any party the RP shows
+	// the id_token to. in.Scope stays on the input for a future `claims`
+	// parameter; today no scope value puts email in the id_token.
+	_ = scopeContains
 
 	idToken, err := s.idIssuer.IssueIDToken(ctx, oidc.IDTokenClaims{
 		Issuer:     s.issuer,

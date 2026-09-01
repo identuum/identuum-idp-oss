@@ -1139,11 +1139,64 @@ func TestToken_AuthorizationCodeGrant_OpenIDScopeIssuesIDToken(t *testing.T) {
 	if claims["sub"] != user.ID.String() {
 		t.Errorf("sub = %v", claims["sub"])
 	}
-	if claims["email"] != "alice@example.com" {
-		t.Errorf("email = %v", claims["email"])
+	// THE-CONSENTED-SCOPE: scope=email releases email at userinfo, not in
+	// the id_token (OIDC Core §5.4).
+	if v, present := claims["email"]; present {
+		t.Errorf("email = %v, want absent from the id_token", v)
 	}
 	if tok.Header["alg"] != "EdDSA" {
 		t.Errorf("id_token alg = %v (must be EdDSA, never RS256)", tok.Header["alg"])
+	}
+}
+
+// THE-CONSENTED-SCOPE through the wire: the exchanged access token's `scope`
+// claim and the token response's `scope` are the consented scope ∩ what the
+// user's role permits; the token names the client it was issued to.
+func TestToken_AuthorizationCodeGrant_ScopeIsConsentedIntersectRole(t *testing.T) {
+	r, codes, user, session := newAuthCodeEngine(t, true)
+	verifier, challenge := authCodePKCEPair(t)
+	const consented = "openid email clients:read no:such"
+	created, err := codes.Create(context.Background(), service.CreateAuthorizationCodeInput{
+		ClientID:            "cli-1",
+		UserID:              session.UserID,
+		SessionID:           session.ID,
+		RedirectURI:         "https://app.example.com/cb",
+		Scope:               consented,
+		CodeChallenge:       challenge,
+		CodeChallengeMethod: "S256",
+	})
+	if err != nil {
+		t.Fatalf("create code: %v", err)
+	}
+	body := strings.NewReader("grant_type=authorization_code&code=" + created.Code +
+		"&client_id=cli-1&client_secret=S&redirect_uri=https%3A%2F%2Fapp.example.com%2Fcb" +
+		"&code_verifier=" + verifier)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/oauth/token", body)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %q", w.Code, w.Body.String())
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	want := domain.IntersectConsentedScope(consented, user.Role)
+	if resp["scope"] != want {
+		t.Errorf("token response scope = %v, want %q (consented ∩ role-permitted)", resp["scope"], want)
+	}
+	if user.Role != domain.RoleOrgAdmin && strings.Contains(want, "clients:read") {
+		t.Fatalf("fixture role %q must not permit clients:read", user.Role)
+	}
+	if strings.Contains(want, "no:such") {
+		t.Errorf("unknown consented scope survived the intersection: %q", want)
+	}
+	tok, _, _ := jwt.NewParser(jwt.WithValidMethods([]string{"EdDSA"})).ParseUnverified(resp["access_token"].(string), jwt.MapClaims{})
+	claims := tok.Claims.(jwt.MapClaims)
+	if claims["scope"] != want {
+		t.Errorf("access token scope claim = %v, want %q", claims["scope"], want)
+	}
+	if claims["client_id"] != "cli-1" {
+		t.Errorf("access token client_id = %v, want cli-1", claims["client_id"])
 	}
 }
 

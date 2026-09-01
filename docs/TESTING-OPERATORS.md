@@ -234,7 +234,7 @@ clone (and its python venv) survives between runs.
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (re-measured 2026-09-01 after THE-PKCE-DECISION,
+**The committed baseline (re-measured 2026-09-01 after THE-CONSENTED-SCOPE,
 suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
@@ -242,21 +242,28 @@ suite release-v5.2.4):**
   advertises `[EdDSA, ES256, RS256]` (see "RS256 — testing only" above).
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
-  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1746
-  conditions pass, ZERO condition failures. The recorded floor:
+  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1749
+  conditions passed in the close run, ZERO condition failures (the success
+  total is NOT a stable number — two consecutive runs of the same code on
+  2026-09-01 counted 1691 and 1749; failures/warnings/skips are the
+  measured floor, the success total is not). The recorded floor:
   - `conformance/expected-basic-incomplete.txt` is EMPTY: `oidcc-prompt-login`
     and `oidcc-max-age-1` now run to completion with 0 failing conditions
     (result REVIEW — these modules ask for a screenshot of the second login,
     which the browser automation uploads; REVIEW is the accepted terminal
     state of that module class, exactly like the two redirect_uri modules).
-  - 7 recorded WARNINGS across 5 modules
+  - 4 recorded WARNINGS across 4 modules
     (`conformance/expected-failures-basic.json`, comments name each):
-    partial profile claims (only `name`), email-in-id_token + unscoped
-    `name` at userinfo (the access token carries role-derived scopes, not
-    the consented OAuth scope — own slice), the deliberate
-    refuse-to-fake-`acr` posture, and access-token revocation after
-    authorization-code replay (the `AuthCodeReuseRevoker` seam is unwired —
-    own slice, security-relevant SHOULD).
+    partial profile claims (the suite wants all 14 profile standard claims;
+    the user model holds only `name`), the `claims` request parameter
+    (unsupported — `oidcc-claims-essential` asks for `name` by claim, not by
+    the `profile` scope; own slice), the deliberate refuse-to-fake-`acr`
+    posture, and access-token revocation after authorization-code replay
+    (the `AuthCodeReuseRevoker` seam is unwired — own slice,
+    security-relevant SHOULD). THE-CONSENTED-SCOPE retired the four
+    email-in-id_token / unscoped-`name` warnings (`oidcc-scope-email`,
+    `oidcc-alternate-happy-flow` now pass clean) — see "Consented scope on
+    the access token" below.
   - 4 recorded SKIPS (`conformance/expected-skips-basic.json`):
     address/phone scopes are not modeled, and the request-object module
     skips because the OP compliantly rejects request objects as
@@ -276,6 +283,42 @@ proceed if the clone has local changes or is not at the pinned sha.
 Browser-automation for the OP's own login/consent pages is committed in
 `conformance/plan-basic.json`; it exercises whenever the browser actually
 reaches those pages.
+
+## Consented scope on the access token — consent restricts, roles authorize
+
+THE-CONSENTED-SCOPE (2026-09-01). Owner ruling, verbatim: **"access-token
+scope = consented OAuth scopes INTERSECTED with role-permitted scopes.
+Consent NARROWS, never grants beyond the role. Roles authorize; consent
+restricts."** Rule `TOKEN-SCOPE-INTERSECTION-1`.
+
+- **One claim, one meaning.** The access token's `scope` claim is always the
+  set the token may EXERCISE. There is no second, role-derived claim: no
+  consumer needs one (the admin guards read `scope` as the effective set;
+  introspection recomputes the live RBAC set from the database).
+- **Authorization-code tokens** (`UserTokenService.IssueForConsentedClient`)
+  carry `consented ∩ permitted(role)`, where `permitted(role)` is the OIDC
+  identity scopes (`openid profile email offline_access`) plus
+  `domain.SessionScopesForRole` (the 27 org_admin scopes for org_admin;
+  nothing for org_user / site_admin). A consented scope outside that set is
+  dropped silently and the token response's `scope` reports the narrowed
+  set (RFC 6749 §5.1). These tokens also carry `client_id` (RFC 9068) naming
+  the client they were issued to.
+- **Refresh rotation preserves it**: the refresh-token row stores the
+  effective scope and `IssueRefresh` mints from the row, so no rotation can
+  widen a token.
+- **Login-session tokens** (`/api/v1/auth/login`, the UI) are unchanged: no
+  client, no consent, role-derived `scope`, no `client_id`.
+- **Introspection never widens.** For a client-bound token the live RBAC set
+  may still REVOKE a scope (a removed role disappears at once) but never
+  adds one the user did not consent to hand that client
+  (`domain.NarrowScopeToLive`). Login-session tokens keep the live-replace
+  semantics.
+- **userinfo releases claims under the carried scope** (OIDC Core §5.4):
+  `email` + `email_verified` under `email`, `name` under `profile`, humans
+  only. A token carrying neither gets `sub` and the org/role projection.
+- **The id_token carries no email.** In the code flow scope-requested claims
+  belong to userinfo; only a `claims` request parameter (unsupported) would
+  put them in the id_token.
 
 ## RS256 — testing only, NEVER the default
 

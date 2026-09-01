@@ -234,6 +234,38 @@ func TestIntrospect_EmptyEffectiveScopeStaysActive(t *testing.T) {
 	}
 }
 
+// TOKEN-SCOPE-INTERSECTION-1 at introspection: a CLIENT-BOUND user token
+// (client_id claim present) carries consented ∩ role-permitted; the live
+// RBAC set may narrow it but never widens it back to the role set.
+func TestIntrospect_ClientBoundTokenNeverWidens(t *testing.T) {
+	uid := uuid.New()
+	v := &fakeIntrospector{claims: &IntrospectionClaims{
+		Sub: uid.String(), UserID: uid, ClientID: "cli-1", Scope: "openid clients:read",
+	}}
+	scopeSvc := newUserScopeSvcWith(t, []string{"users:read", "clients:read", "billing:read"})
+	svc := NewIntrospectionService(nil, v, scopeSvc)
+	resp := svc.Introspect(context.Background(), "ANY")
+	if !resp.Active {
+		t.Fatalf("active = false")
+	}
+	if resp.Scope != "openid clients:read" {
+		t.Errorf("scope = %q, want the token's consented set, never the wider live set", resp.Scope)
+	}
+}
+
+func TestIntrospect_ClientBoundTokenRevokedScopeNarrows(t *testing.T) {
+	uid := uuid.New()
+	v := &fakeIntrospector{claims: &IntrospectionClaims{
+		Sub: uid.String(), UserID: uid, ClientID: "cli-1", Scope: "openid email clients:read",
+	}}
+	scopeSvc := newUserScopeSvcWith(t, nil)
+	svc := NewIntrospectionService(nil, v, scopeSvc)
+	resp := svc.Introspect(context.Background(), "ANY")
+	if resp.Scope != "openid email" {
+		t.Errorf("scope = %q, want identity scopes kept and the revoked admin scope dropped", resp.Scope)
+	}
+}
+
 // Claims with no UserID skip the UserScopeService entirely.
 func TestIntrospect_NoUserIDSkipsScopeService(t *testing.T) {
 	v := &fakeIntrospector{claims: &IntrospectionClaims{

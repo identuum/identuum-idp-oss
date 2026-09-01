@@ -73,12 +73,11 @@ func expectedInlineIDToken(t *testing.T, priv ed25519.PrivateKey, kid string, no
 	if len(session.Amr) > 0 {
 		claims["amr"] = session.Amr
 	}
-	if scopeContains(scope, "email") {
-		if user.Email != "" {
-			claims["email"] = user.Email
-		}
-		claims["email_verified"] = user.EmailVerified
-	}
+	// THE-CONSENTED-SCOPE: the golden carries NO email under any scope —
+	// scope-requested claims belong to userinfo in the code flow (OIDC Core
+	// §5.4). `scope` stays a parameter so both shapes below still exercise
+	// the same path the service takes.
+	_ = scope
 	tok := jwt.NewWithClaims(jwt.SigningMethodEdDSA, claims)
 	tok.Header["kid"] = kid
 	signed, err := tok.SignedString(priv)
@@ -126,8 +125,10 @@ func TestIDToken_Equivalence_NoEmailScope(t *testing.T) {
 	verifyIDToken(t, resp.IDToken, pub, kid)
 }
 
-// TestIDToken_Equivalence_WithEmailScope: "openid email" -> email +
-// email_verified emitted.
+// TestIDToken_Equivalence_WithEmailScope: "openid email" -> the id_token is
+// byte-identical to the golden, which carries NO email/email_verified
+// (THE-CONSENTED-SCOPE: those claims are released by userinfo under the
+// email scope, never stamped into the id_token).
 func TestIDToken_Equivalence_WithEmailScope(t *testing.T) {
 	svc, priv, pub, kid := edIDTokenFixture(t)
 	user, session := newIDTokenUser(), newIDTokenSession()

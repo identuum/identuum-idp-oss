@@ -112,6 +112,9 @@ type UserAccessTokenResponse struct {
 	ExpiresIn   int64
 	JTI         string
 	ExpiresAt   time.Time
+	// Scope is the space-separated `scope` claim the token carries — the
+	// effective set it may exercise. Empty when the token carries none.
+	Scope string
 }
 
 // IssueForSession mints a JWT access token for the supplied
@@ -143,6 +146,39 @@ func (s *UserTokenService) IssueForSession(ctx context.Context, user *domain.Use
 	if user == nil {
 		return nil, ErrTokenServiceInvalidRequest
 	}
+	// ORG-ADMIN-SCOPES: session tokens carry role-derived scopes. The admin
+	// guards read the scope claim (mw.principalHasAnyScope), and a session
+	// token that carried none made every org_admin 403 on its own org. The
+	// grant is org-bound at the point of use, not in the string — see
+	// domain.OrgAdminSessionScopes.
+	return s.issue(ctx, user, session, domain.SessionScopesForRole(user.Role), "")
+}
+
+// IssueForConsentedClient mints the access token the authorization_code
+// grant hands to an OAuth client. TOKEN-SCOPE-INTERSECTION-1 (owner
+// ruling, THE-CONSENTED-SCOPE): the token's `scope` claim is the CONSENTED
+// scope INTERSECTED with what the user's ROLE permits — roles authorize,
+// consent restricts, consent never grants beyond the role. A consented but
+// role-forbidden scope never lands; a role-permitted but unconsented scope
+// never lands. The service owns the intersection so no caller can stamp a
+// wider set; the effective scope is returned in Response.Scope for the
+// token response, the refresh-token row, and the id_token.
+//
+// The token additionally carries `client_id` (RFC 9068 §2.2) naming the
+// client it was issued to, which is what lets introspection tell a
+// client-bound token from a login-session token. Everything else matches
+// IssueForSession.
+func (s *UserTokenService) IssueForConsentedClient(ctx context.Context, user *domain.User, session *domain.Session, clientID, consentedScope string) (*UserAccessTokenResponse, error) {
+	if user == nil || clientID == "" {
+		return nil, ErrTokenServiceInvalidRequest
+	}
+	return s.issue(ctx, user, session, domain.IntersectConsentedScope(consentedScope, user.Role), clientID)
+}
+
+func (s *UserTokenService) issue(ctx context.Context, user *domain.User, session *domain.Session, scope, clientID string) (*UserAccessTokenResponse, error) {
+	if user == nil {
+		return nil, ErrTokenServiceInvalidRequest
+	}
 	if session == nil {
 		return nil, ErrTokenServiceInvalidRequest
 	}
@@ -169,13 +205,8 @@ func (s *UserTokenService) IssueForSession(ctx context.Context, user *domain.Use
 	if user.Role != "" {
 		extra["role"] = string(user.Role)
 	}
-	// ORG-ADMIN-SCOPES: session tokens carry role-derived scopes. The admin
-	// guards read the scope claim (mw.principalHasAnyScope), and a session
-	// token that carried none made every org_admin 403 on its own org. The
-	// grant is org-bound at the point of use, not in the string — see
-	// domain.OrgAdminSessionScopes.
-	if sc := domain.SessionScopesForRole(user.Role); sc != "" {
-		extra["scope"] = sc
+	if scope != "" {
+		extra["scope"] = scope
 	}
 	if acr := session.EffectiveACR(); acr != "" {
 		extra["acr"] = acr
@@ -191,6 +222,7 @@ func (s *UserTokenService) IssueForSession(ctx context.Context, user *domain.Use
 		ExpiresAt: exp,
 		JTI:       jti,
 		ActorType: ActorTypeUser,
+		ClientID:  clientID,
 		Extra:     extra,
 	})
 	if err != nil {
@@ -202,6 +234,7 @@ func (s *UserTokenService) IssueForSession(ctx context.Context, user *domain.Use
 		ExpiresIn:   int64(s.accessTokenTTL.Seconds()),
 		JTI:         storeKey,
 		ExpiresAt:   exp,
+		Scope:       scope,
 	}, nil
 }
 

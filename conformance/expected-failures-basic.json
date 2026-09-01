@@ -6,43 +6,16 @@
         "current-block": "*",
         "condition": "VerifyScopesReturnedInUserInfoClaims",
         "expected-result": "warning",
-        "comment": "FINDING, recorded not fixed: profile scope returns only `name` at userinfo (family_name/given_name/preferred_username etc. are not modeled). Voluntary claims per OIDC 5.4, so warning-level is honest."
+        "comment": "MEASURED (suite source AbstractVerifyScopesReturnedInClaims.java): the condition requires userinfo to carry ALL 14 profile standard claims (name, given_name, family_name, middle_name, nickname, profile, picture, website, gender, birthdate, zoneinfo, locale, updated_at, preferred_username) whenever `profile` is requested. The user model holds only `name`, and OIDC Core 5.3.2 forbids null/empty placeholders, so this warning is honest until the profile model grows. THE-CONSENTED-SCOPE gated `name` under the profile scope; that does not change this condition."
     },
     {
-        "test-name": "oidcc-scope-email",
+        "test-name": "oidcc-claims-essential",
         "variant": "*",
         "configuration-filename": "*/plan-basic.json",
         "current-block": "*",
-        "condition": "EnsureIdTokenDoesNotContainEmailForScopeEmail",
+        "condition": "EnsureUserInfoContainsName",
         "expected-result": "warning",
-        "comment": "FINDING, recorded not fixed: the id_token carries email under the email scope (the suite prefers claims at userinfo only). Deliberate emission today; revisit with consented-scope-on-token plumbing."
-    },
-    {
-        "test-name": "oidcc-scope-email",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "EnsureUserInfoDoesNotContainName",
-        "expected-result": "warning",
-        "comment": "FINDING, recorded not fixed: userinfo serves `name` for every human subject because the access token carries only ROLE-derived scopes, not the consented OAuth scope — consented-scope gating at userinfo is not representable until the exchange stamps the consented scope on the token (own slice, same root as the codereuse-30seconds finding)."
-    },
-    {
-        "test-name": "oidcc-alternate-happy-flow",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "EnsureIdTokenDoesNotContainEmailForScopeEmail",
-        "expected-result": "warning",
-        "comment": "Same finding as oidcc-scope-email (email in id_token under email scope)."
-    },
-    {
-        "test-name": "oidcc-alternate-happy-flow",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "EnsureUserInfoDoesNotContainName",
-        "expected-result": "warning",
-        "comment": "Same finding as oidcc-scope-email (unscoped `name` at userinfo — consented scope not on the token)."
+        "comment": "FINDING surfaced by THE-CONSENTED-SCOPE, recorded not fixed: the module requests `name` through the `claims` request parameter ({\"userinfo\":{\"name\":{\"essential\":true}}}) with scope=openid only. The OP does not support the claims parameter (discovery omits claims_parameter_supported, i.e. false; OIDC Core 5.5 makes support OPTIONAL) and releases `name` only under the consented `profile` scope per the owner ruling. It passed before only because `name` was served unconditionally. Honoring individual claim requests needs consent-of-claims (authorize parsing, code-row persistence, consent page) — own slice."
     },
     {
         "test-name": "oidcc-ensure-request-with-acr-values-succeeds",

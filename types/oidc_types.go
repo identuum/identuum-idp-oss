@@ -41,5 +41,8 @@ type OIDCUserInfo struct {
 	Email          string `json:"email,omitempty"`
 	OrganizationID string `json:"organization_id,omitempty"`
 	Role           string `json:"role,omitempty"`
-	EmailVerified  bool   `json:"email_verified"`
+	// EmailVerified accompanies `email` (OIDC Core §5.1: both belong to the
+	// `email` scope) and is omitted whenever email is — §5.3.2 forbids a
+	// claim rendered without a value.
+	EmailVerified *bool `json:"email_verified,omitempty"`
 }

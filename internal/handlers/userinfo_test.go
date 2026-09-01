@@ -123,7 +123,7 @@ func TestUserinfo_ValidTokenReturnsSub(t *testing.T) {
 	oid := uuid.New()
 	v := &userinfoFakeVerifier{claims: &service.IntrospectionClaims{
 		Sub: uid.String(), UserID: uid, Email: "user@example.com",
-		OrgID: oid, Role: "org_user", Jti: "jti-good",
+		OrgID: oid, Role: "org_user", Jti: "jti-good", Scope: "openid email",
 	}}
 	r, rec := newUserinfoEngine(t, v, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/userinfo", nil)
@@ -273,7 +273,7 @@ func userinfoStrPtr(s string) *string { return &s }
 func TestUserinfo_NameFromUserRecord(t *testing.T) {
 	uid := uuid.New()
 	v := &userinfoFakeVerifier{claims: &service.IntrospectionClaims{
-		Sub: uid.String(), UserID: uid, Email: "user@example.com",
+		Sub: uid.String(), UserID: uid, Email: "user@example.com", Scope: "openid profile",
 	}}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -294,6 +294,83 @@ func TestUserinfo_NameFromUserRecord(t *testing.T) {
 	if body["name"] != "Alice Example" {
 		t.Errorf("name = %v, want the user record's display name", body["name"])
 	}
+	if v, present := body["email"]; present {
+		t.Errorf("email = %v, want absent (email scope not carried)", v)
+	}
+}
+
+// THE-CONSENTED-SCOPE: userinfo releases claims under the scope the token
+// carries (OIDC Core §5.4) — `name` only under profile, `email` +
+// `email_verified` only under email. A token that carries neither (a login
+// session token, or a client the user did not grant those scopes) gets
+// `sub` and the org/role projection, nothing personal.
+func TestUserinfo_ClaimsGatedByCarriedScope(t *testing.T) {
+	uid := uuid.New()
+	serve := func(t *testing.T, scope string) map[string]any {
+		t.Helper()
+		v := &userinfoFakeVerifier{claims: &service.IntrospectionClaims{
+			Sub: uid.String(), UserID: uid, Email: "user@example.com", Role: "org_user", Scope: scope,
+		}}
+		gin.SetMode(gin.ReleaseMode)
+		r := gin.New()
+		RegisterUserinfoRoutes(r, UserinfoHandlerDeps{
+			IntrospectionService: service.NewIntrospectionService(nil, v, nil),
+			UserLookup: &fakeUserinfoUserLookup{user: &domain.User{
+				ID: uid, Name: userinfoStrPtr("Alice Example"), EmailVerified: true,
+			}},
+		})
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/userinfo", nil)
+		req.Header.Set("Authorization", "Bearer ANY")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Fatalf("scope %q: status = %d, body=%q", scope, w.Code, w.Body.String())
+		}
+		var body map[string]any
+		_ = json.Unmarshal(w.Body.Bytes(), &body)
+		return body
+	}
+
+	t.Run("no scope: sub only", func(t *testing.T) {
+		body := serve(t, "")
+		if body["sub"] != uid.String() || body["role"] != "org_user" {
+			t.Errorf("sub/role projection lost: %v", body)
+		}
+		for _, k := range []string{"email", "email_verified", "name"} {
+			if v, present := body[k]; present {
+				t.Errorf("%s = %v, want absent without its scope", k, v)
+			}
+		}
+	})
+	t.Run("email scope: email + email_verified, no name", func(t *testing.T) {
+		body := serve(t, "openid email")
+		if body["email"] != "user@example.com" {
+			t.Errorf("email = %v", body["email"])
+		}
+		if body["email_verified"] != true {
+			t.Errorf("email_verified = %v, want the user record's value", body["email_verified"])
+		}
+		if v, present := body["name"]; present {
+			t.Errorf("name = %v, want absent without profile", v)
+		}
+	})
+	t.Run("profile scope: name, no email", func(t *testing.T) {
+		body := serve(t, "openid profile")
+		if body["name"] != "Alice Example" {
+			t.Errorf("name = %v", body["name"])
+		}
+		for _, k := range []string{"email", "email_verified"} {
+			if v, present := body[k]; present {
+				t.Errorf("%s = %v, want absent without email scope", k, v)
+			}
+		}
+	})
+	t.Run("both scopes: both claim groups", func(t *testing.T) {
+		body := serve(t, "openid profile email")
+		if body["name"] != "Alice Example" || body["email"] != "user@example.com" || body["email_verified"] != true {
+			t.Errorf("claims under profile+email: %v", body)
+		}
+	})
 }
 
 // RULE: USERINFO-HUMAN-NAME-1

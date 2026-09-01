@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 )
 
@@ -203,10 +204,21 @@ func (s *IntrospectionService) Introspect(ctx context.Context, rawToken string) 
 	// scope lookup fails, the token's own scope claim is the
 	// safe fallback (active stays true; the operator just sees
 	// the token's view of its scopes).
+	//
+	// TOKEN-SCOPE-INTERSECTION-1: a CLIENT-BOUND user token (one the
+	// authorization_code grant minted, marked by its client_id claim)
+	// carries consented ∩ role-permitted. The live set may still narrow
+	// it — a revoked role disappears — but must never widen it back to
+	// the role set the user did not consent to hand this client. Login
+	// session tokens carry no client_id and keep the replace semantics.
 	if s.scopeSvc != nil && claims.UserID != uuid.Nil {
 		eff, scopeErr := s.scopeSvc.GetScopesForUser(ctx, claims.UserID, nil)
 		if scopeErr == nil {
-			resp.Scope = strings.Join(eff, " ")
+			if claims.ClientID != "" {
+				resp.Scope = domain.NarrowScopeToLive(claims.Scope, eff)
+			} else {
+				resp.Scope = strings.Join(eff, " ")
+			}
 		}
 	}
 	return resp

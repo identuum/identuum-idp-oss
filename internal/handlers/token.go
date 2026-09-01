@@ -366,15 +366,22 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 			return nil, service.ErrAuthCodeInvalidGrant
 		}
 	}
-	access, err := deps.UserToken.IssueForSession(c.Request.Context(), user, session)
+	// THE-CONSENTED-SCOPE (owner ruling): the access token's scope is the
+	// CONSENTED scope INTERSECTED with what the user's ROLE permits — roles
+	// authorize, consent restricts, consent never grants beyond the role.
+	// The token-response `scope` reports exactly that effective set (RFC
+	// 6749 §5.1), and the refresh token below carries it so rotation
+	// preserves it.
+	access, err := deps.UserToken.IssueForConsentedClient(c.Request.Context(), user, session, client.ClientID, consumed.Scope)
 	if err != nil {
 		return nil, err
 	}
+	effectiveScope := access.Scope
 	resp := &service.TokenResponse{
 		AccessToken: access.AccessToken,
 		TokenType:   access.TokenType,
 		ExpiresIn:   access.ExpiresIn,
-		Scope:       consumed.Scope,
+		Scope:       effectiveScope,
 	}
 	// OIDC §3.1.3.3: when the consented scope contains "openid",
 	// the token response MUST include an `id_token`. We treat an
@@ -411,7 +418,7 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 			issued, refreshErr := deps.RefreshTokens.Issue(c.Request.Context(), service.IssueRefreshTokenInput{
 				ClientID:  client.ClientID,
 				Subject:   user.ID.String(),
-				Scope:     consumed.Scope,
+				Scope:     effectiveScope,
 				Audience:  consumed.Audience,
 				AccessJTI: access.JTI,
 			})
