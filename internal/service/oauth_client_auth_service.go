@@ -144,7 +144,13 @@ func (s *OAuthClientAuthService) Authenticate(ctx context.Context, clientID, cli
 	if clientID == "" {
 		return nil, ErrInvalidOAuthClientCredentials
 	}
-	if c, err := s.clientSvc.AuthenticateClient(ctx, clientID, clientSecret); err == nil {
+	c, err := s.clientSvc.AuthenticateClient(ctx, clientID, clientSecret)
+	if domain.IsAuthStoreUnavailable(err) {
+		// AUTH-503: the client STORE erred — no verdict was reached; do not
+		// fall through to the api-resource chain and the opaque 401.
+		return nil, err
+	}
+	if err == nil {
 		// P0-7: the secret verified, but a secret presentation is valid ONLY
 		// for a client REGISTERED for that exact secret method. Reject the
 		// downgrade — a private_key_jwt (assertion-only) or public ("none")
@@ -230,6 +236,11 @@ func (s *OAuthClientAuthService) AuthenticateAssertion(ctx context.Context, clie
 	}
 	client, err := lookup.GetClientByClientID(ctx, clientID)
 	if err != nil || client == nil {
+		// AUTH-503: "no such client" is the verdict; any other lookup error
+		// is the store class and surfaces as such.
+		if err != nil && !errors.Is(err, domain.ErrClientNotFound) {
+			return nil, domain.AuthStoreUnavailable("client", err)
+		}
 		return nil, ErrInvalidOAuthClientCredentials
 	}
 	// Only clients configured for private_key_jwt may authenticate

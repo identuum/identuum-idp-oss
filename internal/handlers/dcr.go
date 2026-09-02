@@ -246,7 +246,8 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 					respondDCRError(c, http.StatusUnauthorized, "invalid_token", "the supplied initial access token is not valid")
 					return
 				}
-				respondDCRError(c, http.StatusInternalServerError, "server_error", "registration failed")
+				// AUTH-503: the token STORE erred — the credential was not judged.
+				mw.RespondAuthStoreUnavailable(c, "dcr.initial-access-token", err)
 				return
 			}
 			iatPolicy = policy

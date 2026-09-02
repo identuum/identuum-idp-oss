@@ -159,18 +159,33 @@ func (s *IntrospectionService) WithRevocationChecker(c TokenRevocationChecker) *
 // to any field on the response. Callers that pass nil rawToken
 // receive {"active":false}.
 func (s *IntrospectionService) Introspect(ctx context.Context, rawToken string) IntrospectionResponse {
+	resp, _ := s.IntrospectVerdict(ctx, rawToken)
+	return resp
+}
+
+// IntrospectVerdict is Introspect with the AUTH-503 distinction surfaced:
+// the returned error is non-nil ONLY when a store / infrastructure failure
+// (the signing-key store, the revocation store) prevented a verdict — the
+// response is then {"active":false} exactly as before (fail closed), but
+// the caller can answer 503 with an ERROR log instead of presenting an
+// unjudged token as inactive. A nil error means the response IS the
+// verdict. Introspect keeps its old signature for existing callers.
+func (s *IntrospectionService) IntrospectVerdict(ctx context.Context, rawToken string) (IntrospectionResponse, error) {
 	if strings.TrimSpace(rawToken) == "" {
-		return IntrospectionResponse{Active: false}
+		return IntrospectionResponse{Active: false}, nil
 	}
 	claims, err := s.verifier.IntrospectToken(ctx, rawToken)
 	if err != nil || claims == nil {
-		return IntrospectionResponse{Active: false}
+		if domain.IsAuthStoreUnavailable(err) {
+			return IntrospectionResponse{Active: false}, err
+		}
+		return IntrospectionResponse{Active: false}, nil
 	}
 	if claims.Sub == "" && claims.UserID == uuid.Nil && claims.ClientID == "" {
 		// A "verified" token with no subject identifier is not a
 		// usable bearer — treat it as inactive so a misconfigured
 		// claim set cannot poison downstream authorization.
-		return IntrospectionResponse{Active: false}
+		return IntrospectionResponse{Active: false}, nil
 	}
 	// Revocation check: if the token carries a jti AND a revocation
 	// checker is wired, consult the store. A revoked jti — or a
@@ -179,10 +194,15 @@ func (s *IntrospectionService) Introspect(ctx context.Context, rawToken string) 
 	// outage of the revocation store must not leak a revoked
 	// token as active. Discovery of the policy lives in
 	// docs/open-core/PHASE2_IDP_PHYSICAL_RELOCATION.md.
+	// AUTH-503: the repo-error branch additionally REPORTS the store
+	// class so the wire answer can be 503, not a silent "inactive".
 	if s.revoker != nil && claims.Jti != "" {
 		revoked, revErr := s.revoker.IsRevoked(ctx, claims.Jti)
-		if revErr != nil || revoked {
-			return IntrospectionResponse{Active: false}
+		if revErr != nil {
+			return IntrospectionResponse{Active: false}, domain.AuthStoreUnavailable("revocation", revErr)
+		}
+		if revoked {
+			return IntrospectionResponse{Active: false}, nil
 		}
 	}
 	resp := IntrospectionResponse{
@@ -226,7 +246,7 @@ func (s *IntrospectionService) Introspect(ctx context.Context, rawToken string) 
 			}
 		}
 	}
-	return resp
+	return resp, nil
 }
 
 // ErrIntrospectionVerifierMissing is returned by future callers
@@ -254,21 +274,37 @@ var ErrIntrospectionVerifierMissing = errors.New("service: introspection verifie
 // The raw token string is consumed once by the verifier and never
 // retained.
 func (s *IntrospectionService) IntrospectActiveClaims(ctx context.Context, rawToken string) (*IntrospectionClaims, bool) {
+	claims, ok, _ := s.IntrospectActiveClaimsVerdict(ctx, rawToken)
+	return claims, ok
+}
+
+// IntrospectActiveClaimsVerdict is IntrospectActiveClaims with the
+// AUTH-503 distinction: (nil, false, err) when a store / infrastructure
+// failure prevented a verdict (the caller answers 503 + ERROR log);
+// (nil, false, nil) for a genuine negative verdict; (claims, true, nil)
+// for an active token.
+func (s *IntrospectionService) IntrospectActiveClaimsVerdict(ctx context.Context, rawToken string) (*IntrospectionClaims, bool, error) {
 	if strings.TrimSpace(rawToken) == "" {
-		return nil, false
+		return nil, false, nil
 	}
 	claims, err := s.verifier.IntrospectToken(ctx, rawToken)
 	if err != nil || claims == nil {
-		return nil, false
+		if domain.IsAuthStoreUnavailable(err) {
+			return nil, false, err
+		}
+		return nil, false, nil
 	}
 	if claims.Sub == "" && claims.UserID == uuid.Nil && claims.ClientID == "" {
-		return nil, false
+		return nil, false, nil
 	}
 	if s.revoker != nil && claims.Jti != "" {
 		revoked, revErr := s.revoker.IsRevoked(ctx, claims.Jti)
-		if revErr != nil || revoked {
-			return nil, false
+		if revErr != nil {
+			return nil, false, domain.AuthStoreUnavailable("revocation", revErr)
+		}
+		if revoked {
+			return nil, false, nil
 		}
 	}
-	return claims, true
+	return claims, true, nil
 }

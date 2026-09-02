@@ -233,7 +233,9 @@ func (s *RefreshTokenService) Consume(ctx context.Context, in ConsumeRefreshToke
 	}
 	row, err := s.repo.GetByID(ctx, secure.Selector)
 	if err != nil {
-		return nil, err
+		// AUTH-503: the repository answers (nil, nil) for an unknown token;
+		// a non-nil error is the store class, never invalid_grant.
+		return nil, domain.AuthStoreUnavailable("refresh-token", err)
 	}
 	if row == nil {
 		return nil, ErrRefreshTokenInvalidGrant
@@ -308,7 +310,13 @@ func (s *RefreshTokenService) Consume(ctx context.Context, in ConsumeRefreshToke
 	// (the lifecycle cascade remains the primary enforcement).
 	if s.userOrgLookup != nil {
 		if subjectID, perr := uuid.Parse(row.Subject); perr == nil {
-			if org, lookErr := s.userOrgLookup.GetUserOrganization(ctx, subjectID); lookErr != nil || org == nil {
+			org, lookErr := s.userOrgLookup.GetUserOrganization(ctx, subjectID)
+			if lookErr != nil && !errors.Is(lookErr, domain.ErrUserOrganizationNotFound) {
+				// AUTH-503: the subject/org STORE erred — the rotation is refused
+				// as 503, not presented as an invalid_grant verdict.
+				return nil, domain.AuthStoreUnavailable("user-organization", lookErr)
+			}
+			if lookErr != nil || org == nil {
 				return nil, ErrRefreshTokenInvalidGrant
 			}
 		}

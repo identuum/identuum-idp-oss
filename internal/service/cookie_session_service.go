@@ -34,6 +34,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -105,12 +106,20 @@ func (s *CookieSessionService) WithOrganizationLookup(o OrgLiveLookup) *CookieSe
 // operational (domain.Organization.IsOperational). A nil org lookup (unwired)
 // or a site_admin's nil org is treated as operational — there is no tenant to
 // gate. Any lookup failure or non-operational org rejects the cookie.
-func (s *CookieSessionService) orgOperational(ctx context.Context, user *domain.User) bool {
+func (s *CookieSessionService) orgOperational(ctx context.Context, user *domain.User) (bool, error) {
 	if s.orgs == nil || user.OrganizationID == uuid.Nil {
-		return true
+		return true, nil
 	}
 	org, err := s.orgs.GetByID(ctx, user.OrganizationID)
-	return err == nil && org != nil && org.IsOperational()
+	if err != nil {
+		// AUTH-503: a missing organization is a verdict (not operational);
+		// any other repository error is the store class.
+		if errors.Is(err, domain.ErrOrganizationNotFound) {
+			return false, nil
+		}
+		return false, domain.AuthStoreUnavailable("organization", err)
+	}
+	return org != nil && org.IsOperational(), nil
 }
 
 // NewCookieSessionService constructs the helper. sessions is
@@ -240,11 +249,7 @@ func (s *CookieSessionService) Resolve(ctx context.Context, cookieValue string) 
 		if s.users == nil {
 			return &CookieSessionLookupResult{Session: session}, nil
 		}
-		user, err := s.users.GetByID(ctx, session.UserID)
-		if err != nil || user == nil || !s.orgOperational(ctx, user) {
-			return nil, nil
-		}
-		return &CookieSessionLookupResult{Session: session, User: user}, nil
+		return s.resolveUser(ctx, session)
 	}
 	// Legacy fallback: cookie value is the user-session refresh
 	// token wire shape. Retained ONLY for operators mid-migration
@@ -270,8 +275,31 @@ func (s *CookieSessionService) Resolve(ctx context.Context, cookieValue string) 
 	if s.users == nil {
 		return &CookieSessionLookupResult{Session: session}, nil
 	}
+	return s.resolveUser(ctx, session)
+}
+
+// resolveUser loads the session's user and checks its organization.
+// AUTH-503: "no such user" (banned / deleted rows are filtered by the
+// query and arrive as ErrUserNotFound) and a non-operational organization
+// are VERDICTS → (nil, nil) = anonymous; any other store error is returned
+// so the browser page answers 503 instead of bouncing a live session to
+// login.
+func (s *CookieSessionService) resolveUser(ctx context.Context, session *domain.Session) (*CookieSessionLookupResult, error) {
 	user, err := s.users.GetByID(ctx, session.UserID)
-	if err != nil || user == nil || !s.orgOperational(ctx, user) {
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return nil, nil
+		}
+		return nil, domain.AuthStoreUnavailable("user", err)
+	}
+	if user == nil {
+		return nil, nil
+	}
+	operational, oerr := s.orgOperational(ctx, user)
+	if oerr != nil {
+		return nil, oerr
+	}
+	if !operational {
 		return nil, nil
 	}
 	return &CookieSessionLookupResult{Session: session, User: user}, nil

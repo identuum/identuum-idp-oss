@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
@@ -140,6 +141,11 @@ func RequireOAuthClient(report *lifecycle.StartupReport, authn OAuthClientAuthen
 			}
 			ac, err := assertionAuthn.AuthenticateAssertion(c.Request.Context(), clientID, assertion)
 			if err != nil || ac == nil {
+				// AUTH-503: a client-STORE failure is not an invalid_client verdict.
+				if domain.IsAuthStoreUnavailable(err) {
+					RespondAuthStoreUnavailable(c, "client-auth.assertion", err)
+					return
+				}
 				respondInvalidClient(c)
 				return
 			}
@@ -166,6 +172,11 @@ func RequireOAuthClient(report *lifecycle.StartupReport, authn OAuthClientAuthen
 		}
 		ac, err := authn.Authenticate(c.Request.Context(), clientID, clientSecret, observedMethod)
 		if err != nil || ac == nil {
+			// AUTH-503: a client-STORE failure is not an invalid_client verdict.
+			if domain.IsAuthStoreUnavailable(err) {
+				RespondAuthStoreUnavailable(c, "client-auth.secret", err)
+				return
+			}
 			respondInvalidClient(c)
 			return
 		}

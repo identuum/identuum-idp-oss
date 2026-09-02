@@ -95,9 +95,13 @@ func RegisterPasskeyStepUpRoutes(router gin.IRouter, deps PasskeyStepUpHandlerDe
 // session's user and renders the page that runs it.
 func HandlePasskeyStepUpPage(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		resolved := resolveStepUpSession(c, StepUpHandlerDeps{CookieSession: deps.CookieSession})
+		resolved, storeErr := resolveStepUpSession(c, StepUpHandlerDeps{CookieSession: deps.CookieSession})
+		if storeErr != nil {
+			respondAuthStoreUnavailable(c, "step-up.passkey.cookie-session", storeErr)
+			return
+		}
 		if resolved == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required", "reason": "login_required"})
 			return
 		}
 		returnTo := validateReturnTo(c.Query("return_to"))
@@ -126,9 +130,13 @@ func HandlePasskeyStepUpPage(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 // HandlePasskeyStepUpFinish verifies the assertion and records the uplift.
 func HandlePasskeyStepUpFinish(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		resolved := resolveStepUpSession(c, StepUpHandlerDeps{CookieSession: deps.CookieSession})
+		resolved, storeErr := resolveStepUpSession(c, StepUpHandlerDeps{CookieSession: deps.CookieSession})
+		if storeErr != nil {
+			respondAuthStoreUnavailable(c, "step-up.passkey.cookie-session", storeErr)
+			return
+		}
 		if resolved == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required", "reason": "login_required"})
 			return
 		}
 		ip, ua := c.ClientIP(), c.Request.UserAgent()

@@ -485,13 +485,23 @@ func TestConsume_DirectlyRevokedIsInvalidGrantNotReuse(t *testing.T) {
 func TestConsume_RevalidationRejectsInactiveSubject(t *testing.T) {
 	subjectID := uuid.New()
 	repo := newInMemoryRefreshTokenRepo()
+	// The real repository answers the typed VERDICT domain.ErrUserOrganizationNotFound
+	// for a banned user / inactive org (AUTH-503: an untyped error is the store class).
 	svc := NewRefreshTokenService(nil, repo, RefreshTokenServiceOptions{TTL: time.Hour}).
-		WithUserOrgLookup(stubRefreshUserOrgLookup{err: errors.New("user banned or org inactive")})
+		WithUserOrgLookup(stubRefreshUserOrgLookup{err: domain.ErrUserOrganizationNotFound})
 	issued, _ := svc.Issue(context.Background(), IssueRefreshTokenInput{ClientID: "cli", Subject: subjectID.String()})
 	_, err := svc.Consume(context.Background(), ConsumeRefreshTokenInput{RawToken: issued.Token, ClientID: "cli"})
 	t.Logf("EVIDENCE (e-oauth) inactive subject: err=%v", err)
 	if !errors.Is(err, ErrRefreshTokenInvalidGrant) {
 		t.Fatalf("err = %v, want ErrRefreshTokenInvalidGrant (inactive subject must not rotate)", err)
+	}
+	// AUTH-503: a STORE error on the same lookup is NOT an invalid_grant verdict.
+	svcDown := NewRefreshTokenService(nil, repo, RefreshTokenServiceOptions{TTL: time.Hour}).
+		WithUserOrgLookup(stubRefreshUserOrgLookup{err: errors.New("db: connection reset")})
+	issuedDown, _ := svcDown.Issue(context.Background(), IssueRefreshTokenInput{ClientID: "cli", Subject: subjectID.String()})
+	_, downErr := svcDown.Consume(context.Background(), ConsumeRefreshTokenInput{RawToken: issuedDown.Token, ClientID: "cli"})
+	if !domain.IsAuthStoreUnavailable(downErr) || errors.Is(downErr, ErrRefreshTokenInvalidGrant) {
+		t.Fatalf("store error on the org lookup: err = %v, want the auth-store-unavailable class, never invalid_grant", downErr)
 	}
 	// Healthy lookup ⇒ rotation proceeds (no regression).
 	svcOK := NewRefreshTokenService(nil, repo, RefreshTokenServiceOptions{TTL: time.Hour}).

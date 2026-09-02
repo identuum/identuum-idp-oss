@@ -109,12 +109,13 @@ func TestBearerStatus_M2MTokenExemptNoStatusLookup(t *testing.T) {
 }
 
 // (e) FAIL-CLOSED — a combined-lookup error rejects the user-session request.
+// AUTH-503: as a 503 (store error), never the 401 verdict.
 func TestBearerStatus_LookupErrorFailsClosed(t *testing.T) {
 	sessions := &stubSessionLookup{err: errors.New("status store unavailable")}
 	code := doProbe(revocationEngine(sessionPrincipalVerifier(), sessions))
 	t.Logf("EVIDENCE (e) lookup error: status=%d", code)
-	if code != http.StatusUnauthorized {
-		t.Fatalf("status-store error: status=%d, want 401 (fail-closed)", code)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("status-store error: status=%d, want 503 (fail-closed as a store error, not a verdict)", code)
 	}
 }
 

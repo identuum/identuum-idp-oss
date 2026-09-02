@@ -544,7 +544,13 @@ func (s *ClientService) AuthenticateClient(ctx context.Context, clientID, client
 	}
 	client, err := s.repo.GetClientByClientID(ctx, clientID)
 	if err != nil {
-		return nil, ErrInvalidClientCredentials
+		// AUTH-503: only "no such client" is a credential verdict; any other
+		// repository error is the store class and must not read as
+		// invalid_client.
+		if errors.Is(err, domain.ErrClientNotFound) {
+			return nil, ErrInvalidClientCredentials
+		}
+		return nil, domain.AuthStoreUnavailable("client", err)
 	}
 	if client == nil {
 		return nil, ErrInvalidClientCredentials

@@ -1156,7 +1156,8 @@ func (r *PgxUserRepository) GetUserOrganization(ctx context.Context, userID uuid
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("organization not found for user")
+			// AUTH-503: a typed verdict, so callers can tell it from a store error.
+			return nil, domain.ErrUserOrganizationNotFound
 		}
 		return nil, fmt.Errorf("failed to get user organization: %w", err)
 	}

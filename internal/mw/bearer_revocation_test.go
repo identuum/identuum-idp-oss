@@ -146,12 +146,14 @@ func TestBearerRevocation_RevokedJTISessionTokenRejected(t *testing.T) {
 }
 
 // P0-6 fail-closed: a revocation-store ERROR rejects the token, never admits it.
+// AUTH-503 (THE-SESSION-REJECTION-ROOT-CAUSE): the rejection is a 503 — the
+// store erred, the token was NOT judged revoked — never the 401 verdict.
 func TestBearerRevocation_StoreErrorFailsClosed(t *testing.T) {
 	v := &stubVerifier{principal: &domain.Principal{ClientID: "svc-1", TokenID: "JTI-ANY"}}
 	revs := &stubRevocation{err: errors.New("revocation store down")}
 	code := doProbe(revocationEngineWithJTI(v, &stubSessionLookup{}, revs))
-	if code != http.StatusUnauthorized {
-		t.Fatalf("revocation-store error: status = %d, want 401 (fail-closed)", code)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("revocation-store error: status = %d, want 503 (fail-closed as a store error, not a verdict)", code)
 	}
 }
 
@@ -204,7 +206,8 @@ func TestBearerRevocation_M2MTokenExemptAndNoLookup(t *testing.T) {
 
 // Property (3): when the session-store lookup itself errors, a
 // user-session request is rejected (fail-closed) — a transient store
-// failure must not admit a possibly-revoked token.
+// failure must not admit a possibly-revoked token. AUTH-503: the rejection
+// is a 503 (store error, ERROR-logged), never the 401 verdict.
 // RULE: P0-JTI-1
 func TestBearerRevocation_LookupErrorFailsClosed(t *testing.T) {
 	v := &stubVerifier{principal: &domain.Principal{
@@ -212,8 +215,8 @@ func TestBearerRevocation_LookupErrorFailsClosed(t *testing.T) {
 	}}
 	sessions := &stubSessionLookup{err: errors.New("session store unavailable")}
 	code := doProbe(revocationEngine(v, sessions))
-	if code != http.StatusUnauthorized {
-		t.Fatalf("session-store error: status = %d, want 401 (fail-closed)", code)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("session-store error: status = %d, want 503 (fail-closed as a store error, not a verdict)", code)
 	}
 }
 

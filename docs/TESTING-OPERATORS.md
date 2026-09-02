@@ -694,6 +694,81 @@ browser:
   `prompt=none` is the OIDC-required `error=login_required` redirect to the
   client.
 
+## Auth verdicts — 401 is a verdict, 503 is a store error (AUTH-503)
+
+THE-SESSION-REJECTION-ROOT-CAUSE (2026-09-02). Owner ruling: **"a store/infra
+error on the auth path answers 503 with an ERROR log and a correlation id;
+401 is reserved for genuine verdicts. This changes STATUS and LOG, never the
+refusal."**
+
+**What was wrong (measured).** Every consumer on the authentication path
+collapsed `err != nil` into the same unlogged `{"error":"unauthorized"}` a
+bad token gets — `mw.BearerPrincipal` (verifier error, revocation-store
+error, liveness-store error), `HandleValidateSession` (session and user
+lookups), userinfo, introspection (`active:false`), the token endpoint
+(`invalid_grant` / `invalid_client`), the browser cookie-session resolver
+(a store error read as "anonymous" → bounced to login). The repositories
+had always separated the two — a missing row is `domain.ErrSessionNotFound`
+/ `ErrUserNotFound` / `ErrClientNotFound`, anything else is infrastructure —
+so a transient database stall under load presented as "your session is
+dead". Two harness hits: 2026-08-30 (three specs, one symptom) and
+2026-09-02 (site-admin-admin-recovery bounced to `/login` while the SAME
+cookie jar validated 200 one call later).
+
+**What holds now.**
+
+| answer | when | body | log |
+|---|---|---|---|
+| `401` | a VERDICT about the credential: absent, invalid, expired, revoked, mismatched, session/user/org not live | `{"error":"unauthorized","reason":"<verdict>"}` — reasons: `no_credential`, `missing_credential`, `token_invalid`, `token_revoked`, `session_not_live`, `token_not_session`, `session_not_found`, `session_not_usable`, `user_not_found`, `user_not_active`; ceremony pages answer `login_required` | none (a verdict is not an incident) |
+| `503` | a STORE / INFRASTRUCTURE failure prevented the verdict (signing-key store, session, user, organization, revocation, refresh-token, client lookups) | `{"error":"temporarily_unavailable","reason":"auth_store_error","correlation_id":"<id>"}` + `X-Request-ID: <id>` + `Retry-After: 1`; browser ceremony pages get an HTML 503 with the same id | exactly one ERROR line `AUTH-503: auth-path store error — refused with 503, NOT an authentication verdict` with `where` (the lookup) and the same `correlation_id` |
+
+Nothing is admitted either way. `domain.ErrAuthStoreUnavailable` names the
+class (`domain.AuthStoreUnavailable(where, err)` wraps at the store sites);
+`mw.RespondAuthStoreUnavailable` / `mw.RecordAuthStoreError` answer and log;
+`mw.CorrelationIDMiddleware` (mounted globally, first after the security
+headers) binds one id per request — the incoming `X-Request-ID` when it is
+1–64 chars of `[A-Za-z0-9._-]`, else a fresh uuid — into the request context
+so every `logger.*Context` line on that request carries `request_id`.
+Introspection and userinfo use the `*Verdict` variants of the
+IntrospectionService (the old methods keep their signatures). The token
+endpoint maps the class in `emitTokenError` (503, never `invalid_grant` /
+`server_error`). Refresh rotation and the authorization-code grant classify
+their session / user / organization lookups the same way (typed not-found =
+verdict; anything else = 503).
+
+**Measured live (2026-09-02, dev appliance built from this tree).** With
+postgres up, `GET /api/v1/validate` with `Authorization: Bearer garbage` →
+`401 {"error":"unauthorized","reason":"token_invalid"}`, `X-Request-Id`
+echoed. With the postgres container STOPPED, the same request →
+`503`, `Retry-After: 1`, `X-Request-Id: demo-auth503-1`, body
+`{"correlation_id":"demo-auth503-1","error":"temporarily_unavailable",
+"reason":"auth_store_error",…}`, and the appliance logged exactly one
+`{"level":"ERROR",…,"message":"AUTH-503: auth-path store error — refused
+with 503, NOT an authentication verdict","where":"bearer.verify",
+"correlation_id":"demo-auth503-1","error":"auth store unavailable:
+signing-keys: failed to query signing keys: failed to connect to … no such
+host","request_id":"demo-auth503-1"}`. Postgres restarted → `401
+token_invalid` again. Before this slice that middle request was the same
+unlogged `401 {"error":"unauthorized"}` as the first and the last.
+
+**Hunting a transient.** Search the appliance log for `AUTH-503`; the line's
+`where` names the lookup and `zap.Error` carries the driver text (never a
+token). The id on the client's 503 body / `X-Request-ID` header is the join
+key. The two-repo mint (`make test-full`) now records an `auth503-scan`
+phase: after the whole run it prints every `AUTH-503` line the appliance
+logged (count + lines) into the record — a fired transient is evidence,
+never a red phase, because the UI retries 503s and the assertion that
+matters is that no bare 401 was ever answered.
+
+**Rules.** `AUTH-VERDICT-HONEST-1` (red-proved by mutation): a store error
+never answers 401; a genuine verdict never answers 503 and always names its
+reason; every 503 makes exactly one log-sink call carrying its correlation
+id — pinned on the bearer middleware, `/api/v1/validate` and RFC 7662
+introspection. `P0-JTI-1`'s sentence now says the store-error rejection is
+the 503, not the 401. The ui's e2e asserts every auth 401 it meets carries a
+reason and every 503 its correlation id (`expectHonestAuthBody`); the former
+SESSION-REJECTION second-probe diagnostics are gone.
+
 ## What the suite does NOT cover (known, recorded — not forgotten)
 
 - **Backup / restore** — there is no product backup procedure yet to test;

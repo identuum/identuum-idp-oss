@@ -234,12 +234,19 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 		// must be too. This is what all three handler-side extractors do.
 		token := strings.TrimSpace(header[len(prefix):])
 		if token == "" {
-			respondUnauthenticated(c)
+			RespondUnauthenticatedReason(c, ReasonMissingCredential)
 			return
 		}
 		principal, err := verifier.VerifyBearerToken(c.Request.Context(), token)
 		if err != nil || principal == nil {
-			respondUnauthenticated(c)
+			// AUTH-503: a key-STORE failure inside the verifier is not a token
+			// verdict — the token was never judged. 503 + ERROR log; the
+			// refusal itself is unchanged (nothing is admitted).
+			if domain.IsAuthStoreUnavailable(err) {
+				RespondAuthStoreUnavailable(c, "bearer.verify", err)
+				return
+			}
+			RespondUnauthenticatedReason(c, ReasonTokenInvalid)
 			return
 		}
 		// RFC 7009 per-token revocation (P0-6), enforced for EVERY bearer
@@ -251,8 +258,16 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 		// revoked by this store and is left to the other gates.
 		if revocations != nil && principal.TokenID != "" {
 			revoked, revErr := revocations.IsRevoked(c.Request.Context(), principal.TokenID)
-			if revErr != nil || revoked {
-				respondUnauthenticated(c)
+			if revErr != nil {
+				// AUTH-503: still fail-CLOSED (the token is refused) but as a
+				// 503 with its ERROR log — the revocation STORE erred, the
+				// token was not judged revoked. Before this slice this was the
+				// same unlogged 401 as a genuinely revoked token.
+				RespondAuthStoreUnavailable(c, "bearer.revocation", revErr)
+				return
+			}
+			if revoked {
+				RespondUnauthenticatedReason(c, ReasonTokenRevoked)
 				return
 			}
 		}
@@ -291,8 +306,15 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				Subject:   principal.Sub,
 				SessionID: principal.SessionID.String(),
 			})
-			if resErr != nil || !ok {
-				respondUnauthenticated(c)
+			if resErr != nil {
+				// AUTH-503: the liveness STORE erred (the resolver returns an
+				// error only for infrastructure; "no such session" is ok=false).
+				// Fail closed as 503 with its ERROR log, not as a verdict.
+				RespondAuthStoreUnavailable(c, "bearer.liveness", resErr)
+				return
+			}
+			if !ok {
+				RespondUnauthenticatedReason(c, ReasonSessionNotLive)
 				return
 			}
 		}

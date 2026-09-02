@@ -173,7 +173,14 @@ func HandleRevoke(deps RevocationHandlerDeps) gin.HandlerFunc {
 		// `active`, `sub`, `jti`, `exp`. We do NOT serialize the
 		// response back to the caller; we only use it for the
 		// revoker fan-out and the jti-based persistence.
-		resp := deps.IntrospectionService.Introspect(c.Request.Context(), token)
+		resp, storeErr := deps.IntrospectionService.IntrospectVerdict(c.Request.Context(), token)
+		if storeErr != nil {
+			// AUTH-503 (R8 class): the token could not be judged, so it was
+			// NOT revoked — RFC 7009's unconditional 200 is for invalid
+			// tokens, never for a store that did not answer.
+			mw.RespondAuthStoreUnavailable(c, "revocation.introspect", storeErr)
+			return
+		}
 		if resp.Active {
 			meta := map[string]any{}
 			if ac, ok := mw.AuthenticatedClientFromContext(c); ok && ac != nil {

@@ -87,7 +87,9 @@ func (v *RepositoryVerifier) VerifyBearerToken(ctx context.Context, rawToken str
 
 	keys, err := v.repo.GetActiveSigningKeys(ctx)
 	if err != nil {
-		return nil, errTokenInvalid
+		// AUTH-503: the key STORE failed — the token was not judged. Callers
+		// answer 503, never the invalid-token 401.
+		return nil, domain.AuthStoreUnavailable("signing-keys", err)
 	}
 	// Build a kid → public key lookup of OSS-supported algorithms.
 	type keyEntry struct {

@@ -613,6 +613,10 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	// Security response headers are written first so they appear on EVERY
 	// response, including the NOT-SERVING 503 and auth 4xx rejections.
 	mountSecurityHeaders(router)
+	// AUTH-503: one correlation id per request (incoming X-Request-ID when
+	// well-formed, else a fresh uuid), bound into the request context so
+	// every ERROR log line and every 503 body carry the same id.
+	router.Use(mw.CorrelationIDMiddleware())
 	mountCORS(router, resolved)
 	// P2-1: cap request bodies GLOBALLY (before any handler reads the body) so
 	// an oversized payload on ANY route — including the public unauthenticated

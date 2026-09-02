@@ -127,7 +127,15 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 		if principal == nil && deps.CookieSession != nil {
 			if cookieVal, ok := deps.CookieSession.Read(c.Request); ok {
 				resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal)
-				if err == nil && resolved != nil && resolved.Session != nil && resolved.User != nil {
+				if err != nil {
+					// AUTH-503: Resolve returns an error ONLY for store /
+					// infrastructure failures (an unknown / dead cookie is
+					// (nil, nil)). Bouncing a live session to the login page
+					// here was the browser-side face of the defect.
+					respondAuthStoreUnavailable(c, "authorize.cookie-session", err)
+					return
+				}
+				if resolved != nil && resolved.Session != nil && resolved.User != nil {
 					principal = principalFromCookieSession(resolved)
 				}
 			}

@@ -134,12 +134,14 @@ func TestSubjectResolver_StubFalseOverridesLiveSession(t *testing.T) {
 
 // ── (c) fail-closed: an error rejects even alongside ok == true ─────────────
 
+// AUTH-503: the seam's error is infrastructure — refused as 503, never as
+// the 401 verdict, even when the stub says ok=true.
 func TestSubjectResolver_ErrorFailsClosedDespiteTrue(t *testing.T) {
 	v := &stubVerifier{principal: sessionPrincipal()}
 	stub := &stubSubjectResolver{ok: true, err: errors.New("resolver backend down")}
 	code := doProbe(resolverEngine(v, &stubSessionLookup{session: usableSession()}, WithSubjectResolver(stub)))
-	if code != http.StatusUnauthorized {
-		t.Fatalf("stub (true, err): status = %d, want 401 (fail-closed)", code)
+	if code != http.StatusServiceUnavailable {
+		t.Fatalf("stub (true, err): status = %d, want 503 (fail-closed as a store error, not a verdict)", code)
 	}
 }
 

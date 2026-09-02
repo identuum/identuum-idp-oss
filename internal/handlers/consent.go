@@ -83,10 +83,14 @@ func RegisterConsentRoutes(router gin.IRouter, deps ConsentHandlerDeps) {
 // before seeing the consent screen.
 func HandleConsentForm(deps ConsentHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		principal := resolveConsentPrincipal(c, deps.CookieSession)
+		principal, storeErr := resolveConsentPrincipal(c, deps.CookieSession)
+		if storeErr != nil {
+			respondAuthStoreUnavailable(c, "consent.cookie-session", storeErr)
+			return
+		}
 		if principal == nil {
 			c.Header("Content-Type", "application/json")
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required", "reason": "login_required"})
 			return
 		}
 		clientID := c.Query("client_id")
@@ -134,9 +138,13 @@ func HandleConsentForm(deps ConsentHandlerDeps) gin.HandlerFunc {
 // outcome only.
 func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		principal := resolveConsentPrincipal(c, deps.CookieSession)
+		principal, storeErr := resolveConsentPrincipal(c, deps.CookieSession)
+		if storeErr != nil {
+			respondAuthStoreUnavailable(c, "consent.cookie-session", storeErr)
+			return
+		}
 		if principal == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required", "reason": "login_required"})
 			return
 		}
 		if deps.CSRF != nil {
@@ -228,22 +236,26 @@ func handleConsentDeny(c *gin.Context, deps ConsentHandlerDeps, req service.Auth
 
 // resolveConsentPrincipal mirrors the /authorize handler's bearer-
 // then-cookie resolution but returns a *domain.Principal directly.
-func resolveConsentPrincipal(c *gin.Context, cookie *service.CookieSessionService) *domain.Principal {
+func resolveConsentPrincipal(c *gin.Context, cookie *service.CookieSessionService) (*domain.Principal, error) {
 	if p, ok := mw.PrincipalFromContext(c); ok {
-		return p
+		return p, nil
 	}
 	if cookie == nil {
-		return nil
+		return nil, nil
 	}
 	cookieVal, ok := cookie.Read(c.Request)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	resolved, err := cookie.Resolve(c.Request.Context(), cookieVal)
-	if err != nil || resolved == nil || resolved.Session == nil || resolved.User == nil {
-		return nil
+	if err != nil {
+		// AUTH-503: a store error is reported, not read as "anonymous".
+		return nil, err
 	}
-	return principalFromCookieSession(resolved)
+	if resolved == nil || resolved.Session == nil || resolved.User == nil {
+		return nil, nil
+	}
+	return principalFromCookieSession(resolved), nil
 }
 
 // readConsentForm extracts the /authorize parameters from either

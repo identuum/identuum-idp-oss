@@ -164,11 +164,12 @@ func TestUserinfo_NilResolverUnchanged(t *testing.T) {
 }
 
 // TestUserinfo_ResolverErrorFailsClosed pins the fail-closed contract from the
-// seam doc: a non-nil error is treated exactly like not-live.
+// seam doc: a non-nil error refuses even with ok=true. AUTH-503: the refusal
+// is a 503 (store error, ERROR-logged), never the invalid_token 401 verdict.
 func TestUserinfo_ResolverErrorFailsClosed(t *testing.T) {
 	resolver := &userinfoStubResolver{ok: true, err: context.DeadlineExceeded}
 	r := newUserinfoLivenessEngine(t, livenessClaims(uuid.New()), resolver)
-	if code := postUserinfoFormToken(t, r, "tok"); code != http.StatusUnauthorized {
-		t.Errorf("resolver error: status = %d, want 401 (fail-closed even with ok=true)", code)
+	if code := postUserinfoFormToken(t, r, "tok"); code != http.StatusServiceUnavailable {
+		t.Errorf("resolver error: status = %d, want 503 (fail-closed as a store error even with ok=true)", code)
 	}
 }

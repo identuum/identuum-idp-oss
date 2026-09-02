@@ -97,8 +97,11 @@ func RegisterStepUpRoutes(router gin.IRouter, deps StepUpHandlerDeps) {
 // HandleStepUpForm renders the TOTP form for the cookie session.
 func HandleStepUpForm(deps StepUpHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if resolveStepUpSession(c, deps) == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required"})
+		if resolved, storeErr := resolveStepUpSession(c, deps); storeErr != nil {
+			respondAuthStoreUnavailable(c, "step-up.cookie-session", storeErr)
+			return
+		} else if resolved == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required", "reason": "login_required"})
 			return
 		}
 		returnTo := validateReturnTo(c.Query("return_to"))
@@ -129,9 +132,13 @@ func HandleStepUpSubmit(deps StepUpHandlerDeps) gin.HandlerFunc {
 				return
 			}
 		}
-		resolved := resolveStepUpSession(c, deps)
+		resolved, storeErr := resolveStepUpSession(c, deps)
+		if storeErr != nil {
+			respondAuthStoreUnavailable(c, "step-up.cookie-session", storeErr)
+			return
+		}
 		if resolved == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "login_required", "reason": "login_required"})
 			return
 		}
 		returnTo := validateReturnTo(c.PostForm("return_to"))
@@ -172,17 +179,21 @@ func HandleStepUpSubmit(deps StepUpHandlerDeps) gin.HandlerFunc {
 }
 
 // resolveStepUpSession resolves the browser session cookie to a live
-// session + user, or nil.
-func resolveStepUpSession(c *gin.Context, deps StepUpHandlerDeps) *service.CookieSessionLookupResult {
+// session + user, or nil. AUTH-503: a store / infrastructure error is
+// returned as such (the caller answers 503), never read as "no session".
+func resolveStepUpSession(c *gin.Context, deps StepUpHandlerDeps) (*service.CookieSessionLookupResult, error) {
 	cookieVal, ok := deps.CookieSession.Read(c.Request)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal)
-	if err != nil || resolved == nil || resolved.Session == nil || resolved.User == nil {
-		return nil
+	if err != nil {
+		return nil, err
 	}
-	return resolved
+	if resolved == nil || resolved.Session == nil || resolved.User == nil {
+		return nil, nil
+	}
+	return resolved, nil
 }
 
 const stepUpFormTemplate = `<!DOCTYPE html>

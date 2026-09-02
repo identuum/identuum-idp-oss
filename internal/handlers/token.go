@@ -239,6 +239,11 @@ func HandleToken(deps TokenHandlerDeps) gin.HandlerFunc {
 // code. error_description carries a short, operator-facing hint.
 func emitTokenError(c *gin.Context, err error) {
 	switch {
+	case domain.IsAuthStoreUnavailable(err):
+		// AUTH-503: a store / infrastructure failure while judging the grant
+		// (refresh-token row, session, user, organization) — 503 + ERROR log
+		// with a correlation id, never invalid_grant and never a bare 500.
+		mw.RespondAuthStoreUnavailable(c, "token", err)
 	case errors.Is(err, service.ErrTokenServiceInvalidRequest):
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "invalid_request",
@@ -339,11 +344,19 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 	if err != nil {
 		return nil, err
 	}
+	// AUTH-503: "no such session / user" is the invalid_grant VERDICT; any
+	// other lookup error is the store class and surfaces as 503.
 	session, err := deps.SessionLookup.GetByID(c.Request.Context(), consumed.SessionID)
+	if err != nil && !errors.Is(err, domain.ErrSessionNotFound) {
+		return nil, domain.AuthStoreUnavailable("session", err)
+	}
 	if err != nil || session == nil {
 		return nil, service.ErrAuthCodeInvalidGrant
 	}
 	user, err := deps.UserLookup.GetByID(c.Request.Context(), consumed.UserID)
+	if err != nil && !errors.Is(err, domain.ErrUserNotFound) {
+		return nil, domain.AuthStoreUnavailable("user", err)
+	}
 	if err != nil || user == nil {
 		return nil, service.ErrAuthCodeInvalidGrant
 	}
@@ -367,6 +380,9 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 	// domain.Organization.IsOperational predicate.
 	if user.OrganizationID != uuid.Nil {
 		org, orgErr := deps.OrgLookup.GetByID(c.Request.Context(), user.OrganizationID)
+		if orgErr != nil && !errors.Is(orgErr, domain.ErrOrganizationNotFound) {
+			return nil, domain.AuthStoreUnavailable("organization", orgErr)
+		}
 		if orgErr != nil || org == nil || !org.IsOperational() {
 			return nil, service.ErrAuthCodeInvalidGrant
 		}

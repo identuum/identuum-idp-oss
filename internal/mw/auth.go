@@ -151,10 +151,10 @@ func InjectPrincipalForTest(p *domain.Principal) gin.HandlerFunc {
 	}
 }
 
+// respondUnauthenticated is the guards' 401: no credential reached the
+// route (AUTH-503: every 401 names its verdict; see auth_verdict.go).
 func respondUnauthenticated(c *gin.Context) {
-	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
-		"error": "unauthorized",
-	})
+	RespondUnauthenticatedReason(c, ReasonNoCredential)
 }
 
 func respondForbidden(c *gin.Context) {

@@ -148,7 +148,15 @@ func HandleIntrospection(deps IntrospectionHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 			return
 		}
-		resp := deps.IntrospectionService.Introspect(c.Request.Context(), token)
+		resp, storeErr := deps.IntrospectionService.IntrospectVerdict(c.Request.Context(), token)
+		if storeErr != nil {
+			// AUTH-503: the key / revocation STORE erred — RFC 7662's
+			// {"active":false} is a VERDICT the OP has not reached; answer 503
+			// with an ERROR log so the RP retries instead of treating a live
+			// token as inactive.
+			mw.RespondAuthStoreUnavailable(c, "introspection", storeErr)
+			return
+		}
 		c.JSON(http.StatusOK, resp)
 	}
 }

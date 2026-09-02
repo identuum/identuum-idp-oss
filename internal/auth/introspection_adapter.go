@@ -6,6 +6,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -29,7 +30,8 @@ func (v *RepositoryVerifier) IntrospectToken(ctx context.Context, rawToken strin
 	}
 	keys, err := v.repo.GetActiveSigningKeys(ctx)
 	if err != nil {
-		return nil, errTokenInvalid
+		// AUTH-503: key STORE failure, not a token verdict (see jwt_verifier.go).
+		return nil, domain.AuthStoreUnavailable("signing-keys", err)
 	}
 	type keyEntry struct {
 		alg string

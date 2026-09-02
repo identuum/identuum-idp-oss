@@ -708,37 +708,63 @@ type validateSessionResponse struct {
 // itself is NEVER echoed in the response body.
 func HandleValidateSession(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// AUTH-503 (THE-SESSION-REJECTION-ROOT-CAUSE): every 401 below is a
+		// VERDICT and names its reason; a store / infrastructure error on the
+		// session or user lookup — or inside the verifier's key store — is
+		// answered 503 with an ERROR log and a correlation id. This is the
+		// exact branch that bounced a live site_admin session to /login under
+		// devloop load: the same cookie jar validated 200 one call later.
 		token := extractValidateToken(c)
 		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			mw.RespondUnauthenticatedReason(c, mw.ReasonMissingCredential)
 			return
 		}
 		ctx := c.Request.Context()
 		principal, err := deps.TokenVerifier.VerifyBearerToken(ctx, token)
 		if err != nil || principal == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			if domain.IsAuthStoreUnavailable(err) {
+				mw.RespondAuthStoreUnavailable(c, "validate.verify", err)
+				return
+			}
+			mw.RespondUnauthenticatedReason(c, mw.ReasonTokenInvalid)
 			return
 		}
 		if principal.SessionID == (uuid.UUID{}) || principal.UserID == (uuid.UUID{}) {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			mw.RespondUnauthenticatedReason(c, "token_not_session")
 			return
 		}
 		session, err := deps.SessionLookup.GetByID(ctx, principal.SessionID)
-		if err != nil || session == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		if err != nil {
+			if !errors.Is(err, domain.ErrSessionNotFound) {
+				mw.RespondAuthStoreUnavailable(c, "validate.session", err)
+				return
+			}
+			mw.RespondUnauthenticatedReason(c, "session_not_found")
+			return
+		}
+		if session == nil {
+			mw.RespondUnauthenticatedReason(c, "session_not_found")
 			return
 		}
 		if ok, _ := session.CanBeUsed(time.Now()); !ok {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			mw.RespondUnauthenticatedReason(c, "session_not_usable")
 			return
 		}
 		user, err := deps.UserLookup.GetByID(ctx, principal.UserID)
-		if err != nil || user == nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		if err != nil {
+			if !errors.Is(err, domain.ErrUserNotFound) {
+				mw.RespondAuthStoreUnavailable(c, "validate.user", err)
+				return
+			}
+			mw.RespondUnauthenticatedReason(c, "user_not_found")
+			return
+		}
+		if user == nil {
+			mw.RespondUnauthenticatedReason(c, "user_not_found")
 			return
 		}
 		if user.Banned || user.DeletedAt != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			mw.RespondUnauthenticatedReason(c, "user_not_active")
 			return
 		}
 		body := validateSessionResponse{

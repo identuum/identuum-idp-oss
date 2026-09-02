@@ -10,6 +10,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 	"github.com/identuum/identuum-idp-oss/pkg/oidc"
 	"github.com/identuum/identuum-idp-oss/types"
@@ -114,7 +115,12 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 			respondUserinfoUnauthorized(c)
 			return
 		}
-		claims, ok := deps.IntrospectionService.IntrospectActiveClaims(c.Request.Context(), token)
+		claims, ok, storeErr := deps.IntrospectionService.IntrospectActiveClaimsVerdict(c.Request.Context(), token)
+		if storeErr != nil {
+			// AUTH-503: the key / revocation STORE erred — no verdict was reached.
+			mw.RespondAuthStoreUnavailable(c, "userinfo.introspect", storeErr)
+			return
+		}
 		if !ok || claims == nil {
 			respondUserinfoUnauthorized(c)
 			return
@@ -143,7 +149,13 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 				Subject:   claims.Sub,
 				SessionID: claims.SessionID.String(),
 			})
-			if err != nil || !live {
+			if err != nil {
+				// AUTH-503: the liveness STORE erred; fail closed as 503, not as
+				// an invalid_token verdict.
+				mw.RespondAuthStoreUnavailable(c, "userinfo.liveness", err)
+				return
+			}
+			if !live {
 				respondUserinfoUnauthorized(c)
 				return
 			}
