@@ -1,11 +1,1 @@
-[
-    {
-        "test-name": "oidcc-ensure-request-with-acr-values-succeeds",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "ValidateIdTokenACRClaimAgainstAcrValuesRequest",
-        "expected-result": "warning",
-        "comment": "DELIBERATE posture, not a defect: the OP stamps the session's REAL acr and refuses to echo a requested acr_values it did not perform — faking authentication context would be worse than this warning (acr is a voluntary claim)."
-    }
-]
+[]

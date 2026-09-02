@@ -80,6 +80,23 @@ func (s *Session) EffectiveAuthTime() time.Time {
 	return s.CreatedAt
 }
 
+// EffectiveAMR returns the authentication methods that produced the
+// current effective ACR (THE-HONEST-ACR). A TOTP step-up appends "otp"
+// (RFC 8176) to the session's original methods, so amr never claims less
+// than acr and never more than what was performed.
+func (s *Session) EffectiveAMR() []string {
+	out := append([]string(nil), s.Amr...)
+	if s.LastACRUpliftValue != nil && *s.LastACRUpliftValue == "urn:identuum:loa:mfa" {
+		for _, m := range out {
+			if m == "otp" {
+				return out
+			}
+		}
+		out = append(out, "otp")
+	}
+	return out
+}
+
 // RecordACRUplift atomically updates the step-up tracking columns on
 // an in-memory Session value. Persistence is the caller's job; this
 // helper exists so the step-up service has a single source of truth

@@ -156,6 +156,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			Prompt:              param("prompt"),
 			MaxAge:              param("max_age"),
 			Claims:              param("claims"),
+			AcrValues:           param("acr_values"),
 			RequestObject:       param("request"),
 			RequestURIParam:     param("request_uri"),
 			Principal:           principal,
@@ -208,6 +209,8 @@ func authorizeQueryFromRequest(req service.AuthorizeRequest) string {
 	// path) must carry it, or the freshness requirement is lost.
 	set("max_age", req.MaxAge)
 	set("claims", req.Claims)
+	// THE-HONEST-ACR: acr_values is honored, so it must resume too.
+	set("acr_values", req.AcrValues)
 	return v.Encode()
 }
 
@@ -243,6 +246,27 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 		redirectAuthorizeError(c, deps, req, "request_uri_not_supported")
 	case errors.Is(err, service.ErrAuthorizeInvalidMaxAge), errors.Is(err, service.ErrAuthorizeInvalidClaims):
 		redirectAuthorizeError(c, deps, req, "invalid_request")
+	case errors.Is(err, service.ErrAuthorizeUnmetAuthenticationRequirements):
+		// THE-HONEST-ACR: a requested, known context this user cannot
+		// perform (TOTP rung without an enrolled authenticator; the
+		// phishing-resistant rung, which has no step-up ceremony). The
+		// honest OIDC error (Unmet Authentication Requirements 1.0),
+		// never a fabricated acr.
+		redirectAuthorizeError(c, deps, req, "unmet_authentication_requirements")
+	case errors.Is(err, service.ErrAuthorizeStepUpRequired):
+		// THE-HONEST-ACR: the session is below the requested known
+		// rung and the user CAN perform it (TOTP enrolled). An
+		// interactive browser is sent through the OP's own step-up
+		// ceremony carrying the full authorize URL as return_to; the
+		// verified TOTP records the uplift on the SAME session and the
+		// resumed request passes. prompt=none forbids interaction:
+		// login_required per OIDC Core §3.1.2.6.
+		if strings.TrimSpace(req.Prompt) != "none" {
+			c.Redirect(http.StatusFound,
+				"/api/v1/auth/step-up?return_to="+url.QueryEscape("/api/v1/oauth/authorize?"+authorizeQuery))
+			return
+		}
+		redirectAuthorizeError(c, deps, req, "login_required")
 	case errors.Is(err, service.ErrAuthorizeLoginRequired):
 		// THE-PKCE-DECISION (DO-3): an unauthenticated BROWSER is sent to
 		// the OP's own login form with the full authorize URL as return_to,

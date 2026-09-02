@@ -45,6 +45,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 )
@@ -59,6 +60,23 @@ type AuthorizeService struct {
 	codes     *AuthorizationCodeService
 	issuer    string
 	now       func() time.Time
+	// users resolves the principal's user row so acr_values can tell
+	// "step up" (TOTP enrolled) from "cannot be met" (THE-HONEST-ACR).
+	users AuthorizeUserLookup
+}
+
+// AuthorizeUserLookup resolves user_id → *domain.User for the acr_values
+// decision. repository.UserRepository satisfies it via GetByID.
+type AuthorizeUserLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+}
+
+// WithUserLookup composes the user seam acr_values needs. Without it a
+// requested rung above the session's context is refused as unmet (the
+// service cannot know whether a step-up is possible).
+func (s *AuthorizeService) WithUserLookup(u AuthorizeUserLookup) *AuthorizeService {
+	s.users = u
+	return s
 }
 
 // AuthorizeClientLookup is the seam the service consults to resolve
@@ -175,6 +193,15 @@ type AuthorizeRequest struct {
 	// must be covered by consent and is persisted on the code row.
 	Claims string
 
+	// AcrValues is the OIDC Core §3.1.2.1 acr_values parameter, raw
+	// (space-separated, preference order) — THE-HONEST-ACR. Unknown values
+	// are ignored (voluntary claim). A known value is honored: the session's
+	// EffectiveACR must meet at least one requested rung; otherwise the
+	// service asks for a step-up (TOTP enrolled) or refuses with
+	// ErrAuthorizeUnmetAuthenticationRequirements. The id_token acr is
+	// always the context performed, never the one requested.
+	AcrValues string
+
 	// RequestObject / RequestURIParam carry the OIDC §6 `request` and
 	// `request_uri` wire parameters. The OSS OP does not support request
 	// objects: a non-empty value is refused with the corresponding
@@ -238,6 +265,13 @@ var (
 	// (OIDC Core §5.5); anything else is malformed, refused redirect-safe as
 	// invalid_request. Unknown claims inside a valid object are NOT an error.
 	ErrAuthorizeInvalidClaims = errors.New("service: authorize invalid claims parameter")
+	// THE-HONEST-ACR. StepUpRequired: the session is below a requested known
+	// rung and the user CAN perform it (TOTP enrolled) — the handler runs the
+	// step-up ceremony. UnmetAuthenticationRequirements: the requested rung
+	// cannot be performed for this user (no TOTP enrolled; or a rung with no
+	// ceremony) — the honest OIDC error, never a fabricated acr.
+	ErrAuthorizeStepUpRequired                  = errors.New("service: authorize step_up_required")
+	ErrAuthorizeUnmetAuthenticationRequirements = errors.New("service: authorize unmet_authentication_requirements")
 )
 
 // promptHas reports whether the OIDC prompt value — a space-separated list
@@ -392,6 +426,41 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	if maxAge >= 0 && authSession != nil {
 		if s.now().UTC().Sub(authSession.EffectiveAuthTime()) > time.Duration(maxAge)*time.Second {
 			return nil, ErrAuthorizeLoginRequired
+		}
+	}
+
+	// THE-HONEST-ACR (OIDC Core §3.1.2.1 acr_values). Only KNOWN rungs count
+	// (unknown values are a voluntary request we cannot serve — ignored, never
+	// an error). The session's EffectiveACR must meet at least one requested
+	// known rung (any-of, ACRMeetsFloor by rank). Otherwise the cheapest
+	// requested rung decides: password rung unmet means the session predates
+	// acr stamping — re-authenticate (login_required); the TOTP rung means a
+	// step-up ceremony when the user has TOTP enrolled, or the honest
+	// unmet_authentication_requirements when not; any higher rung has no
+	// ceremony here and is unmet. Nothing on this path ever changes the acr
+	// the token will carry: that stays Session.EffectiveACR.
+	if _, requested := auth.LowestRequestedRung(req.AcrValues); requested {
+		effective := ""
+		if authSession != nil {
+			effective = authSession.EffectiveACR()
+		}
+		if !auth.RequestSatisfiedBy(effective, req.AcrValues) {
+			target, _ := auth.LowestRequestedRung(req.AcrValues)
+			switch target {
+			case auth.ACRPassword:
+				return nil, ErrAuthorizeLoginRequired
+			case auth.ACRMFA:
+				if s.users == nil {
+					return nil, ErrAuthorizeUnmetAuthenticationRequirements
+				}
+				user, uerr := s.users.GetByID(ctx, req.Principal.UserID)
+				if uerr != nil || user == nil || !user.MFAEnabled {
+					return nil, ErrAuthorizeUnmetAuthenticationRequirements
+				}
+				return nil, ErrAuthorizeStepUpRequired
+			default:
+				return nil, ErrAuthorizeUnmetAuthenticationRequirements
+			}
 		}
 	}
 

@@ -226,8 +226,8 @@ func (s *UserTokenService) issue(ctx context.Context, user *domain.User, session
 	if acr := session.EffectiveACR(); acr != "" {
 		extra["acr"] = acr
 	}
-	if len(session.Amr) > 0 {
-		extra["amr"] = session.Amr
+	if amr := session.EffectiveAMR(); len(amr) > 0 {
+		extra["amr"] = amr
 	}
 	wireToken, storeKey, err := s.minter.Mint(ctx, oidc.TokenClaims{
 		Issuer:    s.issuer,

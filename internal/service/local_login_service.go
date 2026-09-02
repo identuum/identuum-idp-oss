@@ -26,6 +26,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
@@ -368,11 +369,19 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	if user.OrgMaxSessionsPerUser != nil {
 		maxSessions = *user.OrgMaxSessionsPerUser
 	}
+	// THE-HONEST-ACR: stamp the context ACTUALLY performed. This point is
+	// reached with the password verified and — when the user has TOTP
+	// enrolled (the s.mfa.Verify branch above returned on any failure) —
+	// the TOTP verified as well. Before this the session carried no acr and
+	// the id_token could not honestly say how the user authenticated.
+	acr, amr := auth.LoginContext(user.MFAEnabled && s.mfa != nil)
 	issued, err := s.sessions.CreateUserSession(ctx, CreateUserSessionInput{
 		UserID:             user.ID,
 		IPAddress:          in.IPAddress,
 		UserAgent:          in.UserAgent,
 		RememberMe:         in.RememberMe,
+		Acr:                acr,
+		Amr:                amr,
 		MaxSessionsPerUser: maxSessions,
 		OrganizationID:     user.OrganizationID,
 		Role:               string(user.Role),

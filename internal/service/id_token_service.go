@@ -207,8 +207,12 @@ func (s *IDTokenService) Issue(ctx context.Context, in IDTokenInput) (*IDTokenRe
 	if acr := in.Session.EffectiveACR(); acr != "" {
 		extra["acr"] = acr
 	}
-	if len(in.Session.Amr) > 0 {
-		extra["amr"] = in.Session.Amr
+	// THE-HONEST-ACR: acr above is the context ACTUALLY performed
+	// (Session.EffectiveACR — the original login rung, or the step-up
+	// rung); amr follows it (EffectiveAMR appends "otp" after a TOTP
+	// step-up). Never a requested-but-unperformed value.
+	if amr := in.Session.EffectiveAMR(); len(amr) > 0 {
+		extra["amr"] = amr
 	}
 	// Email scope gating. The OSS service does not enable
 	// implicit-all-claims emission; `email` only lands when the

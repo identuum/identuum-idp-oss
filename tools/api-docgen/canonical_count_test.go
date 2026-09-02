@@ -82,7 +82,9 @@ import (
 // form-serialized authorize; THE-PKCE-DECISION).
 // 134 → 135: added PUT /api/v1/profile (self-service display name + OIDC
 // §5.1 profile fields; THE-PROFILE-CLAIMS).
-const CanonicalEndpointCount = 135
+// 135 → 137: added GET + POST /api/v1/auth/step-up (the TOTP step-up
+// ceremony acr_values refers an interactive browser to; THE-HONEST-ACR).
+const CanonicalEndpointCount = 137
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

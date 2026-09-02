@@ -23,6 +23,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
 	"github.com/identuum/identuum-idp-oss/internal/features"
@@ -179,6 +180,11 @@ type OSSRouterDeps struct {
 	// When nil, the three routes do not register and the legacy
 	// single-step contract stays in force.
 	MFAEnrollment *service.MFAEnrollmentService
+
+	// MFAVerifier verifies a TOTP code for an enrolled user. Backs the
+	// THE-HONEST-ACR step-up ceremony (GET/POST /api/v1/auth/step-up)
+	// together with CookieSession + SessionRepo; nil leaves it unmounted.
+	MFAVerifier *service.MFAVerifierService
 
 	// UserSessionService backs POST /api/v1/auth/session/refresh
 	// and POST /api/v1/auth/logout. When nil, both routes do not
@@ -1375,6 +1381,19 @@ func mountBrowserLogin(router gin.IRouter, resolved OSSRouterDeps) {
 		BrowserTokens: resolved.BrowserTokens,
 		Audit:         resolved.Audit,
 	})
+	// THE-HONEST-ACR: the TOTP step-up ceremony /authorize refers to when
+	// acr_values asks for the password+TOTP rung. Needs the cookie session,
+	// the MFA verifier and the session store (RecordACRUplift).
+	if resolved.MFAVerifier == nil || resolved.SessionRepo == nil {
+		return
+	}
+	handlers.RegisterStepUpRoutes(router, handlers.StepUpHandlerDeps{
+		CookieSession: resolved.CookieSession,
+		CSRF:          resolved.CSRF,
+		Verifier:      resolved.MFAVerifier,
+		Sessions:      resolved.SessionRepo,
+		Audit:         resolved.Audit,
+	})
 }
 
 func mountConsent(router gin.IRouter, resolved OSSRouterDeps) {
@@ -1695,6 +1714,13 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			// (domain.EmittableIdentityClaims), consent-gated and
 			// role-intersected; unknown claims are ignored per §5.5.1.
 			body["claims_parameter_supported"] = true
+			// THE-HONEST-ACR (owner ruling): advertise ONLY the contexts a
+			// local login actually performs — password, and password+TOTP.
+			// A request for one of them is honored (step-up when the
+			// session is below and TOTP is enrolled) or refused with
+			// unmet_authentication_requirements; the id_token acr is
+			// always the context performed, never the one requested.
+			body["acr_values_supported"] = auth.AdvertisedACRValues()
 			// Identuum issuance posture beyond the three listed: never
 			// `none`, never HS*, never RS384/512 or PS*. Asserted in
 			// tests as well.

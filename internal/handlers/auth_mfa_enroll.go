@@ -44,6 +44,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
@@ -439,11 +440,16 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 	if out.User.OrgMaxSessionsPerUser != nil {
 		maxSessions = *out.User.OrgMaxSessionsPerUser
 	}
+	// THE-HONEST-ACR: both pending-MFA paths (enroll-complete and
+	// verify-login) reach here with the password AND a TOTP code verified.
+	acr, amr := auth.LoginContext(true)
 	issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
 		UserID:             out.User.ID,
 		IPAddress:          ipPtr,
 		UserAgent:          uaPtr,
 		RememberMe:         out.RememberMe,
+		Acr:                acr,
+		Amr:                amr,
 		MaxSessionsPerUser: maxSessions,
 		OrganizationID:     out.User.OrganizationID,
 		Role:               string(out.User.Role),

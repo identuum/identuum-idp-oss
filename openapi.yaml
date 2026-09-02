@@ -528,6 +528,31 @@ paths:
           description: "Refresh the authenticated principal's session (rotates the session token; old token is invalidated server-side)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/auth/step-up":
+    get:
+      operationId: "identuum-idp-oss.auth.step_up_form"
+      summary: "Render the TOTP step-up form for the browser session (THE-HONEST-ACR: /authorize refers here when acr_values asks for the password+TOTP rung and the session sits at the password rung)."
+      tags:
+        - "auth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Render the TOTP step-up form for the browser session (THE-HONEST-ACR: /authorize refers here when acr_values asks for the password+TOTP rung and the session sits at the password rung)."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+    post:
+      operationId: "identuum-idp-oss.auth.step_up_submit"
+      summary: "Submit the TOTP step-up code; on success the SAME session records an ACR uplift to the password+TOTP rung and the browser is redirected to return_to."
+      tags:
+        - "auth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Submit the TOTP step-up code; on success the SAME session records an ACR uplift to the password+TOTP rung and the browser is redirected to return_to."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/verify-email":
     get:
       operationId: "identuum-idp-oss.auth-lifecycle.verify_email"

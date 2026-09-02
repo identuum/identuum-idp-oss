@@ -264,6 +264,8 @@ func readConsentForm(c *gin.Context) service.AuthorizeRequest {
 		MaxAge: firstNonEmpty(c.PostForm("max_age"), c.Query("max_age")),
 		// THE-CLAIMS-PARAMETER: the §5.5 request resumes with the approval.
 		Claims: firstNonEmpty(c.PostForm("claims"), c.Query("claims")),
+		// THE-HONEST-ACR: the requested context resumes with the approval.
+		AcrValues: firstNonEmpty(c.PostForm("acr_values"), c.Query("acr_values")),
 	}
 }
 
@@ -377,7 +379,7 @@ func renderHiddenFields(q url.Values) string {
 	keys := []string{
 		"response_type", "client_id", "redirect_uri", "scope", "audience",
 		"state", "nonce", "code_challenge", "code_challenge_method",
-		"max_age", "claims",
+		"max_age", "claims", "acr_values",
 	}
 	var b strings.Builder
 	for _, k := range keys {

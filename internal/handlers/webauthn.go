@@ -58,6 +58,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
@@ -594,11 +595,16 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		if user.OrgMaxSessionsPerUser != nil {
 			maxSessions = *user.OrgMaxSessionsPerUser
 		}
+		// THE-HONEST-ACR: a verified WebAuthn assertion is the
+		// phishing-resistant rung (the ladder's top; it satisfies any
+		// requested rung). Not advertised in acr_values_supported — only
+		// the password and password+TOTP contexts are.
 		issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
 			UserID:             user.ID,
 			IPAddress:          ipPtr,
 			UserAgent:          uaPtr,
 			RememberMe:         rememberMe,
+			Acr:                auth.ACRPhishingResistant,
 			MaxSessionsPerUser: maxSessions,
 			OrganizationID:     user.OrganizationID,
 			Role:               string(user.Role),

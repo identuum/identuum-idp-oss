@@ -50,7 +50,7 @@ func newMaxAgeConsentEngine(t *testing.T) *gin.Engine {
 
 func TestConsentForm_EchoesMaxAge(t *testing.T) {
 	r := newMaxAgeConsentEngine(t)
-	q := url.Values{"client_id": {"cli-1"}, "redirect_uri": {"https://app.example.com/cb"}, "scope": {"openid"}, "max_age": {"60"}}
+	q := url.Values{"client_id": {"cli-1"}, "redirect_uri": {"https://app.example.com/cb"}, "scope": {"openid"}, "max_age": {"60"}, "acr_values": {"urn:identuum:loa:mfa"}}
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/oauth/consent?"+q.Encode(), nil))
 	if w.Code != http.StatusOK {
@@ -58,6 +58,11 @@ func TestConsentForm_EchoesMaxAge(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `name="max_age" value="60"`) {
 		t.Errorf("consent page must echo max_age as a hidden field:\n%s", w.Body.String())
+	}
+	// THE-HONEST-ACR: acr_values survives the consent round-trip too, so the
+	// resumed authorize still enforces the requested rung.
+	if !strings.Contains(w.Body.String(), `name="acr_values" value="urn:identuum:loa:mfa"`) {
+		t.Errorf("consent page must echo acr_values as a hidden field:\n%s", w.Body.String())
 	}
 	if strings.Contains(w.Body.String(), `name="prompt"`) {
 		t.Errorf("prompt must NOT be echoed (prompt=consent would loop the consent page)")

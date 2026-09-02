@@ -1102,7 +1102,10 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		WithAudienceLookup(apiResourceSvc).
 		WithSessionLookup(repos.Session).
 		WithConsentService(consentSvc).
-		WithOrganizationLookup(repos.Organization)
+		WithOrganizationLookup(repos.Organization).
+		// THE-HONEST-ACR: acr_values needs the user row to tell step-up
+		// (TOTP enrolled) from unmet.
+		WithUserLookup(repos.User)
 	tokenSvc := service.NewTokenService(report, keyService, service.TokenServiceOptions{
 		Issuer: tokenSvcIssuer,
 	}).
@@ -1238,6 +1241,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		OrganizationService:               orgSvc,
 		OrganizationDomainService:         orgDomainSvc,
 		UserProfileService:                userProfileSvc,
+		MFAVerifier:                       mfaVerifier,
 		OrgRoleService:                    orgRoleSvc,
 		ServiceAccountService:             serviceAccountSvc,
 		ServiceAccountClientBundleService: saClientBundleSvc,

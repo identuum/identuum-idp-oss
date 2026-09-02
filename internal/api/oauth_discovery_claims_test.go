@@ -30,3 +30,24 @@ func TestDiscovery_ClaimsParameterAdvertised(t *testing.T) {
 		}
 	}
 }
+
+// THE-HONEST-ACR: acr_values_supported advertises EXACTLY the two contexts a
+// local login performs — password, and password+TOTP — in ladder order.
+// Pinned by value: the conformance suite requests every advertised value, so
+// an extra entry here is a promise the OP cannot keep.
+func TestDiscovery_AcrValuesSupportedIsExactlyTheHonestTwo(t *testing.T) {
+	body := fullChainDiscovery(t)
+	raw, ok := body["acr_values_supported"].([]any)
+	if !ok {
+		t.Fatalf("acr_values_supported = %v (%T), want a list", body["acr_values_supported"], body["acr_values_supported"])
+	}
+	want := []string{"urn:identuum:loa:password", "urn:identuum:loa:mfa"}
+	if len(raw) != len(want) {
+		t.Fatalf("acr_values_supported = %v, want exactly %v", raw, want)
+	}
+	for i, w := range want {
+		if raw[i] != w {
+			t.Errorf("acr_values_supported[%d] = %v, want %q", i, raw[i], w)
+		}
+	}
+}

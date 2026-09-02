@@ -25,6 +25,7 @@ GET /api/v1/auth/idp/:id/callback
 GET /api/v1/auth/idp/:id/login
 GET /api/v1/auth/organization-lookup
 GET /api/v1/auth/organizations/activate/:token
+GET /api/v1/auth/step-up
 GET /api/v1/auth/verify-email
 GET /api/v1/clients
 GET /api/v1/clients/:id
@@ -82,6 +83,7 @@ POST /api/v1/auth/password/reset
 POST /api/v1/auth/password/reset-request
 POST /api/v1/auth/resend-verification
 POST /api/v1/auth/session/refresh
+POST /api/v1/auth/step-up
 POST /api/v1/clients
 POST /api/v1/clients/:id/secret/regenerate
 POST /api/v1/keys/deprecate

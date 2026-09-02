@@ -234,7 +234,7 @@ clone (and its python venv) survives between runs.
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (re-measured 2026-09-02 after THE-PROFILE-CLAIMS,
+**The committed baseline (re-measured 2026-09-02 after THE-HONEST-ACR,
 suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
@@ -242,24 +242,30 @@ suite release-v5.2.4):**
   advertises `[EdDSA, ES256, RS256]` (see "RS256 — testing only" above).
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
-  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1749
-  conditions passed in the close run, ZERO condition failures (the success
-  total is NOT a stable number — two consecutive runs of the same code on
-  2026-09-01 counted 1691 and 1749; failures/warnings/skips are the
-  measured floor, the success total is not). The recorded floor:
+  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1720
+  conditions passed in the THE-HONEST-ACR measurement run, ZERO condition
+  failures and ZERO warnings (the success total is NOT a stable number — two
+  consecutive runs of the same code on 2026-09-01 counted 1691 and 1749;
+  failures/warnings/skips are the measured floor, the success total is
+  not). The recorded floor:
   - `conformance/expected-basic-incomplete.txt` is EMPTY: `oidcc-prompt-login`
     and `oidcc-max-age-1` now run to completion with 0 failing conditions
     (result REVIEW — these modules ask for a screenshot of the second login,
     which the browser automation uploads; REVIEW is the accepted terminal
     state of that module class, exactly like the two redirect_uri modules).
-  - 1 recorded WARNING (`conformance/expected-failures-basic.json`): the
-    deliberate refuse-to-fake-`acr` posture. THE-CONSENTED-SCOPE retired the
-    four email-in-id_token / unscoped-`name` warnings; THE-CODE-REUSE-REVOKER
-    retired `oidcc-codereuse-30seconds`; THE-CLAIMS-PARAMETER retired
+  - 0 recorded WARNINGS — `conformance/expected-failures-basic.json` is
+    EMPTY (`[]`). THE-CONSENTED-SCOPE retired the four email-in-id_token /
+    unscoped-`name` warnings; THE-CODE-REUSE-REVOKER retired
+    `oidcc-codereuse-30seconds`; THE-CLAIMS-PARAMETER retired
     `oidcc-claims-essential`; THE-PROFILE-CLAIMS retired `oidcc-scope-profile`
     (the full OIDC §5.1 profile is modeled and the conformance provisioner
     sets every field on the test user, so the 14-claim check passes
-    truthfully) — see the sections below.
+    truthfully); THE-HONEST-ACR retired the LAST entry,
+    `oidcc-ensure-request-with-acr-values-succeeds` — measured, not faked:
+    the suite requests every value in `acr_values_supported` (it sends
+    `urn:identuum:loa:password urn:identuum:loa:mfa`), the password login
+    the browser automation performs honestly satisfies the first, and the
+    id_token now carries that performed acr (see "Honest acr" below).
   - 4 recorded SKIPS (`conformance/expected-skips-basic.json`):
     address/phone scopes are not modeled, and the request-object module
     skips because the OP compliantly rejects request objects as
@@ -417,6 +423,66 @@ tokens previously issued based on that code. Rule `CODE-REUSE-REVOKES-1`.
 - **Window.** Reuse is detectable while the code row exists — the
   10-minute code TTL plus the cleanup lag. After the row is pruned a replay
   is indistinguishable from an unknown code.
+
+## Honest acr — the id_token says how the user actually authenticated
+
+Rule `ACR-HONEST-1` (THE-HONEST-ACR, 2026-09-02; wiki decision P-023). The
+OP never fakes an authentication context. Two honest contexts exist for
+local logins, and they are the ONLY values discovery advertises in
+`acr_values_supported`:
+
+| acr | performed when | amr |
+|---|---|---|
+| `urn:identuum:loa:password` | password verified | `["pwd"]` |
+| `urn:identuum:loa:mfa` | password AND a TOTP code verified | `["pwd","otp"]` |
+
+Every local session creation stamps the context it performed
+(`auth.LoginContext`: the JSON login, the browser login, the pending-MFA
+completion); a WebAuthn assertion stamps the ladder's phishing-resistant
+rung, which is honored when presented but not advertised. The id_token and
+access token carry `acr` = the session's EFFECTIVE context
+(`Session.EffectiveACR`: the stamped rung, or the rung a recorded step-up
+uplifted it to) and `amr` from `Session.EffectiveAMR`. A session that
+carries no context (created before this slice) emits NO `acr` claim — an
+absent claim is honest, a guessed one is not.
+
+`acr_values` (OIDC Core §3.1.2.1) is honored with any-of semantics over the
+rungs the OP knows; unknown values are a voluntary request the OP ignores
+(never an error). When the session's effective context meets none of the
+known requested rungs, the CHEAPEST requested rung decides:
+
+- password rung on a session with no stamped context → `login_required`
+  (re-login stamps it); interactive browsers go through the login form.
+- TOTP rung, user has TOTP enrolled → the OP's step-up ceremony:
+  `GET /api/v1/auth/step-up` renders a code form for the live browser
+  session, `POST /api/v1/auth/step-up` verifies the code and records the
+  uplift on the SAME session (`SessionRepository.RecordACRUplift` writes
+  `sessions.last_acr_uplift_at/_value` — its first production writer), then
+  303s back to the original authorize URL, which now mints. A wrong code
+  re-renders the form (`error=invalid_code`) and writes nothing.
+  `prompt=none` never gets the step-up page: `login_required` to the client.
+- TOTP rung, user NOT enrolled, or any rung with no ceremony here →
+  `error=unmet_authentication_requirements` (OpenID "Unmet Authentication
+  Requirements 1.0") to the client; no code, no token.
+
+Manual check on a running appliance (a user with TOTP enrolled):
+
+```sh
+# 1. Sign in with password only at /api/v1/auth/browser-login, then:
+curl -si -b "$JAR" -c "$JAR" \
+  "$IDP/api/v1/oauth/authorize?client_id=$CID&redirect_uri=$RU&response_type=code&scope=openid&state=s&code_challenge=$CC&code_challenge_method=S256&acr_values=urn:identuum:loa:mfa" \
+  | grep -i '^location:'      # → /api/v1/auth/step-up?return_to=... (enrolled) or error=unmet_authentication_requirements (not enrolled)
+# 2. Submit the code on the step-up form, follow return_to, exchange the code:
+#    the id_token payload carries "acr":"urn:identuum:loa:mfa","amr":["pwd","otp"].
+```
+
+What the conformance suite measures: `oidcc-ensure-request-with-acr-values-succeeds`
+sends `acr_values` = every advertised value; its browser automation signs
+in with the password only; the OP honestly satisfies the password rung and
+the id_token's `acr` is in the requested set. The module PASSES without the
+suite ever typing a TOTP — which is exactly why the two-value vocabulary is
+the honest one: an advertised value nobody can perform would be a promise
+the OP cannot keep.
 
 ## RS256 — testing only, NEVER the default
 
