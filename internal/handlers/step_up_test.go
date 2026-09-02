@@ -186,7 +186,11 @@ func TestStepUpSubmit_OffOriginReturnToDropped(t *testing.T) {
 func TestRegisterStepUpRoutes_RequiresDeps(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	RegisterStepUpRoutes(r, StepUpHandlerDeps{CookieSession: &fakeStepUpResolver{}, Verifier: fakeStepUpVerifier{}})
+	RegisterStepUpRoutes(r, StepUpHandlerDeps{
+		CookieSession: &fakeStepUpResolver{},
+		Verifier:      fakeStepUpVerifier{},
+		Now:           func() time.Time { return time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC) },
+	})
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/auth/step-up", nil))
 	if w.Code != http.StatusNotFound {
