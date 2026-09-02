@@ -17,7 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
@@ -63,7 +62,7 @@ func (c *captureUplift) RecordACRUplift(_ context.Context, sessionID uuid.UUID, 
 func newStepUpEngine(t *testing.T, mfaEnrolled bool) (*gin.Engine, *captureUplift, *domain.Session) {
 	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
-	sess := &domain.Session{ID: uuid.New(), UserID: uuid.New(), IsValid: true, Acr: auth.ACRPassword, Amr: []string{auth.AMRPassword}}
+	sess := &domain.Session{ID: uuid.New(), UserID: uuid.New(), IsValid: true, Acr: service.ACRPassword, Amr: []string{service.AMRPassword}}
 	user := &domain.User{ID: sess.UserID, Email: "alice@example.com", MFAEnabled: mfaEnrolled}
 	rec := &captureUplift{}
 	r := gin.New()
@@ -124,15 +123,15 @@ func TestStepUpSubmit_VerifiedCodeRecordsUplift(t *testing.T) {
 	if rec.calls != 1 {
 		t.Fatalf("RecordACRUplift calls = %d, want 1", rec.calls)
 	}
-	if rec.sessionID != sess.ID || rec.value != auth.ACRMFA || rec.at.IsZero() {
-		t.Fatalf("uplift = (%s, %s, %v), want (%s, %s, non-zero)", rec.sessionID, rec.value, rec.at, sess.ID, auth.ACRMFA)
+	if rec.sessionID != sess.ID || rec.value != service.ACRMFA || rec.at.IsZero() {
+		t.Fatalf("uplift = (%s, %s, %v), want (%s, %s, non-zero)", rec.sessionID, rec.value, rec.at, sess.ID, service.ACRMFA)
 	}
 	// The domain view of what was written: EffectiveACR/AMR now carry TOTP.
 	sess.RecordACRUplift(rec.at, rec.value)
-	if sess.EffectiveACR() != auth.ACRMFA || sess.LastACRUpliftAt == nil {
+	if sess.EffectiveACR() != service.ACRMFA || sess.LastACRUpliftAt == nil {
 		t.Fatalf("EffectiveACR=%q LastACRUpliftAt=%v after uplift", sess.EffectiveACR(), sess.LastACRUpliftAt)
 	}
-	if amr := sess.EffectiveAMR(); len(amr) != 2 || amr[1] != auth.AMROTP {
+	if amr := sess.EffectiveAMR(); len(amr) != 2 || amr[1] != service.AMROTP {
 		t.Fatalf("EffectiveAMR = %v, want [pwd otp]", amr)
 	}
 }

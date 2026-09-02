@@ -22,7 +22,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
@@ -154,7 +153,7 @@ func HandleStepUpSubmit(deps StepUpHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		now := deps.Now().UTC()
-		if err := deps.Sessions.RecordACRUplift(c.Request.Context(), resolved.Session.ID, now, auth.ACRMFA); err != nil {
+		if err := deps.Sessions.RecordACRUplift(c.Request.Context(), resolved.Session.ID, now, service.ACRMFA); err != nil {
 			// The code verified but the uplift did not persist: refusing is
 			// the only honest answer — a resumed authorize would otherwise
 			// mint an id_token at the password rung after a real TOTP.
@@ -163,7 +162,7 @@ func HandleStepUpSubmit(deps StepUpHandlerDeps) gin.HandlerFunc {
 		}
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action: "user_session.step_up.success", Outcome: "success", IPAddress: ip, UserAgent: ua,
-			Metadata: map[string]any{"user_id": resolved.User.ID.String(), "session_id": resolved.Session.ID.String(), "acr": auth.ACRMFA},
+			Metadata: map[string]any{"user_id": resolved.User.ID.String(), "session_id": resolved.Session.ID.String(), "acr": service.ACRMFA},
 		})
 		if returnTo == "" {
 			returnTo = "/"

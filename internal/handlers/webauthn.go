@@ -58,7 +58,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
@@ -604,7 +603,7 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 			IPAddress:          ipPtr,
 			UserAgent:          uaPtr,
 			RememberMe:         rememberMe,
-			Acr:                auth.ACRPhishingResistant,
+			Acr:                service.ACRPhishingResistant,
 			MaxSessionsPerUser: maxSessions,
 			OrganizationID:     user.OrganizationID,
 			Role:               string(user.Role),

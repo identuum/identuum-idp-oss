@@ -26,7 +26,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
@@ -65,7 +64,7 @@ func TestRuleACRHonest1_RequestedNeverLandsUnperformed_PerformedLands_UpliftWrit
 			ID: principal.SessionID, UserID: principal.UserID, IsValid: true,
 			CreatedAt: time.Now().Add(-time.Minute), ExpiresAt: time.Now().Add(time.Hour),
 		}
-		s.Acr, s.Amr = auth.LoginContext(false)
+		s.Acr, s.Amr = service.LoginContext(false)
 		return s
 	}
 	client := &domain.Client{ClientID: "cli-1", Name: "Test", RedirectURIs: []string{"https://app.example.com/cb"}, SkipConsent: true, Scope: "openid"}
@@ -84,18 +83,18 @@ func TestRuleACRHonest1_RequestedNeverLandsUnperformed_PerformedLands_UpliftWrit
 
 	// ── Prong 1: requested above performed → no code, ever.
 	enrolled := &domain.User{ID: principal.UserID, Email: "alice@example.com", EmailVerified: true, MFAEnabled: true}
-	res, err := authorize(t, passwordSession(), enrolled, auth.ACRMFA)
+	res, err := authorize(t, passwordSession(), enrolled, service.ACRMFA)
 	if !errors.Is(err, service.ErrAuthorizeStepUpRequired) || res != nil {
 		t.Fatalf("TOTP rung requested on a password session (enrolled): res=%v err=%v, want ErrAuthorizeStepUpRequired and no code", res, err)
 	}
 	notEnrolled := &domain.User{ID: principal.UserID, Email: "alice@example.com", EmailVerified: true}
-	res, err = authorize(t, passwordSession(), notEnrolled, auth.ACRMFA)
+	res, err = authorize(t, passwordSession(), notEnrolled, service.ACRMFA)
 	if !errors.Is(err, service.ErrAuthorizeUnmetAuthenticationRequirements) || res != nil {
 		t.Fatalf("TOTP rung requested on a password session (not enrolled): res=%v err=%v, want ErrAuthorizeUnmetAuthenticationRequirements and no code", res, err)
 	}
 	// Control: the performed rung satisfies its own request (and the suite's
 	// both-advertised-values shape).
-	if res, err = authorize(t, passwordSession(), notEnrolled, auth.ACRPassword+" "+auth.ACRMFA); err != nil || res == nil || res.Code == "" {
+	if res, err = authorize(t, passwordSession(), notEnrolled, service.ACRPassword+" "+service.ACRMFA); err != nil || res == nil || res.Code == "" {
 		t.Fatalf("password session, acr_values=[password mfa]: res=%v err=%v, want a code", res, err)
 	}
 
@@ -110,8 +109,8 @@ func TestRuleACRHonest1_RequestedNeverLandsUnperformed_PerformedLands_UpliftWrit
 		}
 		return acrRuleJWTClaims(t, out.IDToken)
 	}
-	if c := issue(t, passwordSession()); c["acr"] != auth.ACRPassword {
-		t.Fatalf("password session id_token acr = %v, want %q", c["acr"], auth.ACRPassword)
+	if c := issue(t, passwordSession()); c["acr"] != service.ACRPassword {
+		t.Fatalf("password session id_token acr = %v, want %q", c["acr"], service.ACRPassword)
 	}
 	unstamped := passwordSession()
 	unstamped.Acr, unstamped.Amr = "", nil
@@ -130,8 +129,8 @@ func TestRuleACRHonest1_RequestedNeverLandsUnperformed_PerformedLands_UpliftWrit
 	if w := postStepUp(r, "live", "123456", "/api/v1/oauth/authorize?x=1"); w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/api/v1/oauth/authorize?x=1" {
 		t.Fatalf("right code: status=%d location=%q", w.Code, w.Header().Get("Location"))
 	}
-	if rec.calls != 1 || rec.sessionID != stepSess.ID || rec.value != auth.ACRMFA || rec.at.IsZero() {
-		t.Fatalf("uplift record = calls %d (%s, %s, %v), want 1 (%s, %s, non-zero)", rec.calls, rec.sessionID, rec.value, rec.at, stepSess.ID, auth.ACRMFA)
+	if rec.calls != 1 || rec.sessionID != stepSess.ID || rec.value != service.ACRMFA || rec.at.IsZero() {
+		t.Fatalf("uplift record = calls %d (%s, %s, %v), want 1 (%s, %s, non-zero)", rec.calls, rec.sessionID, rec.value, rec.at, stepSess.ID, service.ACRMFA)
 	}
 	// …and what was written is what the token then carries (prong 2 closes
 	// the loop): the same session, uplifted, mints acr mfa / amr [pwd otp].
@@ -141,16 +140,16 @@ func TestRuleACRHonest1_RequestedNeverLandsUnperformed_PerformedLands_UpliftWrit
 		t.Fatal("RecordACRUplift did not set LastACRUpliftAt")
 	}
 	c := issue(t, uplifted)
-	if c["acr"] != auth.ACRMFA {
-		t.Fatalf("uplifted session id_token acr = %v, want %q", c["acr"], auth.ACRMFA)
+	if c["acr"] != service.ACRMFA {
+		t.Fatalf("uplifted session id_token acr = %v, want %q", c["acr"], service.ACRMFA)
 	}
 	amr, _ := c["amr"].([]any)
-	if len(amr) != 2 || amr[0] != auth.AMRPassword || amr[1] != auth.AMROTP {
+	if len(amr) != 2 || amr[0] != service.AMRPassword || amr[1] != service.AMROTP {
 		t.Fatalf("uplifted session id_token amr = %v, want [pwd otp]", c["amr"])
 	}
 	// The uplifted session now satisfies the TOTP rung request — the ONLY way
 	// a TOTP-rung id_token is ever reached from a password login.
-	if res, err = authorize(t, uplifted, enrolled, auth.ACRMFA); err != nil || res == nil || res.Code == "" {
+	if res, err = authorize(t, uplifted, enrolled, service.ACRMFA); err != nil || res == nil || res.Code == "" {
 		t.Fatalf("uplifted session, acr_values=mfa: res=%v err=%v, want a code", res, err)
 	}
 }

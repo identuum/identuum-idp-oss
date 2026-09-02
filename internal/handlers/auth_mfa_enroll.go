@@ -44,7 +44,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
-	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
@@ -442,7 +441,7 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 	}
 	// THE-HONEST-ACR: both pending-MFA paths (enroll-complete and
 	// verify-login) reach here with the password AND a TOTP code verified.
-	acr, amr := auth.LoginContext(true)
+	acr, amr := service.LoginContext(true)
 	issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
 		UserID:             out.User.ID,
 		IPAddress:          ipPtr,

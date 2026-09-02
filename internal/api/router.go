@@ -23,7 +23,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
 	"github.com/identuum/identuum-idp-oss/internal/features"
@@ -1720,7 +1719,7 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			// session is below and TOTP is enrolled) or refused with
 			// unmet_authentication_requirements; the id_token acr is
 			// always the context performed, never the one requested.
-			body["acr_values_supported"] = auth.AdvertisedACRValues()
+			body["acr_values_supported"] = service.AdvertisedACRValues()
 			// Identuum issuance posture beyond the three listed: never
 			// `none`, never HS*, never RS384/512 or PS*. Asserted in
 			// tests as well.
