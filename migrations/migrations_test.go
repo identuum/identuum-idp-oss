@@ -51,6 +51,7 @@ var expectedOSSFiles = []string{
 	"0035_user_profiles.sql",
 	"0036_address_phone.sql",
 	"0037_agent_communication_authorizations.sql",
+	"0038_dpop_proof_replays.sql",
 }
 
 // excludedCommercialTables is the set of commercial-only table names that
@@ -113,6 +114,7 @@ var requiredOSSTables = []string{
 	"backchannel_logout_deliveries",
 	"agent_communication_authorizations",
 	"agent_communication_participants",
+	"dpop_proof_replays",
 }
 
 // TestEmbedFSOpens verifies the embedded migration FS opens at all and
@@ -169,7 +171,7 @@ func TestExactFileSetMatches(t *testing.T) {
 // one was removed without updating it.
 func TestCurrentReturnsLatestMigration(t *testing.T) {
 	got := migrations.Current()
-	want := "0037"
+	want := "0038"
 	if got != want {
 		t.Errorf("Current() = %q, want %q", got, want)
 	}

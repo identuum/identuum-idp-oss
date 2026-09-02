@@ -56,6 +56,10 @@ type TokenService struct {
 	// newJTI generates the token identifier. Injectable so equivalence
 	// tests can pin a fixed jti; defaults to a UUIDv7 source.
 	newJTI func() (string, error)
+
+	// agentComm is the AYGHU-3 participant-token issuer; nil = the
+	// agent-communication path is not wired (authorization_details refused).
+	agentComm *agentCommunicationIssuance
 }
 
 // SigningKeyProvider is the seam the TokenService consumes. The

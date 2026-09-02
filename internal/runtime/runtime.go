@@ -236,6 +236,10 @@ type Runtime struct {
 	// cleanup is disabled.
 	cleanupCancel context.CancelFunc
 
+	// dpopReplaySvc is the AYGHU-3 DPoP proof replay store, built in
+	// buildDeps (token issuance) and swept by the cleanup ticker in Start.
+	dpopReplaySvc *service.DPoPProofReplayService
+
 	// done is closed once the serve loop returns. serveErr stores
 	// the loop's final error (nil for graceful shutdown).
 	done      chan struct{}
@@ -476,6 +480,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 		cleanup := service.NewTokenRevocationCleanup(r.startupReport, tokenRevocationSvc, r.cfg.RevocationCleanupInterval, &stdoutCleanupLogger{w: r.cfg.Stdout}).
 			WithRefreshTokenService(refreshTokenSvc).
 			WithClientAssertionReplayService(replaySvc).
+			WithDPoPProofReplayService(r.dpopReplaySvc).
 			WithUserSessionService(userSessionSvc).
 			WithAuthorizationCodeService(authCodeSvc).
 			WithLoginRiskService(loginRiskSvc).
@@ -1114,11 +1119,23 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		// THE-HONEST-ACR: acr_values needs the user row to tell step-up
 		// (TOTP enrolled) from unmet.
 		WithUserLookup(repos.User)
+	// AYGHU-3: participant-token issuance (DPoP-bound, authorization_details
+	// type agent_communication) rides the same TokenService. The replay
+	// store is kept on the Runtime so Start can add it to the sweep.
+	r.dpopReplaySvc = service.NewDPoPProofReplayService(report, repos.DPoPProofReplay, service.DPoPProofReplayServiceOptions{})
 	tokenSvc := service.NewTokenService(report, keyService, service.TokenServiceOptions{
 		Issuer: tokenSvcIssuer,
 	}).
 		WithAudienceLookup(apiResourceSvc).
-		WithServiceAccountLookup(serviceAccountSvc, clientSvc)
+		WithServiceAccountLookup(serviceAccountSvc, clientSvc).
+		WithAgentCommunication(service.AgentCommunicationIssuanceDeps{
+			Authorizations:   repos.AgentCommunicationAuthorization,
+			ServiceAccounts:  repos.ServiceAccount,
+			Clients:          repos.Client,
+			Replays:          r.dpopReplaySvc,
+			TokenEndpointURL: tokenSvcIssuer + "/api/v1/oauth/token",
+			TTL:              resolveAgentCommunicationTokenTTL(r.cfg.Getenv),
+		})
 	tokenRevocationSvc := service.NewTokenRevocationService(report, repos.TokenRevocation)
 	refreshTokenSvc := service.NewRefreshTokenService(report, repos.RefreshToken, service.RefreshTokenServiceOptions{}).
 		WithTokenRevocationService(tokenRevocationSvc).

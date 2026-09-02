@@ -96,9 +96,100 @@ refusal records none). Ratchets: ui `e2e-full/role-matrix.json` grows by
 the four endpoints (every role observed), `e2e-full/agent-communication-sweep.spec.ts`
 exercises every endpoint and refusal path in the api-suite.
 
+## AYGHU-3 ISSUANCE + DPoP — built
+
+The existing token endpoint (`POST /api/v1/oauth/token`, no new route) issues
+a participant token when — and only when — the request carries
+`authorization_details`. Everything else about `client_credentials` is
+byte-for-byte unchanged. `internal/service/token_service_agent_communication.go`
+(issuance), `internal/service/dpop_proof.go` (token-endpoint DPoP
+verifier), `internal/service/dpop_proof_replay_service.go` +
+`migrations/0038_dpop_proof_replays.sql` (single-use proofs),
+`internal/handlers/token_agent_communication.go` (branch + audit).
+
+Request (form-encoded, client authenticated with **private_key_jwt** — the
+participant's registered installation):
+
+```
+grant_type=client_credentials
+audience=<exact relay audience of the authorization>
+authorization_details=[{"type":"agent_communication","authorization_id":"<UUIDv7>","aci":"<participant ACI UUIDv7>"}]
+DPoP: <proof JWS>   (header)
+```
+
+`authorization_details` is the ONE closed type: exactly one array element,
+exactly the members `type`, `authorization_id`, `aci`, both UUIDv7 —
+unknown types, unknown or missing fields, several details, malformed
+identifiers → `400 invalid_authorization_details`. No general RFC 9396
+support is claimed.
+
+DPoP proof (RFC 9449 §4) checks, in order: `typ: dpop+jwt`; `alg` in the
+repository's asymmetric allow-list (EdDSA, ES256/384, RS256/384, …; `none`
+and HMAC refused); public `jwk` header (private members refused);
+signature with that key; `htm` = POST; `htu` = the advertised token endpoint
+(scheme/host case, default port, query and fragment normalized away); `iat`
+within ±60 s; `jti` present (≤256 bytes); no other claim — `ath` and
+`nonce` do not belong to a token-endpoint proof here. The proof key's RFC
+7638 thumbprint must equal the participant's enrolled
+`proof_key_thumbprint`. Each (thumbprint, jti) is single-use: recorded in
+`dpop_proof_replays` (sha256 of the jti, never the raw jti; a separate table
+from the client-assertion replays), swept by the revocation cleanup ticker.
+
+Issuance verifies: authorization exists in the client's organization,
+active (not revoked, not expired), the ACI is one of its participants, the
+client is THAT participant's installation (`oauth_clients.id`), the service
+account is live and still bound, the audience matches the stored relay
+audience exactly (normalized form), the scope is empty or
+`agent_communication`, the thumbprint matches, the proof is unused.
+
+Token: JWT signed with the IdP key; `token_type: DPoP`; **no refresh
+token**; TTL `IDENTUUM_IDP_AGENT_COMMUNICATION_TOKEN_TTL` (default 5 min,
+hard max 15 min, never past the authorization's expiry). Claims: `iss`,
+`sub` = service-account id, `aud` = relay audience, `client_id`, `scope
+agent_communication`, `iat`, `nbf`, `exp`, `jti` (UUIDv7), `actor_type`,
+`org_id`, `cnf.jkt`, `authorization_details` (the detail as accepted),
+`agent_communication` {authorization_id, session_id, aci, role,
+policy_version, policy_digest, max_messages, max_message_size_bytes,
+authorization_expires_at}. Never: owner email, secrets, keys, capabilities,
+message content.
+
+Refusal matrix (all 400 unless noted; every refusal is audited as
+`agent_communication.token.refused` with a stable `reason`):
+
+| Condition | error | reason |
+|---|---|---|
+| no `DPoP` header | invalid_dpop_proof | dpop_missing |
+| proof malformed / wrong typ, alg, htm, htu, iat, jti / extra claim / bad signature | invalid_dpop_proof | dpop_invalid |
+| proof key ≠ enrolled thumbprint (incl. the other participant's key) | invalid_dpop_proof | thumbprint_mismatch |
+| proof (jkt, jti) already used | invalid_dpop_proof | dpop_replay |
+| `authorization_details` malformed / unknown type / fields / count / ids | invalid_authorization_details | invalid_authorization_details |
+| grant_type ≠ client_credentials | unsupported_grant_type | unsupported_grant |
+| caller not an OAuth client, public, unknown, or not private_key_jwt | unauthorized_client | client_kind / client_not_found / client_auth_not_asymmetric |
+| authorization absent or another organization's | invalid_grant | authorization_not_found |
+| authorization revoked / expired | invalid_grant | authorization_revoked / authorization_expired |
+| ACI not in the authorization / client is not that participant | invalid_grant | aci_not_in_authorization / client_not_participant |
+| participant service account missing / inactive / expired / binding broken | invalid_grant | participant_service_account_missing / participant_not_usable / participant_binding_invalid |
+| audience missing or ≠ relay audience | invalid_target | audience_mismatch |
+| scope other than agent_communication | invalid_scope | scope_invalid |
+| any store failure (authorization, client, service account, replay store) | **503** temporarily_unavailable / auth_store_error + correlation id | — (an outage is not a verdict; no refusal is audited) |
+
+Success audit: `agent_communication.token.issued` {authorization_id,
+session_id, aci, role, service_account_id, client_id, token_type,
+expires_at}; the token and the proof never enter an event.
+
+Rules armed by this slice: `AYGHU-NO-BEARER-1`, `AYGHU-DPOP-THUMBPRINT-1`,
+`AYGHU-REVOKE-STOPS-ISSUANCE-1`, `AYGHU-DPOP-REPLAY-1`.
+
+Honest limits (documented, not built): no DPoP server nonce; discovery does
+not yet advertise `dpop_signing_alg_values_supported` /
+`authorization_details_types_supported`; introspection of participant tokens
+and revocation propagation to already-issued tokens are AYGHU-4 — an
+already-issued participant token stays verifiable offline until its
+(≤ 15 min) expiry.
+
 ## Not built yet — later slices
 
-- **AYGHU-3 ISSUANCE + DPoP** — client-credentials issuance carrying
+- **AYGHU-3 ISSUANCE + DPoP** — built above. — client-credentials issuance carrying
   `authorization_details` of type `agent_communication` bound to one
   participant ACI, DPoP (RFC 9449) proof binding to
   `proof_key_thumbprint`, relay audience as the token audience, session

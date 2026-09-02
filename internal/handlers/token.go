@@ -192,13 +192,18 @@ func HandleToken(deps TokenHandlerDeps) gin.HandlerFunc {
 			resp *service.TokenResponse
 			err  error
 		)
-		switch grantType {
-		case "refresh_token":
+		switch {
+		case c.PostForm("authorization_details") != "":
+			// AYGHU-3: the ONLY activation of the agent-communication path is
+			// the presence of authorization_details; every other request
+			// below is byte-for-byte the pre-existing behavior.
+			resp, err = handleAgentCommunicationGrant(c, deps, client, grantType)
+		case grantType == "refresh_token":
 			resp, err = deps.TokenService.IssueRefresh(c.Request.Context(), client, service.RefreshTokenRequest{
 				GrantType:    grantType,
 				RefreshToken: c.PostForm("refresh_token"),
 			})
-		case "authorization_code":
+		case grantType == "authorization_code":
 			resp, err = handleAuthorizationCodeGrant(c, deps)
 		default:
 			resp, err = deps.TokenService.IssueClientCredentials(c.Request.Context(), client, service.ClientCredentialsRequest{
@@ -283,6 +288,25 @@ func emitTokenError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error":             "invalid_target",
 			"error_description": "The requested audience is not registered or not active",
+		})
+	case errors.Is(err, service.ErrTokenServiceInvalidAuthorizationDetails):
+		// RFC 9396 §5: the closed type agent_communication is the only one served.
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_authorization_details",
+			"error_description": "authorization_details must be exactly one agent_communication detail with authorization_id and aci",
+		})
+	case errors.Is(err, service.ErrDPoPProofRequired),
+		errors.Is(err, service.ErrDPoPProofInvalid),
+		errors.Is(err, service.ErrDPoPProofReplayed):
+		// RFC 9449 §5: a sender-constrained token is never downgraded to Bearer.
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_dpop_proof",
+			"error_description": "A valid, unused DPoP proof bound to the participant's enrolled key is required",
+		})
+	case errors.Is(err, service.ErrAgentCommunicationGrantInvalid):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":             "invalid_grant",
+			"error_description": "The agent communication authorization does not permit this token for this client",
 		})
 	case errors.Is(err, service.ErrTokenServiceNoSigningKey),
 		errors.Is(err, service.ErrTokenServiceSigningFailed):

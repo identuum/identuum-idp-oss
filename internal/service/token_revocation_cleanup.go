@@ -22,6 +22,7 @@ type TokenRevocationCleanup struct {
 	svc                *TokenRevocationService
 	refreshes          *RefreshTokenService
 	replays            *ClientAssertionReplayService
+	dpopReplays        *DPoPProofReplayService
 	userSessions       *UserSessionService
 	authCodes          *AuthorizationCodeService
 	loginRisk          *LoginRiskService
@@ -202,6 +203,16 @@ func (c *TokenRevocationCleanup) WithClientAssertionReplayService(svc *ClientAss
 	return c
 }
 
+// WithDPoPProofReplayService adds the AYGHU-3 DPoP proof replay store to the
+// sweep (a separate table from the client-assertion replays).
+func (c *TokenRevocationCleanup) WithDPoPProofReplayService(svc *DPoPProofReplayService) *TokenRevocationCleanup {
+	if c == nil {
+		return nil
+	}
+	c.dpopReplays = svc
+	return c
+}
+
 // WithRefreshTokenService composes a RefreshTokenService into the
 // cleanup driver so each tick prunes BOTH oauth_token_revocations
 // AND oauth_refresh_tokens. nil resets to "revocation-only"
@@ -338,6 +349,14 @@ func (c *TokenRevocationCleanup) tick(ctx context.Context) {
 			c.logger.Warn("client_assertion_replay_cleanup: delete failed")
 		} else if rn > 0 {
 			c.logger.Info("client_assertion_replay_cleanup: deleted expired rows", "count", rn)
+		}
+	}
+	if c.dpopReplays != nil {
+		dn, derr := c.dpopReplays.DeleteExpired(ctx)
+		if derr != nil {
+			c.logger.Warn("dpop_proof_replay_cleanup: delete failed")
+		} else if dn > 0 {
+			c.logger.Info("dpop_proof_replay_cleanup: deleted expired rows", "count", dn)
 		}
 	}
 	if c.userSessions != nil {

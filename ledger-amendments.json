@@ -1,5 +1,26 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "5cf2e81db46a232517fc6e16eeb05f441544d6ea",
-  "changes": []
+  "base_commit": "6f6e3d98ff9e2e0cbb743a4d77ecbf786ece4141",
+  "changes": [
+    {
+      "rule_id": "AYGHU-NO-BEARER-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-3 ISSUANCE: a token request carrying agent_communication authorization_details is sender-constrained — without a valid DPoP proof it is refused (invalid_dpop_proof) and no token of any type is minted; a success is token_type DPoP with cnf.jkt and never carries a refresh token; requests without authorization_details keep the pre-existing path; mutation red-proved (the handler branch guard was made to require the DPoP header, so a proof-less request fell through to the Bearer path)"
+    },
+    {
+      "rule_id": "AYGHU-DPOP-THUMBPRINT-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-3 ISSUANCE: the DPoP proof key's RFC 7638 thumbprint must equal the participant's enrolled proof_key_thumbprint — a foreign key and the other participant's key are refused (invalid_dpop_proof, thumbprint_mismatch audited), the enrolled key is accepted and its thumbprint is the token's cnf.jkt; mutation red-proved (thumbprint comparison neutralized → a foreign key was accepted)"
+    },
+    {
+      "rule_id": "AYGHU-REVOKE-STOPS-ISSUANCE-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-3 ISSUANCE: revoking an authorization stops participant-token issuance for BOTH participants immediately (invalid_grant, authorization_revoked audited); mutation red-proved (the revoked-status refusal was removed → tokens were minted after revocation)"
+    },
+    {
+      "rule_id": "AYGHU-DPOP-REPLAY-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-3 ISSUANCE: a DPoP proof is single-use per (proof key, jti) — the same proof presented again is refused (invalid_dpop_proof, dpop_replay audited) with no second token, a fresh jti is accepted, and a replay-store outage answers 503 with a correlation id, never a verdict; mutation red-proved (the replay verdict was ignored → the replayed proof minted a second token)"
+    }
+  ]
 }
