@@ -183,6 +183,22 @@ rulefloor-check:
 	@$(RULEFLOOR_RESOLVE); \
 	"$$RF" check --repo .
 
+## ledger-diff-gate (THE-LEDGER-DIFF-GATE, 2026-09-02): a ledger sentence
+## never changes silently again. Runs `rulefloor ledger-diff --base <previous
+## accepted witness> --json` (rulefloor.ledger-diff.v1; the base is measured
+## from git: the newest `Witness: make verify green at` commit before HEAD)
+## and reconciles it BOTH ways against the committed, single-use, SHA-scoped
+## manifest ledger-amendments.json (ledger-amendments.v1): an undeclared
+## change, a declaration the diff does not show, a sentence digest mismatch,
+## a wrong base_commit, rulefloor exit 2 / cannot_evaluate / bad JSON /
+## truncated — every one FAILS. The pass line carries the base SHA and the
+## sha256 of the ledger-diff document into GATE-RUN.txt (EVIDENCE_RE
+## `^check OK:`). Sits right after rulefloor-check: same cheapness, same
+## reason to fail the aggregate early. Rule LEDGER-DIFF-RECONCILED-1.
+ledger-diff-gate:
+	@$(RULEFLOOR_RESOLVE); \
+	go run ./tools/ledger-diff-gate --manifest ledger-amendments.json --repo . --rulefloor "$$RF"
+
 ## repo-green: the commit floor — build + vet + test, as ONE named check.
 ##
 ## WIRED HERE ON PURPOSE (THE-GATE-THAT-CANNOT-RUN, 2026-08-04, owner ruling).
@@ -349,6 +365,7 @@ verify:
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
 		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
+		'ledger-diff-gate=$(MAKE) --no-print-directory ledger-diff-gate' \
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
 		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
 		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \

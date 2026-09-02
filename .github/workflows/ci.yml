@@ -25,6 +25,15 @@
 #                       - wiki-fresh      (self-skips when ../wiki is absent;
 #                                          the call could only ever print
 #                                          SKIPPED)
+#                       - ledger-diff-gate (THE-LEDGER-DIFF-GATE: its base is
+#                                          the previous ACCEPTED witness commit,
+#                                          measured from the local witness
+#                                          chain that CI's single-commit
+#                                          checkout does not carry — see the
+#                                          gate-witness tie-note; the same
+#                                          reconciliation runs in every local
+#                                          `make verify` and its evidence line
+#                                          is in the committed GATE-RUN.txt)
 #                     rulefloor-check is NO LONGER subtracted: since
 #                     THE-TOOLING-UPGRADE the verify job installs the real
 #                     rulefloor binary (built from the workflow-env-pinned

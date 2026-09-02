@@ -1,0 +1,11 @@
+{
+  "schema_version": "ledger-amendments.v1",
+  "base_commit": "2359736c3bcd14e19f8a03d458fa49e8256d5080",
+  "changes": [
+    {
+      "rule_id": "LEDGER-DIFF-RECONCILED-1",
+      "change_class": "rule_added",
+      "reason": "THE-LEDGER-DIFF-GATE (2026-09-02): the reconciliation gate's own rule, declared and armed in this slice; base is the previous accepted witness (Witness: make verify green at 7e80a32)."
+    }
+  ]
+}

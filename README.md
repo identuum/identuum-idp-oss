@@ -365,7 +365,10 @@ source of truth; in order, it runs:
 1. `repo-green` (gofmt, build, vet, and the untagged Go test suite).
 2. The tracked-binary and credential-transparency checks.
 3. `rulefloor-check` (unit rows execute; integration-profile rows are checked
-   statically here).
+   statically here), then `ledger-diff-gate`: `rulefloor ledger-diff` against
+   the previous accepted witness commit, reconciled both ways with the
+   committed single-use manifest `ledger-amendments.json` — a ledger
+   sentence never changes silently (see `docs/RULE-FLOOR-CONVENTIONS.md` §e).
 4. Image-base policy, integration vet, doc-comment, R-suite, image-parity, and
    image-policy-restatement checks.
 5. Clock-fuse reporting plus its snapshot gate, tagged-file vet, and the

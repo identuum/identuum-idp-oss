@@ -26,6 +26,18 @@ func TestVerifyGateSetBoundaryContract(t *testing.T) {
 		t.Fatal("verify must precisely rebuild the graph before evaluating boundaries.json")
 	}
 
+	// THE-LEDGER-DIFF-GATE: the ledger-diff reconciliation runs in the full
+	// verify plan exactly once, right after rulefloor-check (both cheap; both
+	// fail the aggregate before the expensive gates).
+	const ledgerCheck = "'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check'"
+	const ledgerDiff = "'ledger-diff-gate=$(MAKE) --no-print-directory ledger-diff-gate'"
+	if strings.Count(verify, ledgerDiff) != 1 {
+		t.Fatalf("the full idp-oss verify gate must run ledger-diff-gate exactly once; count=%d", strings.Count(verify, ledgerDiff))
+	}
+	if ci, ld := strings.Index(verify, ledgerCheck), strings.Index(verify, ledgerDiff); ci < 0 || ld < ci {
+		t.Fatal("verify must run rulefloor-check before ledger-diff-gate")
+	}
+
 	readme := readGateContractFile(t, "../../README.md")
 	for _, required := range []string{
 		"The repo-local close gate is `make verify`.",

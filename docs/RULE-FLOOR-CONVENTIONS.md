@@ -110,3 +110,66 @@ limitation, the gap is REPORTED — in the slice's final report and, when
 standing, in the wiki posture page — and never fixed from here. Tool
 changes happen only in the tool's own repo, under its own slice, with the
 owner's ruling.
+
+## (e) Amendment manifest and the ledger-diff gate — a sentence never changes silently
+
+THE-LEDGER-DIFF-GATE (2026-09-02; rulefloor v0.8.1 `ledger-diff`,
+`rulefloor.ledger-diff.v1`, feature `ledger-diff-sentence-sha256`; rule
+`LEDGER-DIFF-RECONCILED-1`; wiki decision P-026).
+
+**What runs.** `make verify` → target `ledger-diff-gate` →
+`go run ./tools/ledger-diff-gate`, which:
+
+1. measures the **previous accepted witness** from git — the newest commit
+   reachable from `HEAD~1` whose subject is `Witness: make verify green at
+   <sha>` (the record-only commit the close ritual writes after a green
+   verify; at a work commit `HEAD~1` is normally that witness);
+2. reads the committed manifest `ledger-amendments.json`
+   (`ledger-amendments.v1`, below) and requires `base_commit` to equal that
+   witness's FULL SHA — a manifest therefore serves exactly ONE
+   verify→witness cycle; the next witness moves the base and the same file
+   fails ("wrong base_commit");
+3. runs `rulefloor ledger-diff --base <base_commit> --json` and reconciles
+   the classified rule changes BOTH ways with the manifest.
+
+**Verdicts.** FAIL when: a change in the diff is not declared; a declaration
+is not in the diff; a `sentence_changed` row's `after_sentence_sha256`
+differs from the declared digest (or the row carries none); `base_commit`
+is wrong or no witness exists in history; rulefloor exits 2, reports
+`cannot_evaluate`, emits invalid JSON, the wrong schema, or `truncated:
+true`; the exit code and `status` disagree; or the ledger headers changed
+with no rule change to explain them. PASS only when rulefloor exits 0
+(`same`) and the manifest declares nothing, or exits 1 (`different`) and
+every row reconciles. The pass line — `check OK: ledger-diff reconciled
+base=<sha> status=… rule_changes=… classes=… header_changes=…
+ledger_diff_sha256=<sha256 of the document>` — is what gate-witness records
+in `GATE-RUN.txt`; the document itself is reproducible from the base SHA.
+
+**Manifest shape** (`ledger-amendments.json`, committed at the repo root):
+
+```json
+{
+  "schema_version": "ledger-amendments.v1",
+  "base_commit": "<full 40-hex SHA of the previous accepted witness>",
+  "changes": [
+    { "rule_id": "RULE-ID", "change_class": "rule_added|rule_removed|sentence_changed|…",
+      "after_sentence_sha256": "<64 hex, REQUIRED for sentence_changed, forbidden otherwise>",
+      "reason": "why this ledger row changed" }
+  ]
+}
+```
+
+Change classes are rulefloor's own (`rules[].changes[]` of the
+ledger-diff.v1 document — e.g. `rule_added`, `test_fingerprint_changed`,
+`sentence_changed`); the gate compares them as strings and hardcodes no
+vocabulary. `reason` is mandatory; duplicates and unknown fields are refused.
+An empty `changes` list is a valid declaration that the ledger did not move.
+
+**Ritual.** Before `make verify` at a work commit: write the manifest with
+`base_commit` = the previous witness (`git log -1 --fixed-strings
+--grep='Witness: make verify green at' HEAD~1`) and one entry per row
+`rulefloor ledger-diff --base <that> --json` reports (for a sentence change,
+copy its `after_sentence_sha256`). Commit it with the work. Any later commit
+before the next witness (a docs fix, a red-proof correction) needs the same
+base and its own reconciled list. The witness commit itself is record-only
+and changes no ledger row.
