@@ -262,8 +262,15 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 		// resumed request passes. prompt=none forbids interaction:
 		// login_required per OIDC Core §3.1.2.6.
 		if strings.TrimSpace(req.Prompt) != "none" {
+			// THE-PHISHING-RESISTANT-ACR: the service names the ceremony that
+			// reaches the requested rung — TOTP (default) or passkey.
+			ceremony := "/api/v1/auth/step-up"
+			var stepUp *service.StepUpRequiredError
+			if errors.As(err, &stepUp) && stepUp.Method == service.StepUpMethodPasskey {
+				ceremony = "/api/v1/auth/step-up/passkey"
+			}
 			c.Redirect(http.StatusFound,
-				"/api/v1/auth/step-up?return_to="+url.QueryEscape("/api/v1/oauth/authorize?"+authorizeQuery))
+				ceremony+"?return_to="+url.QueryEscape("/api/v1/oauth/authorize?"+authorizeQuery))
 			return
 		}
 		redirectAuthorizeError(c, deps, req, "login_required")

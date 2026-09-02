@@ -15,11 +15,15 @@ const (
 )
 
 // AdvertisedACRValues is the discovery acr_values_supported list — exactly
-// the contexts a local login can perform or step up to. The ladder's
-// phishing-resistant rung (WebAuthn) is stamped when performed but is NOT
-// advertised: the owner named two honest contexts today.
+// the contexts a local login can perform or step up to, in ladder order:
+// password, password+TOTP, and (THE-PHISHING-RESISTANT-ACR) the
+// phishing-resistant rung a WebAuthn login or passkey step-up performs.
+// Advertising the third value was MEASURED against the conformance suite
+// (it requests every advertised value; its browser can only type a
+// password): any-of semantics let the password login satisfy the request
+// honestly, so the module still completes.
 func AdvertisedACRValues() []string {
-	return []string{ACRPassword, ACRMFA}
+	return []string{ACRPassword, ACRMFA, ACRPhishingResistant}
 }
 
 // IsAdvertisedACR reports whether v is one of AdvertisedACRValues.

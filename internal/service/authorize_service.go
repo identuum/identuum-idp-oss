@@ -63,6 +63,37 @@ type AuthorizeService struct {
 	// users resolves the principal's user row so acr_values can tell
 	// "step up" (TOTP enrolled) from "cannot be met" (THE-HONEST-ACR).
 	users AuthorizeUserLookup
+	// passkeys tells whether a passkey step-up can reach the requested rung
+	// (THE-PHISHING-RESISTANT-ACR). nil → no passkey ceremony offered.
+	passkeys PasskeyLookup
+}
+
+// stepUpFor picks the CHEAPEST ceremony this user can perform whose rung
+// reaches the requested target, or the honest unmet error when none does.
+// THE-HONEST-ACR / THE-PHISHING-RESISTANT-ACR. The ladder
+// (auth.ACRMeetsFloor) is the only ranking: a TOTP reaches the mfa rung, a
+// passkey reaches the phishing-resistant rung, and a higher rung covers a
+// lower request — never the reverse. Nothing here stamps an acr; a ceremony
+// that verifies records the uplift, and the token carries what the session
+// actually performed.
+func (s *AuthorizeService) stepUpFor(ctx context.Context, userID uuid.UUID, target string) error {
+	if s.users == nil {
+		return ErrAuthorizeUnmetAuthenticationRequirements
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil {
+		return ErrAuthorizeUnmetAuthenticationRequirements
+	}
+	if user.MFAEnabled && auth.ACRMeetsFloor(auth.ACRMFA, target) {
+		return &StepUpRequiredError{Method: StepUpMethodTOTP, Rung: auth.ACRMFA}
+	}
+	if s.passkeys != nil && auth.ACRMeetsFloor(auth.ACRPhishingResistant, target) {
+		creds, cerr := s.passkeys.ListCredentials(ctx, user.ID)
+		if cerr == nil && len(creds) > 0 {
+			return &StepUpRequiredError{Method: StepUpMethodPasskey, Rung: auth.ACRPhishingResistant}
+		}
+	}
+	return ErrAuthorizeUnmetAuthenticationRequirements
 }
 
 // AuthorizeUserLookup resolves user_id → *domain.User for the acr_values
@@ -70,6 +101,42 @@ type AuthorizeService struct {
 type AuthorizeUserLookup interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
 }
+
+// PasskeyLookup answers "does this user hold a WebAuthn credential" for the
+// acr_values decision (THE-PHISHING-RESISTANT-ACR). *WebAuthnService
+// satisfies it via ListCredentials.
+type PasskeyLookup interface {
+	ListCredentials(ctx context.Context, userID uuid.UUID) ([]*domain.WebAuthnCredential, error)
+}
+
+// WithPasskeyLookup composes the passkey seam. Without it no request can be
+// answered with a passkey step-up: a rung only a passkey reaches is unmet.
+func (s *AuthorizeService) WithPasskeyLookup(p PasskeyLookup) *AuthorizeService {
+	s.passkeys = p
+	return s
+}
+
+// Step-up ceremonies the OP can run. The rung each one reaches is fixed by
+// the ladder (auth.ACRMeetsFloor is the ONLY ranking).
+const (
+	StepUpMethodTOTP    = "totp"    // reaches auth.ACRMFA
+	StepUpMethodPasskey = "passkey" // reaches auth.ACRPhishingResistant
+)
+
+// StepUpRequiredError carries WHICH ceremony the handler must run. It
+// matches errors.Is(err, ErrAuthorizeStepUpRequired) so existing callers
+// keep working; errors.As reads the method.
+type StepUpRequiredError struct {
+	Method string // StepUpMethodTOTP | StepUpMethodPasskey
+	Rung   string // the acr the ceremony reaches when it verifies
+}
+
+func (e *StepUpRequiredError) Error() string {
+	return ErrAuthorizeStepUpRequired.Error() + " (" + e.Method + " → " + e.Rung + ")"
+}
+
+// Is lets errors.Is(err, ErrAuthorizeStepUpRequired) hold for the typed error.
+func (e *StepUpRequiredError) Is(target error) bool { return target == ErrAuthorizeStepUpRequired }
 
 // WithUserLookup composes the user seam acr_values needs. Without it a
 // requested rung above the session's context is refused as unmet (the
@@ -446,21 +513,11 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		}
 		if !auth.RequestSatisfiedBy(effective, req.AcrValues) {
 			target, _ := auth.LowestRequestedRung(req.AcrValues)
-			switch target {
-			case auth.ACRPassword:
+			if target == auth.ACRPassword {
+				// Only a pre-stamping session gets here: re-login stamps it.
 				return nil, ErrAuthorizeLoginRequired
-			case auth.ACRMFA:
-				if s.users == nil {
-					return nil, ErrAuthorizeUnmetAuthenticationRequirements
-				}
-				user, uerr := s.users.GetByID(ctx, req.Principal.UserID)
-				if uerr != nil || user == nil || !user.MFAEnabled {
-					return nil, ErrAuthorizeUnmetAuthenticationRequirements
-				}
-				return nil, ErrAuthorizeStepUpRequired
-			default:
-				return nil, ErrAuthorizeUnmetAuthenticationRequirements
 			}
+			return nil, s.stepUpFor(ctx, req.Principal.UserID, target)
 		}
 	}
 

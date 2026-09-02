@@ -1393,6 +1393,17 @@ func mountBrowserLogin(router gin.IRouter, resolved OSSRouterDeps) {
 		Sessions:      resolved.SessionRepo,
 		Audit:         resolved.Audit,
 	})
+	// THE-PHISHING-RESISTANT-ACR: the passkey step-up ceremony (WebAuthn
+	// assertion on the SAME browser session). Needs the WebAuthn service.
+	if resolved.WebAuthnService == nil {
+		return
+	}
+	handlers.RegisterPasskeyStepUpRoutes(router, handlers.PasskeyStepUpHandlerDeps{
+		CookieSession: resolved.CookieSession,
+		WebAuthn:      resolved.WebAuthnService,
+		Sessions:      resolved.SessionRepo,
+		Audit:         resolved.Audit,
+	})
 }
 
 func mountConsent(router gin.IRouter, resolved OSSRouterDeps) {

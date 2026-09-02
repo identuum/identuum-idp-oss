@@ -234,20 +234,20 @@ clone (and its python venv) survives between runs.
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (re-measured 2026-09-02 after THE-HONEST-ACR,
-suite release-v5.2.4):**
+**The committed baseline (re-measured 2026-09-02 after
+THE-PHISHING-RESISTANT-ACR, suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
   zero findings). The former signing-alg finding is FIXED — discovery now
   advertises `[EdDSA, ES256, RS256]` (see "RS256 — testing only" above).
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
-  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1720
-  conditions passed in the THE-HONEST-ACR measurement run, ZERO condition
-  failures and ZERO warnings (the success total is NOT a stable number — two
-  consecutive runs of the same code on 2026-09-01 counted 1691 and 1749;
-  failures/warnings/skips are the measured floor, the success total is
-  not). The recorded floor:
+  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1754
+  conditions passed in the THE-PHISHING-RESISTANT-ACR measurement run
+  (three advertised acr values), ZERO condition failures and ZERO warnings
+  (the success total is NOT a stable number — runs of identical code have
+  counted 1691, 1720, 1722, 1749 and 1754; failures/warnings/skips are the
+  measured floor, the success total is not). The recorded floor:
   - `conformance/expected-basic-incomplete.txt` is EMPTY: `oidcc-prompt-login`
     and `oidcc-max-age-1` now run to completion with 0 failing conditions
     (result REVIEW — these modules ask for a screenshot of the second login,
@@ -426,25 +426,40 @@ tokens previously issued based on that code. Rule `CODE-REUSE-REVOKES-1`.
 
 ## Honest acr — the id_token says how the user actually authenticated
 
-Rule `ACR-HONEST-1` (THE-HONEST-ACR, 2026-09-02; wiki decision P-023). The
-OP never fakes an authentication context. Two honest contexts exist for
-local logins, and they are the ONLY values discovery advertises in
-`acr_values_supported`:
+Rules `ACR-HONEST-1` (THE-HONEST-ACR, 2026-09-02; wiki decision P-023) and
+`ACR-HONEST-2` (THE-PHISHING-RESISTANT-ACR, 2026-09-02; P-024). The OP
+never fakes an authentication context. Three honest contexts exist, and
+they are EXACTLY the values discovery advertises in `acr_values_supported`,
+in ladder order:
 
-| acr | performed when | amr |
+| acr (rank) | performed when | amr |
 |---|---|---|
-| `urn:identuum:loa:password` | password verified | `["pwd"]` |
-| `urn:identuum:loa:mfa` | password AND a TOTP code verified | `["pwd","otp"]` |
+| `urn:identuum:loa:password` (1) | password verified | `["pwd"]` |
+| `urn:identuum:loa:mfa` (2) | password AND a TOTP code verified | `["pwd","otp"]` |
+| `urn:identuum:loa:phishing-resistant` (3) | a WebAuthn assertion verified — passkey login, or the passkey step-up on an existing session | login amr unchanged (a WebAuthn login stamps no amr; an uplift keeps the login's amr) |
 
 Every local session creation stamps the context it performed
 (`auth.LoginContext`: the JSON login, the browser login, the pending-MFA
-completion); a WebAuthn assertion stamps the ladder's phishing-resistant
-rung, which is honored when presented but not advertised. The id_token and
-access token carry `acr` = the session's EFFECTIVE context
+completion; the WebAuthn login-finish stamps the phishing-resistant rung).
+The id_token and access token carry `acr` = the session's EFFECTIVE context
 (`Session.EffectiveACR`: the stamped rung, or the rung a recorded step-up
 uplifted it to) and `amr` from `Session.EffectiveAMR`. A session that
-carries no context (created before this slice) emits NO `acr` claim — an
+carries no context (created before these slices) emits NO `acr` claim — an
 absent claim is honest, a guessed one is not.
+
+**Ranking lives in ONE place** — the ladder in `auth/acr.go`
+(`ACRMeetsFloor`): a higher performed rung satisfies a request for a lower
+one (phishing-resistant covers mfa and password; mfa covers password), never
+the reverse.
+
+**Advertising the third value was MEASURED, not assumed** (DO-4 of
+THE-PHISHING-RESISTANT-ACR): the conformance suite requests EVERY advertised
+value in one `acr_values` and its browser automation can only type a
+password. With three values advertised the run on 2026-09-02 was 36 modules,
+0 failures, 0 warnings, `oidcc-ensure-request-with-acr-values-succeeds`
+PASSED, `RESULT: GREEN against the committed expected-failure floor` (still
+`[]`) — the password login honestly satisfies one requested value and the
+id_token's acr is in the requested set. So the value is advertised.
 
 `acr_values` (OIDC Core §3.1.2.1) is honored with any-of semantics over the
 rungs the OP knows; unknown values are a voluntary request the OP ignores
@@ -461,7 +476,25 @@ known requested rungs, the CHEAPEST requested rung decides:
   303s back to the original authorize URL, which now mints. A wrong code
   re-renders the form (`error=invalid_code`) and writes nothing.
   `prompt=none` never gets the step-up page: `login_required` to the client.
-- TOTP rung, user NOT enrolled, or any rung with no ceremony here →
+- phishing-resistant rung (or the mfa rung for a user WITHOUT TOTP), user
+  holds a passkey → the OP's passkey step-up ceremony: `GET
+  /api/v1/auth/step-up/passkey` mints WebAuthn assertion options for the
+  session's own user and renders a page whose inline script runs
+  `navigator.credentials.get`; `POST /api/v1/auth/step-up/passkey?session_id=…`
+  verifies the assertion through the same `WebAuthnService.FinishLogin` the
+  passkey login uses (same validator, RP-ID/origin checks, single-use
+  ceremony session), REFUSES an assertion by any other user, and only then
+  records the uplift to `urn:identuum:loa:phishing-resistant` on the SAME
+  session and answers `{"return_to": …}` for the page to resume. A failed
+  or foreign assertion is 401 `invalid_assertion` and writes nothing. The
+  page must load on an allowed RP origin — the issuer's own origin always is
+  (`WebAuthnServiceConfig.BaseURL`), plus the UI origin when it shares the
+  RP ID host.
+- the cheapest ceremony that reaches the requested rung is offered: TOTP
+  for the mfa rung when enrolled; a passkey otherwise (it reaches the
+  phishing-resistant rung, which covers mfa).
+- a rung this user cannot perform (TOTP rung without TOTP and without a
+  passkey; phishing-resistant rung without a passkey) →
   `error=unmet_authentication_requirements` (OpenID "Unmet Authentication
   Requirements 1.0") to the client; no code, no token.
 

@@ -84,7 +84,9 @@ import (
 // §5.1 profile fields; THE-PROFILE-CLAIMS).
 // 135 → 137: added GET + POST /api/v1/auth/step-up (the TOTP step-up
 // ceremony acr_values refers an interactive browser to; THE-HONEST-ACR).
-const CanonicalEndpointCount = 137
+// 137 → 139: added GET + POST /api/v1/auth/step-up/passkey (the passkey
+// step-up ceremony for the phishing-resistant rung; THE-PHISHING-RESISTANT-ACR).
+const CanonicalEndpointCount = 139
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

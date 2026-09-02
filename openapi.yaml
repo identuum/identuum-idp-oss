@@ -553,6 +553,31 @@ paths:
           description: "Submit the TOTP step-up code; on success the SAME session records an ACR uplift to the password+TOTP rung and the browser is redirected to return_to."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/auth/step-up/passkey":
+    get:
+      operationId: "identuum-idp-oss.auth.passkey_step_up_page"
+      summary: "Render the passkey step-up page for the browser session (THE-PHISHING-RESISTANT-ACR: /authorize refers here when acr_values asks for a rung only a passkey reaches); mints the WebAuthn assertion options for this session's user."
+      tags:
+        - "auth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Render the passkey step-up page for the browser session (THE-PHISHING-RESISTANT-ACR: /authorize refers here when acr_values asks for a rung only a passkey reaches); mints the WebAuthn assertion options for this session's user."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+    post:
+      operationId: "identuum-idp-oss.auth.passkey_step_up_finish"
+      summary: "Finish the passkey step-up: verifies the WebAuthn assertion for the single-use ceremony session_id; when it verifies for the SAME user as the browser session, records an ACR uplift to the phishing-resistant rung and returns the return_to to resume."
+      tags:
+        - "auth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Finish the passkey step-up: verifies the WebAuthn assertion for the single-use ceremony session_id; when it verifies for the SAME user as the browser session, records an ACR uplift to the phishing-resistant rung and returns the return_to to resume."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/verify-email":
     get:
       operationId: "identuum-idp-oss.auth-lifecycle.verify_email"

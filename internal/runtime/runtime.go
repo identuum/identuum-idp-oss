@@ -1141,6 +1141,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 			fmt.Fprintln(r.cfg.Stdout, "identuum-idp: serve: webauthn skipped:", webAuthnErr)
 		} else {
 			webAuthnSvc = webAuthnInst
+			// THE-PHISHING-RESISTANT-ACR: acr_values can be answered with a
+			// passkey step-up only when the user holds a passkey.
+			authorizeSvc.WithPasskeyLookup(webAuthnInst)
 		}
 	}
 
