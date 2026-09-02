@@ -86,7 +86,10 @@ import (
 // ceremony acr_values refers an interactive browser to; THE-HONEST-ACR).
 // 137 → 139: added GET + POST /api/v1/auth/step-up/passkey (the passkey
 // step-up ceremony for the phishing-resistant rung; THE-PHISHING-RESISTANT-ACR).
-const CanonicalEndpointCount = 139
+// 139 → 143: added the agent-communication admin surface — POST + GET
+// /api/v1/agent-communication-authorizations, GET .../:id, POST .../:id/revoke
+// (org_admin own-org only; AYGHU-2 ADMIN API on the AYGHU-1 foundation).
+const CanonicalEndpointCount = 143
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

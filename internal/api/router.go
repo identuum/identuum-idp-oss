@@ -165,10 +165,11 @@ type OSSRouterDeps struct {
 	// When nil, the route does not register.
 	ServiceAccountClientBundleService *service.ServiceAccountClientBundleService
 
-	// AgentCommunicationAuthorizationService is the AYGHU-1 foundation
-	// (domain aggregate + invariants + store). It registers NO routes yet:
-	// the admin API (AYGHU-2), issuance + DPoP (AYGHU-3) and
-	// introspection/revocation/audit (AYGHU-4) are later slices.
+	// AgentCommunicationAuthorizationService backs the agent-communication
+	// admin surface /api/v1/agent-communication-authorizations (AYGHU-1
+	// foundation + AYGHU-2 admin API: create, list, get, revoke — org_admin
+	// own-org only). When nil, no routes register. Issuance + DPoP (AYGHU-3)
+	// and introspection/revocation propagation (AYGHU-4) are later slices.
 	AgentCommunicationAuthorizationService *service.AgentCommunicationAuthorizationService
 
 	// LocalLogin backs POST /api/v1/auth/login. When nil, the
@@ -661,6 +662,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	mountRBAC(router, resolved)
 	mountServiceAccounts(router, resolved)
 	mountServiceAccountClientBundle(router, resolved)
+	mountAgentCommunicationAuthorizations(router, resolved)
 	mountAccountLifecycle(router, resolved)
 	mountWebAuthn(router, resolved)
 	mountSessions(router, resolved)
@@ -1128,6 +1130,18 @@ func mountServiceAccounts(router gin.IRouter, resolved OSSRouterDeps) {
 	handlers.RegisterServiceAccountsRoutes(router, handlers.ServiceAccountsHandlerDeps{
 		ServiceAccountService: resolved.ServiceAccountService,
 		Audit:                 resolved.Audit,
+	})
+}
+
+// mountAgentCommunicationAuthorizations mounts the AYGHU-2 admin surface
+// (/api/v1/agent-communication-authorizations) when its service is wired.
+func mountAgentCommunicationAuthorizations(router gin.IRouter, resolved OSSRouterDeps) {
+	if resolved.AgentCommunicationAuthorizationService == nil {
+		return
+	}
+	handlers.RegisterAgentCommunicationAuthorizationRoutes(router, handlers.AgentCommunicationAuthorizationsHandlerDeps{
+		Service: resolved.AgentCommunicationAuthorizationService,
+		Audit:   resolved.Audit,
 	})
 }
 

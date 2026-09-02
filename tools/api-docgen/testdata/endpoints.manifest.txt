@@ -16,6 +16,8 @@ GET /.well-known/openid-configuration
 GET /api/setup/status
 GET /api/v1/admin/backchannel-logout-deliveries
 GET /api/v1/admin/backchannel-logout-deliveries/:id
+GET /api/v1/agent-communication-authorizations
+GET /api/v1/agent-communication-authorizations/:id
 GET /api/v1/api-resources
 GET /api/v1/api-resources/:id
 GET /api/v1/audit/events
@@ -67,6 +69,8 @@ GET /system/info
 POST /api/setup/complete
 POST /api/setup/verify-token
 POST /api/v1/admin/backchannel-logout-deliveries/:id/replay
+POST /api/v1/agent-communication-authorizations
+POST /api/v1/agent-communication-authorizations/:id/revoke
 POST /api/v1/api-resources
 POST /api/v1/api-resources/:id/secret/regenerate
 POST /api/v1/auth/browser-login

@@ -50,11 +50,46 @@ binds WHAT was authorized. Example canonical bytes:
 | `AYGHU-TWO-PARTICIPANTS-1` | An authorization has exactly two participants, one initiator and one responder, distinct service accounts and distinct ACIs; any other count is refused before persistence. |
 | `AYGHU-POLICY-DIGEST-1` | The policy digest is the SHA-256 of the canonical typed policy (version, limits, per-role sorted capability sets) and is independent of input order, timestamps and identifiers. |
 
+## AYGHU-2 ADMIN API — built
+
+`internal/handlers/agent_communication_authorizations.go` (routes, mapping,
+audit), `internal/service/agent_communication_authorization_actor.go`
+(authority), `types/agent_communication.go` (wire projection). Mounted by
+the OSS router; docgen canonical endpoint count 139 → 143.
+
+| Endpoint | Who | Answers |
+|---|---|---|
+| `POST /api/v1/agent-communication-authorizations` | org_admin, own org, owner = actor | 201 with the authorization (ids, session id, participant ACIs, server-computed digest). 400 `invalid_request` + stable `reason` (`participant_count`, `unknown_capability`, `duplicate_role`, `invalid_role`, `invalid_service_account_id`, `participant_service_account_not_found`, `participant_client_not_found`, `client_not_bound`, `client_auth_not_asymmetric`, `relay_audience_required`, `relay_audience_invalid`, `expiry_not_future`, `limit_not_positive`, `proof_key_thumbprint_invalid`, `invalid_organization_id`, …). 403 `forbidden` (site_admin, org_user, explicit foreign `organization_id`) and 403 with reason `ownerless_participant` / `owner_mismatch` (same-owner rule). 409 `conflict` `participant_not_usable` (inactive or expired service account). |
+| `GET /api/v1/agent-communication-authorizations` | org_admin, own org | 200 `{authorizations, count}` — own organization only, newest first, any status. |
+| `GET /api/v1/agent-communication-authorizations/:id` | org_admin, own org | 200; a foreign organization's id and an absent id answer 404 identically (no existence oracle); malformed id 400 `invalid_authorization_id`. |
+| `POST /api/v1/agent-communication-authorizations/:id/revoke` | org_admin, own org (same-organization emergency revocation is allowed and audited) | 200 with the revoked authorization; terminal and idempotent (a repeat returns the first stamp unchanged); optional body `{"reason"}` trimmed, ≤256 bytes (400 `revocation_reason_too_long`); foreign / absent → 404 identically. |
+
+Every route: 401 without a bearer principal; a store error on ANY path
+answers 503 `temporarily_unavailable` / `auth_store_error` with a
+correlation id on the body and the `X-Request-ID` header (AUTH-503) — never
+a verdict. Client-supplied `id`, `session_id`, `owner_id`, `created_at`,
+participant `id` / `aci` and `policy_digest` are ignored, never trusted.
+No PUT/PATCH exists: nothing widens or edits an authorization.
+
+Audit (safe metadata only): `agent_communication_authorization.created`
+(authorization_id, session_id, organization_id, owner_id, participants
+[{aci, role, service_account_id, oauth_client_id}]) and
+`agent_communication_authorization.revoked` (authorization_id, session_id,
+organization_id, revoked_by, result `revoked` / `already_revoked`). The
+free-text reason, thumbprints and the audience never enter an event; a
+refused request records nothing.
+
+Rules armed by this slice: `AYGHU-ORG-SCOPE-1` (cross-organization
+access creates no existence oracle; site_admin/org_user refused uniformly),
+`AYGHU-STORE-503-1` (a store error answers 503 with a correlation id,
+never a verdict, exactly one AUTH-503 log sink call), `AYGHU-AUDIT-1`
+(create and revoke each record exactly one event with safe metadata; a
+refusal records none). Ratchets: ui `e2e-full/role-matrix.json` grows by
+the four endpoints (every role observed), `e2e-full/agent-communication-sweep.spec.ts`
+exercises every endpoint and refusal path in the api-suite.
+
 ## Not built yet — later slices
 
-- **AYGHU-2 ADMIN API** — `POST /api/v1/organizations/:id/agent-communication-authorizations`,
-  `GET` (list), `GET /:auth_id`, `POST /:auth_id/revoke`; org_admin /
-  owner authorization; audit events for create and revoke.
 - **AYGHU-3 ISSUANCE + DPoP** — client-credentials issuance carrying
   `authorization_details` of type `agent_communication` bound to one
   participant ACI, DPoP (RFC 9449) proof binding to
