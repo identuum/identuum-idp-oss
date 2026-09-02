@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 56bd35c
-started: 2026-09-02T17:23:25Z
+repo-head: 73070bd
+started: 2026-09-02T18:48:04Z
 plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -13,9 +13,9 @@ target: tool-versions exit=0
 target: repo-green exit=0
 target: tracked-binary-check exit=0
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 209 rows (209 armed), FLOOR 209, RED-PROOFS 209 (measured 209)
+evidence: [rulefloor-check] check OK: 210 rows (210 armed), FLOOR 210, RED-PROOFS 210 (measured 210)
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=a6aa4ad088da8835cb50cd8d23aef3d35396a592 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=910a0178532ce6228b3a92d045e93294758cdbadf822e9b7594cff25b6754d1c
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=c00efa60da5da7c780e270e9bbd6b8aa4042da1d status=different rule_changes=3 classes=rule_added,sentence_changed,test_fingerprint_changed header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=b25115b79a53c9052b79c3b8996a97b7d48605bc8de09fd0c846a40703bd22c9
 target: ledger-diff-gate exit=0
 target: image-base-check exit=0
 target: vet-integration exit=0
@@ -38,6 +38,6 @@ target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 target: wiki-fresh exit=0
 target: grype-scan exit=0
-finished: 2026-09-02T17:28:43Z
-tree: sha256=e0ba4d73d9d11f4e4a93a2d3ce2c752bda6af2bee01c926f72ae0e59ad92e083
+finished: 2026-09-02T18:53:21Z
+tree: sha256=0aeb8332bb6b35d00267ac493efb4d12d7e910ef8eb769794ae40fb5f513c669
 result: green
