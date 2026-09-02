@@ -120,9 +120,13 @@ type IDTokenInput struct {
 
 	// Claims are the OIDC §5.5 id_token-member claim names the client was
 	// consented (and the role permitted) to receive IN the id_token
-	// (THE-CLAIMS-PARAMETER): name, email, email_verified. Each is emitted
-	// only when the user record can truthfully supply it.
+	// (THE-CLAIMS-PARAMETER): the profile family, email, email_verified.
+	// Each is emitted only when the user record can truthfully supply it.
 	Claims []string
+
+	// Profile is the user's optional OIDC profile row (THE-PROFILE-CLAIMS),
+	// consulted for profile-family claims in Claims. Nil = nothing set.
+	Profile *domain.UserProfile
 
 	// SigningAlg is the client's explicitly registered
 	// id_token_signed_response_alg, or empty for the issuer default
@@ -224,12 +228,16 @@ func (s *IDTokenService) Issue(ctx context.Context, in IDTokenInput) (*IDTokenRe
 	// consented to (and the role permits) puts the named identity claims
 	// in the id_token — only when the user record can truthfully supply
 	// them (§5.3.2: never null/empty placeholders).
+	// THE-PROFILE-CLAIMS: the profile family (name … locale, updated_at)
+	// comes from domain.ProfileClaims — set fields only, never a
+	// placeholder — limited to the names requested.
+	if len(in.Claims) > 0 {
+		for k, v := range domain.ProfileClaims(in.User, in.Profile, in.Claims) {
+			extra[k] = v
+		}
+	}
 	for _, name := range in.Claims {
 		switch name {
-		case "name":
-			if in.User.Name != nil && *in.User.Name != "" {
-				extra["name"] = *in.User.Name
-			}
 		case "email":
 			if in.User.Email != "" {
 				extra["email"] = in.User.Email

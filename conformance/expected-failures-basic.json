@@ -1,14 +1,5 @@
 [
     {
-        "test-name": "oidcc-scope-profile",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "VerifyScopesReturnedInUserInfoClaims",
-        "expected-result": "warning",
-        "comment": "MEASURED (suite source AbstractVerifyScopesReturnedInClaims.java): the condition requires userinfo to carry ALL 14 profile standard claims (name, given_name, family_name, middle_name, nickname, profile, picture, website, gender, birthdate, zoneinfo, locale, updated_at, preferred_username) whenever `profile` is requested. The user model holds only `name`, and OIDC Core 5.3.2 forbids null/empty placeholders, so this warning is honest until the profile model grows. THE-CONSENTED-SCOPE gated `name` under the profile scope; that does not change this condition."
-    },
-    {
         "test-name": "oidcc-ensure-request-with-acr-values-succeeds",
         "variant": "*",
         "configuration-filename": "*/plan-basic.json",

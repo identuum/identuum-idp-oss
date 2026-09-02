@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -41,6 +42,17 @@ type UserinfoHandlerDeps struct {
 	// Nil keeps the pre-THE-PKCE-DECISION projection (no profile
 	// claims), so existing compositions are unchanged.
 	UserLookup UserByIDLookup
+
+	// ProfileLookup, when non-nil, backs the remaining OIDC §5.1 profile
+	// claims (given_name … locale) from the user's optional profile row
+	// (THE-PROFILE-CLAIMS). Nil = only name/updated_at from the user row.
+	ProfileLookup ProfileByUserLookup
+}
+
+// ProfileByUserLookup is the narrow read seam for the optional profile row.
+// Satisfied by *service.UserProfileService.
+type ProfileByUserLookup interface {
+	Get(ctx context.Context, userID uuid.UUID) (*domain.UserProfile, error)
 }
 
 // RegisterUserinfoRoutes mounts
@@ -162,9 +174,20 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 		// userinfo_claims and releases the same way a scope would.
 		requested := userinfoScopeSet(strings.Join(claims.UserInfoClaims, " "))
 		releaseEmail := grants[domain.ScopeEmail] || requested["email"] || requested["email_verified"]
-		releaseName := grants[domain.ScopeProfile] || requested["name"]
+		// THE-PROFILE-CLAIMS: the profile family is released whole under the
+		// profile scope, or claim-by-claim under the claims parameter.
+		var wantProfile []string
+		if grants[domain.ScopeProfile] {
+			wantProfile = domain.ProfileClaimNames
+		} else {
+			for _, n := range claims.UserInfoClaims {
+				if domain.IsProfileClaim(n) {
+					wantProfile = append(wantProfile, n)
+				}
+			}
+		}
 		var user *domain.User
-		if !isServiceAccount && deps.UserLookup != nil && claims.UserID != uuid.Nil && (releaseEmail || releaseName) {
+		if !isServiceAccount && deps.UserLookup != nil && claims.UserID != uuid.Nil && (releaseEmail || len(wantProfile) > 0) {
 			if u, uerr := deps.UserLookup.GetByID(c.Request.Context(), claims.UserID); uerr == nil {
 				user = u
 			}
@@ -176,8 +199,14 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 				out.EmailVerified = &verified
 			}
 		}
-		if !isServiceAccount && releaseName && user != nil && user.Name != nil {
-			out.Name = *user.Name
+		if !isServiceAccount && len(wantProfile) > 0 && user != nil {
+			var profile *domain.UserProfile
+			if deps.ProfileLookup != nil {
+				if p, perr := deps.ProfileLookup.Get(c.Request.Context(), claims.UserID); perr == nil {
+					profile = p
+				}
+			}
+			applyProfileClaims(&out, domain.ProfileClaims(user, profile, wantProfile))
 		}
 		if claims.OrgID != uuid.Nil {
 			out.OrganizationID = claims.OrgID.String()
@@ -202,6 +231,34 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 			},
 		})
 		c.JSON(http.StatusOK, out)
+	}
+}
+
+// applyProfileClaims copies the truthfully-emittable profile claims
+// (domain.ProfileClaims) onto the userinfo projection. Absent keys stay
+// absent — the struct's omitempty tags never render a placeholder.
+func applyProfileClaims(out *types.OIDCUserInfo, claims map[string]any) {
+	str := func(k string) string {
+		if v, ok := claims[k].(string); ok {
+			return v
+		}
+		return ""
+	}
+	out.Name = str("name")
+	out.GivenName = str("given_name")
+	out.FamilyName = str("family_name")
+	out.MiddleName = str("middle_name")
+	out.Nickname = str("nickname")
+	out.PreferredUsername = str("preferred_username")
+	out.Profile = str("profile")
+	out.Picture = str("picture")
+	out.Website = str("website")
+	out.Gender = str("gender")
+	out.Birthdate = str("birthdate")
+	out.Zoneinfo = str("zoneinfo")
+	out.Locale = str("locale")
+	if v, ok := claims["updated_at"].(int64); ok {
+		out.UpdatedAt = v
 	}
 }
 

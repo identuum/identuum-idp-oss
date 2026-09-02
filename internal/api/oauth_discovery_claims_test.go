@@ -17,12 +17,14 @@ func TestDiscovery_ClaimsParameterAdvertised(t *testing.T) {
 			have[s] = true
 		}
 	}
-	for _, want := range []string{"sub", "name", "email", "email_verified", "organization_id", "role", "auth_time", "acr", "amr", "nonce"} {
+	for _, want := range []string{"sub", "name", "email", "email_verified", "organization_id", "role", "auth_time", "acr", "amr", "nonce",
+		// THE-PROFILE-CLAIMS: the whole §5.1 profile family is modeled and emits when set.
+		"given_name", "family_name", "middle_name", "nickname", "preferred_username", "profile", "picture", "website", "gender", "birthdate", "zoneinfo", "locale", "updated_at"} {
 		if !have[want] {
 			t.Errorf("claims_supported lacks %q (it emits): %v", want, raw)
 		}
 	}
-	for _, never := range []string{"given_name", "family_name", "picture", "phone_number", "address"} {
+	for _, never := range []string{"phone_number", "phone_number_verified", "address"} {
 		if have[never] {
 			t.Errorf("claims_supported advertises %q, which the OP never emits", never)
 		}

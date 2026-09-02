@@ -17,9 +17,16 @@ import (
 )
 
 // EmittableIdentityClaims are the individually-requestable identity claims
-// this OP can supply from the user record. The order is canonical: every
-// derived list (consent tokens, token claim, id_token emission) follows it.
-var EmittableIdentityClaims = []string{"name", "email", "email_verified"}
+// this OP can supply from the user record and its optional profile row
+// (THE-PROFILE-CLAIMS): the whole OIDC §5.1 profile family plus the email
+// pair. The order is canonical: every derived list (consent tokens, token
+// claim, id_token emission) follows it.
+var EmittableIdentityClaims = []string{
+	"name", "given_name", "family_name", "middle_name", "nickname",
+	"preferred_username", "profile", "picture", "website", "gender",
+	"birthdate", "zoneinfo", "locale", "updated_at",
+	"email", "email_verified",
+}
 
 // ErrClaimsRequestMalformed: the `claims` parameter was present but is not
 // a JSON object (OIDC Core §5.5 requires one). Unknown content inside a

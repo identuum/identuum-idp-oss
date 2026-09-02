@@ -109,7 +109,20 @@ const created = must(await api("POST", "/api/v1/users", {
   name: "Conformance User", role: "org_user",
 }, oaToken), 201, "create test user");
 const userId = created.user?.id ?? created.id;
-must(await api("PUT", `/api/v1/users/${userId}`, { email_verified: true }, oaToken), 200, "mark test user verified");
+// THE-PROFILE-CLAIMS: EVERY OIDC §5.1 profile field is set on the test user
+// so oidcc-scope-profile's VerifyScopesReturnedInUserInfoClaims (all 14
+// profile standard claims) passes TRUTHFULLY — the OP never fabricates a
+// value, so the provisioner supplies real ones.
+must(await api("PUT", `/api/v1/users/${userId}`, {
+  email_verified: true,
+  given_name: "Conformance", family_name: "User", middle_name: "Test",
+  nickname: "conf", preferred_username: "conformance-user",
+  profile: "https://conformance.test/users/conformance-user",
+  picture: "https://conformance.test/users/conformance-user/avatar.png",
+  website: "https://conformance.test",
+  gender: "unspecified", birthdate: "1990-01-01",
+  zoneinfo: "Europe/London", locale: "en-GB",
+}, oaToken), 200, "mark test user verified + full profile");
 
 // 5b. SELF-CHECK: the test user must be able to log in with exactly the
 // password the browser automation will type. Failing here names the real

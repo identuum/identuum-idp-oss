@@ -129,6 +129,7 @@ PUT /api/v1/organizations/:id
 PUT /api/v1/organizations/:id/identity-provider
 PUT /api/v1/organizations/:id/protocol-settings
 PUT /api/v1/organizations/:id/roles/:role_id
+PUT /api/v1/profile
 PUT /api/v1/scope-templates/:id
 PUT /api/v1/service-accounts/:id
 PUT /api/v1/users/:id

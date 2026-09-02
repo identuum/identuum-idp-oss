@@ -143,6 +143,12 @@ type OSSRouterDeps struct {
 	OrganizationService       *service.OrganizationService
 	OrganizationDomainService *service.OrganizationDomainService
 
+	// UserProfileService owns the optional OIDC §5.1 profile row
+	// (THE-PROFILE-CLAIMS): PUT/GET /api/v1/profile, the admin user
+	// surface, userinfo and the id_token read/write it. Nil = every profile
+	// field unset and profile writes refused (503).
+	UserProfileService *service.UserProfileService
+
 	// OrgRoleService backs the RBAC route family (/me/roles,
 	// /organizations/:id/roles[/...], /users/:id/roles[/...]).
 	// When nil, no RBAC routes register; the paths 404.
@@ -924,6 +930,9 @@ func mountUserSurface(router gin.IRouter, resolved OSSRouterDeps) {
 		// Target-org password policy for the admin user paths
 		// (THE-TWO-DEBTS); nil-safe — unwired keeps the strict defaults.
 		PolicyOrgs: resolved.OrganizationRepo,
+		// THE-PROFILE-CLAIMS: the optional profile row behind GET/PUT
+		// /profile and the admin user surface. Nil-safe in the handlers.
+		ProfileService: resolved.UserProfileService,
 	}
 	// Wire the OSS session revoker only when the runtime has
 	// constructed UserSessionService; absent that, the handler
@@ -1258,7 +1267,20 @@ func mountIntrospectionAndRevocation(router gin.IRouter, resolved OSSRouterDeps)
 		// profile-scope claims (`name`) come from the user record; nil
 		// (a composition without a user lookup) omits them.
 		UserLookup: resolved.UserLookup,
+		// THE-PROFILE-CLAIMS: the remaining §5.1 profile claims come from
+		// the optional profile row; nil omits them (never a placeholder).
+		ProfileLookup: profileLookupFor(resolved),
 	})
+}
+
+// profileLookupFor returns the profile read seam, or a true nil interface
+// when no UserProfileService is wired — a typed-nil pointer inside the
+// interface would pass the handlers' nil checks and then dereference.
+func profileLookupFor(resolved OSSRouterDeps) handlers.ProfileByUserLookup {
+	if resolved.UserProfileService == nil {
+		return nil
+	}
+	return resolved.UserProfileService
 }
 
 // oauthClientRateLimitKey buckets an OAuth request by the authenticated
@@ -1292,6 +1314,9 @@ func mountToken(router gin.IRouter, resolved OSSRouterDeps) {
 		// offline_access mints an OAuth refresh token (the kind the
 		// refresh_token grant consumes) when this is wired.
 		RefreshTokens: resolved.RefreshTokenService,
+		// THE-PROFILE-CLAIMS: profile-family id_token claims read the
+		// optional profile row.
+		ProfileLookup: profileLookupFor(resolved),
 		StartupReport: resolved.StartupReport,
 		// Per-client token-endpoint rate limit (generous). Noop when
 		// RateLimitConfig is zero-value (matching login/register).
@@ -1657,7 +1682,12 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			body["claims_supported"] = []string{
 				"sub", "iss", "aud", "exp", "iat", "jti",
 				"auth_time", "nonce", "acr", "amr",
-				"name", "email", "email_verified",
+				// OIDC Core §5.1 profile family (THE-PROFILE-CLAIMS):
+				// modeled on user_profiles, emitted only when set.
+				"name", "given_name", "family_name", "middle_name", "nickname",
+				"preferred_username", "profile", "picture", "website", "gender",
+				"birthdate", "zoneinfo", "locale", "updated_at",
+				"email", "email_verified",
 				"organization_id", "role",
 			}
 			// THE-CLAIMS-PARAMETER: the OIDC Core §5.5 `claims` request

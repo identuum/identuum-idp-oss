@@ -1718,6 +1718,22 @@ paths:
                 $ref: "#/components/schemas/oss_handlers_safeUser"
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+    put:
+      operationId: "identuum-idp-oss.profile.update_profile"
+      summary: "Update the authenticated user's own display name and OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale). Absent = unchanged, \"\" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale)."
+      tags:
+        - "profile"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Update the authenticated user's own display name and OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale). Absent = unchanged, \"\" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/oss_handlers_safeUser"
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/revoke":
     post:
       operationId: "identuum-idp-oss.sessions.revoke_own_session"

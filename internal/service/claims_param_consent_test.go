@@ -121,7 +121,7 @@ func TestClaimsParameter_ConsentGatedAndRoleIntersected(t *testing.T) {
 	t.Run("unknown claim ignored, never an error", func(t *testing.T) {
 		h := newClaimsParamHarness(t)
 		h.grant(t, "userinfo:name")
-		h.req.Claims = `{"userinfo":{"name":null,"picture":{"essential":true}},"introspection":{"name":null}}`
+		h.req.Claims = `{"userinfo":{"name":null,"phone_number":{"essential":true}},"introspection":{"name":null}}`
 		if _, err := h.authz.Authorize(context.Background(), h.req); err != nil {
 			t.Fatalf("unknown claim/member must not fail the request: %v", err)
 		}

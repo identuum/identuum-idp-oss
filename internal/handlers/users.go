@@ -60,6 +60,52 @@ type UsersHandlerDeps struct {
 	// StartupReport receives a fatal fault if neither UserService nor
 	// UserRepo is wired — instead of panicking (P-018). Nil-safe.
 	StartupReport *lifecycle.StartupReport
+
+	// ProfileService owns the optional OIDC profile row
+	// (THE-PROFILE-CLAIMS): GET /profile and GET /users/:id project it,
+	// PUT /profile (self-service) and PUT /users/:id (admin) patch it. Nil
+	// leaves every profile field unset and refuses profile writes.
+	ProfileService *service.UserProfileService
+}
+
+// profileFieldsRequest is the wire shape of the twelve optional OIDC §5.1
+// profile fields (THE-PROFILE-CLAIMS), shared by the self-service and
+// admin update bodies. A field absent = unchanged; "" = clear.
+type profileFieldsRequest struct {
+	GivenName         *string `json:"given_name,omitempty"`
+	FamilyName        *string `json:"family_name,omitempty"`
+	MiddleName        *string `json:"middle_name,omitempty"`
+	Nickname          *string `json:"nickname,omitempty"`
+	PreferredUsername *string `json:"preferred_username,omitempty"`
+	Profile           *string `json:"profile,omitempty"`
+	Picture           *string `json:"picture,omitempty"`
+	Website           *string `json:"website,omitempty"`
+	Gender            *string `json:"gender,omitempty"`
+	Birthdate         *string `json:"birthdate,omitempty"`
+	Zoneinfo          *string `json:"zoneinfo,omitempty"`
+	Locale            *string `json:"locale,omitempty"`
+}
+
+func (r profileFieldsRequest) patch() domain.UserProfilePatch {
+	return domain.UserProfilePatch{
+		GivenName: r.GivenName, FamilyName: r.FamilyName, MiddleName: r.MiddleName,
+		Nickname: r.Nickname, PreferredUsername: r.PreferredUsername, Profile: r.Profile,
+		Picture: r.Picture, Website: r.Website, Gender: r.Gender,
+		Birthdate: r.Birthdate, Zoneinfo: r.Zoneinfo, Locale: r.Locale,
+	}
+}
+
+// loadProfile reads the user's profile row when a ProfileService is wired;
+// any failure reads as "no profile" so a projection never 500s on it.
+func (deps UsersHandlerDeps) loadProfile(ctx context.Context, userID uuid.UUID) *domain.UserProfile {
+	if deps.ProfileService == nil || userID == uuid.Nil {
+		return nil
+	}
+	p, err := deps.ProfileService.Get(ctx, userID)
+	if err != nil {
+		return nil
+	}
+	return p
 }
 
 // OrgPolicyReader is the narrow read-only seam the user handlers need
@@ -353,6 +399,85 @@ func RegisterProfileRoute(router gin.IRouter, deps UsersHandlerDeps) {
 	// docgen:response=oss.handlers.safeUser
 	// docgen:notes=Returns 401 when no principal is present or when the principal has no UserID; 404 when the user row is missing.
 	g.GET("", HandleGetProfile(deps))
+
+	// docgen:endpoint
+	// docgen:surface=profile
+	// docgen:method=PUT
+	// docgen:path=/api/v1/profile
+	// docgen:summary=Update the authenticated user's own display name and OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale). Absent = unchanged, "" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale).
+	// docgen:tier=oss
+	// docgen:auth=authenticated
+	// docgen:response=oss.handlers.safeUser
+	// docgen:notes=Self-service only — the target is the caller; email, role and status are not writable here. 400 with the offending field on a format violation; 503 when no profile store is wired.
+	g.PUT("", HandleUpdateProfile(deps))
+}
+
+// HandleUpdateProfile is the self-service half of THE-PROFILE-CLAIMS: the
+// authenticated human updates their own display name and the twelve
+// optional OIDC §5.1 profile fields. Nothing else on the user row is
+// reachable from here (email, role, status stay admin-only).
+func HandleUpdateProfile(deps UsersHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		p, ok := mw.PrincipalFromContext(c)
+		if !ok || p.UserID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		var req struct {
+			Name *string `json:"name,omitempty"`
+			profileFieldsRequest
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		if deps.ProfileService == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "profile store unavailable"})
+			return
+		}
+		var (
+			u   *domain.User
+			err error
+		)
+		if req.Name != nil && deps.UserService != nil {
+			// The display name lives on users.name; the same validated
+			// service path the admin surface uses, scoped to the caller.
+			u, err = deps.UserService.Update(c.Request.Context(), p.UserID, uuid.Nil, service.UpdateUserOptions{Name: req.Name})
+			if err != nil {
+				if errors.Is(err, service.ErrUserInvalid()) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
+					return
+				}
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
+		} else if deps.UserService != nil {
+			u, err = deps.UserService.GetByID(c.Request.Context(), p.UserID)
+		} else {
+			u, err = deps.UserRepo.GetByID(c.Request.Context(), p.UserID)
+		}
+		if err != nil || u == nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
+		}
+		profile, perr := deps.ProfileService.Apply(c.Request.Context(), p.UserID, req.patch())
+		if perr != nil {
+			if errors.Is(perr, domain.ErrUserProfileInvalid) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": perr.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+			return
+		}
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action:    "profile.updated",
+			Outcome:   "success",
+			IPAddress: c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+			Metadata:  map[string]any{"user_id": p.UserID},
+		})
+		c.JSON(http.StatusOK, toSafeUserWithProfile(u, profile))
+	}
 }
 
 // HandleGetProfile returns the authenticated principal's own user
@@ -378,7 +503,7 @@ func HandleGetProfile(deps UsersHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		c.JSON(http.StatusOK, toSafeUser(u))
+		c.JSON(http.StatusOK, toSafeUserWithProfile(u, deps.loadProfile(c.Request.Context(), u.ID)))
 	}
 }
 
@@ -405,6 +530,40 @@ type safeUser struct {
 	CreatedAt              time.Time       `json:"created_at"`
 	UpdatedAt              time.Time       `json:"updated_at"`
 	DeletedAt              *time.Time      `json:"deleted_at,omitempty"`
+
+	// OIDC §5.1 profile fields (THE-PROFILE-CLAIMS): present only when set.
+	GivenName         *string `json:"given_name,omitempty"`
+	FamilyName        *string `json:"family_name,omitempty"`
+	MiddleName        *string `json:"middle_name,omitempty"`
+	Nickname          *string `json:"nickname,omitempty"`
+	PreferredUsername *string `json:"preferred_username,omitempty"`
+	Profile           *string `json:"profile,omitempty"`
+	Picture           *string `json:"picture,omitempty"`
+	Website           *string `json:"website,omitempty"`
+	Gender            *string `json:"gender,omitempty"`
+	Birthdate         *string `json:"birthdate,omitempty"`
+	Zoneinfo          *string `json:"zoneinfo,omitempty"`
+	Locale            *string `json:"locale,omitempty"`
+	// ProfileUpdatedAt is the profile row's last write (nil when the user
+	// never set a profile field).
+	ProfileUpdatedAt *time.Time `json:"profile_updated_at,omitempty"`
+}
+
+// toSafeUserWithProfile projects the user plus its optional profile row.
+func toSafeUserWithProfile(u *domain.User, p *domain.UserProfile) safeUser {
+	out := toSafeUser(u)
+	if u == nil || p == nil {
+		return out
+	}
+	out.GivenName, out.FamilyName, out.MiddleName = p.GivenName, p.FamilyName, p.MiddleName
+	out.Nickname, out.PreferredUsername, out.Profile = p.Nickname, p.PreferredUsername, p.Profile
+	out.Picture, out.Website, out.Gender = p.Picture, p.Website, p.Gender
+	out.Birthdate, out.Zoneinfo, out.Locale = p.Birthdate, p.Zoneinfo, p.Locale
+	if !p.UpdatedAt.IsZero() {
+		t := p.UpdatedAt
+		out.ProfileUpdatedAt = &t
+	}
+	return out
 }
 
 func toSafeUser(u *domain.User) safeUser {
@@ -506,7 +665,7 @@ func HandleGetUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
-		c.JSON(http.StatusOK, toSafeUser(u))
+		c.JSON(http.StatusOK, toSafeUserWithProfile(u, deps.loadProfile(c.Request.Context(), u.ID)))
 	}
 }
 
@@ -591,9 +750,18 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			Active        *bool            `json:"active,omitempty"`
 			Banned        *bool            `json:"banned,omitempty"`
 			EmailVerified *bool            `json:"email_verified,omitempty"`
+			// THE-PROFILE-CLAIMS: the twelve optional OIDC §5.1 fields.
+			profileFieldsRequest
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		profilePatch := req.patch()
+		userFieldsPresent := req.Email != nil || req.Password != nil || req.Name != nil ||
+			req.Role != nil || req.Active != nil || req.Banned != nil || req.EmailVerified != nil
+		if !profilePatch.IsEmpty() && deps.ProfileService == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "profile store unavailable"})
 			return
 		}
 		// active is the public, pre-split wire contract; banned is the
@@ -615,16 +783,24 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				pce, minLen = resolveOrgPasswordPolicy(c.Request.Context(), deps.PolicyOrgs, target.OrganizationID)
 			}
 		}
-		updated, err := deps.UserService.UpdateUserForActor(c.Request.Context(), actor, id, service.UpdateUserOptions{
-			Email:                     req.Email,
-			Password:                  req.Password,
-			Name:                      req.Name,
-			Role:                      req.Role,
-			Banned:                    req.Banned,
-			EmailVerified:             req.EmailVerified,
-			PasswordComplexityEnabled: pce,
-			MinPasswordLength:         minLen,
-		})
+		var updated *domain.User
+		if userFieldsPresent || profilePatch.IsEmpty() {
+			updated, err = deps.UserService.UpdateUserForActor(c.Request.Context(), actor, id, service.UpdateUserOptions{
+				Email:                     req.Email,
+				Password:                  req.Password,
+				Name:                      req.Name,
+				Role:                      req.Role,
+				Banned:                    req.Banned,
+				EmailVerified:             req.EmailVerified,
+				PasswordComplexityEnabled: pce,
+				MinPasswordLength:         minLen,
+			})
+		} else {
+			// Profile-only update: the SAME actor authority as an update
+			// (GetUserForActor is the read half of UpdateUserForActor's
+			// tenant rules), then the profile write below.
+			updated, err = deps.UserService.GetUserForActor(c.Request.Context(), actor, id)
+		}
 		if errors.Is(err, domain.ErrForbidden) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			return
@@ -674,7 +850,23 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		if req.Banned != nil && *req.Banned {
 			cascadeRevokeUser(c.Request.Context(), deps.SessionRevoker, deps.RefreshTokenRevoker, updated.ID, "user_banned")
 		}
-		c.JSON(http.StatusOK, toSafeUser(updated))
+		// THE-PROFILE-CLAIMS: the optional profile fields, validated per
+		// field; a format violation is an honest 400 naming the field.
+		var profile *domain.UserProfile
+		if !profilePatch.IsEmpty() {
+			profile, err = deps.ProfileService.Apply(c.Request.Context(), updated.ID, profilePatch)
+			if err != nil {
+				if errors.Is(err, domain.ErrUserProfileInvalid) {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
+					return
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+				return
+			}
+		} else {
+			profile = deps.loadProfile(c.Request.Context(), updated.ID)
+		}
+		c.JSON(http.StatusOK, toSafeUserWithProfile(updated, profile))
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "user.updated",
 			Outcome:   "success",

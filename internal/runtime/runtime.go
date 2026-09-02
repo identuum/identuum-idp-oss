@@ -1210,6 +1210,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// unaffected.
 	hidePublicIDPEmailDomains := resolveHidePublicIDPEmailDomains(r.cfg.Getenv)
 
+	// THE-PROFILE-CLAIMS: the optional OIDC §5.1 profile row store.
+	userProfileSvc := service.NewUserProfileService(report, repos.UserProfile)
+
 	deps := api.OSSRouterDeps{
 		Version:         r.cfg.Version,
 		DiscoveryConfig: server.OIDCDiscoveryConfig{Issuer: r.cfg.Issuer},
@@ -1234,6 +1237,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		UserService:                       userSvc,
 		OrganizationService:               orgSvc,
 		OrganizationDomainService:         orgDomainSvc,
+		UserProfileService:                userProfileSvc,
 		OrgRoleService:                    orgRoleSvc,
 		ServiceAccountService:             serviceAccountSvc,
 		ServiceAccountClientBundleService: saClientBundleSvc,

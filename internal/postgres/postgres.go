@@ -41,6 +41,8 @@ type Repositories struct {
 	MFAPendingLoginSession       repository.MFAPendingLoginSessionRepository
 	WebAuthnCredential           repository.WebAuthnCredentialRepository
 	EmailVerification            repository.EmailVerificationRepository
+	// UserProfile is the optional OIDC profile row store (THE-PROFILE-CLAIMS).
+	UserProfile repository.UserProfileRepository
 	// Audit is the OSS plain persistent audit log store (L-2). Concrete
 	// type (not an interface) so the runtime can SetRetention on it after
 	// resolving the env override; it satisfies both the persistent
@@ -89,6 +91,7 @@ func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 		MFAPendingLoginSession:       NewPgxMFAPendingLoginSessionRepository(db),
 		WebAuthnCredential:           NewPgxWebAuthnCredentialRepository(db),
 		EmailVerification:            NewPgxEmailVerificationRepository(db),
+		UserProfile:                  NewPgxUserProfileRepository(db),
 		Audit:                        NewPgxAuditRepository(db, DefaultAuditRetention),
 	}
 }

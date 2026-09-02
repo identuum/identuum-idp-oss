@@ -364,11 +364,20 @@ func renderClaims(raw string) string {
 	return b.String()
 }
 
+// renderHiddenFields echoes every HONORED /authorize parameter so the
+// approve POST resumes the exact request (readConsentForm reads the same
+// names). THE-PROFILE-CLAIMS item 0: max_age is echoed — a max_age request
+// that needed fresh consent used to resume WITHOUT it, and the freshness
+// requirement silently vanished after approve. `prompt` is deliberately NOT
+// echoed: prompt=consent would force the consent page again on the resumed
+// request (an approve loop), and prompt=login is satisfied by the ceremony
+// itself (stripPromptLogin). `request`/`request_uri` are refused, never
+// resumed.
 func renderHiddenFields(q url.Values) string {
 	keys := []string{
 		"response_type", "client_id", "redirect_uri", "scope", "audience",
 		"state", "nonce", "code_challenge", "code_challenge_method",
-		"claims",
+		"max_age", "claims",
 	}
 	var b strings.Builder
 	for _, k := range keys {

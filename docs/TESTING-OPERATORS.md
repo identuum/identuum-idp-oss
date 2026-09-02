@@ -234,7 +234,7 @@ clone (and its python venv) survives between runs.
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (re-measured 2026-09-02 after THE-CLAIMS-PARAMETER,
+**The committed baseline (re-measured 2026-09-02 after THE-PROFILE-CLAIMS,
 suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
@@ -252,16 +252,14 @@ suite release-v5.2.4):**
     (result REVIEW — these modules ask for a screenshot of the second login,
     which the browser automation uploads; REVIEW is the accepted terminal
     state of that module class, exactly like the two redirect_uri modules).
-  - 2 recorded WARNINGS across 2 modules
-    (`conformance/expected-failures-basic.json`, comments name each):
-    partial profile claims (the suite wants all 14 profile standard claims;
-    the user model holds only `name`) and the deliberate
-    refuse-to-fake-`acr` posture. THE-CONSENTED-SCOPE retired the four
-    email-in-id_token / unscoped-`name` warnings (`oidcc-scope-email`,
-    `oidcc-alternate-happy-flow` pass clean); THE-CODE-REUSE-REVOKER retired
-    the `oidcc-codereuse-30seconds` warning; THE-CLAIMS-PARAMETER retired the
-    `oidcc-claims-essential` warning (the `claims` request parameter is
-    honored, consent-gated) — see the sections below.
+  - 1 recorded WARNING (`conformance/expected-failures-basic.json`): the
+    deliberate refuse-to-fake-`acr` posture. THE-CONSENTED-SCOPE retired the
+    four email-in-id_token / unscoped-`name` warnings; THE-CODE-REUSE-REVOKER
+    retired `oidcc-codereuse-30seconds`; THE-CLAIMS-PARAMETER retired
+    `oidcc-claims-essential`; THE-PROFILE-CLAIMS retired `oidcc-scope-profile`
+    (the full OIDC §5.1 profile is modeled and the conformance provisioner
+    sets every field on the test user, so the 14-claim check passes
+    truthfully) — see the sections below.
   - 4 recorded SKIPS (`conformance/expected-skips-basic.json`):
     address/phone scopes are not modeled, and the request-object module
     skips because the OP compliantly rejects request objects as
@@ -317,6 +315,36 @@ restricts."** Rule `TOKEN-SCOPE-INTERSECTION-1`.
 - **The id_token carries no email.** In the code flow scope-requested claims
   belong to userinfo; only a `claims` request parameter (unsupported) would
   put them in the id_token.
+
+## Profile claims — the full OIDC §5.1 set, unset is never emitted
+
+THE-PROFILE-CLAIMS (2026-09-02, owner ruled the full profile). Rule
+`PROFILE-CLAIMS-TRUTHFUL-1`.
+
+- **Modeled** on `user_profiles` (migration 0035; one optional row per
+  user, cascades with the user): given_name, family_name, middle_name,
+  nickname, preferred_username, profile, picture, website, gender,
+  birthdate, zoneinfo, locale. `name` stays on `users.name`; `updated_at`
+  is the later of the user row's and the profile row's update time.
+- **Unset is NEVER emitted** — no null, no "", no placeholder
+  (`domain.ProfileClaims`). A field the user never set is simply absent.
+- **Exposed** on the users API — `GET/PUT /api/v1/profile` (self-service:
+  the caller's own display name + the twelve fields; email/role/status are
+  not writable there) and `GET/PUT /api/v1/users/:id` (admin, same actor
+  authority as any user update) — and on the UI account page
+  (`/account/settings?tab=profile`). Formats are validated: `profile`,
+  `picture`, `website` must be absolute http(s) URLs; `birthdate` is
+  `YYYY-MM-DD`, `YYYY`, or `0000-MM-DD`; `zoneinfo` must be an IANA zone
+  (the binary embeds tzdata); `locale` must parse as BCP47; free-text
+  fields are capped at 256 characters (gender 64). "" clears a field.
+- **Released** under `scope=profile` (the whole family, set fields only)
+  or claim-by-claim through the `claims` parameter — consent-gated and
+  role-intersected exactly like every other claim; humans only. The
+  id_token carries them only for a consented `claims.id_token` request.
+- **Advertised** honestly: `claims_supported` lists the family;
+  `EmittableIdentityClaims` accepts them in the `claims` parameter.
+- **Conformance**: `conformance/provision.mjs` sets EVERY field on the test
+  user, so `oidcc-scope-profile`'s all-14-claims check passes on real data.
 
 ## The `claims` request parameter — consent-gated, role-intersected
 

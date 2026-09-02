@@ -109,6 +109,11 @@ type TokenHandlerDeps struct {
 	// was advertised but unusable. When wired this takes precedence
 	// over UserSession for the refresh_token response field.
 	RefreshTokens *service.RefreshTokenService
+
+	// ProfileLookup, when wired, backs the OIDC §5.1 profile-family claims
+	// a consented `claims.id_token` request puts in the id_token
+	// (THE-PROFILE-CLAIMS). Nil = only name/updated_at from the user row.
+	ProfileLookup ProfileByUserLookup
 }
 
 // RegisterTokenRoutes mounts
@@ -391,15 +396,29 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 	// silently dropping the ID token — the client asked for OIDC
 	// and would be misled by a plain OAuth response.
 	if deps.IDToken != nil && hasOpenIDScope(consumed.Scope) {
+		// THE-CLAIMS-PARAMETER: consented id_token-member claims, ∩ what the
+		// role permits. THE-PROFILE-CLAIMS: when any of them is a profile
+		// claim the optional profile row is loaded so set fields can emit.
+		idClaims := domain.IntersectConsentedClaims(consumed.RequestedClaims.IDToken, user.Role)
+		var profile *domain.UserProfile
+		if deps.ProfileLookup != nil {
+			for _, n := range idClaims {
+				if domain.IsProfileClaim(n) {
+					if p, perr := deps.ProfileLookup.Get(c.Request.Context(), user.ID); perr == nil {
+						profile = p
+					}
+					break
+				}
+			}
+		}
 		idt, idErr := deps.IDToken.Issue(c.Request.Context(), service.IDTokenInput{
 			User:     user,
 			Session:  session,
 			Audience: client.ClientID,
 			Nonce:    consumed.Nonce,
 			Scope:    consumed.Scope,
-			// THE-CLAIMS-PARAMETER: consented id_token-member claims,
-			// ∩ what the role permits.
-			Claims: domain.IntersectConsentedClaims(consumed.RequestedClaims.IDToken, user.Role),
+			Claims:   idClaims,
+			Profile:  profile,
 			// The client's registered id_token_signed_response_alg
 			// (default EdDSA). RS256 fires ONLY via this explicit
 			// registration — testing-only (THE-PKCE-DECISION).

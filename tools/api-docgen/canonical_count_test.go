@@ -80,7 +80,9 @@ import (
 // read half over the audit_events table.
 // 133 → 134: added POST /api/v1/oauth/authorize (OIDC Core §3.1.2.1
 // form-serialized authorize; THE-PKCE-DECISION).
-const CanonicalEndpointCount = 134
+// 134 → 135: added PUT /api/v1/profile (self-service display name + OIDC
+// §5.1 profile fields; THE-PROFILE-CLAIMS).
+const CanonicalEndpointCount = 135
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

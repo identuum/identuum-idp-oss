@@ -203,6 +203,10 @@ func authorizeQueryFromRequest(req service.AuthorizeRequest) string {
 	set("code_challenge", req.CodeChallenge)
 	set("code_challenge_method", req.CodeChallengeMethod)
 	set("prompt", req.Prompt)
+	// THE-PROFILE-CLAIMS item 0: max_age is an honored parameter — the
+	// re-encoded query (login/consent redirects from the consent-approve
+	// path) must carry it, or the freshness requirement is lost.
+	set("max_age", req.MaxAge)
 	set("claims", req.Claims)
 	return v.Encode()
 }

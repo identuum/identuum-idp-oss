@@ -89,6 +89,43 @@ var bindOptionsJustified = map[string]optionsGap{
 		Why:   "RFC 7592 management mirrors the 7591 posture: service-account linkage stays admin-only.",
 	},
 
+	// ── THE-PROFILE-CLAIMS: self-service PUT /api/v1/profile ──
+	// The caller edits their OWN display name + the twelve OIDC §5.1
+	// profile fields (the latter through UserProfilePatch, fully fed). The
+	// remaining UpdateUserOptions capabilities are ADMIN-only on purpose:
+	// a user must not change their own email (identity), password (that is
+	// /auth/change-password with the current-password proof), role, ban
+	// state, or verification flag; the password-policy knobs never come
+	// from any wire (PROVENANCE-POLICY-1). Absent = not reachable here.
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.Email": {
+		State: "absent",
+		Why:   "self-service profile: the login identity is admin-managed; a self email change needs verification flows this surface deliberately does not carry.",
+	},
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.Password": {
+		State: "absent",
+		Why:   "self-service profile: password changes go through POST /auth/change-password with the current-password proof, never a profile edit.",
+	},
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.Role": {
+		State: "absent",
+		Why:   "self-service profile: a user granting itself a role would be escalation; roles are admin-only (AdminPermissionsModel).",
+	},
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.Banned": {
+		State: "absent",
+		Why:   "self-service profile: ban/activation state is admin-only lifecycle authority.",
+	},
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.EmailVerified": {
+		State: "absent",
+		Why:   "self-service profile: a user must not self-verify an address; verification is a mail flow or an admin act.",
+	},
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.PasswordComplexityEnabled": {
+		State: "absent",
+		Why:   "policy knob, never wire-fed (PROVENANCE-POLICY-1); no password changes on this path anyway.",
+	},
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.MinPasswordLength": {
+		State: "absent",
+		Why:   "policy knob, never wire-fed (PROVENANCE-POLICY-1); no password changes on this path anyway.",
+	},
+
 	// ── Debts PAID by THE-TWO-DEBTS (rows retired, stale teeth fired) ──
 	// keys.go CreatedBy: now derived from the authenticated principal
 	// (never the wire). users/user_bulk password-policy knobs: now fed

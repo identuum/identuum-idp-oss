@@ -36,11 +36,27 @@ type OIDCProviderMetadata struct {
 // OIDCUserInfo represents the response from the UserInfo endpoint
 // Ref: https://openid.net/specs/openid-connect-core-1_0.html#UserInfoResponse
 type OIDCUserInfo struct {
-	Sub            string `json:"sub"`
-	Name           string `json:"name,omitempty"`
-	Email          string `json:"email,omitempty"`
-	OrganizationID string `json:"organization_id,omitempty"`
-	Role           string `json:"role,omitempty"`
+	Sub  string `json:"sub"`
+	Name string `json:"name,omitempty"`
+	// OIDC Core §5.1 profile claims (THE-PROFILE-CLAIMS). Each is emitted
+	// only when the user set it — never a placeholder. UpdatedAt is Unix
+	// seconds of the last profile/user update.
+	GivenName         string `json:"given_name,omitempty"`
+	FamilyName        string `json:"family_name,omitempty"`
+	MiddleName        string `json:"middle_name,omitempty"`
+	Nickname          string `json:"nickname,omitempty"`
+	PreferredUsername string `json:"preferred_username,omitempty"`
+	Profile           string `json:"profile,omitempty"`
+	Picture           string `json:"picture,omitempty"`
+	Website           string `json:"website,omitempty"`
+	Gender            string `json:"gender,omitempty"`
+	Birthdate         string `json:"birthdate,omitempty"`
+	Zoneinfo          string `json:"zoneinfo,omitempty"`
+	Locale            string `json:"locale,omitempty"`
+	UpdatedAt         int64  `json:"updated_at,omitempty"`
+	Email             string `json:"email,omitempty"`
+	OrganizationID    string `json:"organization_id,omitempty"`
+	Role              string `json:"role,omitempty"`
 	// EmailVerified accompanies `email` (OIDC Core §5.1: both belong to the
 	// `email` scope) and is omitted whenever email is — §5.3.2 forbids a
 	// claim rendered without a value.
