@@ -1,14 +1,14 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 1a5fda9
-started: 2026-09-02T13:16:08Z
+repo-head: 7e80a32
+started: 2026-09-02T13:32:08Z
 plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.0  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
 tool: grype       0.118.0  /opt/homebrew/bin/grype
 tool: govulncheck govulncheck@v1.7.0  /opt/homebrew/bin/govulncheck
-tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.7.0"}  /opt/homebrew/bin/rulefloor
+tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.8.0","toolchain_version":"v0.8.0","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
 target: tool-versions exit=0
 target: repo-green exit=0
 target: tracked-binary-check exit=0
@@ -36,6 +36,6 @@ target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 target: wiki-fresh exit=0
 target: grype-scan exit=0
-finished: 2026-09-02T13:21:09Z
-tree: sha256=16bee0155d70fee4e1e2b38a973f57ad268250b28fc9b9b1bc80e854b92ed478
+finished: 2026-09-02T13:36:58Z
+tree: sha256=89e92d33412d2186225f634a848e98db338d3bf46c91d932acabc59762e2e784
 result: green
