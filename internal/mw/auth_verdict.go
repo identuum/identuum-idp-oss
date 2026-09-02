@@ -127,10 +127,21 @@ var AuthStoreErrorSink = func(ctx context.Context, where, correlationID string, 
 // that render their own body (HTML for a browser page) use this directly;
 // JSON callers use RespondAuthStoreUnavailable.
 func RecordAuthStoreError(c *gin.Context, where string, err error) string {
-	cid := CorrelationID(c)
-	AuthStoreErrorSink(c.Request.Context(), where, cid, err)
+	cid := NoteAuthStoreError(c, where, err)
 	c.Header("Retry-After", "1")
 	c.Header("Cache-Control", "no-store")
+	return cid
+}
+
+// NoteAuthStoreError is the log-only half of RecordAuthStoreError: the
+// ERROR line through AuthStoreErrorSink with the request's correlation id,
+// no response headers. For paths that still complete for the user (a
+// logout that clears the cookie even though the store could not confirm
+// the revocation — THE-LOGOUT-THAT-CANNOT-REVOKE) where Retry-After would
+// mislead the RP.
+func NoteAuthStoreError(c *gin.Context, where string, err error) string {
+	cid := CorrelationID(c)
+	AuthStoreErrorSink(c.Request.Context(), where, cid, err)
 	return cid
 }
 

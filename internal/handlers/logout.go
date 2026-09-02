@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"slices"
@@ -115,28 +116,48 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			}
 		}
 
-		// Phase 1: revoke the cookie session (best-effort).
+		// Phase 1: revoke the cookie session (best-effort — but never
+		// silently: THE-LOGOUT-THAT-CANNOT-REVOKE. A STORE error while
+		// resolving or revoking is logged with the correlation id, audited
+		// as user_session.logout.revocation_unconfirmed and marked on the
+		// response; the cookie is still cleared below because the user
+		// asked to leave this device. Resolve returns an error ONLY for
+		// store / infrastructure failures — an unknown or dead cookie is
+		// (nil, nil) and is not an incident.)
 		var cookieResolvedSessionID uuid.UUID
 		var cookieResolvedUserID uuid.UUID
+		revocationUnconfirmed := false
 		if cookieVal, ok := deps.CookieSession.Read(c.Request); ok {
-			if resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal); err == nil && resolved != nil && resolved.Session != nil {
+			resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal)
+			switch {
+			case err != nil:
+				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "cookie-session", err)
+				revocationUnconfirmed = true
+			case resolved != nil && resolved.Session != nil:
 				cookieResolvedSessionID = resolved.Session.ID
 				if resolved.User != nil {
 					cookieResolvedUserID = resolved.User.ID
 				}
-				_ = deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "oidc_logout")
-				if deps.BrowserTokens != nil {
-					_ = deps.BrowserTokens.Revoke(c.Request.Context(), cookieVal)
+				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "oidc_logout"); rerr != nil {
+					noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "revoke-session", rerr)
+					revocationUnconfirmed = true
+				} else {
+					if deps.BrowserTokens != nil {
+						if berr := deps.BrowserTokens.Revoke(c.Request.Context(), cookieVal); berr != nil {
+							noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "browser-token", berr)
+							revocationUnconfirmed = true
+						}
+					}
+					_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+						Action:    "user_session.logout.cookie_revoked",
+						Outcome:   "success",
+						IPAddress: c.ClientIP(),
+						UserAgent: c.Request.UserAgent(),
+						Metadata: map[string]any{
+							"session_id": resolved.Session.ID.String(),
+						},
+					})
 				}
-				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-					Action:    "user_session.logout.cookie_revoked",
-					Outcome:   "success",
-					IPAddress: c.ClientIP(),
-					UserAgent: c.Request.UserAgent(),
-					Metadata: map[string]any{
-						"session_id": resolved.Session.ID.String(),
-					},
-				})
 			}
 		}
 		// Phase 2: revoke the session referenced by the hint
@@ -144,11 +165,17 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// This covers the "bearer-driven logout" pattern where
 		// the RP forwards an ID token instead of a cookie.
 		if hint != nil && hint.SessionID != (domain.Principal{}).SessionID {
-			_ = deps.UserSession.RevokeSession(c.Request.Context(), hint.SessionID, "oidc_logout")
+			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), hint.SessionID, "oidc_logout"); rerr != nil {
+				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "hint-session", rerr)
+				revocationUnconfirmed = true
+			}
 		}
 		// Phase 3: revoke a bearer-presented session (if any).
 		if principal, ok := mw.PrincipalFromContext(c); ok && principal != nil && principal.SessionID != (domain.Principal{}).SessionID {
-			_ = deps.UserSession.RevokeSession(c.Request.Context(), principal.SessionID, "oidc_logout")
+			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), principal.SessionID, "oidc_logout"); rerr != nil {
+				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "bearer-session", rerr)
+				revocationUnconfirmed = true
+			}
 		}
 
 		// Phase 4: clear cookie.
@@ -164,7 +191,16 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		//   1. explicit client_id query param wins.
 		//   2. otherwise: first aud entry on the verified hint
 		//      that resolves to a registered client.
-		resolvedClient, ok := resolveLogoutClient(c.Request.Context(), deps, clientID, hint)
+		resolvedClient, ok, clientStoreErr := resolveLogoutClient(c.Request.Context(), deps, clientID, hint)
+		if clientStoreErr != nil {
+			// THE-LOGOUT-THAT-CANNOT-REVOKE: the client STORE did not answer, so
+			// post_logout_redirect_uri cannot be validated and the RP redirect
+			// must not happen (an unvalidated redirect is an open redirect).
+			// The cookie is already cleared above; the browser gets the honest
+			// 503 with the correlation id instead of a silent 204.
+			respondAuthStoreUnavailable(c, "logout.client", clientStoreErr)
+			return
+		}
 		if !ok {
 			c.Status(http.StatusNoContent)
 			return
@@ -220,33 +256,43 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 			Metadata: map[string]any{
-				"client_id":       resolvedClient.ClientID,
-				"hint_used":       hint != nil,
-				"explicit_client": clientID != "",
+				"client_id":              resolvedClient.ClientID,
+				"hint_used":              hint != nil,
+				"explicit_client":        clientID != "",
+				"revocation_unconfirmed": revocationUnconfirmed,
 			},
 		})
+		// The RP flow completes either way: state rides on the redirect.
+		// An unconfirmed revocation is already marked on this response
+		// (X-Identuum-Logout) and in the audit trail.
 		c.Redirect(http.StatusFound, location)
 	}
 }
 
 // resolveLogoutClient returns the *domain.Client whose
 // PostLogoutRedirectURIs allowlist gates the redirect. Returns
-// (nil, false) when no client can be safely resolved.
+// (nil, false, nil) when no client can be safely resolved (unknown client —
+// a verdict), and (nil, false, err) when the client STORE did not answer
+// (THE-LOGOUT-THAT-CANNOT-REVOKE: the caller answers 503, never a silent
+// 204 and never an unvalidated redirect).
 func resolveLogoutClient(
 	ctx context.Context,
 	deps EndSessionHandlerDeps,
 	explicitClientID string,
 	hint *service.VerifiedIDTokenHint,
-) (*domain.Client, bool) {
+) (*domain.Client, bool, error) {
 	if deps.Clients == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	if strings.TrimSpace(explicitClientID) != "" {
 		client, err := deps.Clients.GetClientByClientID(ctx, explicitClientID)
-		if err != nil || client == nil {
-			return nil, false
+		if err != nil && !errors.Is(err, domain.ErrClientNotFound) {
+			return nil, false, domain.AuthStoreUnavailable("client", err)
 		}
-		return client, true
+		if err != nil || client == nil {
+			return nil, false, nil
+		}
+		return client, true, nil
 	}
 	if hint != nil {
 		for _, aud := range hint.Audience {
@@ -254,12 +300,15 @@ func resolveLogoutClient(
 				continue
 			}
 			client, err := deps.Clients.GetClientByClientID(ctx, aud)
+			if err != nil && !errors.Is(err, domain.ErrClientNotFound) {
+				return nil, false, domain.AuthStoreUnavailable("client", err)
+			}
 			if err == nil && client != nil {
-				return client, true
+				return client, true, nil
 			}
 		}
 	}
-	return nil, false
+	return nil, false, nil
 }
 
 // containsString is a tiny helper used for hint-aud matching.

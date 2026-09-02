@@ -1,22 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "c00efa60da5da7c780e270e9bbd6b8aa4042da1d",
+  "base_commit": "dc1bf633c7db1448883513a47f65b65f11d77bea",
   "changes": [
     {
-      "rule_id": "AUTH-VERDICT-HONEST-1",
+      "rule_id": "LOGOUT-UNCONFIRMED-1",
       "change_class": "rule_added",
-      "reason": "THE-SESSION-REJECTION-ROOT-CAUSE: a store error on the auth path never answers 401 (503 + ERROR log + correlation id), a genuine verdict never answers 503 and names its reason; mutation red-proved"
-    },
-    {
-      "rule_id": "P0-JTI-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "63d3f0f96e8d947aedac47ef296e5d5222304c3214381401959f337c1bb9c919",
-      "reason": "THE-SESSION-REJECTION-ROOT-CAUSE: the store-error rejection is the 503 with its ERROR log and correlation id, never the 401 revoked verdict (fail-closed unchanged)"
-    },
-    {
-      "rule_id": "P0-JTI-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-SESSION-REJECTION-ROOT-CAUSE: the bearer revocation tests' store-error prongs now assert 503 instead of 401 (reviewed, rehashed ce337e4e2118 -> 0130923ecf43)"
+      "reason": "THE-LOGOUT-THAT-CANNOT-REVOKE: a store error during logout never passes silently (AUTH-503 log line + user_session.logout.revocation_unconfirmed audit + X-Identuum-Logout marker), the cookie is still cleared, RP-initiated end-session still redirects with state, a healthy logout emits neither; mutation red-proved"
     }
   ]
 }

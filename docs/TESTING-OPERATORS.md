@@ -760,6 +760,33 @@ logged (count + lines) into the record — a fired transient is evidence,
 never a red phase, because the UI retries 503s and the assertion that
 matters is that no bare 401 was ever answered.
 
+**Logout when the store cannot answer (THE-LOGOUT-THAT-CANNOT-REVOKE,
+2026-09-02).** The last collapse sites were the two logout handlers:
+`HandleEndSession` (`GET /api/v1/oidc/logout`) and
+`HandleFrontchannelLogout` read a cookie-session store error as "no
+session", cleared the cookie and silently skipped the revocation — the
+session survived on the server while the browser believed it was gone. Now
+(the ui's own logout pattern): on a store error while resolving OR revoking
+(cookie session, browser token, hint session, bearer session) the cookie is
+STILL cleared — the user asked to leave this device — but never silently:
+one `AUTH-503` ERROR line (`where=logout.<lookup>`, the request's
+correlation id), the audit event `user_session.logout.revocation_unconfirmed`
+(`flow`, `where`, `reason=auth_store_error`, `correlation_id`; never a token
+or cookie value) and the response header `X-Identuum-Logout:
+revocation_unconfirmed` beside `X-Request-ID`. RP-initiated end-session
+still completes its redirect with `state` (the redirected audit carries
+`revocation_unconfirmed: true`); if the CLIENT store did not answer the
+`post_logout_redirect_uri` cannot be validated, so the browser gets the 503
+page with the correlation id instead of a silent 204 (never an unvalidated
+redirect). Front-channel (an invisible iframe): the same log + audit +
+header, and the passive page adds "Signed out on this device. The
+server-side sign-out could not be confirmed right now (reference <id>)";
+beyond that there is nothing an iframe answer can honestly do — a 5xx would
+only make RPs treat a fire-and-forget iframe as failed. A successful
+revocation path is unchanged. Rule `LOGOUT-UNCONFIRMED-1` (red-proved by
+mutation) pins the triple on both endpoints and that a healthy logout emits
+neither the log line nor the event.
+
 **Rules.** `AUTH-VERDICT-HONEST-1` (red-proved by mutation): a store error
 never answers 401; a genuine verdict never answers 503 and always names its
 reason; every 503 makes exactly one log-sink call carrying its correlation

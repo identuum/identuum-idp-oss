@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"html"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -70,20 +72,37 @@ func RegisterFrontchannelLogoutRoutes(router gin.IRouter, deps FrontchannelLogou
 // resurrect a logged-out view.
 func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// THE-LOGOUT-THAT-CANNOT-REVOKE: a STORE error while resolving or
+		// revoking is logged with the correlation id, audited as
+		// user_session.logout.revocation_unconfirmed and marked on the
+		// response (X-Identuum-Logout) — never silent. The cookie is still
+		// cleared: the user asked to leave this device. An iframe has no
+		// visible answer, so beyond the log, the audit event, the header and
+		// the reference in the passive page body there is nothing more this
+		// endpoint can honestly do (a 5xx here would only make RPs treat a
+		// fire-and-forget iframe as failed; the RP-side clear still happens).
 		var resolvedSession uuid.UUID
+		var unconfirmedCID string
 		if cookieVal, ok := deps.CookieSession.Read(c.Request); ok {
-			if resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal); err == nil && resolved != nil && resolved.Session != nil {
+			resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal)
+			switch {
+			case err != nil:
+				unconfirmedCID = noteLogoutRevocationUnconfirmed(c, deps.Audit, "frontchannel", "cookie-session", err)
+			case resolved != nil && resolved.Session != nil:
 				resolvedSession = resolved.Session.ID
-				_ = deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "frontchannel_logout")
-				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-					Action:    "user_session.frontchannel_logout",
-					Outcome:   "success",
-					IPAddress: c.ClientIP(),
-					UserAgent: c.Request.UserAgent(),
-					Metadata: map[string]any{
-						"session_id": resolved.Session.ID.String(),
-					},
-				})
+				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "frontchannel_logout"); rerr != nil {
+					unconfirmedCID = noteLogoutRevocationUnconfirmed(c, deps.Audit, "frontchannel", "revoke-session", rerr)
+				} else {
+					_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+						Action:    "user_session.frontchannel_logout",
+						Outcome:   "success",
+						IPAddress: c.ClientIP(),
+						UserAgent: c.Request.UserAgent(),
+						Metadata: map[string]any{
+							"session_id": resolved.Session.ID.String(),
+						},
+					})
+				}
 			}
 		}
 		writeSessionCookie(c, deps.CookieSession.Clear())
@@ -98,7 +117,13 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 		var iframeSrc string
 		clientID := strings.TrimSpace(c.Query("client_id"))
 		if deps.Clients != nil && clientID != "" {
-			if client, err := deps.Clients.GetClientByClientID(c.Request.Context(), clientID); err == nil && client != nil {
+			client, err := deps.Clients.GetClientByClientID(c.Request.Context(), clientID)
+			switch {
+			case err != nil && !errors.Is(err, domain.ErrClientNotFound):
+				// The client STORE did not answer: no iframe can be resolved.
+				// Logged with the correlation id; the passive page still renders.
+				mw.NoteAuthStoreError(c, "frontchannel.client", err)
+			case err == nil && client != nil:
 				iframeSrc = resolveFrontchannelIframeSrc(client, deps.Issuer, resolvedSession)
 			}
 		}
@@ -111,7 +136,7 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 			// the prior slice.
 			c.Header("Content-Type", "text/html; charset=utf-8")
 			c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
-			c.String(http.StatusOK, frontchannelLogoutHTML)
+			c.String(http.StatusOK, withLogoutReference(frontchannelLogoutHTML, unconfirmedCID))
 			return
 		}
 		// Iframe variant: scope `frame-src` to the iframe origin
@@ -124,8 +149,25 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Header("Content-Security-Policy", csp)
-		c.String(http.StatusOK, renderFrontchannelIframe(iframeSrc))
+		c.String(http.StatusOK, withLogoutReference(renderFrontchannelIframe(iframeSrc), unconfirmedCID))
 	}
+}
+
+// withLogoutReference adds the honest note to a passive logout page when
+// the server-side revocation is unconfirmed: signed out on this device, the
+// server-side sign-out could not be confirmed, reference = the correlation
+// id an operator can find in the IdP's AUTH-503 log line. Plain text, no
+// script, HTML-escaped; unchanged when cid is empty.
+func withLogoutReference(page, cid string) string {
+	if cid == "" {
+		return page
+	}
+	note := `<p>Signed out on this device. The server-side sign-out could not be confirmed right now (reference ` +
+		html.EscapeString(cid) + `).</p>`
+	if i := strings.LastIndex(page, "</body>"); i >= 0 {
+		return page[:i] + note + page[i:]
+	}
+	return page + note
 }
 
 // resolveFrontchannelIframeSrc returns the URL to embed in the
