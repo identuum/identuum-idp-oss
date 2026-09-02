@@ -335,8 +335,10 @@ THE-PROFILE-CLAIMS (2026-09-02, owner ruled the full profile). Rule
   (`/account/settings?tab=profile`). Formats are validated: `profile`,
   `picture`, `website` must be absolute http(s) URLs; `birthdate` is
   `YYYY-MM-DD`, `YYYY`, or `0000-MM-DD`; `zoneinfo` must be an IANA zone
-  (the binary embeds tzdata); `locale` must parse as BCP47; free-text
-  fields are capped at 256 characters (gender 64). "" clears a field.
+  (the binary embeds tzdata); `locale` must be a well-formed BCP47 tag
+  (RFC 5646 syntax, checked in the stdlib-only domain layer — not a
+  subtag-registry lookup); free-text fields are capped at 256 characters
+  (gender 64). "" clears a field.
 - **Released** under `scope=profile` (the whole family, set fields only)
   or claim-by-claim through the `claims` parameter — consent-gated and
   role-intersected exactly like every other claim; humans only. The

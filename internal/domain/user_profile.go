@@ -14,7 +14,6 @@ import (
 	_ "time/tzdata" // zoneinfo validation must not depend on the host's tz database
 
 	"github.com/google/uuid"
-	"golang.org/x/text/language"
 )
 
 // UserProfile is one user's optional OIDC profile row (user_profiles).
@@ -104,10 +103,16 @@ var ErrUserProfileInvalid = errors.New("domain: user profile invalid")
 // Field limits and formats. Names/handles are bounded free text; the three
 // URL fields must be absolute http(s) URLs; birthdate follows §5.1
 // (YYYY-MM-DD, YYYY, or 0000-MM-DD); zoneinfo must resolve in the IANA
-// database; locale must parse as a BCP47 tag.
+// database; locale must be a well-formed BCP47 language tag (RFC 5646
+// syntax — language[-script][-region][-variant…]; the domain layer is
+// stdlib-only by architecture boundary, so this is a syntax check, not a
+// subtag-registry lookup).
 const profileTextMax = 256
 
-var birthdateRe = regexp.MustCompile(`^(\d{4}|0000)(-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))?$`)
+var (
+	birthdateRe = regexp.MustCompile(`^(\d{4}|0000)(-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]))?$`)
+	bcp47Re     = regexp.MustCompile(`^[A-Za-z]{2,8}(-[A-Za-z]{4})?(-(?:[A-Za-z]{2}|\d{3}))?(-(?:[A-Za-z0-9]{5,8}|\d[A-Za-z0-9]{3}))*(-[A-WY-Za-wy-z0-9](-[A-Za-z0-9]{2,8})+)*(-x(-[A-Za-z0-9]{1,8})+)?$`)
+)
 
 // Apply returns a copy of base (or an empty profile for userID) with the
 // patch applied and validated. Clearing yields nil (unset), never "".
@@ -171,7 +176,7 @@ func validateProfileField(claim, v string) error {
 			return fmt.Errorf("%w: zoneinfo must be an IANA time zone name", ErrUserProfileInvalid)
 		}
 	case "locale":
-		if _, err := language.Parse(v); err != nil {
+		if !bcp47Re.MatchString(v) {
 			return fmt.Errorf("%w: locale must be a BCP47 language tag", ErrUserProfileInvalid)
 		}
 	case "gender":
