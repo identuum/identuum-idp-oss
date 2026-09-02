@@ -23,11 +23,27 @@
             "match": "__OP_ISSUER__/api/v1/oauth/authorize*",
             "tasks": [
                 {
+                    "task": "Second login screenshot (prompt=login)",
+                    "optional": true,
+                    "match": "__OP_ISSUER__/api/v1/auth/browser-login*prompt*login*",
+                    "commands": [
+                        ["wait", "xpath", "//*", 10, ".*", "update-image-placeholder-optional"]
+                    ]
+                },
+                {
+                    "task": "Second login screenshot (max_age)",
+                    "optional": true,
+                    "match": "__OP_ISSUER__/api/v1/auth/browser-login*max_age*",
+                    "commands": [
+                        ["wait", "xpath", "//*", 10, ".*", "update-image-placeholder-optional"]
+                    ]
+                },
+                {
                     "task": "Login",
                     "optional": true,
                     "match": "__OP_ISSUER__/api/v1/auth/browser-login*",
                     "commands": [
-                        ["wait", "xpath", "//*", 10, ".*", "update-image-placeholder-optional"],
+                        ["wait", "xpath", "//*", 10, ".*"],
                         ["text", "name", "email", "conformance-user@conformance.test", "optional"],
                         ["text", "name", "password", "__USER_PASSWORD__", "optional"],
                         ["click", "xpath", "//button[@type='submit']"]

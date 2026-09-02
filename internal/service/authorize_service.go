@@ -270,11 +270,14 @@ type AuthorizeRequest struct {
 	AcrValues string
 
 	// RequestObject / RequestURIParam carry the OIDC §6 `request` and
-	// `request_uri` wire parameters. The OSS OP does not support request
-	// objects: a non-empty value is refused with the corresponding
-	// redirect-safe §6.1 sentinel rather than silently ignored — ignoring
-	// one would drop the client's REAL requested parameters (state, nonce,
-	// redirect_uri inside the object) on the floor.
+	// `request_uri` wire parameters AS THEY REACH THE SERVICE.
+	// THE-JAR-REQUEST-OBJECT: the handler resolves `request` through
+	// RequestObjectService (verify + merge) BEFORE building this request and
+	// hands the service an EMPTY RequestObject; a non-empty value here means
+	// an unresolved object and is refused with request_not_supported
+	// (defense in depth — never silently ignored, which would drop the
+	// object's real parameters on the floor). request_uri is not supported
+	// and is always refused with request_uri_not_supported.
 	RequestObject   string
 	RequestURIParam string
 

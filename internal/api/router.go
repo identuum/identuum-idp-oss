@@ -185,6 +185,10 @@ type OSSRouterDeps struct {
 	// together with CookieSession + SessionRepo; nil leaves it unmounted.
 	MFAVerifier *service.MFAVerifierService
 
+	// RequestObjectService verifies and merges OIDC §6 request objects for
+	// /authorize (THE-JAR-REQUEST-OBJECT). nil → request objects refused.
+	RequestObjectService *service.RequestObjectService
+
 	// UserSessionService backs POST /api/v1/auth/session/refresh
 	// and POST /api/v1/auth/logout. When nil, both routes do not
 	// register.
@@ -1337,6 +1341,7 @@ func mountAuthorize(router gin.IRouter, resolved OSSRouterDeps) {
 		AuthorizeService: resolved.AuthorizeService,
 		CookieSession:    resolved.CookieSession,
 		Audit:            resolved.Audit,
+		RequestObjects:   resolved.RequestObjectService,
 	})
 }
 

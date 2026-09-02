@@ -961,6 +961,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	assertionValidator = assertionValidator.
 		WithReplayDetector(replaySvc).
 		WithJWKSFetcher(jwksFetcher)
+	// THE-JAR-REQUEST-OBJECT: request objects verify against the same
+	// registered client keys (inline jwks / jwks_uri via the same fetcher).
+	requestObjects := service.NewRequestObjectService(clientSvc, jwksFetcher, tokenSvcIssuer)
 	oauthClientAuth := service.NewOAuthClientAuthService(report, clientSvc, apiResourceSvc).
 		WithAssertionValidator(assertionValidator, clientSvc)
 
@@ -1245,6 +1248,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		OrganizationDomainService:         orgDomainSvc,
 		UserProfileService:                userProfileSvc,
 		MFAVerifier:                       mfaVerifier,
+		RequestObjectService:              requestObjects,
 		OrgRoleService:                    orgRoleSvc,
 		ServiceAccountService:             serviceAccountSvc,
 		ServiceAccountClientBundleService: saClientBundleSvc,

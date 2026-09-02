@@ -235,7 +235,7 @@ clone (and its python venv) survives between runs.
   - `could not run` (exit 2): infrastructure, not conformance.
 
 **The committed baseline (re-measured 2026-09-02 after
-THE-ADDRESS-PHONE-CLAIMS, suite release-v5.2.4):**
+THE-JAR-REQUEST-OBJECT, suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
   zero findings). The former signing-alg finding is FIXED — discovery now
@@ -253,7 +253,8 @@ THE-ADDRESS-PHONE-CLAIMS, suite release-v5.2.4):**
     and `oidcc-max-age-1` now run to completion with 0 failing conditions
     (result REVIEW — these modules ask for a screenshot of the second login,
     which the browser automation uploads; REVIEW is the accepted terminal
-    state of that module class, exactly like the two redirect_uri modules).
+    state of that module class, exactly like the unregistered-redirect_uri
+    error-page module).
   - 0 recorded WARNINGS — `conformance/expected-failures-basic.json` is
     EMPTY (`[]`). THE-CONSENTED-SCOPE retired the four email-in-id_token /
     unscoped-`name` warnings; THE-CODE-REUSE-REVOKER retired
@@ -267,9 +268,12 @@ THE-ADDRESS-PHONE-CLAIMS, suite release-v5.2.4):**
     `urn:identuum:loa:password urn:identuum:loa:mfa`), the password login
     the browser automation performs honestly satisfies the first, and the
     id_token now carries that performed acr (see "Honest acr" below).
-  - 1 recorded SKIP (`conformance/expected-skips-basic.json`): the
-    request-object module skips because the OP compliantly rejects request
-    objects as unsupported. THE-ADDRESS-PHONE-CLAIMS retired the other
+  - 0 recorded SKIPS (`conformance/expected-skips-basic.json` is `[]`).
+    THE-JAR-REQUEST-OBJECT retired the LAST one — measured, not assumed:
+    with `request_parameter_supported: true` and `none` advertised,
+    `oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported`
+    RAN and PASSED (49 successes, 0 failures, 0 warnings; see "Request
+    objects" below). THE-ADDRESS-PHONE-CLAIMS had retired the other
     three — `oidcc-scope-address`, `oidcc-scope-phone` and, because every
     standard scope is now supported, `oidcc-scope-all` — measured, not
     assumed: the provisioner sets a real phone number and every address
@@ -279,11 +283,15 @@ THE-ADDRESS-PHONE-CLAIMS, suite release-v5.2.4):**
     every claim of a requested scope — for `phone` that is BOTH
     `phone_number` and `phone_number_verified` — which is why the OP emits
     `phone_number_verified: false` rather than omitting it.
-  - 4 modules end in REVIEW: the two second-login modules above, and the
-    two error-page modules (unregistered redirect_uri, request-object
-    redirect_uri): the OP correctly refuses without redirecting and the
-    suite records the error-page screenshot for human review — REVIEW is an
-    accepted terminal result, not a floor entry.
+  - 3 modules end in REVIEW: the two second-login modules above, and the
+    error-page module `oidcc-ensure-registered-redirect-uri`: the OP
+    correctly refuses without redirecting and the suite records the
+    error-page screenshot for human review — REVIEW is an accepted terminal
+    result, not a floor entry. `oidcc-ensure-request-object-with-redirect-uri`
+    left this list with THE-JAR-REQUEST-OBJECT: the module offers "error
+    page OR callback", the OP now resolves the object's registered
+    redirect_uri over the query's invalid one and the suite completes the
+    code flow — PASSED (50 successes, 0 failures, 0 warnings).
 - Transport measurement: the suite RUNS against an http OP but fails seven
   endpoint conditions on scheme alone, so the harness fronts the OP with a
   per-run self-signed https sidecar inside the isolated network
@@ -293,7 +301,18 @@ The suite clone is a tool repo: run, never modified — `run.sh` refuses to
 proceed if the clone has local changes or is not at the pinned sha.
 Browser-automation for the OP's own login/consent pages is committed in
 `conformance/plan-basic.json`; it exercises whenever the browser actually
-reaches those pages.
+reaches those pages. Image placeholders are filled deliberately, never by
+the generic Login task: the first page of EVERY flow is the login page, and
+a Login task that fills "the pending placeholder" fills the wrong one for
+modules whose placeholder means "error page OR callback" — the suite then
+finishes the module before its callback arrives and the callback's
+submission dies with `runInBackground called after
+runFinalisationTaskInBackground()` (result INTERRUPTED; measured on
+`oidcc-ensure-request-object-with-redirect-uri` in THE-JAR-REQUEST-OBJECT).
+The second-login screenshot the `prompt=login` / `max_age=1` modules ask
+for is taken by two scoped tasks that match only a login URL whose
+`return_to` carries `prompt=login` or `max_age`; the error-page screenshot
+is taken only at an `/oauth/authorize` URL showing an error.
 
 ## Consented scope on the access token — consent restricts, roles authorize
 
@@ -362,6 +381,44 @@ THE-PROFILE-CLAIMS (2026-09-02, owner ruled the full profile). Rule
   `EmittableIdentityClaims` accepts them in the `claims` parameter.
 - **Conformance**: `conformance/provision.mjs` sets EVERY field on the test
   user, so `oidcc-scope-profile`'s all-14-claims check passes on real data.
+
+## Request objects — OIDC Core §6 / RFC 9101, by value, verified or refused
+
+Rule `REQUEST-OBJECT-VERIFIED-1` (THE-JAR-REQUEST-OBJECT, 2026-09-02; wiki
+decision P-027; rule `AUTHZ-REQUEST-OBJECT-REFUSED-1` re-worded through the
+ledger-diff gate). `/authorize` accepts `request=<JWT>`:
+
+| object | verdict |
+|---|---|
+| signed with a key the client REGISTERED (`jwks` / `jwks_uri`, the same resolution private_key_jwt uses), alg in the asymmetric allow-list (`EdDSA ES256 ES384 RS256 RS384 RS512`) | verified; its members are MERGED over the query (they supersede) and feed the unchanged pipeline — scope clamping, PKCE, `claims`, `acr_values`, `max_age` — so a parameter inside an object behaves exactly like the same parameter in the query |
+| unsigned (`alg` `none`, empty signature) | ACCEPTED and advertised. Decision: an unsigned object carries no authority a plain query string lacks — every merged value still passes the same client / redirect_uri / PKCE / scope / consent validation. Refusing it would only keep `oidcc-unsigned-request-object-…` skipping (it drives an alg=none object and treats `request_not_supported` as a skip) and `oidcc-ensure-request-object-with-redirect-uri` at REVIEW (it skips unless `none` is advertised). |
+| tampered / foreign signature, unknown `kid`, symmetric (`HS*`) or unsupported alg, `iss` not the client_id, `aud` not this issuer, `exp` past, `nbf` future, not a compact JWS | `invalid_request_object`; redirected ONLY to the REGISTERED query `redirect_uri` (the object's own cannot be trusted before it verifies), otherwise a direct 400; no code, ever |
+| `client_id` in the object ≠ the query's; `response_type` present in both and different; `request` / `request_uri` nested inside | `invalid_request_object` (§6.1 agreement rules; parameter smuggling) |
+| `request_uri` | NOT supported — `request_uri_not_supported`; discovery says `request_uri_parameter_supported: false` and `require_request_uri_registration: false` explicitly (the omitted Discovery default is true). No half state. |
+
+Merging rules: `client_id` MUST travel in the query (RFC 9101 §5) and, when
+repeated in the object, MUST match; `response_type` in both must match;
+the object's other members supersede the query; `iss`/`aud`/`exp`/`nbf`/
+`iat`/`jti` are envelope claims, never authorize parameters; numbers
+(`max_age`) and objects (`claims`) are re-serialized to the wire strings the
+query path would carry. The login/consent `return_to` re-encodes the MERGED
+parameters without `request` — the object is verified once.
+
+Discovery: `request_parameter_supported: true`,
+`request_object_signing_alg_values_supported: ["none", …asymmetric…]`
+(`domain.RequestObjectSigningAlgValuesSupported` is the one source),
+`request_uri_parameter_supported: false`.
+
+Conformance: `oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported`
+now runs and passes (the OP processes the unsigned object) and
+`oidcc-ensure-request-object-with-redirect-uri` — a registered redirect_uri
+inside the object beside an INVALID one in the query — resolves to the
+object's (it supersedes) and passes instead of REVIEW; see the baseline.
+
+Iterating on one module: `make openid-conformance MODULE=<module-name>`
+runs only that basic-plan module (index from the committed
+`conformance/plan-basic.modules.txt`, regenerated by every full run) and
+skips the config plan. The floor verdict is always the FULL run's.
 
 ## Address and phone claims — real fields, unset never emitted, verified never true
 

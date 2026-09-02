@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
 // jwksFetchTimeout caps how long the JWKS handler waits on the
@@ -251,12 +253,17 @@ func discoveryDocument(cfg OIDCDiscoveryConfig) map[string]any {
 		"code_challenge_methods_supported": []string{
 			"S256",
 		},
-		// OIDC §6 request objects are unsupported and REFUSED with
-		// request_not_supported / request_uri_not_supported. Both flags
-		// are explicit because the Discovery DEFAULT for
+		// THE-JAR-REQUEST-OBJECT: OIDC §6 request objects BY VALUE are
+		// supported — unsigned (alg none) and signed with the client's
+		// registered keys (the asymmetric private_key_jwt allow-list);
+		// service.RequestObjectSigningAlgValuesSupported is the one source.
+		// request_uri stays REFUSED (request_uri_not_supported); the flag is
+		// explicit because the Discovery DEFAULT for
 		// request_uri_parameter_supported is true when omitted.
-		"request_parameter_supported":     false,
-		"request_uri_parameter_supported": false,
+		"request_parameter_supported":                 true,
+		"request_object_signing_alg_values_supported": domain.RequestObjectSigningAlgValuesSupported(),
+		"request_uri_parameter_supported":             false,
+		"require_request_uri_registration":            false,
 		// NOTE: this document deliberately omits any non-standard
 		// "mode" / "build" / "tier" key. The OIDC conformance suite
 		// flags vendor-specific top-level keys, so the OSS discovery

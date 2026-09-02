@@ -58,6 +58,10 @@ type AuthorizeHandlerDeps struct {
 	AuthorizeService *service.AuthorizeService
 	CookieSession    *service.CookieSessionService
 	Audit            audit.Service
+	// RequestObjects resolves OIDC §6 `request=<JWT>` objects into merged
+	// parameters BEFORE the request is read (THE-JAR-REQUEST-OBJECT). nil →
+	// request objects stay refused with request_not_supported.
+	RequestObjects *service.RequestObjectService
 }
 
 // RegisterAuthorizeRoutes mounts
@@ -135,13 +139,28 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 		// back through — for POST it re-encodes EVERY submitted form
 		// parameter (not just the ones this handler reads) so the resumed
 		// GET carries the request unchanged.
-		param := c.Query
-		authorizeQuery := c.Request.URL.RawQuery
+		values := c.Request.URL.Query()
 		if c.Request.Method == http.MethodPost {
-			param = c.PostForm
 			_ = c.Request.ParseForm()
-			authorizeQuery = c.Request.PostForm.Encode()
+			values = c.Request.PostForm
 		}
+		// THE-JAR-REQUEST-OBJECT (OIDC Core §6 / RFC 9101): a `request`
+		// object is verified and MERGED into the parameters here, so every
+		// value it carries reaches exactly the same parsing the query path
+		// uses (scope clamping, PKCE, claims, acr_values, max_age). Without
+		// the service the object stays refused downstream (request_not_supported).
+		rawRequest := values.Get("request")
+		if rawRequest != "" && deps.RequestObjects != nil {
+			merged, redirectSafe, rerr := deps.RequestObjects.Resolve(c.Request.Context(), values)
+			if rerr != nil {
+				emitRequestObjectError(c, deps, values, redirectSafe, rerr)
+				return
+			}
+			values = merged
+			rawRequest = ""
+		}
+		param := values.Get
+		authorizeQuery := resumableAuthorizeQuery(values)
 
 		req := service.AuthorizeRequest{
 			ResponseType:        param("response_type"),
@@ -157,7 +176,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			MaxAge:              param("max_age"),
 			Claims:              param("claims"),
 			AcrValues:           param("acr_values"),
-			RequestObject:       param("request"),
+			RequestObject:       rawRequest,
 			RequestURIParam:     param("request_uri"),
 			Principal:           principal,
 		}
@@ -372,6 +391,50 @@ func respondAuthorizeDirectError(c *gin.Context, code, description string) {
 // error= + state=. If URL construction fails (the redirect_uri was
 // somehow unparseable after passing the client allowlist), fall back
 // to a direct 400 — never silently drop the request.
+// resumableAuthorizeQuery re-encodes the (merged) parameters for the
+// login/consent return_to. `request` / `request_uri` are dropped: the
+// object was verified and merged once; the resumed GET carries plain
+// parameters, exactly like a POST is re-encoded.
+func resumableAuthorizeQuery(values url.Values) string {
+	v := url.Values{}
+	for k, vals := range values {
+		if k == "request" || k == "request_uri" {
+			continue
+		}
+		v[k] = append([]string(nil), vals...)
+	}
+	return v.Encode()
+}
+
+// emitRequestObjectError answers a request-object failure (THE-JAR-REQUEST-
+// OBJECT). Unknown client / missing client_id → direct 400 (no trusted
+// redirect_uri exists). An unverifiable object → invalid_request_object,
+// redirected ONLY when the QUERY redirect_uri is registered for the client
+// (the object's own redirect_uri cannot be trusted before it verifies);
+// otherwise a direct 400 — never an open redirect.
+func emitRequestObjectError(c *gin.Context, deps AuthorizeHandlerDeps, values url.Values, redirectSafe bool, err error) {
+	req := service.AuthorizeRequest{
+		ClientID:    values.Get("client_id"),
+		RedirectURI: values.Get("redirect_uri"),
+		State:       values.Get("state"),
+	}
+	switch {
+	case errors.Is(err, service.ErrAuthorizeMissingParameters):
+		respondAuthorizeDirectError(c, "invalid_request", "client_id is required alongside a request object")
+	case errors.Is(err, service.ErrAuthorizeInvalidClient):
+		respondAuthorizeDirectError(c, "invalid_client", "Unknown or inactive client")
+	case errors.Is(err, service.ErrAuthorizeInvalidRequestObject) && redirectSafe:
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action: "oauth_authorize.request_object_rejected", Outcome: "denied",
+			IPAddress: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+			Metadata: map[string]any{"client_id": req.ClientID},
+		})
+		redirectAuthorizeError(c, deps, req, "invalid_request_object")
+	default:
+		respondAuthorizeDirectError(c, "invalid_request_object", "The request object could not be verified")
+	}
+}
+
 func redirectAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.AuthorizeRequest, code string) {
 	location, err := deps.AuthorizeService.BuildErrorRedirect(req.RedirectURI, code, req.State)
 	if err != nil {

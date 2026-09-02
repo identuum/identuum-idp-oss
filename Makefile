@@ -1643,8 +1643,14 @@ oss-setup-code:
 ##   NOT part of verify or test-full. Fixes nothing; findings are reported.
 ##   See docs/TESTING-OPERATORS.md ("The OpenID conformance harness").
 .PHONY: openid-conformance
+## openid-conformance: the whole harness (both plans). THE-JAR-REQUEST-OBJECT
+## adds the single-module runner: `make openid-conformance MODULE=<name>`
+## runs ONLY that basic-plan module (index resolved from the committed
+## conformance/plan-basic.modules.txt, which every FULL run regenerates),
+## skipping the config plan — an iteration tool; the floor verdict still
+## comes from the full run.
 openid-conformance:
-	@bash conformance/run.sh
+	@CONFORMANCE_MODULE="$(MODULE)" bash conformance/run.sh
 
 ## oss-fresh: DESTROY the local OSS stack and stand a bootstrapped one up.
 ##

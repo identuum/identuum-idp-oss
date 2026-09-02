@@ -212,15 +212,36 @@ func TestSmokeHandler_DiscoveryRequestObjectFlagsExplicitlyFalse(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("discovery body is not JSON: %v", err)
 	}
-	for _, k := range []string{"request_parameter_supported", "request_uri_parameter_supported"} {
+	// THE-JAR-REQUEST-OBJECT: request objects by value are supported
+	// (unsigned + signed); request_uri stays refused and its flag stays
+	// EXPLICIT false (the omitted Discovery default is true).
+	if v, ok := body["request_parameter_supported"]; !ok || v != true {
+		t.Errorf("request_parameter_supported = %v (present=%v), want true", v, ok)
+	}
+	for _, k := range []string{"request_uri_parameter_supported", "require_request_uri_registration"} {
 		v, ok := body[k]
 		if !ok {
 			t.Errorf("%s missing; explicit false is REQUIRED (the omitted default for request_uri_parameter_supported is true)", k)
 			continue
 		}
 		if v != false {
-			t.Errorf("%s = %v, want false — the OP refuses request objects", k, v)
+			t.Errorf("%s = %v, want false — the OP refuses request_uri", k, v)
 		}
+	}
+	algs, _ := body["request_object_signing_alg_values_supported"].([]any)
+	have := map[string]bool{}
+	for _, a := range algs {
+		if s, ok := a.(string); ok {
+			have[s] = true
+		}
+	}
+	for _, want := range []string{"none", "EdDSA", "ES256", "RS256"} {
+		if !have[want] {
+			t.Errorf("request_object_signing_alg_values_supported lacks %q: %v", want, algs)
+		}
+	}
+	if have["HS256"] {
+		t.Errorf("request_object_signing_alg_values_supported must never advertise a symmetric alg: %v", algs)
 	}
 }
 
