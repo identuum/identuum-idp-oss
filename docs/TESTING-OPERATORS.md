@@ -394,8 +394,10 @@ emitted, no placeholders.
   Profile tab; admin `PUT/GET /api/v1/users/:id` (the same flattened field
   names; `""` clears). Release: `scope=address` → `address`; `scope=phone`
   → the phone pair; or claim-by-claim through the `claims` parameter —
-  consent-gated (the consent page lists "View your postal address" / "View
-  your phone number"), role-intersected (`domain.PermittedClaimsForRole`:
+  consent-gated (the OP consent page lists the requested scopes by name —
+  `address`, `phone`; `domain.ScopeDescriptions` carries the human labels
+  "View your postal address" / "View your phone number" for UI surfaces),
+  role-intersected (`domain.PermittedClaimsForRole`:
   human roles only; a service account never receives them), userinfo only
   under scope, id_token only through `claims.id_token`.
 - Discovery: `scopes_supported` gains `address` and `phone`;
