@@ -26,6 +26,8 @@ var EmittableIdentityClaims = []string{
 	"preferred_username", "profile", "picture", "website", "gender",
 	"birthdate", "zoneinfo", "locale", "updated_at",
 	"email", "email_verified",
+	// THE-ADDRESS-PHONE-CLAIMS: the §5.1 address and phone claims.
+	"address", "phone_number", "phone_number_verified",
 }
 
 // ErrClaimsRequestMalformed: the `claims` parameter was present but is not

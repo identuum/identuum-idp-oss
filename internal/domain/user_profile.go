@@ -32,8 +32,17 @@ type UserProfile struct {
 	Birthdate         *string
 	Zoneinfo          *string
 	Locale            *string
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// THE-ADDRESS-PHONE-CLAIMS: OIDC Core §5.1 phone_number and the §5.1.1
+	// structured address members (migration 0036). Optional; nil = unset.
+	PhoneNumber          *string
+	AddressFormatted     *string
+	AddressStreetAddress *string
+	AddressLocality      *string
+	AddressRegion        *string
+	AddressPostalCode    *string
+	AddressCountry       *string
+	CreatedAt            time.Time
+	UpdatedAt            time.Time
 }
 
 // UserProfilePatch is a partial update: nil = unchanged, pointer to "" =
@@ -51,6 +60,14 @@ type UserProfilePatch struct {
 	Birthdate         *string
 	Zoneinfo          *string
 	Locale            *string
+	// THE-ADDRESS-PHONE-CLAIMS
+	PhoneNumber          *string
+	AddressFormatted     *string
+	AddressStreetAddress *string
+	AddressLocality      *string
+	AddressRegion        *string
+	AddressPostalCode    *string
+	AddressCountry       *string
 }
 
 // IsEmpty reports whether the patch touches nothing.
@@ -74,6 +91,10 @@ func (p UserProfilePatch) fields() []patchField {
 		{"nickname", p.Nickname}, {"preferred_username", p.PreferredUsername}, {"profile", p.Profile},
 		{"picture", p.Picture}, {"website", p.Website}, {"gender", p.Gender},
 		{"birthdate", p.Birthdate}, {"zoneinfo", p.Zoneinfo}, {"locale", p.Locale},
+		{"phone_number", p.PhoneNumber},
+		{"address.formatted", p.AddressFormatted}, {"address.street_address", p.AddressStreetAddress},
+		{"address.locality", p.AddressLocality}, {"address.region", p.AddressRegion},
+		{"address.postal_code", p.AddressPostalCode}, {"address.country", p.AddressCountry},
 	}
 }
 
@@ -148,6 +169,14 @@ func (p UserProfilePatch) Apply(base *UserProfile, userID uuid.UUID) (*UserProfi
 		{&out.Picture, "picture", p.Picture}, {&out.Website, "website", p.Website},
 		{&out.Gender, "gender", p.Gender}, {&out.Birthdate, "birthdate", p.Birthdate},
 		{&out.Zoneinfo, "zoneinfo", p.Zoneinfo}, {&out.Locale, "locale", p.Locale},
+		// THE-ADDRESS-PHONE-CLAIMS
+		{&out.PhoneNumber, "phone_number", p.PhoneNumber},
+		{&out.AddressFormatted, "address.formatted", p.AddressFormatted},
+		{&out.AddressStreetAddress, "address.street_address", p.AddressStreetAddress},
+		{&out.AddressLocality, "address.locality", p.AddressLocality},
+		{&out.AddressRegion, "address.region", p.AddressRegion},
+		{&out.AddressPostalCode, "address.postal_code", p.AddressPostalCode},
+		{&out.AddressCountry, "address.country", p.AddressCountry},
 	}
 	for _, st := range steps {
 		if err := set(st.dst, st.claim, st.v); err != nil {
@@ -178,6 +207,11 @@ func validateProfileField(claim, v string) error {
 	case "locale":
 		if !bcp47Re.MatchString(v) {
 			return fmt.Errorf("%w: locale must be a BCP47 language tag", ErrUserProfileInvalid)
+		}
+	case "phone_number":
+		// THE-ADDRESS-PHONE-CLAIMS: E.164 well-formedness when supplied.
+		if !phoneE164Re.MatchString(v) {
+			return fmt.Errorf("%w: phone_number must be E.164 (+ followed by 2-15 digits)", ErrUserProfileInvalid)
 		}
 	case "gender":
 		if len(v) > 64 {
@@ -228,6 +262,9 @@ func ProfileClaims(user *User, profile *UserProfile, want []string) map[string]a
 		put("birthdate", profile.Birthdate)
 		put("zoneinfo", profile.Zoneinfo)
 		put("locale", profile.Locale)
+		// THE-ADDRESS-PHONE-CLAIMS: structured address (set members only)
+		// and phone_number (+ phone_number_verified=false), never placeholders.
+		addressPhoneClaims(out, profile, allow)
 	}
 	if allow("updated_at") {
 		updated := user.UpdatedAt

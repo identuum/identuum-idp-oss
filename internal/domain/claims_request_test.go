@@ -19,10 +19,10 @@ func TestParseClaimsRequest(t *testing.T) {
 		{"essential name at userinfo", `{"userinfo":{"name":{"essential":true}}}`, ClaimsRequest{UserInfo: []string{"name"}}, nil},
 		{"voluntary null value", `{"userinfo":{"email":null}}`, ClaimsRequest{UserInfo: []string{"email"}}, nil},
 		{"id_token member", `{"id_token":{"email_verified":{"essential":true},"name":null}}`, ClaimsRequest{IDToken: []string{"name", "email_verified"}}, nil},
-		{"unknown claim ignored, never an error", `{"userinfo":{"name":null,"phone_number":null,"given_name":{"essential":true}}}`, ClaimsRequest{UserInfo: []string{"name", "given_name"}}, nil},
+		{"unknown claim ignored, never an error", `{"userinfo":{"name":null,"shoe_size":null,"given_name":{"essential":true}}}`, ClaimsRequest{UserInfo: []string{"name", "given_name"}}, nil},
 		{"unknown member ignored", `{"userinfo":{"name":null},"introspection":{"name":null}}`, ClaimsRequest{UserInfo: []string{"name"}}, nil},
 		{"member that is not an object ignored", `{"userinfo":["name"],"id_token":{"email":null}}`, ClaimsRequest{IDToken: []string{"email"}}, nil},
-		{"only unknown claims → empty request", `{"userinfo":{"phone_number":null,"address":null}}`, ClaimsRequest{}, nil},
+		{"only unknown claims → empty request", `{"userinfo":{"shoe_size":null,"eye_color":null}}`, ClaimsRequest{}, nil},
 		{"profile family is requestable (THE-PROFILE-CLAIMS)", `{"userinfo":{"locale":null,"picture":null,"updated_at":null}}`, ClaimsRequest{UserInfo: []string{"picture", "locale", "updated_at"}}, nil},
 		{"canonical order + dedupe", `{"userinfo":{"email_verified":null,"name":null,"email":null}}`, ClaimsRequest{UserInfo: []string{"name", "email", "email_verified"}}, nil},
 		{"malformed JSON → refused", `{"userinfo":`, ClaimsRequest{}, ErrClaimsRequestMalformed},
@@ -53,7 +53,7 @@ func TestClaimsRequest_TokensEncodeDecode(t *testing.T) {
 	if (ClaimsRequest{}).Encode() != "" {
 		t.Errorf("empty request must encode to \"\" (NULL column)")
 	}
-	if got := DecodeClaimsRequest(`{"userinfo":["phone_number","name"]}`); !reflect.DeepEqual(got, ClaimsRequest{UserInfo: []string{"name"}}) {
+	if got := DecodeClaimsRequest(`{"userinfo":["shoe_size","name"]}`); !reflect.DeepEqual(got, ClaimsRequest{UserInfo: []string{"name"}}) {
 		t.Errorf("Decode must re-canonicalise stored data, got %+v", got)
 	}
 	if got := DecodeClaimsRequest("not json"); !got.IsEmpty() {
@@ -74,7 +74,7 @@ func TestIntersectConsentedClaims(t *testing.T) {
 	if got := IntersectConsentedClaims([]string{"name"}, UserRole("service_account")); got != nil {
 		t.Errorf("unknown role permits nothing, got %v", got)
 	}
-	if got := IntersectConsentedClaims([]string{"phone_number"}, RoleOrgUser); got != nil {
+	if got := IntersectConsentedClaims([]string{"shoe_size"}, RoleOrgUser); got != nil {
 		t.Errorf("a non-emittable claim never survives, got %v", got)
 	}
 	if got := IntersectConsentedClaims(nil, RoleOrgUser); got != nil {

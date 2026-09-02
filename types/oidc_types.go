@@ -61,4 +61,22 @@ type OIDCUserInfo struct {
 	// `email` scope) and is omitted whenever email is — §5.3.2 forbids a
 	// claim rendered without a value.
 	EmailVerified *bool `json:"email_verified,omitempty"`
+	// THE-ADDRESS-PHONE-CLAIMS: OIDC Core §5.1 phone_number (scope=phone)
+	// and the §5.1.1 structured address (scope=address). Absent unless set;
+	// PhoneNumberVerified rides only with PhoneNumber and is never true —
+	// identuum has no phone verification event.
+	PhoneNumber         string       `json:"phone_number,omitempty"`
+	PhoneNumberVerified *bool        `json:"phone_number_verified,omitempty"`
+	Address             *OIDCAddress `json:"address,omitempty"`
+}
+
+// OIDCAddress is the OIDC Core §5.1.1 address claim: only set members are
+// rendered (omitempty), and the object itself is omitted when none is set.
+type OIDCAddress struct {
+	Formatted     string `json:"formatted,omitempty"`
+	StreetAddress string `json:"street_address,omitempty"`
+	Locality      string `json:"locality,omitempty"`
+	Region        string `json:"region,omitempty"`
+	PostalCode    string `json:"postal_code,omitempty"`
+	Country       string `json:"country,omitempty"`
 }

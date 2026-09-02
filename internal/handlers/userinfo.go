@@ -176,14 +176,23 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 		releaseEmail := grants[domain.ScopeEmail] || requested["email"] || requested["email_verified"]
 		// THE-PROFILE-CLAIMS: the profile family is released whole under the
 		// profile scope, or claim-by-claim under the claims parameter.
+		// THE-ADDRESS-PHONE-CLAIMS: the same shape for scope=address
+		// (the structured address) and scope=phone (phone_number +
+		// phone_number_verified), or claim-by-claim under the claims
+		// parameter.
 		var wantProfile []string
 		if grants[domain.ScopeProfile] {
-			wantProfile = domain.ProfileClaimNames
-		} else {
-			for _, n := range claims.UserInfoClaims {
-				if domain.IsProfileClaim(n) {
-					wantProfile = append(wantProfile, n)
-				}
+			wantProfile = append(wantProfile, domain.ProfileClaimNames...)
+		}
+		if grants[domain.ScopeAddress] {
+			wantProfile = append(wantProfile, domain.AddressClaimNames...)
+		}
+		if grants[domain.ScopePhone] {
+			wantProfile = append(wantProfile, domain.PhoneClaimNames...)
+		}
+		for _, n := range claims.UserInfoClaims {
+			if domain.IsProfileClaim(n) || domain.IsAddressClaim(n) || domain.IsPhoneClaim(n) {
+				wantProfile = append(wantProfile, n)
 			}
 		}
 		var user *domain.User
@@ -259,6 +268,26 @@ func applyProfileClaims(out *types.OIDCUserInfo, claims map[string]any) {
 	out.Locale = str("locale")
 	if v, ok := claims["updated_at"].(int64); ok {
 		out.UpdatedAt = v
+	}
+	// THE-ADDRESS-PHONE-CLAIMS: phone_number (+ phone_number_verified, which
+	// domain.ProfileClaims emits only alongside it, always false) and the
+	// structured address (set members only; absent when none).
+	out.PhoneNumber = str(domain.ClaimPhoneNumber)
+	if v, ok := claims[domain.ClaimPhoneNumberVerified].(bool); ok && out.PhoneNumber != "" {
+		verified := v
+		out.PhoneNumberVerified = &verified
+	}
+	if addr, ok := claims[domain.ClaimAddress].(map[string]any); ok && len(addr) > 0 {
+		a := func(k string) string {
+			if v, ok := addr[k].(string); ok {
+				return v
+			}
+			return ""
+		}
+		out.Address = &types.OIDCAddress{
+			Formatted: a("formatted"), StreetAddress: a("street_address"), Locality: a("locality"),
+			Region: a("region"), PostalCode: a("postal_code"), Country: a("country"),
+		}
 	}
 }
 

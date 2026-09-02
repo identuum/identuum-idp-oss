@@ -5,6 +5,8 @@ var ScopeDescriptions = map[string]string{
 	ScopeOpenID:        "Verify your identity (OpenID Connect)",
 	ScopeProfile:       "View your basic profile information (Name, Picture)",
 	ScopeEmail:         "View your email address",
+	ScopeAddress:       "View your postal address",
+	ScopePhone:         "View your phone number",
 	ScopeOfflineAccess: "Access your account while you are not logged in (Refresh Token)",
 
 	ScopeUsersRead:   "View users in your organization",

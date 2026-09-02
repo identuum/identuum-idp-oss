@@ -122,7 +122,16 @@ must(await api("PUT", `/api/v1/users/${userId}`, {
   website: "https://conformance.test",
   gender: "unspecified", birthdate: "1990-01-01",
   zoneinfo: "Europe/London", locale: "en-GB",
-}, oaToken), 200, "mark test user verified + full profile");
+  // THE-ADDRESS-PHONE-CLAIMS: real address + phone so oidcc-scope-address,
+  // oidcc-scope-phone and oidcc-scope-all pass truthfully (the suite wants
+  // `address`, and BOTH `phone_number` and `phone_number_verified` — the
+  // latter is always false: identuum has no phone verification event).
+  phone_number: "+442079460000",
+  address_formatted: "1 Conformance Way\nLondon SW1A 1AA\nUnited Kingdom",
+  address_street_address: "1 Conformance Way",
+  address_locality: "London", address_region: "Greater London",
+  address_postal_code: "SW1A 1AA", address_country: "United Kingdom",
+}, oaToken), 200, "mark test user verified + full profile + address + phone");
 
 // 5b. SELF-CHECK: the test user must be able to log in with exactly the
 // password the browser automation will type. Failing here names the real
@@ -149,7 +158,9 @@ must(await api("POST", "/api/v1/keys/generate", { algorithm: "RS256", state: "ac
 // listed here is silently narrowed out of every grant. Register the full
 // scope surface discovery advertises so the suite's scope/refresh modules
 // measure the real behavior instead of the clamp.
-const SCOPES = "openid profile email offline_access";
+// THE-ADDRESS-PHONE-CLAIMS: the suite's scope modules request address and
+// phone; the client must have them registered (ClampScopeToRegistered).
+const SCOPES = "openid profile email address phone offline_access";
 const c1 = must(await api("POST", "/api/v1/clients", {
   name: "Conformance Client One", redirect_uris: [CALLBACK], scope: SCOPES,
 }, oaToken), 201, "create client1");

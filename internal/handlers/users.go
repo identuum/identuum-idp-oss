@@ -84,6 +84,15 @@ type profileFieldsRequest struct {
 	Birthdate         *string `json:"birthdate,omitempty"`
 	Zoneinfo          *string `json:"zoneinfo,omitempty"`
 	Locale            *string `json:"locale,omitempty"`
+	// THE-ADDRESS-PHONE-CLAIMS: phone_number (E.164) and the §5.1.1
+	// address members, flattened for the API; "" clears.
+	PhoneNumber          *string `json:"phone_number,omitempty"`
+	AddressFormatted     *string `json:"address_formatted,omitempty"`
+	AddressStreetAddress *string `json:"address_street_address,omitempty"`
+	AddressLocality      *string `json:"address_locality,omitempty"`
+	AddressRegion        *string `json:"address_region,omitempty"`
+	AddressPostalCode    *string `json:"address_postal_code,omitempty"`
+	AddressCountry       *string `json:"address_country,omitempty"`
 }
 
 func (r profileFieldsRequest) patch() domain.UserProfilePatch {
@@ -92,6 +101,10 @@ func (r profileFieldsRequest) patch() domain.UserProfilePatch {
 		Nickname: r.Nickname, PreferredUsername: r.PreferredUsername, Profile: r.Profile,
 		Picture: r.Picture, Website: r.Website, Gender: r.Gender,
 		Birthdate: r.Birthdate, Zoneinfo: r.Zoneinfo, Locale: r.Locale,
+		PhoneNumber: r.PhoneNumber, AddressFormatted: r.AddressFormatted,
+		AddressStreetAddress: r.AddressStreetAddress, AddressLocality: r.AddressLocality,
+		AddressRegion: r.AddressRegion, AddressPostalCode: r.AddressPostalCode,
+		AddressCountry: r.AddressCountry,
 	}
 }
 
@@ -544,6 +557,15 @@ type safeUser struct {
 	Birthdate         *string `json:"birthdate,omitempty"`
 	Zoneinfo          *string `json:"zoneinfo,omitempty"`
 	Locale            *string `json:"locale,omitempty"`
+	// THE-ADDRESS-PHONE-CLAIMS: phone_number and the §5.1.1 address members
+	// (flattened); absent when unset.
+	PhoneNumber          *string `json:"phone_number,omitempty"`
+	AddressFormatted     *string `json:"address_formatted,omitempty"`
+	AddressStreetAddress *string `json:"address_street_address,omitempty"`
+	AddressLocality      *string `json:"address_locality,omitempty"`
+	AddressRegion        *string `json:"address_region,omitempty"`
+	AddressPostalCode    *string `json:"address_postal_code,omitempty"`
+	AddressCountry       *string `json:"address_country,omitempty"`
 	// ProfileUpdatedAt is the profile row's last write (nil when the user
 	// never set a profile field).
 	ProfileUpdatedAt *time.Time `json:"profile_updated_at,omitempty"`
@@ -559,6 +581,8 @@ func toSafeUserWithProfile(u *domain.User, p *domain.UserProfile) safeUser {
 	out.Nickname, out.PreferredUsername, out.Profile = p.Nickname, p.PreferredUsername, p.Profile
 	out.Picture, out.Website, out.Gender = p.Picture, p.Website, p.Gender
 	out.Birthdate, out.Zoneinfo, out.Locale = p.Birthdate, p.Zoneinfo, p.Locale
+	out.PhoneNumber, out.AddressFormatted, out.AddressStreetAddress = p.PhoneNumber, p.AddressFormatted, p.AddressStreetAddress
+	out.AddressLocality, out.AddressRegion, out.AddressPostalCode, out.AddressCountry = p.AddressLocality, p.AddressRegion, p.AddressPostalCode, p.AddressCountry
 	if !p.UpdatedAt.IsZero() {
 		t := p.UpdatedAt
 		out.ProfileUpdatedAt = &t

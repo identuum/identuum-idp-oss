@@ -235,19 +235,20 @@ clone (and its python venv) survives between runs.
   - `could not run` (exit 2): infrastructure, not conformance.
 
 **The committed baseline (re-measured 2026-09-02 after
-THE-PHISHING-RESISTANT-ACR, suite release-v5.2.4):**
+THE-ADDRESS-PHONE-CLAIMS, suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
   zero findings). The former signing-alg finding is FIXED — discovery now
   advertises `[EdDSA, ES256, RS256]` (see "RS256 — testing only" above).
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
-  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1754
-  conditions passed in the THE-PHISHING-RESISTANT-ACR measurement run
-  (three advertised acr values), ZERO condition failures and ZERO warnings
-  (the success total is NOT a stable number — runs of identical code have
-  counted 1691, 1720, 1722, 1749 and 1754; failures/warnings/skips are the
-  measured floor, the success total is not). The recorded floor:
+  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1872
+  conditions passed in the THE-ADDRESS-PHONE-CLAIMS measurement run (three
+  more modules now RUN instead of skipping), ZERO condition failures and
+  ZERO warnings (the success total is NOT a stable number — runs of
+  identical code have counted 1691, 1720, 1722, 1749 and 1754;
+  failures/warnings/skips are the measured floor, the success total is
+  not). The recorded floor:
   - `conformance/expected-basic-incomplete.txt` is EMPTY: `oidcc-prompt-login`
     and `oidcc-max-age-1` now run to completion with 0 failing conditions
     (result REVIEW — these modules ask for a screenshot of the second login,
@@ -266,10 +267,18 @@ THE-PHISHING-RESISTANT-ACR, suite release-v5.2.4):**
     `urn:identuum:loa:password urn:identuum:loa:mfa`), the password login
     the browser automation performs honestly satisfies the first, and the
     id_token now carries that performed acr (see "Honest acr" below).
-  - 4 recorded SKIPS (`conformance/expected-skips-basic.json`):
-    address/phone scopes are not modeled, and the request-object module
-    skips because the OP compliantly rejects request objects as
-    unsupported.
+  - 1 recorded SKIP (`conformance/expected-skips-basic.json`): the
+    request-object module skips because the OP compliantly rejects request
+    objects as unsupported. THE-ADDRESS-PHONE-CLAIMS retired the other
+    three — `oidcc-scope-address`, `oidcc-scope-phone` and, because every
+    standard scope is now supported, `oidcc-scope-all` — measured, not
+    assumed: the provisioner sets a real phone number and every address
+    member on the test user, the modules ran instead of skipping, and all
+    three PASSED (0 failures, 0 warnings; see "Address and phone claims"
+    below). The suite's `VerifyScopesReturnedInUserInfoClaims` requires
+    every claim of a requested scope — for `phone` that is BOTH
+    `phone_number` and `phone_number_verified` — which is why the OP emits
+    `phone_number_verified: false` rather than omitting it.
   - 4 modules end in REVIEW: the two second-login modules above, and the
     two error-page modules (unregistered redirect_uri, request-object
     redirect_uri): the OP correctly refuses without redirecting and the
@@ -353,6 +362,50 @@ THE-PROFILE-CLAIMS (2026-09-02, owner ruled the full profile). Rule
   `EmittableIdentityClaims` accepts them in the `claims` parameter.
 - **Conformance**: `conformance/provision.mjs` sets EVERY field on the test
   user, so `oidcc-scope-profile`'s all-14-claims check passes on real data.
+
+## Address and phone claims — real fields, unset never emitted, verified never true
+
+Rule `ADDRESS-PHONE-TRUTHFUL-1` (THE-ADDRESS-PHONE-CLAIMS, 2026-09-02; wiki
+decision P-025). The OIDC Core §5.1 `phone_number` and §5.1.1 structured
+`address` claims are modeled the PROFILE-CLAIMS way: optional columns on
+`user_profiles` (migration `0036_address_phone.sql`), `NULL` = unset = never
+emitted, no placeholders.
+
+| field (API name) | claim | validation on write |
+|---|---|---|
+| `phone_number` | `phone_number` (+ `phone_number_verified`) | E.164: `+`, non-zero first digit, 2–15 digits |
+| `address_formatted`, `address_street_address`, `address_locality`, `address_region`, `address_postal_code`, `address_country` | `address` object members `formatted`, `street_address`, `locality`, `region`, `postal_code`, `country` | text, ≤ 256 characters each |
+
+- `address` is emitted only when at least one member is set, and carries
+  ONLY the set members — never an empty object, never a member with an
+  empty value.
+- **`phone_number_verified` is NEVER true.** identuum has no phone
+  verification event (no SMS/voice challenge exists), so the OP cannot
+  truthfully claim it. It is emitted as `false`, and only alongside an
+  emitted `phone_number`. Why `false` rather than omitting it: OIDC Core
+  §5.1 defines `false` as "the OP has not taken affirmative steps to ensure
+  the number was controlled by the End-User" — exactly the fact — and a
+  relying party asking for the phone scope expects the pair (the
+  conformance suite's `VerifyScopesReturnedInUserInfoClaims` requires BOTH
+  `phone_number` and `phone_number_verified`; missing one is a WARNING).
+  Omitting it would also be honest but would say less; `false` states the
+  fact. A lone `phone_number_verified` without a number is never emitted.
+- Surfaces: self-service `PUT /api/v1/profile` and the account page's
+  Profile tab; admin `PUT/GET /api/v1/users/:id` (the same flattened field
+  names; `""` clears). Release: `scope=address` → `address`; `scope=phone`
+  → the phone pair; or claim-by-claim through the `claims` parameter —
+  consent-gated (the consent page lists "View your postal address" / "View
+  your phone number"), role-intersected (`domain.PermittedClaimsForRole`:
+  human roles only; a service account never receives them), userinfo only
+  under scope, id_token only through `claims.id_token`.
+- Discovery: `scopes_supported` gains `address` and `phone`;
+  `claims_supported` gains `address`, `phone_number`,
+  `phone_number_verified`. A client must have the scopes REGISTERED to
+  request them (`ClampScopeToRegistered`).
+- Conformance: the provisioner sets a phone number and every address member
+  on the test user, so `oidcc-scope-address`, `oidcc-scope-phone` and —
+  because every standard scope is now supported — `oidcc-scope-all` run
+  instead of skipping; see the baseline above for the measured result.
 
 ## The `claims` request parameter — consent-gated, role-intersected
 

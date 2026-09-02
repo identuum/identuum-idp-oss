@@ -102,9 +102,12 @@ const (
 	ScopeTrustedAssertionIssuersDelete = "trusted_assertion_issuers:delete"
 
 	// OIDC Standard Scopes
-	ScopeOpenID        = "openid"
-	ScopeProfile       = "profile"
-	ScopeEmail         = "email"
+	ScopeOpenID  = "openid"
+	ScopeProfile = "profile"
+	ScopeEmail   = "email"
+	// THE-ADDRESS-PHONE-CLAIMS: OIDC Core §5.4 address and phone scopes.
+	ScopeAddress       = "address"
+	ScopePhone         = "phone"
 	ScopeOfflineAccess = "offline_access"
 
 	// MCP (Model Context Protocol) -- legacy family. Retained because the
@@ -202,6 +205,8 @@ var allScopes = map[string]struct{}{
 	ScopeOpenID:                        {},
 	ScopeProfile:                       {},
 	ScopeEmail:                         {},
+	ScopeAddress:                       {},
+	ScopePhone:                         {},
 	ScopeOfflineAccess:                 {},
 	ScopeMCPReadOnly:                   {},
 	ScopeMCPReadWrite:                  {},
@@ -452,7 +457,7 @@ func SessionScopesForRole(role UserRole) string {
 // human may consent to. They name CLAIMS about the subject (OIDC Core §5.4),
 // not permissions over resources, so no role can forbid them — which is why
 // PermittedScopesForRole includes them for every role.
-var OIDCIdentityScopes = []string{ScopeOpenID, ScopeProfile, ScopeEmail, ScopeOfflineAccess}
+var OIDCIdentityScopes = []string{ScopeOpenID, ScopeProfile, ScopeEmail, ScopeAddress, ScopePhone, ScopeOfflineAccess}
 
 // PermittedScopesForRole is the set a user's ROLE authorizes an OAuth client
 // to receive on the user's behalf: the OIDC identity scopes plus the

@@ -1684,7 +1684,9 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			body["authorization_endpoint"] = resolved.Issuer + "/api/v1/oauth/authorize"
 			body["response_types_supported"] = []string{"code"}
 			body["code_challenge_methods_supported"] = []string{"S256"}
-			scopes := []string{"openid", "profile", "email"}
+			// THE-ADDRESS-PHONE-CLAIMS: address and phone are modeled on
+			// user_profiles and released consent-gated like profile/email.
+			scopes := []string{"openid", "profile", "email", "address", "phone"}
 			// offline_access is advertised only when the auth-code
 			// grant can actually mint a refresh token — i.e. the
 			// UserSessionService is wired into the token endpoint.
@@ -1717,6 +1719,11 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				"preferred_username", "profile", "picture", "website", "gender",
 				"birthdate", "zoneinfo", "locale", "updated_at",
 				"email", "email_verified",
+				// THE-ADDRESS-PHONE-CLAIMS: address (§5.1.1 object, set
+				// members only), phone_number, and phone_number_verified
+				// (always false — no verification event exists; emitted
+				// only alongside phone_number).
+				"address", "phone_number", "phone_number_verified",
 				"organization_id", "role",
 			}
 			// THE-CLAIMS-PARAMETER: the OIDC Core §5.5 `claims` request

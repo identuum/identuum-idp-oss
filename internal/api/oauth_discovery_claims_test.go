@@ -19,14 +19,25 @@ func TestDiscovery_ClaimsParameterAdvertised(t *testing.T) {
 	}
 	for _, want := range []string{"sub", "name", "email", "email_verified", "organization_id", "role", "auth_time", "acr", "amr", "nonce",
 		// THE-PROFILE-CLAIMS: the whole §5.1 profile family is modeled and emits when set.
-		"given_name", "family_name", "middle_name", "nickname", "preferred_username", "profile", "picture", "website", "gender", "birthdate", "zoneinfo", "locale", "updated_at"} {
+		"given_name", "family_name", "middle_name", "nickname", "preferred_username", "profile", "picture", "website", "gender", "birthdate", "zoneinfo", "locale", "updated_at",
+		// THE-ADDRESS-PHONE-CLAIMS: address + phone are modeled and emit when set
+		// (phone_number_verified rides with phone_number, always false).
+		"address", "phone_number", "phone_number_verified"} {
 		if !have[want] {
 			t.Errorf("claims_supported lacks %q (it emits): %v", want, raw)
 		}
 	}
-	for _, never := range []string{"phone_number", "phone_number_verified", "address"} {
-		if have[never] {
-			t.Errorf("claims_supported advertises %q, which the OP never emits", never)
+	// scopes_supported advertises the scopes that release them.
+	scopes, _ := body["scopes_supported"].([]any)
+	haveScope := map[string]bool{}
+	for _, s := range scopes {
+		if str, ok := s.(string); ok {
+			haveScope[str] = true
+		}
+	}
+	for _, want := range []string{"openid", "profile", "email", "address", "phone"} {
+		if !haveScope[want] {
+			t.Errorf("scopes_supported lacks %q: %v", want, scopes)
 		}
 	}
 }
