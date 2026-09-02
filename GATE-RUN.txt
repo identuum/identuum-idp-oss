@@ -1,20 +1,22 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 7e80a32
-started: 2026-09-02T13:32:08Z
-plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
-tool: go          go1.27.0  /opt/homebrew/bin/go
+repo-head: bb650b8
+started: 2026-09-02T14:31:39Z
+plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
+tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
 tool: grype       0.118.0  /opt/homebrew/bin/grype
 tool: govulncheck govulncheck@v1.7.0  /opt/homebrew/bin/govulncheck
-tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.8.0","toolchain_version":"v0.8.0","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
+tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.8.1","toolchain_version":"v0.8.1","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
 target: tool-versions exit=0
 target: repo-green exit=0
 target: tracked-binary-check exit=0
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 207 rows (207 armed), FLOOR 207, RED-PROOFS 207 (measured 207)
+evidence: [rulefloor-check] check OK: 208 rows (208 armed), FLOOR 208, RED-PROOFS 208 (measured 208)
 target: rulefloor-check exit=0
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=2359736c3bcd14e19f8a03d458fa49e8256d5080 status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=afd8d392a9de39b2a0c5a3c425b111fe137dd31333e95d41f36bdace2f25f6c5
+target: ledger-diff-gate exit=0
 target: image-base-check exit=0
 target: vet-integration exit=0
 target: doccomment-check exit=0
@@ -36,6 +38,6 @@ target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 target: wiki-fresh exit=0
 target: grype-scan exit=0
-finished: 2026-09-02T13:36:58Z
-tree: sha256=89e92d33412d2186225f634a848e98db338d3bf46c91d932acabc59762e2e784
+finished: 2026-09-02T14:37:10Z
+tree: sha256=85666e9fe4d3a5e85ec7fff361f38c5ad975600e7235b8058597f091aba019bf
 result: green
