@@ -1,11 +1,21 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "dc1bf633c7db1448883513a47f65b65f11d77bea",
+  "base_commit": "0bf022bd3725b84c807a21b46accc0288147c642",
   "changes": [
     {
-      "rule_id": "LOGOUT-UNCONFIRMED-1",
+      "rule_id": "AYGHU-SAME-OWNER-1",
       "change_class": "rule_added",
-      "reason": "THE-LOGOUT-THAT-CANNOT-REVOKE: a store error during logout never passes silently (AUTH-503 log line + user_session.logout.revocation_unconfirmed audit + X-Identuum-Logout marker), the cookie is still cleared, RP-initiated end-session still redirects with state, a healthy logout emits neither; mutation red-proved"
+      "reason": "AYGHU-1 FOUNDATION: v1 same-owner rule — both participant service accounts must be owned by the creating owner; ownerless refused; cross-owner refused (deferred, not built); mutation red-proved (ownership loop neutralized → three refusal subtests failed)"
+    },
+    {
+      "rule_id": "AYGHU-TWO-PARTICIPANTS-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-1 FOUNDATION: exactly two participants (one initiator, one responder, distinct service accounts and ACIs); any other count refused before any store lookup and by the aggregate; mutation red-proved (service count check weakened → a single participant reached the store lookup)"
+    },
+    {
+      "rule_id": "AYGHU-POLICY-DIGEST-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-1 FOUNDATION: canonical policy digest — SHA-256 hex over the typed policy (version, limits, per-role byte-sorted deduplicated capabilities), independent of input order, identifiers, timestamps and audience; mutation red-proved (Canonical() sort dropped → unsorted input digested differently)"
     }
   ]
 }

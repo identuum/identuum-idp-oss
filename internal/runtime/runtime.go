@@ -971,6 +971,11 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	clientSvc = clientSvc.WithServiceAccountBindingValidator(serviceAccountSvc)
 	saClientBundleRepo := postgres.NewPgxServiceAccountClientBundleRepository(pool)
 	saClientBundleSvc := service.NewServiceAccountClientBundleService(report, serviceAccountSvc, clientSvc, saClientBundleRepo)
+	// AYGHU-1 FOUNDATION: the agent-communication authorization service
+	// exists and is wired; it registers no routes until AYGHU-2.
+	agentCommAuthSvc := service.NewAgentCommunicationAuthorizationService(report,
+		repos.AgentCommunicationAuthorization, repos.ServiceAccount, repos.Client,
+		service.AgentCommunicationAuthorizationServiceOptions{})
 
 	sessionRepo := repository.SessionRepository(repos.Session)
 	userSessionSvc := service.NewUserSessionService(report, repos.Session, service.UserSessionServiceOptions{})
@@ -1229,32 +1234,33 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		// linkBaseURL, which falls back to the issuer. /activate is a UI
 		// page, so an issuer-based activation link would 404; when this is
 		// unset the handlers say so instead of guessing.
-		UIPublicBaseURL:                   r.cfg.UIPublicBaseURL,
-		JWKSProvider:                      jwksProvider,
-		KeyService:                        keyService,
-		TokenVerifier:                     tokenVerifier,
-		ClientRepo:                        clientRepo,
-		APIResourceRepo:                   apiResourceRepo,
-		ScopeTemplateRepo:                 scopeTemplateRepo,
-		ClientService:                     clientSvc,
-		APIResourceService:                apiResourceSvc,
-		ScopeTemplateService:              scopeTemplateSvc,
-		UserRepo:                          userRepo,
-		OrganizationRepo:                  orgRepo,
-		OrganizationDomainRepo:            orgDomainRepo,
-		IdentityProviderRepo:              idpRepo,
-		UserService:                       userSvc,
-		OrganizationService:               orgSvc,
-		OrganizationDomainService:         orgDomainSvc,
-		UserProfileService:                userProfileSvc,
-		MFAVerifier:                       mfaVerifier,
-		RequestObjectService:              requestObjects,
-		OrgRoleService:                    orgRoleSvc,
-		ServiceAccountService:             serviceAccountSvc,
-		ServiceAccountClientBundleService: saClientBundleSvc,
-		LocalLogin:                        localLoginSvc,
-		MFAEnrollment:                     mfaEnrollmentSvc,
-		UserSessionService:                userSessionSvc,
+		UIPublicBaseURL:                        r.cfg.UIPublicBaseURL,
+		JWKSProvider:                           jwksProvider,
+		KeyService:                             keyService,
+		TokenVerifier:                          tokenVerifier,
+		ClientRepo:                             clientRepo,
+		APIResourceRepo:                        apiResourceRepo,
+		ScopeTemplateRepo:                      scopeTemplateRepo,
+		ClientService:                          clientSvc,
+		APIResourceService:                     apiResourceSvc,
+		ScopeTemplateService:                   scopeTemplateSvc,
+		UserRepo:                               userRepo,
+		OrganizationRepo:                       orgRepo,
+		OrganizationDomainRepo:                 orgDomainRepo,
+		IdentityProviderRepo:                   idpRepo,
+		UserService:                            userSvc,
+		OrganizationService:                    orgSvc,
+		OrganizationDomainService:              orgDomainSvc,
+		UserProfileService:                     userProfileSvc,
+		MFAVerifier:                            mfaVerifier,
+		RequestObjectService:                   requestObjects,
+		OrgRoleService:                         orgRoleSvc,
+		ServiceAccountService:                  serviceAccountSvc,
+		ServiceAccountClientBundleService:      saClientBundleSvc,
+		AgentCommunicationAuthorizationService: agentCommAuthSvc,
+		LocalLogin:                             localLoginSvc,
+		MFAEnrollment:                          mfaEnrollmentSvc,
+		UserSessionService:                     userSessionSvc,
 		// SessionRevoker is the seam consumed by the /oauth/revoke
 		// fan-out path: when a verified token's `sub` is a UUID,
 		// the handler invokes RevokeUserSessions for that user with

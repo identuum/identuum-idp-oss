@@ -94,7 +94,7 @@ func (r *PgxServiceAccountRepository) GetByID(ctx context.Context, id uuid.UUID)
 	sa.Role = domain.UserRole(roleStr)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("service account not found")
+		return nil, domain.ErrServiceAccountNotFound
 	}
 	if err != nil {
 		metrics.DBQueryDuration.WithLabelValues("service_account_repo", "get_by_id", "error").Observe(timer.ObserveDuration().Seconds())
@@ -131,7 +131,7 @@ func (r *PgxServiceAccountRepository) GetByName(ctx context.Context, orgID uuid.
 	sa.Role = domain.UserRole(roleStr)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("service account not found")
+		return nil, domain.ErrServiceAccountNotFound
 	}
 	if err != nil {
 		metrics.DBQueryDuration.WithLabelValues("service_account_repo", "get_by_name", "error").Observe(timer.ObserveDuration().Seconds())
@@ -181,7 +181,7 @@ func (r *PgxServiceAccountRepository) Update(ctx context.Context, sa *domain.Ser
 
 	err := r.db.QueryRow(ctx, query, sa.Name, sa.Description, string(sa.Role), sa.ID, sa.OrganizationID).Scan(&sa.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("service account not found")
+		return nil, domain.ErrServiceAccountNotFound
 	}
 	if err != nil {
 		if isSANameTaken(err) {

@@ -43,6 +43,9 @@ type Repositories struct {
 	EmailVerification            repository.EmailVerificationRepository
 	// UserProfile is the optional OIDC profile row store (THE-PROFILE-CLAIMS).
 	UserProfile repository.UserProfileRepository
+	// AgentCommunicationAuthorization is the AYGHU-1 aggregate store
+	// (agent_communication_authorizations + _participants, migration 0037).
+	AgentCommunicationAuthorization repository.AgentCommunicationAuthorizationRepository
 	// Audit is the OSS plain persistent audit log store (L-2). Concrete
 	// type (not an interface) so the runtime can SetRetention on it after
 	// resolving the env override; it satisfies both the persistent
@@ -63,36 +66,37 @@ type Repositories struct {
 func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 	userRepo := NewPgxUserRepository(db)
 	return &Repositories{
-		User:                         userRepo,
-		AdminUser:                    userRepo,
-		Organization:                 NewPgxOrganizationRepository(db),
-		Session:                      NewPgxSessionRepository(db),
-		AuthCode:                     NewPgxAuthCodeRepository(db),
-		Client:                       NewPgxClientRepository(db),
-		Key:                          NewPgxKeyRepository(db, keyCipher),
-		PasswordReset:                NewPgxPasswordResetRepository(db),
-		IdentityProvider:             NewPgxIdentityProviderRepository(db),
-		OIDCState:                    NewPgxOIDCStateRepository(db),
-		Claim:                        NewPgClaimRepository(db),
-		APIResource:                  NewPgxAPIResourceRepository(db),
-		OrgRole:                      NewPgxOrgRoleRepository(db),
-		OrganizationDomain:           NewPgxOrganizationDomainRepository(db),
-		OrganizationProtocolSettings: NewPgxOrganizationProtocolSettingsRepository(db),
-		ScopeTemplate:                NewPgxScopeTemplateRepository(db),
-		ServiceAccount:               NewPgxServiceAccountRepository(db),
-		TokenRevocation:              NewPgxTokenRevocationRepository(db),
-		RefreshToken:                 NewPgxRefreshTokenRepository(db),
-		ClientAssertionReplay:        NewPgxClientAssertionReplayRepository(db),
-		OAuthAuthorizationCode:       NewPgxOAuthAuthorizationCodeRepository(db),
-		OAuthConsent:                 NewPgxOAuthConsentRepository(db),
-		LoginAttempt:                 NewPgxLoginAttemptRepository(db),
-		BrowserSessionToken:          NewPgxBrowserSessionTokenRepository(db),
-		BackchannelLogoutDelivery:    NewPgxBackchannelLogoutDeliveryRepository(db),
-		MFAPendingLoginSession:       NewPgxMFAPendingLoginSessionRepository(db),
-		WebAuthnCredential:           NewPgxWebAuthnCredentialRepository(db),
-		EmailVerification:            NewPgxEmailVerificationRepository(db),
-		UserProfile:                  NewPgxUserProfileRepository(db),
-		Audit:                        NewPgxAuditRepository(db, DefaultAuditRetention),
+		User:                            userRepo,
+		AdminUser:                       userRepo,
+		Organization:                    NewPgxOrganizationRepository(db),
+		Session:                         NewPgxSessionRepository(db),
+		AuthCode:                        NewPgxAuthCodeRepository(db),
+		Client:                          NewPgxClientRepository(db),
+		Key:                             NewPgxKeyRepository(db, keyCipher),
+		PasswordReset:                   NewPgxPasswordResetRepository(db),
+		IdentityProvider:                NewPgxIdentityProviderRepository(db),
+		OIDCState:                       NewPgxOIDCStateRepository(db),
+		Claim:                           NewPgClaimRepository(db),
+		APIResource:                     NewPgxAPIResourceRepository(db),
+		OrgRole:                         NewPgxOrgRoleRepository(db),
+		OrganizationDomain:              NewPgxOrganizationDomainRepository(db),
+		OrganizationProtocolSettings:    NewPgxOrganizationProtocolSettingsRepository(db),
+		ScopeTemplate:                   NewPgxScopeTemplateRepository(db),
+		ServiceAccount:                  NewPgxServiceAccountRepository(db),
+		TokenRevocation:                 NewPgxTokenRevocationRepository(db),
+		RefreshToken:                    NewPgxRefreshTokenRepository(db),
+		ClientAssertionReplay:           NewPgxClientAssertionReplayRepository(db),
+		OAuthAuthorizationCode:          NewPgxOAuthAuthorizationCodeRepository(db),
+		OAuthConsent:                    NewPgxOAuthConsentRepository(db),
+		LoginAttempt:                    NewPgxLoginAttemptRepository(db),
+		BrowserSessionToken:             NewPgxBrowserSessionTokenRepository(db),
+		BackchannelLogoutDelivery:       NewPgxBackchannelLogoutDeliveryRepository(db),
+		MFAPendingLoginSession:          NewPgxMFAPendingLoginSessionRepository(db),
+		WebAuthnCredential:              NewPgxWebAuthnCredentialRepository(db),
+		EmailVerification:               NewPgxEmailVerificationRepository(db),
+		UserProfile:                     NewPgxUserProfileRepository(db),
+		AgentCommunicationAuthorization: NewPgxAgentCommunicationAuthorizationRepository(db),
+		Audit:                           NewPgxAuditRepository(db, DefaultAuditRetention),
 	}
 }
 

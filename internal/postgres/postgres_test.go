@@ -39,6 +39,7 @@ func TestNewPgxRepositories_AllFieldsPopulated(t *testing.T) {
 	assert.NotNil(t, repos.ServiceAccount, "ServiceAccount repository must be populated")
 	assert.NotNil(t, repos.WebAuthnCredential, "WebAuthnCredential repository must be populated")
 	assert.NotNil(t, repos.EmailVerification, "EmailVerification repository must be populated")
+	assert.NotNil(t, repos.AgentCommunicationAuthorization, "AgentCommunicationAuthorization repository must be populated")
 }
 
 // TestNewPgxRepositories_AdminUserSharesUserInstance verifies that the

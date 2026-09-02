@@ -165,6 +165,12 @@ type OSSRouterDeps struct {
 	// When nil, the route does not register.
 	ServiceAccountClientBundleService *service.ServiceAccountClientBundleService
 
+	// AgentCommunicationAuthorizationService is the AYGHU-1 foundation
+	// (domain aggregate + invariants + store). It registers NO routes yet:
+	// the admin API (AYGHU-2), issuance + DPoP (AYGHU-3) and
+	// introspection/revocation/audit (AYGHU-4) are later slices.
+	AgentCommunicationAuthorizationService *service.AgentCommunicationAuthorizationService
+
 	// LocalLogin backs POST /api/v1/auth/login. When nil, the
 	// login route does not register.
 	LocalLogin *service.LocalLoginService
