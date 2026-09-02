@@ -95,6 +95,12 @@ func (s *ServiceAccountService) buildForActor(actor *domain.Principal, orgID uui
 		return nil, ErrSAExpiryInvalid
 	}
 	now := s.now().UTC()
+	// AYGHU-2 (measured live): owner_user_id existed since migration 0001 but
+	// NOTHING in OSS ever wrote it, so every service account was ownerless
+	// and the agent-communication same-owner rule refused all of them. The
+	// creating org_admin (requireOrgAdmin admits nobody else) is the owner:
+	// a service account is that person's agent identity.
+	owner := actor.UserID
 	sa := &domain.ServiceAccount{
 		OrganizationID: orgID,
 		Name:           strings.TrimSpace(in.Name),
@@ -102,6 +108,7 @@ func (s *ServiceAccountService) buildForActor(actor *domain.Principal, orgID uui
 		Role:           role,
 		Active:         true,
 		ExpiresAt:      in.ExpiresAt,
+		OwnerUserID:    &owner,
 		CreatedAt:      now,
 		UpdatedAt:      now,
 	}

@@ -64,6 +64,14 @@ the OSS router; docgen canonical endpoint count 139 → 143.
 | `GET /api/v1/agent-communication-authorizations/:id` | org_admin, own org | 200; a foreign organization's id and an absent id answer 404 identically (no existence oracle); malformed id 400 `invalid_authorization_id`. |
 | `POST /api/v1/agent-communication-authorizations/:id/revoke` | org_admin, own org (same-organization emergency revocation is allowed and audited) | 200 with the revoked authorization; terminal and idempotent (a repeat returns the first stamp unchanged); optional body `{"reason"}` trimmed, ≤256 bytes (400 `revocation_reason_too_long`); foreign / absent → 404 identically. |
 
+**Owner of a service account (measured live in this slice):** `owner_user_id`
+existed since migration 0001 but nothing in OSS ever wrote it, so every
+service account was ownerless and the same-owner rule refused all of them
+(`403 ownerless_participant`). Since AYGHU-2 the creating org_admin is the
+owner of every service account created through the admin API (plain and
+with-client). Service accounts created before that stay ownerless and cannot
+participate until an owner-assignment path exists (not scheduled).
+
 Every route: 401 without a bearer principal; a store error on ANY path
 answers 503 `temporarily_unavailable` / `auth_store_error` with a
 correlation id on the body and the `X-Request-ID` header (AUTH-503) — never

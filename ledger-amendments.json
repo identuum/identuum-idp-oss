@@ -1,21 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "5ddd186709abfbee42330d6ef4e4115eeafe0cb3",
-  "changes": [
-    {
-      "rule_id": "AYGHU-ORG-SCOPE-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-2 ADMIN API: /api/v1/agent-communication-authorizations is org_admin own-org only — a foreign organization's id and an absent id answer 404 byte-identically on read and revoke, the list never carries another organization's row, an explicit foreign organization_id on create is refused, and site_admin / org_user are refused 403 uniformly (caller-dependent, never target-dependent); mutation red-proved (org_user admitted to the actor check → the uniform-refusal subtests failed)"
-    },
-    {
-      "rule_id": "AYGHU-STORE-503-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-2 ADMIN API: a store error on create, list, get or revoke (authorization, service-account or client store) answers 503 temporarily_unavailable / auth_store_error with a correlation id on the body and the X-Request-ID header, Retry-After, and exactly one AUTH-503 sink call — never 404/403/500, no audit event, nothing persisted; mutation red-proved (service Get collapsed a store error to not-found → 'a store error must be 503, got 404')"
-    },
-    {
-      "rule_id": "AYGHU-AUDIT-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-2 ADMIN API: create and revoke each record exactly one audit event (agent_communication_authorization.created / .revoked, result revoked or already_revoked) with SAFE metadata only — authorization, session, organization, owner/revoked_by ids and participant aci/role/service-account/client ids; the free-text reason, proof-key thumbprints and the relay audience never enter an event; a refused request records nothing; mutation red-proved (free-text reason copied into the revoke metadata → safe-set assertion failed)"
-    }
-  ]
+  "base_commit": "5cf2e81db46a232517fc6e16eeb05f441544d6ea",
+  "changes": []
 }
