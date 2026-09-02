@@ -196,15 +196,18 @@ func (f *acFixture) input() CreateAgentCommunicationAuthorizationInput {
 
 func TestNewAgentCommunicationAuthorizationService_NilDepsRecordFatal(t *testing.T) {
 	f := newACFixture(t)
+	// The clock seam is injected here too (clock-fuse gate): a constructor
+	// test must not leave a service on the wall clock.
+	opts := AgentCommunicationAuthorizationServiceOptions{Now: func() time.Time { return f.now }}
 	cases := map[string]func(rep *lifecycle.StartupReport){
 		"repo": func(rep *lifecycle.StartupReport) {
-			NewAgentCommunicationAuthorizationService(rep, nil, f.sas, f.clients, AgentCommunicationAuthorizationServiceOptions{})
+			NewAgentCommunicationAuthorizationService(rep, nil, f.sas, f.clients, opts)
 		},
 		"sas": func(rep *lifecycle.StartupReport) {
-			NewAgentCommunicationAuthorizationService(rep, f.repo, nil, f.clients, AgentCommunicationAuthorizationServiceOptions{})
+			NewAgentCommunicationAuthorizationService(rep, f.repo, nil, f.clients, opts)
 		},
 		"clients": func(rep *lifecycle.StartupReport) {
-			NewAgentCommunicationAuthorizationService(rep, f.repo, f.sas, nil, AgentCommunicationAuthorizationServiceOptions{})
+			NewAgentCommunicationAuthorizationService(rep, f.repo, f.sas, nil, opts)
 		},
 	}
 	for name, build := range cases {
