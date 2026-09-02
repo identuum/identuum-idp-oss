@@ -54,6 +54,10 @@ type GrantConsentInput struct {
 	ClientID       string
 	Audience       string
 	Scope          string
+	// Claims are the consented OIDC §5.5 claim tokens ("userinfo:name",
+	// "id_token:email") — domain.ClaimsRequest.Tokens() of the approved
+	// request (THE-CLAIMS-PARAMETER).
+	Claims []string
 }
 
 // ConsentDecision is what Lookup returns.
@@ -65,8 +69,12 @@ type ConsentDecision struct {
 	// GrantedScope is the verbatim stored scope string.
 	GrantedScope string
 
-	// Covered is true iff Found AND every token in the
-	// requested-scope argument appears in the granted-scope set.
+	// GrantedClaims is the verbatim stored claim-token string.
+	GrantedClaims string
+
+	// Covered is true iff Found AND every token in the requested scope
+	// appears in the granted-scope set AND every requested claim token
+	// appears in the granted-claims set.
 	Covered bool
 }
 
@@ -78,7 +86,7 @@ var (
 // Lookup returns the active consent decision for the supplied
 // tuple + requested scope. Returns a zero ConsentDecision (Found=
 // false, Covered=false) when no active row exists.
-func (s *ConsentService) Lookup(ctx context.Context, userID uuid.UUID, clientID, audience, requestedScope string) (*ConsentDecision, error) {
+func (s *ConsentService) Lookup(ctx context.Context, userID uuid.UUID, clientID, audience, requestedScope string, requestedClaims ...string) (*ConsentDecision, error) {
 	if userID == uuid.Nil || strings.TrimSpace(clientID) == "" {
 		return &ConsentDecision{}, ErrConsentInvalidInput
 	}
@@ -90,9 +98,12 @@ func (s *ConsentService) Lookup(ctx context.Context, userID uuid.UUID, clientID,
 		return &ConsentDecision{}, nil
 	}
 	return &ConsentDecision{
-		Found:        true,
-		GrantedScope: row.Scope,
-		Covered:      scopeCovers(row.Scope, requestedScope),
+		Found:         true,
+		GrantedScope:  row.Scope,
+		GrantedClaims: row.Claims,
+		// THE-CLAIMS-PARAMETER: a §5.5 claim the user has not consented to
+		// for this client is exactly as uncovered as an unconsented scope.
+		Covered: scopeCovers(row.Scope, requestedScope) && domain.ClaimsCover(row.Claims, requestedClaims),
 	}, nil
 }
 
@@ -114,6 +125,7 @@ func (s *ConsentService) Grant(ctx context.Context, in GrantConsentInput) (uuid.
 		ClientID:       in.ClientID,
 		Audience:       in.Audience,
 		Scope:          normaliseScope(in.Scope),
+		Claims:         domain.JoinClaimTokens(in.Claims),
 		GrantedAt:      s.now().UTC(),
 	}
 	persisted, err := s.repo.Upsert(ctx, row)

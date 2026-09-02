@@ -37,4 +37,9 @@ type OAuthAuthorizationCode struct {
 	IssuedAccessJTI       string
 	IssuedAccessExpiresAt *time.Time
 	IssuedRefreshTokenID  *uuid.UUID
+
+	// RequestedClaims is the parsed OIDC §5.5 `claims` parameter the code
+	// was minted under (THE-CLAIMS-PARAMETER) — already consent-covered by
+	// the time the code exists. Empty = none requested.
+	RequestedClaims ClaimsRequest
 }

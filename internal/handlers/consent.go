@@ -167,6 +167,12 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 			req.Scope = service.ClampScopeToRegistered(req.Scope, client.Scope)
 		}
 
+		// THE-CLAIMS-PARAMETER: approval covers the emittable §5.5 claims
+		// the form listed (unknown ones were never listed and are never
+		// consented). A malformed claims value cannot be approved into
+		// anything — Authorize refuses it below.
+		requestedClaims, _ := domain.ParseClaimsRequest(req.Claims)
+
 		// Approve: persist consent, then drive /authorize to mint
 		// the code.
 		if _, err := deps.ConsentService.Grant(c.Request.Context(), service.GrantConsentInput{
@@ -175,6 +181,7 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 			ClientID:       req.ClientID,
 			Audience:       req.Audience,
 			Scope:          req.Scope,
+			Claims:         requestedClaims.Tokens(),
 		}); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
 			return
@@ -255,6 +262,8 @@ func readConsentForm(c *gin.Context) service.AuthorizeRequest {
 		// THE-SECOND-LOGIN: the resumed request keeps max_age so the
 		// post-consent re-run applies the same freshness rule.
 		MaxAge: firstNonEmpty(c.PostForm("max_age"), c.Query("max_age")),
+		// THE-CLAIMS-PARAMETER: the §5.5 request resumes with the approval.
+		Claims: firstNonEmpty(c.PostForm("claims"), c.Query("claims")),
 	}
 }
 
@@ -289,6 +298,7 @@ const consentFormTemplate = `<!DOCTYPE html>
     <p>{{CLIENT_NAME}} is requesting access to your account.</p>
     <h2>Requested scopes</h2>
     <ul>{{SCOPES}}</ul>
+    {{CLAIMS}}
     <form method="POST" action="/api/v1/oauth/consent">
       {{HIDDEN}}
       {{CSRF}}
@@ -306,6 +316,7 @@ func renderConsentForm(w http.ResponseWriter, client *domain.Client, q url.Value
 	}
 	body := strings.ReplaceAll(consentFormTemplate, "{{CLIENT_NAME}}", html.EscapeString(clientName))
 	body = strings.ReplaceAll(body, "{{SCOPES}}", renderScopes(q.Get("scope")))
+	body = strings.ReplaceAll(body, "{{CLAIMS}}", renderClaims(q.Get("claims")))
 	body = strings.ReplaceAll(body, "{{HIDDEN}}", renderHiddenFields(q))
 	csrfInput := ""
 	if csrfToken != "" {
@@ -329,10 +340,35 @@ func renderScopes(scope string) string {
 	return b.String()
 }
 
+// renderClaims lists the OIDC §5.5 claims the client asked for, reduced to
+// what this OP can emit (unknown claims are never shown — nor consented).
+// Empty when nothing emittable was requested or the value is malformed.
+func renderClaims(raw string) string {
+	req, err := domain.ParseClaimsRequest(raw)
+	if err != nil || req.IsEmpty() {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<h2>Requested claims</h2>\n    <ul>")
+	for _, n := range req.UserInfo {
+		b.WriteString(`<li>`)
+		b.WriteString(html.EscapeString(n))
+		b.WriteString(" (shared with the application)</li>")
+	}
+	for _, n := range req.IDToken {
+		b.WriteString(`<li>`)
+		b.WriteString(html.EscapeString(n))
+		b.WriteString(" (included in the ID token)</li>")
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
 func renderHiddenFields(q url.Values) string {
 	keys := []string{
 		"response_type", "client_id", "redirect_uri", "scope", "audience",
 		"state", "nonce", "code_challenge", "code_challenge_method",
+		"claims",
 	}
 	var b strings.Builder
 	for _, k := range keys {

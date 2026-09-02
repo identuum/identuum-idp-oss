@@ -43,19 +43,20 @@ func (r *PgxOAuthConsentRepository) Upsert(ctx context.Context, c *domain.OAuthC
 	}
 	const q = `
 INSERT INTO oauth_consents (
-    id, user_id, organization_id, client_id, audience, scope,
+    id, user_id, organization_id, client_id, audience, scope, claims,
     granted_at, revoked_at, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NOW(), NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $8, $7, NULL, NOW(), NOW())
 ON CONFLICT (user_id, client_id, audience) DO UPDATE SET
     scope = EXCLUDED.scope,
+    claims = EXCLUDED.claims,
     granted_at = EXCLUDED.granted_at,
     revoked_at = NULL,
     updated_at = NOW()
-RETURNING id, user_id, organization_id, client_id, audience, scope,
+RETURNING id, user_id, organization_id, client_id, audience, scope, claims,
           granted_at, revoked_at, created_at, updated_at
 `
 	row := r.db.QueryRow(ctx, q,
-		c.ID, c.UserID, c.OrganizationID, c.ClientID, c.Audience, c.Scope, c.GrantedAt,
+		c.ID, c.UserID, c.OrganizationID, c.ClientID, c.Audience, c.Scope, c.GrantedAt, c.Claims,
 	)
 	return scanOAuthConsent(row)
 }
@@ -63,7 +64,7 @@ RETURNING id, user_id, organization_id, client_id, audience, scope,
 // GetActive returns the (user, client, audience) row when active.
 func (r *PgxOAuthConsentRepository) GetActive(ctx context.Context, userID uuid.UUID, clientID, audience string) (*domain.OAuthConsent, error) {
 	const q = `
-SELECT id, user_id, organization_id, client_id, audience, scope,
+SELECT id, user_id, organization_id, client_id, audience, scope, claims,
        granted_at, revoked_at, created_at, updated_at
 FROM oauth_consents
 WHERE user_id = $1 AND client_id = $2 AND audience = $3
@@ -92,7 +93,7 @@ WHERE user_id = $1 AND client_id = $2 AND audience = $3
 func scanOAuthConsent(row pgx.Row) (*domain.OAuthConsent, error) {
 	var c domain.OAuthConsent
 	if err := row.Scan(
-		&c.ID, &c.UserID, &c.OrganizationID, &c.ClientID, &c.Audience, &c.Scope,
+		&c.ID, &c.UserID, &c.OrganizationID, &c.ClientID, &c.Audience, &c.Scope, &c.Claims,
 		&c.GrantedAt, &c.RevokedAt, &c.CreatedAt, &c.UpdatedAt,
 	); err != nil {
 		return nil, err

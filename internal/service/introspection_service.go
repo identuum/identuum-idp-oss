@@ -21,20 +21,25 @@ import (
 // carries; absent fields are left zero-valued and the response
 // omits them via omitempty.
 type IntrospectionClaims struct {
-	Sub       string
-	UserID    uuid.UUID
-	Email     string
-	ClientID  string
-	Scope     string
-	Iss       string
-	Aud       []string
-	Exp       int64
-	Iat       int64
-	Nbf       int64
-	Jti       string
-	Role      string
-	OrgID     uuid.UUID
-	ActorType string
+	Sub      string
+	UserID   uuid.UUID
+	Email    string
+	ClientID string
+	Scope    string
+	// UserInfoClaims are the OIDC §5.5 claim names the token's client was
+	// consented (and the role permitted) to receive at userinfo, from the
+	// access token's `userinfo_claims` claim (THE-CLAIMS-PARAMETER). Nil
+	// when the token carries none.
+	UserInfoClaims []string
+	Iss            string
+	Aud            []string
+	Exp            int64
+	Iat            int64
+	Nbf            int64
+	Jti            string
+	Role           string
+	OrgID          uuid.UUID
+	ActorType      string
 
 	// SessionID is the user session the token was minted under, zero for
 	// tokens that carry none (client-credentials / service-account — M2M).

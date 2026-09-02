@@ -115,6 +115,10 @@ type UserAccessTokenResponse struct {
 	// Scope is the space-separated `scope` claim the token carries — the
 	// effective set it may exercise. Empty when the token carries none.
 	Scope string
+	// UserInfoClaims is the `userinfo_claims` claim the token carries — the
+	// OIDC §5.5 claim names consented for userinfo ∩ role-permitted
+	// (THE-CLAIMS-PARAMETER). Nil when none.
+	UserInfoClaims []string
 }
 
 // IssueForSession mints a JWT access token for the supplied
@@ -151,7 +155,7 @@ func (s *UserTokenService) IssueForSession(ctx context.Context, user *domain.Use
 	// token that carried none made every org_admin 403 on its own org. The
 	// grant is org-bound at the point of use, not in the string — see
 	// domain.OrgAdminSessionScopes.
-	return s.issue(ctx, user, session, domain.SessionScopesForRole(user.Role), "")
+	return s.issue(ctx, user, session, domain.SessionScopesForRole(user.Role), "", nil)
 }
 
 // IssueForConsentedClient mints the access token the authorization_code
@@ -168,14 +172,22 @@ func (s *UserTokenService) IssueForSession(ctx context.Context, user *domain.Use
 // client it was issued to, which is what lets introspection tell a
 // client-bound token from a login-session token. Everything else matches
 // IssueForSession.
-func (s *UserTokenService) IssueForConsentedClient(ctx context.Context, user *domain.User, session *domain.Session, clientID, consentedScope string) (*UserAccessTokenResponse, error) {
+//
+// THE-CLAIMS-PARAMETER: consentedUserInfoClaims are the OIDC §5.5
+// userinfo-member claim names the user consented for this client; the token
+// carries them as `userinfo_claims` INTERSECTED with what the role permits
+// (domain.IntersectConsentedClaims) — the same rule as scope, applied to
+// individual claims. Nil/empty stamps no such claim.
+func (s *UserTokenService) IssueForConsentedClient(ctx context.Context, user *domain.User, session *domain.Session, clientID, consentedScope string, consentedUserInfoClaims []string) (*UserAccessTokenResponse, error) {
 	if user == nil || clientID == "" {
 		return nil, ErrTokenServiceInvalidRequest
 	}
-	return s.issue(ctx, user, session, domain.IntersectConsentedScope(consentedScope, user.Role), clientID)
+	return s.issue(ctx, user, session,
+		domain.IntersectConsentedScope(consentedScope, user.Role), clientID,
+		domain.IntersectConsentedClaims(consentedUserInfoClaims, user.Role))
 }
 
-func (s *UserTokenService) issue(ctx context.Context, user *domain.User, session *domain.Session, scope, clientID string) (*UserAccessTokenResponse, error) {
+func (s *UserTokenService) issue(ctx context.Context, user *domain.User, session *domain.Session, scope, clientID string, userinfoClaims []string) (*UserAccessTokenResponse, error) {
 	if user == nil {
 		return nil, ErrTokenServiceInvalidRequest
 	}
@@ -208,6 +220,9 @@ func (s *UserTokenService) issue(ctx context.Context, user *domain.User, session
 	if scope != "" {
 		extra["scope"] = scope
 	}
+	if len(userinfoClaims) > 0 {
+		extra["userinfo_claims"] = userinfoClaims
+	}
 	if acr := session.EffectiveACR(); acr != "" {
 		extra["acr"] = acr
 	}
@@ -229,12 +244,13 @@ func (s *UserTokenService) issue(ctx context.Context, user *domain.User, session
 		return nil, err
 	}
 	return &UserAccessTokenResponse{
-		AccessToken: wireToken,
-		TokenType:   "Bearer",
-		ExpiresIn:   int64(s.accessTokenTTL.Seconds()),
-		JTI:         storeKey,
-		ExpiresAt:   exp,
-		Scope:       scope,
+		AccessToken:    wireToken,
+		TokenType:      "Bearer",
+		ExpiresIn:      int64(s.accessTokenTTL.Seconds()),
+		JTI:            storeKey,
+		ExpiresAt:      exp,
+		Scope:          scope,
+		UserInfoClaims: userinfoClaims,
 	}, nil
 }
 

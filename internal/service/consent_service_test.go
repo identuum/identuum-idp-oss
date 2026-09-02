@@ -33,6 +33,7 @@ func (r *inMemoryConsentRepo) Upsert(_ context.Context, c *domain.OAuthConsent) 
 	existing, ok := r.rows[k]
 	if ok {
 		existing.Scope = c.Scope
+		existing.Claims = c.Claims // mirrors ON CONFLICT ... SET claims = EXCLUDED.claims
 		existing.GrantedAt = c.GrantedAt
 		existing.RevokedAt = nil
 		existing.UpdatedAt = c.GrantedAt

@@ -17,10 +17,14 @@ type OAuthConsent struct {
 	ClientID       string
 	Audience       string
 	Scope          string
-	GrantedAt      time.Time
-	RevokedAt      *time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// Claims holds the consented OIDC §5.5 claim tokens ("userinfo:name",
+	// "id_token:email"), space-separated and sorted; "" = none
+	// (THE-CLAIMS-PARAMETER). Covered token-by-token like Scope.
+	Claims    string
+	GrantedAt time.Time
+	RevokedAt *time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // IsActive reports whether the row is currently a live grant

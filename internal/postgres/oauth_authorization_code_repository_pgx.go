@@ -61,17 +61,23 @@ func (r *PgxOAuthAuthorizationCodeRepository) Insert(ctx context.Context, code *
 		}
 		metaJSON = b
 	}
+	// THE-CLAIMS-PARAMETER: the parsed §5.5 request rides with the code;
+	// NULL when nothing emittable was requested.
+	var requestedClaims *string
+	if enc := code.RequestedClaims.Encode(); enc != "" {
+		requestedClaims = &enc
+	}
 	const q = `
 		INSERT INTO oauth_authorization_codes (
 			id, code_hash, client_id, user_id, organization_id,
 			session_id, redirect_uri, scope, audience,
 			code_challenge, code_challenge_method, nonce,
-			expires_at, metadata, created_at
+			expires_at, metadata, created_at, requested_claims
 		) VALUES (
 			$1, $2, $3, $4, $5,
 			$6, $7, $8, $9,
 			$10, $11, $12,
-			$13, $14, NOW()
+			$13, $14, NOW(), $15
 		)`
 	_, err := r.db.Exec(ctx, q,
 		code.ID,
@@ -88,6 +94,7 @@ func (r *PgxOAuthAuthorizationCodeRepository) Insert(ctx context.Context, code *
 		code.Nonce,
 		code.ExpiresAt,
 		metaJSON,
+		requestedClaims,
 	)
 	if err != nil {
 		return fmt.Errorf("postgres: insert oauth_authorization_codes: %w", err)
@@ -109,7 +116,8 @@ func (r *PgxOAuthAuthorizationCodeRepository) GetByCodeHashAnyState(ctx context.
 		       session_id, redirect_uri, scope, audience,
 		       code_challenge, code_challenge_method, nonce,
 		       expires_at, consumed_at, created_at, metadata,
-		       issued_access_jti, issued_access_expires_at, issued_refresh_token_id
+		       issued_access_jti, issued_access_expires_at, issued_refresh_token_id,
+		       requested_claims
 		FROM   oauth_authorization_codes
 		WHERE  code_hash = $1`
 	row := r.db.QueryRow(ctx, q, codeHash)
@@ -132,7 +140,8 @@ func (r *PgxOAuthAuthorizationCodeRepository) GetActiveByCodeHash(ctx context.Co
 		       session_id, redirect_uri, scope, audience,
 		       code_challenge, code_challenge_method, nonce,
 		       expires_at, consumed_at, created_at, metadata,
-		       issued_access_jti, issued_access_expires_at, issued_refresh_token_id
+		       issued_access_jti, issued_access_expires_at, issued_refresh_token_id,
+		       requested_claims
 		FROM   oauth_authorization_codes
 		WHERE  code_hash = $1
 		  AND  consumed_at IS NULL
@@ -221,6 +230,7 @@ func scanOAuthAuthorizationCode(row pgx.Row) (*domain.OAuthAuthorizationCode, er
 		issuedAccessJTI     *string
 		issuedAccessExpires *time.Time
 		issuedRefreshID     *uuid.UUID
+		requestedClaims     []byte
 	)
 	if err := row.Scan(
 		&id, &codeHash, &clientID, &userID, &orgID,
@@ -228,6 +238,7 @@ func scanOAuthAuthorizationCode(row pgx.Row) (*domain.OAuthAuthorizationCode, er
 		&codeChallenge, &codeChallengeMethod, &nonce,
 		&expiresAt, &consumedAt, &createdAt, &metaBytes,
 		&issuedAccessJTI, &issuedAccessExpires, &issuedRefreshID,
+		&requestedClaims,
 	); err != nil {
 		return nil, err
 	}
@@ -252,6 +263,9 @@ func scanOAuthAuthorizationCode(row pgx.Row) (*domain.OAuthAuthorizationCode, er
 	}
 	if issuedAccessJTI != nil {
 		out.IssuedAccessJTI = *issuedAccessJTI
+	}
+	if len(requestedClaims) > 0 {
+		out.RequestedClaims = domain.DecodeClaimsRequest(string(requestedClaims))
 	}
 	if len(metaBytes) > 0 {
 		var meta map[string]any

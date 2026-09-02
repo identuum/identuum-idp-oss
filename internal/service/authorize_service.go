@@ -167,6 +167,14 @@ type AuthorizeRequest struct {
 	// the login ceremony (THE-SECOND-LOGIN).
 	MaxAge string
 
+	// Claims is the OIDC Core §5.5 `claims` parameter, raw JSON as received
+	// (THE-CLAIMS-PARAMETER). "" = not requested. Authorize parses it with
+	// domain.ParseClaimsRequest: a value that is not a JSON object is refused
+	// redirect-safe (ErrAuthorizeInvalidClaims → invalid_request); unknown
+	// members and claim names are ignored per §5.5.1; the emittable request
+	// must be covered by consent and is persisted on the code row.
+	Claims string
+
 	// RequestObject / RequestURIParam carry the OIDC §6 `request` and
 	// `request_uri` wire parameters. The OSS OP does not support request
 	// objects: a non-empty value is refused with the corresponding
@@ -226,6 +234,10 @@ var (
 	// §3.1.2.1); anything else is a malformed request, refused redirect-safe
 	// as invalid_request.
 	ErrAuthorizeInvalidMaxAge = errors.New("service: authorize invalid max_age")
+	// THE-CLAIMS-PARAMETER: the `claims` parameter must be a JSON object
+	// (OIDC Core §5.5); anything else is malformed, refused redirect-safe as
+	// invalid_request. Unknown claims inside a valid object are NOT an error.
+	ErrAuthorizeInvalidClaims = errors.New("service: authorize invalid claims parameter")
 )
 
 // promptHas reports whether the OIDC prompt value — a space-separated list
@@ -415,6 +427,15 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	//   4. Otherwise → ErrAuthorizeConsentRequired (handler routes
 	//      to the consent page or, with prompt=none, returns the
 	//      consent_required redirect error).
+	// THE-CLAIMS-PARAMETER (OIDC Core §5.5): parse the `claims` request
+	// down to the identity claims this OP can emit. Malformed → refused;
+	// unknown members/claims → ignored, never an error (§5.5.1). The
+	// emittable request is consent-gated below exactly like scope, and is
+	// persisted on the code row so the exchange can honor it.
+	requestedClaims, claimsErr := domain.ParseClaimsRequest(req.Claims)
+	if claimsErr != nil {
+		return nil, ErrAuthorizeInvalidClaims
+	}
 	if promptHas(req.Prompt, "consent") {
 		return nil, ErrAuthorizeConsentRequired
 	}
@@ -422,7 +443,7 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		if s.consent == nil {
 			return nil, ErrAuthorizeConsentRequired
 		}
-		decision, err := s.consent.Lookup(ctx, req.Principal.UserID, req.ClientID, req.Audience, req.Scope)
+		decision, err := s.consent.Lookup(ctx, req.Principal.UserID, req.ClientID, req.Audience, req.Scope, requestedClaims.Tokens()...)
 		if err != nil || decision == nil || !decision.Covered {
 			return nil, ErrAuthorizeConsentRequired
 		}
@@ -441,6 +462,7 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		CodeChallenge:       challenge,
 		CodeChallengeMethod: challengeMethod,
 		Nonce:               req.Nonce,
+		RequestedClaims:     requestedClaims,
 	})
 	if err != nil {
 		// AuthorizationCodeService input errors are programmer

@@ -372,7 +372,9 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 	// The token-response `scope` reports exactly that effective set (RFC
 	// 6749 §5.1), and the refresh token below carries it so rotation
 	// preserves it.
-	access, err := deps.UserToken.IssueForConsentedClient(c.Request.Context(), user, session, client.ClientID, consumed.Scope)
+	// THE-CLAIMS-PARAMETER: the §5.5 userinfo-member claims the code was
+	// consented under ride on the access token (∩ role) for userinfo.
+	access, err := deps.UserToken.IssueForConsentedClient(c.Request.Context(), user, session, client.ClientID, consumed.Scope, consumed.RequestedClaims.UserInfo)
 	if err != nil {
 		return nil, err
 	}
@@ -395,6 +397,9 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 			Audience: client.ClientID,
 			Nonce:    consumed.Nonce,
 			Scope:    consumed.Scope,
+			// THE-CLAIMS-PARAMETER: consented id_token-member claims,
+			// ∩ what the role permits.
+			Claims: domain.IntersectConsentedClaims(consumed.RequestedClaims.IDToken, user.Role),
 			// The client's registered id_token_signed_response_alg
 			// (default EdDSA). RS256 fires ONLY via this explicit
 			// registration — testing-only (THE-PKCE-DECISION).

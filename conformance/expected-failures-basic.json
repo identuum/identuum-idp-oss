@@ -9,15 +9,6 @@
         "comment": "MEASURED (suite source AbstractVerifyScopesReturnedInClaims.java): the condition requires userinfo to carry ALL 14 profile standard claims (name, given_name, family_name, middle_name, nickname, profile, picture, website, gender, birthdate, zoneinfo, locale, updated_at, preferred_username) whenever `profile` is requested. The user model holds only `name`, and OIDC Core 5.3.2 forbids null/empty placeholders, so this warning is honest until the profile model grows. THE-CONSENTED-SCOPE gated `name` under the profile scope; that does not change this condition."
     },
     {
-        "test-name": "oidcc-claims-essential",
-        "variant": "*",
-        "configuration-filename": "*/plan-basic.json",
-        "current-block": "*",
-        "condition": "EnsureUserInfoContainsName",
-        "expected-result": "warning",
-        "comment": "FINDING surfaced by THE-CONSENTED-SCOPE, recorded not fixed: the module requests `name` through the `claims` request parameter ({\"userinfo\":{\"name\":{\"essential\":true}}}) with scope=openid only. The OP does not support the claims parameter (discovery omits claims_parameter_supported, i.e. false; OIDC Core 5.5 makes support OPTIONAL) and releases `name` only under the consented `profile` scope per the owner ruling. It passed before only because `name` was served unconditionally. Honoring individual claim requests needs consent-of-claims (authorize parsing, code-row persistence, consent page) — own slice."
-    },
-    {
         "test-name": "oidcc-ensure-request-with-acr-values-succeeds",
         "variant": "*",
         "configuration-filename": "*/plan-basic.json",

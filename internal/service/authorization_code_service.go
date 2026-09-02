@@ -119,6 +119,9 @@ type CreateAuthorizationCodeInput struct {
 	CodeChallengeMethod string
 	Nonce               string
 	Metadata            map[string]any
+	// RequestedClaims is the parsed, consent-covered OIDC §5.5 request the
+	// code is minted under (THE-CLAIMS-PARAMETER).
+	RequestedClaims domain.ClaimsRequest
 }
 
 // CreatedAuthorizationCode carries the one-time visible code + the
@@ -151,6 +154,10 @@ type ConsumedAuthorizationCode struct {
 	Scope          string
 	Audience       string
 	Nonce          string
+	// RequestedClaims is the §5.5 request the code carries (already
+	// consent-covered); the exchange stamps its userinfo member on the
+	// access token and mints its id_token member into the id_token.
+	RequestedClaims domain.ClaimsRequest
 }
 
 // Sentinel errors.
@@ -227,6 +234,7 @@ func (s *AuthorizationCodeService) Create(ctx context.Context, in CreateAuthoriz
 		Nonce:               in.Nonce,
 		ExpiresAt:           exp,
 		Metadata:            sanitizeAuthCodeMetadata(in.Metadata),
+		RequestedClaims:     in.RequestedClaims,
 	}
 	if err := s.repo.Insert(ctx, row); err != nil {
 		return nil, err
@@ -316,13 +324,14 @@ func (s *AuthorizationCodeService) Consume(ctx context.Context, in ConsumeAuthor
 		return nil, ErrAuthCodeInvalidGrant
 	}
 	return &ConsumedAuthorizationCode{
-		ID:             row.ID,
-		UserID:         row.UserID,
-		OrganizationID: row.OrganizationID,
-		SessionID:      row.SessionID,
-		Scope:          row.Scope,
-		Audience:       row.Audience,
-		Nonce:          row.Nonce,
+		ID:              row.ID,
+		UserID:          row.UserID,
+		OrganizationID:  row.OrganizationID,
+		SessionID:       row.SessionID,
+		Scope:           row.Scope,
+		Audience:        row.Audience,
+		Nonce:           row.Nonce,
+		RequestedClaims: row.RequestedClaims,
 	}, nil
 }
 

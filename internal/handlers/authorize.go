@@ -155,6 +155,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			CodeChallengeMethod: param("code_challenge_method"),
 			Prompt:              param("prompt"),
 			MaxAge:              param("max_age"),
+			Claims:              param("claims"),
 			RequestObject:       param("request"),
 			RequestURIParam:     param("request_uri"),
 			Principal:           principal,
@@ -202,6 +203,7 @@ func authorizeQueryFromRequest(req service.AuthorizeRequest) string {
 	set("code_challenge", req.CodeChallenge)
 	set("code_challenge_method", req.CodeChallengeMethod)
 	set("prompt", req.Prompt)
+	set("claims", req.Claims)
 	return v.Encode()
 }
 
@@ -235,7 +237,7 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 		redirectAuthorizeError(c, deps, req, "request_not_supported")
 	case errors.Is(err, service.ErrAuthorizeRequestURINotSupported):
 		redirectAuthorizeError(c, deps, req, "request_uri_not_supported")
-	case errors.Is(err, service.ErrAuthorizeInvalidMaxAge):
+	case errors.Is(err, service.ErrAuthorizeInvalidMaxAge), errors.Is(err, service.ErrAuthorizeInvalidClaims):
 		redirectAuthorizeError(c, deps, req, "invalid_request")
 	case errors.Is(err, service.ErrAuthorizeLoginRequired):
 		// THE-PKCE-DECISION (DO-3): an unauthenticated BROWSER is sent to

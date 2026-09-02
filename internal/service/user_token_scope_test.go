@@ -12,7 +12,7 @@ import (
 
 func consentedClientClaims(t *testing.T, svc *UserTokenService, user *domain.User, session *domain.Session, consented string) (jwt.MapClaims, *UserAccessTokenResponse) {
 	t.Helper()
-	resp, err := svc.IssueForConsentedClient(context.Background(), user, session, "cli-1", consented)
+	resp, err := svc.IssueForConsentedClient(context.Background(), user, session, "cli-1", consented, nil)
 	if err != nil {
 		t.Fatalf("IssueForConsentedClient(%q): %v", consented, err)
 	}
@@ -105,13 +105,13 @@ func TestIssueForConsentedClient_ClientIDAndSessionClaims(t *testing.T) {
 func TestIssueForConsentedClient_RejectsMissingUserOrClient(t *testing.T) {
 	svc, _, _ := newUserTokenSvc(t)
 	user, session := newUserAndSession(t)
-	if _, err := svc.IssueForConsentedClient(context.Background(), nil, session, "cli-1", "openid"); !errors.Is(err, ErrTokenServiceInvalidRequest) {
+	if _, err := svc.IssueForConsentedClient(context.Background(), nil, session, "cli-1", "openid", nil); !errors.Is(err, ErrTokenServiceInvalidRequest) {
 		t.Errorf("nil user: err = %v", err)
 	}
-	if _, err := svc.IssueForConsentedClient(context.Background(), user, session, "", "openid"); !errors.Is(err, ErrTokenServiceInvalidRequest) {
+	if _, err := svc.IssueForConsentedClient(context.Background(), user, session, "", "openid", nil); !errors.Is(err, ErrTokenServiceInvalidRequest) {
 		t.Errorf("empty client_id: err = %v", err)
 	}
-	if _, err := svc.IssueForConsentedClient(context.Background(), user, nil, "cli-1", "openid"); !errors.Is(err, ErrTokenServiceInvalidRequest) {
+	if _, err := svc.IssueForConsentedClient(context.Background(), user, nil, "cli-1", "openid", nil); !errors.Is(err, ErrTokenServiceInvalidRequest) {
 		t.Errorf("nil session: err = %v", err)
 	}
 }

@@ -143,6 +143,15 @@ func claimsToIntrospection(claims jwt.MapClaims) *service.IntrospectionClaims {
 	if v, ok := claims["scope"].(string); ok {
 		out.Scope = v
 	}
+	// THE-CLAIMS-PARAMETER: consented userinfo claim names ride on the
+	// access token as a JSON array of strings.
+	if arr, ok := claims["userinfo_claims"].([]any); ok {
+		for _, item := range arr {
+			if s, ok := item.(string); ok && s != "" {
+				out.UserInfoClaims = append(out.UserInfoClaims, s)
+			}
+		}
+	}
 	if v, ok := claims["client_id"].(string); ok {
 		out.ClientID = v
 	}

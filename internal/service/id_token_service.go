@@ -113,9 +113,16 @@ type IDTokenInput struct {
 	// Nonce is echoed verbatim when non-empty. Optional.
 	Nonce string
 
-	// Scope is the consented scope string. Used to gate email +
-	// email_verified emission.
+	// Scope is the consented scope string. Retained on the input; in the
+	// code flow no scope value puts identity claims in the id_token
+	// (THE-CONSENTED-SCOPE, OIDC Core §5.4).
 	Scope string
+
+	// Claims are the OIDC §5.5 id_token-member claim names the client was
+	// consented (and the role permitted) to receive IN the id_token
+	// (THE-CLAIMS-PARAMETER): name, email, email_verified. Each is emitted
+	// only when the user record can truthfully supply it.
+	Claims []string
 
 	// SigningAlg is the client's explicitly registered
 	// id_token_signed_response_alg, or empty for the issuer default
@@ -213,6 +220,28 @@ func (s *IDTokenService) Issue(ctx context.Context, in IDTokenInput) (*IDTokenRe
 	// the id_token to. in.Scope stays on the input for a future `claims`
 	// parameter; today no scope value puts email in the id_token.
 	_ = scopeContains
+	// THE-CLAIMS-PARAMETER: a §5.5 `claims.id_token` request the user
+	// consented to (and the role permits) puts the named identity claims
+	// in the id_token — only when the user record can truthfully supply
+	// them (§5.3.2: never null/empty placeholders).
+	for _, name := range in.Claims {
+		switch name {
+		case "name":
+			if in.User.Name != nil && *in.User.Name != "" {
+				extra["name"] = *in.User.Name
+			}
+		case "email":
+			if in.User.Email != "" {
+				extra["email"] = in.User.Email
+				extra["email_verified"] = in.User.EmailVerified
+			}
+		case "email_verified":
+			if in.User.Email != "" {
+				extra["email"] = in.User.Email
+				extra["email_verified"] = in.User.EmailVerified
+			}
+		}
+	}
 
 	idToken, err := s.idIssuer.IssueIDToken(ctx, oidc.IDTokenClaims{
 		Issuer:     s.issuer,

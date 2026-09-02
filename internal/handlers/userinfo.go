@@ -157,20 +157,26 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 		// landed without profile. Lookup failure degrades to the claim
 		// being absent — voluntary claims are never worth a 500.
 		grants := userinfoScopeSet(claims.Scope)
+		// THE-CLAIMS-PARAMETER (OIDC Core §5.5): an individually requested,
+		// consented, role-permitted claim rides on the token as
+		// userinfo_claims and releases the same way a scope would.
+		requested := userinfoScopeSet(strings.Join(claims.UserInfoClaims, " "))
+		releaseEmail := grants[domain.ScopeEmail] || requested["email"] || requested["email_verified"]
+		releaseName := grants[domain.ScopeProfile] || requested["name"]
 		var user *domain.User
-		if !isServiceAccount && deps.UserLookup != nil && claims.UserID != uuid.Nil && (grants[domain.ScopeEmail] || grants[domain.ScopeProfile]) {
+		if !isServiceAccount && deps.UserLookup != nil && claims.UserID != uuid.Nil && (releaseEmail || releaseName) {
 			if u, uerr := deps.UserLookup.GetByID(c.Request.Context(), claims.UserID); uerr == nil {
 				user = u
 			}
 		}
-		if !isServiceAccount && grants[domain.ScopeEmail] {
+		if !isServiceAccount && releaseEmail {
 			out.Email = claims.Email
 			if user != nil {
 				verified := user.EmailVerified
 				out.EmailVerified = &verified
 			}
 		}
-		if !isServiceAccount && grants[domain.ScopeProfile] && user != nil && user.Name != nil {
+		if !isServiceAccount && releaseName && user != nil && user.Name != nil {
 			out.Name = *user.Name
 		}
 		if claims.OrgID != uuid.Nil {

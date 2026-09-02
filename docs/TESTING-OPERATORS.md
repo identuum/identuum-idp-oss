@@ -234,7 +234,7 @@ clone (and its python venv) survives between runs.
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (re-measured 2026-09-02 after THE-CODE-REUSE-REVOKER,
+**The committed baseline (re-measured 2026-09-02 after THE-CLAIMS-PARAMETER,
 suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
@@ -252,17 +252,16 @@ suite release-v5.2.4):**
     (result REVIEW — these modules ask for a screenshot of the second login,
     which the browser automation uploads; REVIEW is the accepted terminal
     state of that module class, exactly like the two redirect_uri modules).
-  - 3 recorded WARNINGS across 3 modules
+  - 2 recorded WARNINGS across 2 modules
     (`conformance/expected-failures-basic.json`, comments name each):
     partial profile claims (the suite wants all 14 profile standard claims;
-    the user model holds only `name`), the `claims` request parameter
-    (unsupported — `oidcc-claims-essential` asks for `name` by claim, not by
-    the `profile` scope; own slice), and the deliberate refuse-to-fake-`acr`
-    posture. THE-CONSENTED-SCOPE retired the four email-in-id_token /
-    unscoped-`name` warnings (`oidcc-scope-email`,
+    the user model holds only `name`) and the deliberate
+    refuse-to-fake-`acr` posture. THE-CONSENTED-SCOPE retired the four
+    email-in-id_token / unscoped-`name` warnings (`oidcc-scope-email`,
     `oidcc-alternate-happy-flow` pass clean); THE-CODE-REUSE-REVOKER retired
-    the `oidcc-codereuse-30seconds` warning (a replayed code now revokes the
-    first exchange's tokens) — see the two sections below.
+    the `oidcc-codereuse-30seconds` warning; THE-CLAIMS-PARAMETER retired the
+    `oidcc-claims-essential` warning (the `claims` request parameter is
+    honored, consent-gated) — see the sections below.
   - 4 recorded SKIPS (`conformance/expected-skips-basic.json`):
     address/phone scopes are not modeled, and the request-object module
     skips because the OP compliantly rejects request objects as
@@ -318,6 +317,43 @@ restricts."** Rule `TOKEN-SCOPE-INTERSECTION-1`.
 - **The id_token carries no email.** In the code flow scope-requested claims
   belong to userinfo; only a `claims` request parameter (unsupported) would
   put them in the id_token.
+
+## The `claims` request parameter — consent-gated, role-intersected
+
+THE-CLAIMS-PARAMETER (2026-09-02, owner ruled BUILD). OIDC Core §5.5 lets a
+client ask for individual claims (`claims={"userinfo":{"name":{"essential":
+true}},"id_token":{"email":null}}`). Rule `CLAIMS-PARAM-CONSENT-1`.
+
+- **Parsed at /authorize** (`domain.ParseClaimsRequest`): only the
+  `userinfo` and `id_token` members, only the claims this OP can emit
+  (`name`, `email`, `email_verified`); every unknown member or claim is
+  IGNORED — never an error (§5.5.1). `essential` and voluntary are parsed
+  and treated identically (§5.5.1 lets the OP omit an essential claim it
+  cannot supply). Only a value that is not a JSON object is refused,
+  redirect-safe, as `invalid_request`.
+- **Consent covers claims like scopes.** The OP consent page lists the
+  requested claims ("name (shared with the application)", "email (included
+  in the ID token)"); approval stores them on the consent row
+  (`oauth_consents.claims`, tokens like `userinfo:name`). A returning client
+  asking for a claim not yet consented is sent to consent again
+  (`ConsentService.Lookup` covers scope AND claims). `SkipConsent` clients
+  bypass, as for scopes.
+- **Persisted on the code row** (`oauth_authorization_codes.requested_claims`,
+  migration 0034) and honored at the exchange: the `userinfo` member rides on
+  the access token as `userinfo_claims` (∩ what the role permits —
+  `domain.IntersectConsentedClaims`), and the `id_token` member is minted
+  into the id_token. Login-session tokens carry none.
+- **Released only when truthful.** userinfo emits `name` when the profile
+  scope OR a consented `name` claim is present and the user record has a
+  name; `email`/`email_verified` likewise. The id_token emits a requested
+  claim only when the user record can supply it (§5.3.2: never a null or
+  empty placeholder).
+- **Roles authorize.** Every human role permits its own identity claims to
+  a consented client; a principal with no role gets none.
+- **Discovery** advertises `claims_parameter_supported: true` and a
+  `claims_supported` list of exactly the claims that emit somewhere (id_token
+  or userinfo): sub iss aud exp iat jti auth_time nonce acr amr name email
+  email_verified organization_id role.
 
 ## Authorization-code reuse revokes what the code minted
 

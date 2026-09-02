@@ -1649,15 +1649,22 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			// in internal/server/smoke.go.
 			body["id_token_signing_alg_values_supported"] = []string{"EdDSA", "ES256", "RS256"}
 			body["subject_types_supported"] = []string{"public"}
-			// claims_supported enumerates the OIDC claims the
-			// IDTokenService actually emits. Same gate as
-			// id_token_signing_alg_values_supported — only
-			// advertised when the auth-code grant chain is live.
+			// claims_supported enumerates the claims the OP actually
+			// emits — in the id_token (IDTokenService) or at userinfo
+			// (HandleUserinfo) — nothing it cannot supply. Same gate as
+			// id_token_signing_alg_values_supported — only advertised
+			// when the auth-code grant chain is live.
 			body["claims_supported"] = []string{
 				"sub", "iss", "aud", "exp", "iat", "jti",
 				"auth_time", "nonce", "acr", "amr",
-				"email", "email_verified",
+				"name", "email", "email_verified",
+				"organization_id", "role",
 			}
+			// THE-CLAIMS-PARAMETER: the OIDC Core §5.5 `claims` request
+			// parameter is honored for the emittable identity claims
+			// (domain.EmittableIdentityClaims), consent-gated and
+			// role-intersected; unknown claims are ignored per §5.5.1.
+			body["claims_parameter_supported"] = true
 			// Identuum issuance posture beyond the three listed: never
 			// `none`, never HS*, never RS384/512 or PS*. Asserted in
 			// tests as well.
