@@ -304,8 +304,17 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 			// THE-SECOND-LOGIN: the ceremony satisfies prompt=login ONCE —
 			// the resumed request must not carry it, or login would be
 			// forced forever. max_age stays: a fresh session passes it.
-			c.Redirect(http.StatusFound,
-				"/api/v1/auth/browser-login?return_to="+url.QueryEscape("/api/v1/oauth/authorize?"+stripPromptLogin(authorizeQuery)))
+			// THE-JAR-REQUEST-OBJECT: when login WAS forced, the login URL
+			// itself says so (`&prompt=login`, outside return_to) — an
+			// honest marker for the login page and for the conformance
+			// browser, which must screenshot exactly that forced login
+			// (oidcc-prompt-login waits for it). The login form ignores it.
+			resumed, forced := stripPromptLogin(authorizeQuery)
+			loc := "/api/v1/auth/browser-login?return_to=" + url.QueryEscape("/api/v1/oauth/authorize?"+resumed)
+			if forced {
+				loc += "&prompt=login"
+			}
+			c.Redirect(http.StatusFound, loc)
 			return
 		}
 		redirectAuthorizeError(c, deps, req, "login_required")
@@ -336,11 +345,12 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 // space-separated list). The OP satisfies prompt=login by running the
 // ceremony ONCE; a return_to that still carried it would force login
 // forever. Every other token and parameter survives; the query is
-// re-encoded only when something was removed.
-func stripPromptLogin(rawQuery string) string {
+// re-encoded only when something was removed. The second result reports
+// whether `login` WAS removed (the login was forced by the client).
+func stripPromptLogin(rawQuery string) (string, bool) {
 	v, err := url.ParseQuery(rawQuery)
 	if err != nil {
-		return rawQuery
+		return rawQuery, false
 	}
 	tokens := strings.Fields(v.Get("prompt"))
 	kept := make([]string, 0, len(tokens))
@@ -350,14 +360,14 @@ func stripPromptLogin(rawQuery string) string {
 		}
 	}
 	if len(kept) == len(tokens) {
-		return rawQuery
+		return rawQuery, false
 	}
 	if len(kept) == 0 {
 		v.Del("prompt")
 	} else {
 		v.Set("prompt", strings.Join(kept, " "))
 	}
-	return v.Encode()
+	return v.Encode(), true
 }
 
 // respondAuthorizeDirectError answers a pre-redirect-uri authorize

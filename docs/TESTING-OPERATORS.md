@@ -310,9 +310,15 @@ submission dies with `runInBackground called after
 runFinalisationTaskInBackground()` (result INTERRUPTED; measured on
 `oidcc-ensure-request-object-with-redirect-uri` in THE-JAR-REQUEST-OBJECT).
 The second-login screenshot the `prompt=login` / `max_age=1` modules ask
-for is taken by two scoped tasks that match only a login URL whose
-`return_to` carries `prompt=login` or `max_age`; the error-page screenshot
-is taken only at an `/oauth/authorize` URL showing an error.
+for (their `waitForPlaceholders` runs AFTER the callback, so without it
+they sit WAITING until the runner times out — measured: 162 log entries, 0
+failures, result UNKNOWN) is taken by two scoped tasks. The OP strips
+`prompt=login` from the resumed `return_to` (or login would be forced
+forever) and carries it on the login URL itself —
+`/api/v1/auth/browser-login?return_to=…&prompt=login` — so the first task
+matches exactly that marker; the second matches a login URL whose
+`return_to` carries `max_age`. The error-page screenshot is taken only at
+an `/oauth/authorize` URL showing an error.
 
 ## Consented scope on the access token — consent restricts, roles authorize
 

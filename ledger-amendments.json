@@ -1,17 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "67364dad7dcb60024d922477d6f69ece3d613e97",
-  "changes": [
-    {
-      "rule_id": "AUTHZ-REQUEST-OBJECT-REFUSED-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "92b0f327770fb6b9e7a604696011a1f7a065e96f6bf1ed1efe42b403d13590c7",
-      "reason": "THE-JAR-REQUEST-OBJECT (2026-09-02): request objects are now verified and merged in the /authorize handler; the sentence states the new truth (unsigned + signed supported, unresolved objects still refused by AuthorizeService as defense in depth, request_uri refused, discovery flags true/false explicitly). Binding and proof unchanged."
-    },
-    {
-      "rule_id": "REQUEST-OBJECT-VERIFIED-1",
-      "change_class": "rule_added",
-      "reason": "THE-JAR-REQUEST-OBJECT (2026-09-02): the request-object verification rule, declared and armed in this slice; base is the previous accepted witness (Witness: make verify green at bb650b8)."
-    }
-  ]
+  "base_commit": "c2f1b1aceca176ba456dc17da14f26b98d33e1c8",
+  "changes": []
 }

@@ -188,6 +188,9 @@ func TestAuthorize_NoSessionRedirectsToBrowserLogin(t *testing.T) {
 	if !strings.Contains(loc, url.QueryEscape("/api/v1/oauth/authorize?")) {
 		t.Errorf("return_to does not carry the authorize URL: %q", loc)
 	}
+	if strings.Contains(loc, "&prompt=login") {
+		t.Errorf("a plain no-session login must NOT carry the forced-login marker: %q", loc)
+	}
 }
 
 // OIDC Core §3.1.2.1: the authorize endpoint accepts a form-serialized
@@ -302,10 +305,21 @@ func TestAuthorize_PromptLoginRedirectsToLoginAndStripsIt(t *testing.T) {
 		if !strings.HasPrefix(loc, "/api/v1/auth/browser-login?return_to=") {
 			t.Fatalf("prompt=%q location = %q, want the login ceremony", sent, loc)
 		}
-		returnTo, err := url.QueryUnescape(strings.TrimPrefix(loc, "/api/v1/auth/browser-login?return_to="))
+		// THE-JAR-REQUEST-OBJECT: a FORCED login is marked on the login URL
+		// itself (outside return_to) — the conformance browser screenshots
+		// exactly that page for oidcc-prompt-login; the resumed request
+		// still does not carry the consumed token.
+		lu, err := url.Parse(loc)
 		if err != nil {
 			t.Fatal(err)
 		}
+		if got := lu.Query().Get("prompt"); got != "login" {
+			t.Errorf("prompt=%q: login URL marker = %q, want %q (forced login must be visible on the login URL)", sent, got, "login")
+		}
+		if !strings.HasSuffix(loc, "&prompt=login") {
+			t.Errorf("prompt=%q: marker must be the LAST query member (the browser task matches `return_to=*&prompt=login`): %q", sent, loc)
+		}
+		returnTo := lu.Query().Get("return_to")
 		u, err := url.Parse(returnTo)
 		if err != nil {
 			t.Fatal(err)
