@@ -2,12 +2,11 @@ package api
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/server"
@@ -15,7 +14,8 @@ import (
 )
 
 // Never-called stubs: discovery only asks TokenService whether the
-// agent-communication path is WIRED.
+// agent-communication path is WIRED. (internal/api may not import testify —
+// the boundary policy — so the assertions below are plain testing.)
 type acDiscoveryAuthRepo struct{}
 
 func (acDiscoveryAuthRepo) Create(context.Context, *domain.AgentCommunicationAuthorization) error {
@@ -57,16 +57,35 @@ func (acDiscoveryTokens) DeleteExpiredBefore(context.Context, time.Time) (int64,
 	return 0, nil
 }
 
+func stringsOf(t *testing.T, v any, key string) []string {
+	t.Helper()
+	arr, ok := v.([]any)
+	if !ok {
+		t.Fatalf("%s: expected a JSON array, got %T (%v)", key, v, v)
+	}
+	out := make([]string, 0, len(arr))
+	for _, item := range arr {
+		s, ok := item.(string)
+		if !ok {
+			t.Fatalf("%s: non-string member %v", key, item)
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // TestDiscovery_AdvertisesDPoPAndAuthorizationDetailsOnlyWhenWired pins RFC
 // 9449 §5.1 / RFC 9396 §10 advertisement to the presence of the
 // agent-communication issuance path (AYGHU-4): absent without it, exact
 // values with it, and the closed type list never widens.
 func TestDiscovery_AdvertisesDPoPAndAuthorizationDetailsOnlyWhenWired(t *testing.T) {
 	without := fullChainDiscovery(t)
-	_, hasDPoP := without["dpop_signing_alg_values_supported"]
-	_, hasAD := without["authorization_details_types_supported"]
-	assert.False(t, hasDPoP, "not advertised when the issuance path is not wired")
-	assert.False(t, hasAD)
+	if _, has := without["dpop_signing_alg_values_supported"]; has {
+		t.Errorf("dpop_signing_alg_values_supported advertised without the issuance path wired")
+	}
+	if _, has := without["authorization_details_types_supported"]; has {
+		t.Errorf("authorization_details_types_supported advertised without the issuance path wired")
+	}
 
 	intro := service.NewIntrospectionService(nil, stubVerifier{}, nil)
 	tokenSvc := service.NewTokenService(nil, stubKeyProvider{}, service.TokenServiceOptions{Issuer: "https://idp.test"}).
@@ -78,23 +97,33 @@ func TestDiscovery_AdvertisesDPoPAndAuthorizationDetailsOnlyWhenWired(t *testing
 			IssuedTokens:     acDiscoveryTokens{},
 			TokenEndpointURL: "https://idp.test/api/v1/oauth/token",
 		})
-	require.True(t, tokenSvc.HasAgentCommunication())
+	if !tokenSvc.HasAgentCommunication() {
+		t.Fatalf("token service must report the agent-communication path as wired")
+	}
 	body := fetchDiscovery(t, OSSRouterDeps{
 		DiscoveryConfig:      server.OIDCDiscoveryConfig{Issuer: "https://idp.test"},
 		IntrospectionService: intro,
 		TokenService:         tokenSvc,
 		OAuthClientAuth:      stubClientAuth{},
 	})
-	algs, ok := body["dpop_signing_alg_values_supported"].([]any)
-	require.True(t, ok, "dpop_signing_alg_values_supported advertised: %v", body["dpop_signing_alg_values_supported"])
-	assert.Contains(t, algs, "ES256")
-	assert.Contains(t, algs, "EdDSA")
-	assert.Contains(t, algs, "RS256")
-	assert.NotContains(t, algs, "HS256")
-	assert.NotContains(t, algs, "none")
-	assert.Equal(t, []any{"agent_communication"}, body["authorization_details_types_supported"], "exactly the one closed type")
+	algs := stringsOf(t, body["dpop_signing_alg_values_supported"], "dpop_signing_alg_values_supported")
+	for _, want := range []string{"ES256", "EdDSA", "RS256"} {
+		if !slices.Contains(algs, want) {
+			t.Errorf("dpop_signing_alg_values_supported missing %s: %v", want, algs)
+		}
+	}
+	for _, banned := range []string{"HS256", "none"} {
+		if slices.Contains(algs, banned) {
+			t.Errorf("dpop_signing_alg_values_supported must not list %s: %v", banned, algs)
+		}
+	}
+	types := stringsOf(t, body["authorization_details_types_supported"], "authorization_details_types_supported")
+	if len(types) != 1 || types[0] != "agent_communication" {
+		t.Errorf("authorization_details_types_supported = %v, want exactly [agent_communication]", types)
+	}
 	for _, banned := range []string{"mode", "build", "tier"} {
-		_, present := body[banned]
-		assert.False(t, present)
+		if _, present := body[banned]; present {
+			t.Errorf("non-standard top-level discovery key %q present", banned)
+		}
 	}
 }
