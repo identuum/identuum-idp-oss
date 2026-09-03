@@ -1,16 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "b6fcddfeb16358dc10cbd71f58c1549aa7b2973c",
-  "changes": [
-    {
-      "rule_id": "SA-UPDATE-EXPIRY-1",
-      "change_class": "rule_added",
-      "reason": "THE-SILENT-EXPIRY: ServiceAccountService.UpdateForActor assigned ExpiresAt on the aggregate while the repository's UPDATE statement covered {name, description, role} only, so a PUT carrying just expires_at answered 200 and stored nothing — the account went on minting tokens past the expiry its operator had set. The statement now writes expires_at, and the rule pins the whole behaviour: the SET list names the column, an expiry-only update is stored and read back, a past expiry is refused without a write, and an unrelated update leaves the expiry standing. Mutation red-proved against the rule's mirrored column list; the shipped statement is additionally proved against a live database by a new integration tooth that writes an expiry through the repository and reads it back from the column"
-    },
-    {
-      "rule_id": "SA-BINDING-503-1",
-      "change_class": "rule_added",
-      "reason": "THE-SILENT-EXPIRY closes the third and last reader of the collapse THE-OWNERLESS-ACCOUNT fixed on the other two: ValidateBindingForClient mapped ANY store error to not-found, and the client create and update handlers mapped every service error to 400 invalid request, so a database outage told the operator their request was invalid. The validator now separates the store's TYPED verdict from an outage and both handlers answer 503 with a correlation id for the outage class. Mutation red-proved at the service seam and on the real POST /api/v1/clients route"
-    }
-  ]
+  "base_commit": "358a5191b5d17726eda80a81c5f734de575130dd",
+  "changes": []
 }

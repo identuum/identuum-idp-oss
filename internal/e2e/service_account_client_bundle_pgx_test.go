@@ -61,8 +61,24 @@ func seedBundleOrg(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repos 
 	return created.ID
 }
 
-func bundleOrgAdmin(orgID uuid.UUID) *domain.Principal {
-	return &domain.Principal{UserID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgAdmin}
+// bundleOrgAdmin returns an org_admin principal whose user ROW EXISTS.
+//
+// Since AYGHU-2 a created service account carries owner_user_id = the
+// creating org_admin, and the column has a foreign key to users(id). A
+// synthetic principal therefore fails the insert with
+// service_accounts_owner_user_id_fkey — measured here by THE-SILENT-EXPIRY's
+// evidence run, which was the first integration-profile run after that
+// change. In production every actor is a real row; the fixture must be too.
+func bundleOrgAdmin(t *testing.T, ctx context.Context, pool *pgxpool.Pool, orgID uuid.UUID) *domain.Principal {
+	t.Helper()
+	id := uuid.New()
+	if _, err := pool.Exec(ctx, `
+INSERT INTO users (id, email, organization_id, role, password_hash, email_verified)
+VALUES ($1, $2, $3, 'org_admin', 'x', true)`,
+		id, "bundle-admin-"+id.String()[:8]+"@bundle.test", orgID); err != nil {
+		t.Fatalf("seed acting org_admin: %v", err)
+	}
+	return &domain.Principal{UserID: id, OrganizationID: orgID, Role: domain.RoleOrgAdmin}
 }
 
 func countRows(t *testing.T, ctx context.Context, pool *pgxpool.Pool, table string, orgID uuid.UUID) int {
@@ -92,7 +108,7 @@ func TestBundleAtomic_HappyPathCreatesBoundPair(t *testing.T) {
 	orgID := seedBundleOrg(t, ctx, pool, repos)
 
 	res, err := bundleSvc.CreateServiceAccountWithClientForActor(
-		ctx, bundleOrgAdmin(orgID), orgID,
+		ctx, bundleOrgAdmin(t, ctx, pool, orgID), orgID,
 		service.BundleInput{SAName: "deploy-bot", SARole: domain.RoleOrgUser},
 	)
 	if err != nil {
@@ -147,7 +163,7 @@ func TestBundleAtomic_ClientInsertFailureLeavesNoOrphanSA(t *testing.T) {
 	// insert is what fails inside the tx.
 	overlongClientName := strings.Repeat("x", 300)
 	res, err := bundleSvc.CreateServiceAccountWithClientForActor(
-		ctx, bundleOrgAdmin(orgID), orgID,
+		ctx, bundleOrgAdmin(t, ctx, pool, orgID), orgID,
 		service.BundleInput{
 			SAName:     "ephemeral-bot",
 			SARole:     domain.RoleOrgUser,
