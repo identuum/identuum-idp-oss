@@ -91,7 +91,15 @@ func (v *RepositoryVerifier) IntrospectToken(ctx context.Context, rawToken strin
 			return nil, errTokenInvalid
 		}
 	}
-	if v.opts.ExpectedAudience != "" {
+	// AYGHU-4: a participant token (signed claim set carrying BOTH
+	// agent_communication and cnf) is addressed to its relay audience, not
+	// to this issuer; the introspection service judges its aud against the
+	// stored authorization (fail closed). Every other token keeps the
+	// issuer-audience equality. The bearer path (VerifyBearerToken) is
+	// untouched: a relay token is never admitted to this server's own API.
+	_, hasAgentComm := claims["agent_communication"]
+	_, hasCnf := claims["cnf"]
+	if v.opts.ExpectedAudience != "" && !(hasAgentComm && hasCnf) {
 		if !audienceContains(claims["aud"], v.opts.ExpectedAudience) {
 			return nil, errTokenInvalid
 		}

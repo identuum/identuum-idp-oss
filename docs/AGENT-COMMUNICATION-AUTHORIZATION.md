@@ -203,7 +203,8 @@ authorization row is already revoked at that point.
 
 | Token | Answer |
 |---|---|
-| malformed, bad signature, wrong issuer/audience, expired | 200 `{"active": false}` |
+| malformed, bad signature, wrong issuer, expired | 200 `{"active": false}` |
+| `aud` ≠ the authorization's relay audience (the verifier defers a participant token's audience judgement to the store — a participant token is addressed to its relay, not to the issuer; the bearer path still refuses it on the IdP's own API, and userinfo refuses it outright) | `{"active": false}` |
 | jti in `oauth_token_revocations` (revoke endpoint or propagation) | `{"active": false}` |
 | authorization absent (or another organization's), revoked, or expired | `{"active": false}` |
 | ACI not in the authorization; `sub` ≠ participant's service account; `role`, `session_id` or `policy_digest` ≠ stored binding; client absent, not the participant's installation, or re-bound; no `cnf` | `{"active": false}` |

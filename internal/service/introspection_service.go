@@ -209,6 +209,18 @@ func (s *IntrospectionService) agentCommunicationVerdict(ctx context.Context, cl
 		}
 		return nil, domain.AuthStoreUnavailable("introspection.agent_communication.authorization", err)
 	}
+	// The token's audience must be the authorization's relay audience: the
+	// verifier defers this judgement to the store for participant tokens.
+	audienceOK := false
+	for _, aud := range claims.Aud {
+		if aud == a.RelayAudience {
+			audienceOK = true
+			break
+		}
+	}
+	if !audienceOK {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
 	now := time.Now
 	if s.now != nil {
 		now = s.now
@@ -460,6 +472,12 @@ func (s *IntrospectionService) IntrospectActiveClaimsVerdict(ctx context.Context
 		return nil, false, nil
 	}
 	if claims.Sub == "" && claims.UserID == uuid.Nil && claims.ClientID == "" {
+		return nil, false, nil
+	}
+	// AYGHU-4: a participant token is addressed to a relay, never to this
+	// server's user-facing endpoints (userinfo) — refuse it here regardless
+	// of what the store would say about it.
+	if _, isParticipant := claims.Extra["agent_communication"]; isParticipant {
 		return nil, false, nil
 	}
 	if s.revoker != nil && claims.Jti != "" {

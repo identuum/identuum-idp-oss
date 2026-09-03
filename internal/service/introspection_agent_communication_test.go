@@ -122,6 +122,8 @@ func TestIntrospectAgentCommunication_InactiveVerdicts(t *testing.T) {
 			c.Extra["agent_communication"].(map[string]any)["authorization_id"] = id.String()
 		}},
 		{"another organization", func(_ *acIntrospectionWorld, c *IntrospectionClaims) { c.OrgID = uuid.New() }},
+		{"audience is not the relay audience", func(_ *acIntrospectionWorld, c *IntrospectionClaims) { c.Aud = []string{"https://idp.test"} }},
+		{"no audience", func(_ *acIntrospectionWorld, c *IntrospectionClaims) { c.Aud = nil }},
 		{"aci not in the authorization", func(_ *acIntrospectionWorld, c *IntrospectionClaims) {
 			id, _ := uuid.NewV7()
 			c.Extra["agent_communication"].(map[string]any)["aci"] = id.String()
