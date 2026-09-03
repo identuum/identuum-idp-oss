@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 58da8f7
-started: 2026-09-03T22:19:09Z
+repo-head: 2af0710
+started: 2026-09-03T23:06:28Z
 plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -11,21 +11,21 @@ tool: govulncheck govulncheck@v1.7.0  /opt/homebrew/bin/govulncheck
 tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.8.1","toolchain_version":"v0.8.1","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
 elapsed: tool-versions 1s
 target: tool-versions exit=0
-elapsed: repo-green 29s
+elapsed: repo-green 27s
 target: repo-green exit=0
-elapsed: tracked-binary-check 5s
+elapsed: tracked-binary-check 6s
 target: tracked-binary-check exit=0
 elapsed: credential-transparency 0s
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 243 rows (243 armed), FLOOR 243, RED-PROOFS 243 (measured 243)
+evidence: [rulefloor-check] check OK: 244 rows (244 armed), FLOOR 244, RED-PROOFS 244 (measured 244)
 elapsed: rulefloor-check 243s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=3482384d7293d5e4bcea111caca0a3adcad6ee40 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=10a732ba101a1a483321657b4d051f40a28ef9a77c55fa87bb75d8a8aa81630d
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=d61fe46c41f629deb29f46b3ffda9e764421dddb status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=e65893ca91fa7925183e67f49a16dd3f59e4e6ffd71c7472203023c14bc2b95d
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
 target: image-base-check exit=0
-elapsed: vet-integration 1s
+elapsed: vet-integration 0s
 target: vet-integration exit=0
 elapsed: doccomment-check 0s
 target: doccomment-check exit=0
@@ -48,7 +48,7 @@ elapsed: integration-inventory 0s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 26s
+elapsed: gograph-build 28s
 target: gograph-build exit=0
 elapsed: gograph-boundaries 0s
 target: gograph-boundaries exit=0
@@ -56,7 +56,7 @@ elapsed: go-mod-tidy-diff 0s
 target: go-mod-tidy-diff exit=0
 elapsed: staticcheck 1s
 target: staticcheck exit=0
-elapsed: govulncheck 6s
+elapsed: govulncheck 5s
 target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 elapsed: wiki-fresh 0s
@@ -64,6 +64,6 @@ target: wiki-fresh exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
 elapsed: grype-scan 2s
 target: grype-scan exit=0
-finished: 2026-09-03T22:24:29Z
-tree: sha256=d41b066ad3ae6d0f93608379965ce202a613eafe4331503b3d3e2cf7b9368510
+finished: 2026-09-03T23:11:47Z
+tree: sha256=340815363667322fbce559c45763e330938dec751d5041ff7b28ddf617979040
 result: green
