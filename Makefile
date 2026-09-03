@@ -89,7 +89,7 @@ OSS_TEST_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0
 # WIKI_TOOLS — the shared gate scripts live in the sibling wiki repo.
 WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
-.PHONY: clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report tool-versions
+.PHONY: verify-integration clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report tool-versions
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
 .PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
@@ -1487,6 +1487,43 @@ rulefloor-integration:
 	IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}" \
 		"$$RF" check --run-profile integration --tags integration
 
+## verify-integration (THE-UNRUN-SUITE, owner ruling P-041): the gate for the
+## integration-tagged suites, with a witness record of its own.
+##
+## WHY IT IS SEPARATE. `make verify` type-checks these files (vet-integration)
+## but RUNS nothing in them, and that gap let two defects reach a witness — a
+## bundle fixture broken for a slice, and the advertised RS256 list wrong for
+## two days with a test on the right side sitting red. `make verify` stays
+## DATABASE-FREE on purpose: it must run on any machine with a Go toolchain and
+## no Docker. So the profile gets this entry point instead, wired into the
+## two-repo mint where a database already stands up.
+##
+## THE RECORD. GATE-RUN.integration.txt, written incrementally by
+## scripts/gate-witness.sh and GITIGNORED for the same reason as the ui's
+## GATE-RUN.e2e-full.txt: a second committed record would stale the committed
+## verify record's tree digest. Re-check it any time with
+## `bash scripts/gate-witness.sh check . GATE-RUN.integration.txt`.
+##
+## THE THREE STEPS. integration-preflight answers the one question that decides
+## whether a verdict is possible at all (is there a database?) and exits 2 —
+## CANNOT-EVALUATE, never a pass — when there is not. integration-profile runs
+## the suites through tools/integration-witness, which refuses to call a run
+## with ZERO executed tests green. rulefloor-integration runs the ledger's
+## DB-backed rows. Measured on an M-series laptop, 2026-09-03: 3s + 65s + 275s.
+## The witness is BUILT, not `go run`: MEASURED 2026-09-03, `go run` reports a
+## child's exit 2 as its own exit 1 (printing "exit status 2" to stderr), which
+## would collapse CANNOT-EVALUATE into an ordinary failure and lose exactly the
+## distinction this gate promises.
+verify-integration: bin/integration-witness
+	@bash scripts/gate-witness.sh run GATE-RUN.integration.txt "identuum-idp-oss make verify-integration" \
+		'integration-preflight=./bin/integration-witness -preflight' \
+		'integration-db=$(MAKE) --no-print-directory test-db' \
+		'integration-profile=./bin/integration-witness' \
+		'rulefloor-integration=$(MAKE) --no-print-directory rulefloor-integration'
+
+bin/integration-witness:
+	go build -o bin/integration-witness ./tools/integration-witness
+
 ## validate: build + unit tests + staticcheck + integration build/test.
 ## Starts from a clean database (fast-clean removes stale volume data before run).
 validate: build test staticcheck
@@ -1880,5 +1917,12 @@ verify-oss-contract:
 .PHONY: test-full
 test-full:
 	@test -d ../identuum-ui || { echo "test-full: sibling checkout ../identuum-ui is required (the UI-driving phases and playwright specs live there)"; exit 1; }
+	@# THE-UNRUN-SUITE (P-041): the integration profile runs HERE, before the
+	@# appliance phases, because the mint is the one place a database is a
+	@# given. fast-up is bounded and idempotent; the e2e harness tears the
+	@# stack down at the end, so the test database is recreated next mint.
+	$(MAKE) --no-print-directory fast-up
+	$(MAKE) --no-print-directory verify-integration
+	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
 	$(MAKE) -C ../identuum-ui e2e-full
 	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-full.txt

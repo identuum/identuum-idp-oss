@@ -93,6 +93,12 @@ docs/design/
 # uploaded as a CI artifact; never committed — a local run must not read as
 # an edit to the committed GATE-RUN.txt record's tree digest.
 /GATE-RUN.ci.txt
+# The integration profile's witness record (THE-UNRUN-SUITE, P-041):
+# gitignored for the SAME reason as the CI record — a local run must not read
+# as an edit to the committed GATE-RUN.txt record's tree digest, and two
+# committed records would each stale the other. Re-check it on demand with
+# `bash scripts/gate-witness.sh check . GATE-RUN.integration.txt`.
+/GATE-RUN.integration.txt
 TEST-spec.MD
 
 # THE-CONFORMANCE-HARNESS: the suite clone lives OUTSIDE this repo

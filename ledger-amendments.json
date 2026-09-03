@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "911dd8f40c4de38b398e331c2217ec7ba0d0f39b",
+  "base_commit": "cd3ac72c6d7dba4bd702a4d6e4894dd11b9eb5da",
   "changes": [
     {
-      "rule_id": "DISCOVERY-ALG-POLICY-1",
+      "rule_id": "INTEGRATION-GATE-1",
       "change_class": "rule_added",
-      "reason": "THE-ADVERTISED-RS256: the discovery document advertised id_token_signing_alg_values_supported = [EdDSA ES256 RS256] from 2026-09-01 while the integration suite had asserted since 2026-08-19 that RS256 must not appear, and nothing failed because the two lists were separate literals in separate files and that suite is not part of make verify. The owner ruled for the suite — the issuer advertises only what it will sign an id_token with — so RS256 leaves the advertised list and stays a per-client registration. The rule pins the shape that makes the drift impossible: one source of truth (domain.IDTokenAdvertisedSigningAlgorithms) read by every discovery builder, holding exactly EdDSA and ES256, a strict subset of the registration allow-list that still accepts RS256, with the banned algorithms absent from both. Mutation red-proved twice — once by putting RS256 back into the policy, once by making a builder stop reading it"
+      "reason": "THE-UNRUN-SUITE: the integration-tagged suites had no gate. make verify type-checks them (vet-integration) and runs nothing, so a profile that stopped running, or ran red, changed no visible fact — which is how a broken bundle fixture stayed latent for a slice and a wrong advertised algorithm list for two days with a test on the right side sitting red. The owner ruled for a SEPARATE make verify-integration with its own gate-witness record (GATE-RUN.integration.txt, gitignored like the e2e-full record), wired into the two-repo mint where a database already stands up, leaving make verify database-free and runnable without Docker. The rule pins the judgement and the wiring: three outcomes with three distinct exit codes and only green at zero, a run that executes ZERO tests refused, a failing run refused, a missing database CANNOT-EVALUATE at exit 2 and never a pass, the witness executed as a built binary because go run collapses exit 2 into 1, the mint running the gate and re-checking its record, and make verify staying free of it. Mutation red-proved twice — the zero-test guard disabled turned a suite that never ran green, and the no-database classification disabled reported an absent environment as a red tree"
     }
   ]
 }

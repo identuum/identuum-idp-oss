@@ -31,8 +31,30 @@ cd identuum-idp-oss
 make test-full
 ```
 
-It takes about 10 minutes and prints its progress phase by phase. All
+It takes about 16 minutes and prints its progress phase by phase. All
 passwords the run needs are generated fresh for that run and never shown.
+
+The first phase is the DATABASE-BACKED suite (`make verify-integration`,
+about 5m40s of that total, measured 2026-09-03): the tests that need a real
+PostgreSQL rather than an in-memory stand-in. It runs here because the mint
+is the one place a database is a given — `make verify` deliberately needs no
+database, so it can run on any machine. That phase leaves its own record,
+`GATE-RUN.integration.txt`, alongside the others.
+
+If you have a local PostgreSQL up already (`make fast-up`), you can run just
+that phase:
+
+```bash
+make verify-integration
+```
+
+It answers one of three ways, and only the first is a pass: **green** (the
+tests ran and passed, with the counts in the record), **red** (something
+failed — or the suite executed no tests at all, which is treated as a
+failure, because a suite that stops running must never look like one that
+passed), and **cannot evaluate**, exit code 2, when there is no database to
+talk to. That last one is not a pass and not a bug report: start PostgreSQL
+and run it again.
 
 ## Reading the result
 
@@ -47,10 +69,12 @@ passwords the run needs are generated fresh for that run and never shown.
   1. Run it once more. One known class of rare, transient failures exists
      (a session rejected mid-run under heavy load); a genuine bug fails
      both runs the same way.
-  2. If it fails twice, save the printed output (and the
-     `identuum-ui/GATE-RUN.e2e-full.txt` file, which records exactly what
-     ran and what it saw) and report it. That file plus the printed failure
-     is everything a developer needs to start.
+  2. If it fails twice, save the printed output (and the record files —
+     `identuum-ui/GATE-RUN.e2e-full.txt` for the appliance phases,
+     `identuum-idp-oss/GATE-RUN.integration.txt` for the database-backed
+     one — which record exactly what ran and what it saw) and report it.
+     Those files plus the printed failure are everything a developer needs
+     to start.
 
 ## Running it by hand
 
