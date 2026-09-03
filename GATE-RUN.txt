@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 63d933e
-started: 2026-09-03T08:42:44Z
+repo-head: df52773
+started: 2026-09-03T09:18:22Z
 plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -13,9 +13,9 @@ target: tool-versions exit=0
 target: repo-green exit=0
 target: tracked-binary-check exit=0
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 224 rows (224 armed), FLOOR 224, RED-PROOFS 224 (measured 224)
+evidence: [rulefloor-check] check OK: 231 rows (231 armed), FLOOR 231, RED-PROOFS 231 (measured 231)
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=d1488cab531f79c248d2c481f59b58dce19d027d status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=7fd8db0cb5ec0e17280b50ffabee3cf9e0231de1eb05342a7cf3e2c15bb1cb8d
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=386a84d54b3d918c4b4050e8185aaafc0d015409 status=different rule_changes=7 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=2bb82de165af6bb284ece2cebcf4541f82d7eb1fa69bbaf318fa199f32288e7b
 target: ledger-diff-gate exit=0
 target: image-base-check exit=0
 target: vet-integration exit=0
@@ -38,6 +38,6 @@ target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 target: wiki-fresh exit=0
 target: grype-scan exit=0
-finished: 2026-09-03T08:47:49Z
-tree: sha256=42c8afec2a0197594026bd69c746a713ef9761c6c72fa85ee80e621829620c81
+finished: 2026-09-03T09:23:45Z
+tree: sha256=b151d2fbba2f73e7460a22e6e8c8cbcf51966ccac1e29dca7e3cb04f923e8ab8
 result: green
