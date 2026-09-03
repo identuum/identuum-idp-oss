@@ -17,28 +17,47 @@ import (
 	"github.com/identuum/identuum-idp-oss/types"
 )
 
-// AYGHU-6 SPEC RE-BASELINE. The rewritten Ayghu file splits the product in
-// two and states the identity provider's NEGATIVE obligations outright:
-// "The identity provider must never receive prompt contents", "The identity
-// provider must not possess message encryption private keys", "Conversation
-// transcripts and final reports are local Ayghu concerns — the identity
-// provider does not store them", and the v1 exclusion list "Identity-provider
-// access to message plaintext / transcripts / repository data".
+// AYGHU-6 SPEC RE-BASELINE. The Ayghu file's "Identuum IDP and Identuum AG"
+// section states this server's NEGATIVE obligations as a list:
+//
+//	The IDP never receives:
+//	  * Prompt plaintext.
+//	  * Repository contents.
+//	  * Command output.
+//	  * Transcripts.
+//	  * Final reports.
+//
+// with "Identuum IDP must not own: agent reasoning, prompt contents, relay
+// operations, execution policy, tool execution" and "Keep agentic behavior
+// out of the IDP. The IDP carries only the communication metadata the
+// contract requires." The same file forbids the identity provider from
+// possessing message encryption private keys.
 //
 // Those are invariants of a SURFACE, so this rule audits the surface: every
 // field of every agent-communication type the IdP stores or puts on the wire,
 // every claim key of an issued participant token, every key of an
 // introspection answer, and every endpoint of the canonical census. A field
-// or a route that could carry prompt text, message content, a transcript, a
-// report or an encryption private key makes this test fail.
+// or a route that could carry any of the five makes this test fail.
 
 // forbiddenSurfaceTokens are substrings no agent-communication field name,
 // json name, claim key or endpoint path may contain. They name CONTENT and
-// KEY MATERIAL — the two things the identity provider must never hold.
+// KEY MATERIAL — the things the identity provider must never hold.
 var forbiddenSurfaceTokens = []string{
 	"prompt", "transcript", "plaintext", "ciphertext", "encrypt", "decrypt",
 	"privatekey", "private_key", "content", "payload", "conversation",
-	"attachment", "report", "queue", "envelope",
+	"attachment", "report", "queue", "envelope", "command_output",
+	"commandoutput", "stdout", "stderr", "repository", "workspace",
+	"diff", "patch",
+}
+
+// idpNeverReceives maps each item of the file's list to the token that
+// catches it, so shrinking the list above breaks this rule too.
+var idpNeverReceives = map[string]string{
+	"prompt plaintext":    "prompt",
+	"repository contents": "repository",
+	"command output":      "command_output",
+	"transcripts":         "transcript",
+	"final reports":       "report",
 }
 
 func assertNoForbiddenToken(t *testing.T, where, name string) {
@@ -74,6 +93,13 @@ func walkSurfaceType(t *testing.T, typ reflect.Type, seen map[reflect.Type]bool)
 
 // RULE: AYGHU-NO-PROMPT-CONTENT-1
 func TestRule_AYGHU_NO_PROMPT_CONTENT_1(t *testing.T) {
+	// (0) The audit still names every item the file says the IDP never
+	// receives — the list cannot be quietly narrowed.
+	for item, token := range idpNeverReceives {
+		assert.Contains(t, forbiddenSurfaceTokens, token,
+			"the surface audit must still catch %q", item)
+	}
+
 	// (1) Stored and wire types: the aggregate, the participant, the issued
 	// token record, the policy, the admin request bodies, the admin response
 	// projection and the introspection projection.
@@ -148,7 +174,8 @@ func TestRule_AYGHU_NO_PROMPT_CONTENT_1(t *testing.T) {
 			continue
 		}
 		lower := strings.ToLower(path)
-		for _, bad := range []string{"prompt", "transcript", "message", "conversation", "report", "attachment", "upload"} {
+		for _, bad := range []string{"prompt", "transcript", "message", "conversation", "report",
+			"attachment", "upload", "repository", "command", "plaintext", "stdout", "output", "workspace"} {
 			assert.NotContains(t, lower, bad, "no endpoint may carry %q: %s", bad, path)
 		}
 		if strings.Contains(lower, "agent-communication") {

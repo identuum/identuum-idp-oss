@@ -1,26 +1,27 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "da82d3b8bf9a811d78e94d2fc48d1cffed5ca088",
+  "base_commit": "b2e6f6d75dd399af82a5700c3f70a79e139a9549",
   "changes": [
     {
       "rule_id": "AYGHU-NO-PROMPT-CONTENT-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-6 SPEC RE-BASELINE (the rewritten Ayghu file states the identity provider's negative obligations outright: it must never receive prompt contents, must not possess message encryption private keys, does not store transcripts or reports, and v1 excludes identity-provider access to message plaintext, transcripts and repository data): the rule audits the surface — every field of every stored and wire agent-communication type, every claim key of an issued participant token, every key of an introspection answer and every endpoint of the 143-row canonical census; mutation red-proved (a LastPromptText field added to the participant aggregate → the rule named the field and the forbidden token)"
+      "change_class": "sentence_changed",
+      "after_sentence_sha256": "33e893eeff2360cbc1708b295673407a72447eef49a86643c5a524cfa22690f0",
+      "reason": "AYGHU-6 SPEC RE-BASELINE, second reading: ayghu.txt was rewritten again (971 lines, 2026-09-03 11:38) and its new 'Identuum IDP and Identuum AG' section states this server's negative obligations as a five-item list — 'The IDP never receives: Prompt plaintext. Repository contents. Command output. Transcripts. Final reports.' The sentence now names those five items verbatim instead of the earlier generic 'agent message content', and the rule additionally pins that the audit list itself keeps naming all five"
     },
     {
-      "rule_id": "AYGHU-CAP-NO-IMPLICATION-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-6 (the rewritten file lists capability non-implication as ordered pairs in both directions and adds two clauses that were prose here: report.final.required is a reporting obligation and not tool authority, an empty capability list means communication only): every ordered pair of the closed vocabulary is checked, an unknown member refuses the whole set, and canonicalization only sorts and deduplicates; mutation red-proved (canonicalization made repository.write imply repository.read → the single-capability grant returned two)"
+      "rule_id": "AYGHU-NO-PROMPT-CONTENT-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "AYGHU-6 second reading: the surface audit gained the tokens that catch repository contents and command output (repository, workspace, stdout, stderr, command_output, diff, patch), the same words in the endpoint-census scan, and a self-check mapping each of the file's five items to the token that catches it; rehashed after review"
     },
     {
-      "rule_id": "AYGHU-MATERIAL-CHANGE-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-6 (the rewritten file names the material changes that require renewed consent — participants, session limits, relay audience, expiration, proof keys, capabilities, other authorization semantics — and states that changing capabilities requires a new authorization): no route mutates an authorization, the store's revocation-only trigger names every material column, participants with their proof keys and capabilities are wholly immutable rows, and a materially different policy digests differently while row order does not; mutation red-proved (the relay_audience comparison dropped from the 0037 trigger → the store would have accepted a widened audience)"
+      "rule_id": "AYGHU-NO-PROMPT-CONTENT-1",
+      "change_class": "proof_changed",
+      "reason": "AYGHU-6 second reading: the widened claim was re-proved with a new mutation — a LastCommandOutput field on the participant aggregate made the rule FAIL 'lastcommandoutput should not contain commandoutput' — and the recorded proof now carries both that observation and the earlier LastPromptText one; both mutations restored byte-identical"
     },
     {
-      "rule_id": "AYGHU-NO-OWNER-IDENTITY-1",
+      "rule_id": "AYGHU-SIGNS-NOT-ENFORCES-1",
       "change_class": "rule_added",
-      "reason": "AYGHU-6 (the rewritten file forbids peers from comparing asserted owner identities in messages and forbids inferring owner identity from messages): the identity provider makes that enforceable by never handing a peer an owner identity — no owner id, email, username or human name at any depth of a participant token or of either participant's introspection answer, and the subject is the participant service account; mutation red-proved (owner_id added to the agent_communication claim → the claim key and the owner uuid both surfaced)"
+      "reason": "AYGHU-6 second reading (the new section: 'The IDP signs what was authorized. It does not enforce what an agent may do. Signing a capability is not enforcing it. Enforcement is AG's job.', with 'Identuum IDP must not own … execution policy, tool execution' and 'Identuum AG owns … session and capability policy … execution authorization'): a capability set changes no answer this server gives — a communication-only authorization issues a token and introspects active exactly as a fully capable one does, only the signed policy digest and the owner's own read differ, and no capability or permission vocabulary rides on a token or an introspection answer; mutation red-proved (issuance made to refuse an empty capability set → the communication-only authorization was refused 400 invalid_grant)"
     }
   ]
 }

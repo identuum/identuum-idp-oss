@@ -230,22 +230,57 @@ message contents.
 ## Where this component sits (the Ayghu product split)
 
 Ayghu is one product in three parts: a client beside each agent (MCP is its
-first interface), a central relay, and an identity provider. This server is
-the identity provider and nothing else. The specification's own split is
-the boundary:
+first interface), a central relay, and an identity provider. The
+specification splits that last part again, and the split is normative:
+"Identuum has two parts. Build them separately."
 
-**Identuum owns** — owner authentication, persistent agent identity,
-machine/installation authentication, communication authorization,
-participant bindings, session identifiers, ACI allocation, signed
-communication tokens, expiration, revocation, introspection, authorization
-audit. Every item is built and pinned; this document describes them.
+**Identuum IDP owns** (this server) — OAuth2 and OIDC, owner identity,
+service accounts, OAuth clients, machine authentication, signed
+communication authorization, tokens, revocation, introspection. Add the
+wider "Identuum owns" list — owner authentication, persistent agent
+identity, participant bindings, session identifiers, ACI allocation,
+expiration, authorization audit — and every item is built here.
 
-**Ayghu owns** — relay operations, message delivery, encrypted queues,
-message ordering, acknowledgements, operational session state, end-to-end
-encryption handshakes, the incoming-prompt lifecycle, the execution-approval
-workflow, local transcripts, final reports. None of it exists here, and the
-rule `AYGHU-NO-PROMPT-CONTENT-1` fails the build if a field or a route for
-any of it appears.
+**Identuum IDP must NOT own** — agent reasoning, prompt contents, relay
+operations, execution policy, tool execution. Measured absent, and two
+rules keep it that way: `AYGHU-NO-PROMPT-CONTENT-1` audits the surface,
+`AYGHU-SIGNS-NOT-ENFORCES-1` proves no capability changes an answer here.
+
+**Identuum AG owns** — agent governance, session and capability policy,
+remote-message classification, approval state, execution authorization,
+resource boundaries, provenance and audit. A separate product in a separate
+repository; nothing of it is built here. "AG must not own core identity or
+message transport" is the mirror of the same line.
+
+**Ayghu owns** (client and relay) — relay operations, message delivery,
+encrypted queues, message ordering, acknowledgements, operational session
+state, end-to-end encryption handshakes, the incoming-prompt lifecycle, the
+execution-approval workflow, local transcripts, final reports.
+
+The file states the consequence for this server twice, and both sentences
+are pinned: "The IDP never receives: prompt plaintext, repository contents,
+command output, transcripts, final reports" and "The IDP signs what was
+authorized. It does not enforce what an agent may do. Signing a capability
+is not enforcing it. Enforcement is AG's job."
+
+### Measured: nothing here enforces a capability
+
+Every production symbol that touches a capability, and what it does with it:
+
+| Symbol | What it does |
+| --- | --- |
+| `domain.CanonicalizeAgentCommunicationCapabilities` / `ParseAgentCommunicationCapability` | validate against the closed vocabulary, sort, deduplicate |
+| `domain.(*AgentCommunicationAuthorization).Validate` | check the stored set is in canonical form |
+| `domain.AgentCommunicationPolicy.Canonical` / `Digest` | fold the set into the signed policy digest |
+| `service.(*AgentCommunicationAuthorizationService).Create` | normalize the owner's input on write |
+| `postgres` participant repository | persist and read the column |
+| `handlers.toAgentCommunicationAuthorizationDTO` | project the set back to the OWNER on the admin surface |
+
+Issuance and introspection never read the set at all: a token carries the
+policy digest, never a capability list, and a communication-only
+authorization is issued and introspected exactly like a fully capable one.
+Measured with `gograph callers` on both vocabulary functions and by reading
+the issuance and introspection paths end to end.
 
 ## What the relay and the receiving client must do (outside the IdP)
 
@@ -272,9 +307,10 @@ peer to compare (`AYGHU-NO-OWNER-IDENTITY-1`).
 
 - **Cooperative capability enforcement.** The IdP records and signs the
   owner-approved capabilities; it does not execute or enforce local tools.
-  A participant that ignores its capability set is stopped only by its own
-  runtime (or `identuum-ag`), not by the IdP. The specification assigns that
-  enforcement to the receiving client.
+  The specification is explicit: "Signing a capability is not enforcing it.
+  Enforcement is AG's job." A participant that ignores its capability set is
+  stopped by `identuum-ag` or its own runtime, never by this server, and
+  `AYGHU-SIGNS-NOT-ENFORCES-1` keeps that line drawn.
 - **Prompt injection.** Nothing here constrains what a model does with
   remote text. The specification's answer is deterministic local
   enforcement after model reasoning, which lives in the client.
@@ -315,7 +351,8 @@ AYGHU-OWNER-AT-ISSUANCE-1, AYGHU-ACI-ADDRESS-1, AYGHU-NO-WIDENING-1,
 AYGHU-TOKEN-BINDING-1, AYGHU-NO-REFRESH-1, AYGHU-TOKEN-AUDIT-SAFE-1,
 AYGHU-IDENTITY-SIGNED-1 (P-035); AYGHU-NO-PROMPT-CONTENT-1,
 AYGHU-CAP-NO-IMPLICATION-1, AYGHU-MATERIAL-CHANGE-1,
-AYGHU-NO-OWNER-IDENTITY-1 (P-036). Every rule is mutation red-proved.
+AYGHU-NO-OWNER-IDENTITY-1, AYGHU-SIGNS-NOT-ENFORCES-1 (P-036/P-037).
+Every rule is mutation red-proved.
 
 ## Delta table: the re-baselined specification, clause by clause
 
@@ -346,6 +383,32 @@ Ayghu — nothing is built here), **out of scope v1**, **deferred**.
 | Ayghu owns: end-to-end encryption handshakes | — | relay-or-client |
 | Ayghu owns: incoming-prompt lifecycle, execution-approval workflow | — | relay-or-client |
 | Ayghu owns: local transcripts, final reports | — | relay-or-client |
+
+### The IDP / AG split (the section added in the latest rewrite)
+
+| Clause | Where in the IdP | Status |
+| --- | --- | --- |
+| "Identuum has two parts. Build them separately." | this repository is the IDP half; `identuum-ag` is a separate product and repository | built (as a boundary) |
+| Identuum IDP owns: OAuth2 and OIDC | the OSS authorization server | built |
+| Identuum IDP owns: owner identity | users, org roles, sessions | built |
+| Identuum IDP owns: service accounts | `/api/v1/service-accounts` | built |
+| Identuum IDP owns: OAuth clients | `/api/v1/clients`, one installation per participant | built |
+| Identuum IDP owns: machine authentication | `private_key_jwt` client authentication | built |
+| Identuum IDP owns: signed communication authorization | the aggregate, its canonical policy and digest | built |
+| Identuum IDP owns: tokens | the DPoP-bound participant grant | built |
+| Identuum IDP owns: revocation | terminal revoke + jti propagation | built |
+| Identuum IDP owns: introspection | RFC 7662 with the safe projection | built |
+| Identuum IDP must NOT own: agent reasoning | nothing of the kind exists | measured absent, pinned |
+| Identuum IDP must NOT own: prompt contents | no field, claim, key or route | newly pinned — `AYGHU-NO-PROMPT-CONTENT-1` |
+| Identuum IDP must NOT own: relay operations | no queue, delivery, ordering or acknowledgement surface | measured absent, pinned by the census scan |
+| Identuum IDP must NOT own: execution policy | no approval state, no execution authorization | newly pinned — `AYGHU-SIGNS-NOT-ENFORCES-1` |
+| Identuum IDP must NOT own: tool execution | nothing executes anything | measured absent |
+| "The IDP never receives: prompt plaintext, repository contents, command output, transcripts, final reports" | the surface audit names all five and fails if the list is narrowed | newly pinned — `AYGHU-NO-PROMPT-CONTENT-1` (widened to the five items) |
+| "The IDP signs what was authorized. It does not enforce what an agent may do. Signing a capability is not enforcing it. Enforcement is AG's job." | a capability set changes no answer: same issuance, same introspection, only the digest and the owner's own read differ | newly pinned — `AYGHU-SIGNS-NOT-ENFORCES-1` |
+| "Keep agentic behavior out of the IDP. The IDP carries only the communication metadata the contract requires." | the token and the introspection answer carry identifiers, bindings, limits and the digest — nothing else | built, pinned by both rules |
+| Identuum AG owns: agent governance, session and capability policy, remote-message classification, approval state, execution authorization, resource boundaries, provenance and audit | — | out of scope: a separate product, and `identuum-ag` is off limits in this slice |
+| "Identuum AG must not own core identity or message transport" | the mirror clause: identity stays here | built (as a boundary) |
+| "Cross-owner sessions are future IDP work: an immutable communication proposal that becomes active only after both owners consent to the same proposal. Not built." | v1 is same-owner, re-checked at issuance | future IDP work — costed below, nothing built |
 
 ### Clauses the new wording adds or sharpens for the IdP
 
@@ -419,7 +482,22 @@ Ayghu — nothing is built here), **out of scope v1**, **deferred**.
   on every fresh-appliance mint; cost ≈ one integration-profile test file);
   an explicit "deleted service account" refusal row (deleted rows already
   hide behind the typed not-found; cost ≈ one table row).
-- **Deferred by the specification itself:** cross-owner sessions with
-  bilateral consent, more than two participants, federation, guests,
-  anonymous participants, discovery, registries, persistent contact
-  addresses.
+- **Future IDP work, costed, NOT started — cross-owner bilateral consent.**
+  The file now names this as IDP work: "an immutable communication proposal
+  that becomes active only after both owners consent to the same proposal."
+  Measured cost against what exists: a proposal aggregate and table with its
+  own states (proposed, consented-by-one, active, rejected, expired) and an
+  immutable proposal digest reusing the canonical policy digest; two consent
+  routes plus a read (census 143 to 146, with the golden, the manifest and
+  role-matrix cells for three roles); a same-owner rule that becomes
+  two-owner, so `CheckAgentCommunicationSameOwner` splits into a per-side
+  owner check and neither owner may set the other's capabilities; issuance
+  and introspection gain "proposal active" to their fail-closed lists; new
+  audit events for propose, consent, reject; rules for one-sided consent
+  never activating, a material change voiding both consents, and no
+  cross-owner capability grant. About two slices, and it needs an owner
+  ruling on whether both owners live in one Identuum deployment before any
+  of it is designed. Nothing was built.
+- **Deferred by the specification itself:** more than two participants,
+  federation, guests, anonymous participants, discovery, registries,
+  persistent contact addresses.
