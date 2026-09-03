@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "358a5191b5d17726eda80a81c5f734de575130dd",
-  "changes": []
+  "base_commit": "911dd8f40c4de38b398e331c2217ec7ba0d0f39b",
+  "changes": [
+    {
+      "rule_id": "DISCOVERY-ALG-POLICY-1",
+      "change_class": "rule_added",
+      "reason": "THE-ADVERTISED-RS256: the discovery document advertised id_token_signing_alg_values_supported = [EdDSA ES256 RS256] from 2026-09-01 while the integration suite had asserted since 2026-08-19 that RS256 must not appear, and nothing failed because the two lists were separate literals in separate files and that suite is not part of make verify. The owner ruled for the suite — the issuer advertises only what it will sign an id_token with — so RS256 leaves the advertised list and stays a per-client registration. The rule pins the shape that makes the drift impossible: one source of truth (domain.IDTokenAdvertisedSigningAlgorithms) read by every discovery builder, holding exactly EdDSA and ES256, a strict subset of the registration allow-list that still accepts RS256, with the banned algorithms absent from both. Mutation red-proved twice — once by putting RS256 back into the policy, once by making a builder stop reading it"
+    }
+  ]
 }

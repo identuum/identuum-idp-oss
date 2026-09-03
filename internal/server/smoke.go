@@ -221,20 +221,14 @@ func discoveryDocument(cfg OIDCDiscoveryConfig) map[string]any {
 		"subject_types_supported": []string{
 			"public",
 		},
-		// THE-PKCE-DECISION (owner ruling, verbatim): "Add RS256 into
-		// the list BUT DO NOT USE except testing and put this into
-		// documentation CLEARLY." RS256 here is a REAL capability —
-		// key generation, JWKS publication, id_token signing — but it
-		// fires ONLY when a client explicitly registers
-		// id_token_signed_response_alg=RS256. EdDSA is, and stays, the
-		// Identuum default; RS256 exists for conformance/interop
-		// TESTING, not operation (docs/TESTING-OPERATORS.md). Must stay
-		// in sync with domain.IDTokenSigningAlgorithms.
-		"id_token_signing_alg_values_supported": []string{
-			"EdDSA",
-			"ES256",
-			"RS256",
-		},
+		// THE-ADVERTISED-RS256 (owner ruling): the issuer advertises only
+		// what it will SIGN an id_token with — EdDSA (the default) and
+		// ES256. RS256 remains a REAL capability a client may register
+		// explicitly (domain.IDTokenSigningAlgorithms, testing-only, see
+		// docs/TESTING-OPERATORS.md) and is deliberately NOT advertised.
+		// Shared with the production discovery builder in internal/api so
+		// the two cannot drift.
+		"id_token_signing_alg_values_supported": domain.IDTokenAdvertisedSigningAlgorithms,
 		"scopes_supported": []string{
 			"openid",
 			"profile",

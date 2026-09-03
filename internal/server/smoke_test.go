@@ -156,12 +156,11 @@ func TestSmokeHandler_DiscoveryDefaults(t *testing.T) {
 }
 
 // TestSmokeHandler_DiscoveryIdentuumSigningPolicy enforces the Identuum
-// signing policy at the discovery layer (THE-PKCE-DECISION).
-// id_token_signing_alg_values_supported MUST be exactly
-// {EdDSA, ES256, RS256}: EdDSA is the default; RS256 is advertised because
-// it is a REAL capability — but it fires only on an explicit per-client
-// registration, testing-only (owner ruling: "Add RS256 into the list BUT DO
-// NOT USE except testing"). Every other RS*/PS*/HS*/none stays banned.
+// signing policy at the discovery layer (THE-ADVERTISED-RS256).
+// id_token_signing_alg_values_supported MUST be exactly {EdDSA, ES256} —
+// what the issuer will SIGN an id_token with. RS256 stays registrable per
+// client for testing (domain.IDTokenSigningAlgorithms) and is NOT
+// advertised; it joins RS384/RS512/PS*/HS*/none in the banned list here.
 func TestSmokeHandler_DiscoveryIdentuumSigningPolicy(t *testing.T) {
 	h := NewSmokeHandler()
 	req := httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil)
@@ -183,16 +182,18 @@ func TestSmokeHandler_DiscoveryIdentuumSigningPolicy(t *testing.T) {
 		}
 	}
 
-	// Required: the full advertised set. RS256 is present because the
-	// capability is real (THE-PKCE-DECISION) — discovery advertises
-	// nothing it cannot do, and nothing more.
-	for _, must := range []string{"EdDSA", "ES256", "RS256"} {
+	// Required: the full advertised set — the issuer's own signing policy.
+	for _, must := range []string{"EdDSA", "ES256"} {
 		if !algs[must] {
 			t.Errorf("id_token_signing_alg_values_supported missing required %q (got %v)", must, algs)
 		}
 	}
-	// Forbidden for issuance (Identuum policy).
-	for _, banned := range []string{"RS384", "RS512", "PS256", "PS384", "PS512", "HS256", "HS384", "HS512", "none"} {
+	if len(algs) != 2 {
+		t.Errorf("id_token_signing_alg_values_supported must be EXACTLY EdDSA + ES256; got %v", algs)
+	}
+	// Forbidden in the ADVERTISED list (Identuum policy). RS256 is here
+	// because it is registrable but never advertised (THE-ADVERTISED-RS256).
+	for _, banned := range []string{"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "HS256", "HS384", "HS512", "none"} {
 		if algs[banned] {
 			t.Errorf("id_token_signing_alg_values_supported MUST NOT include %q (Identuum no-issuance policy); got %v", banned, algs)
 		}

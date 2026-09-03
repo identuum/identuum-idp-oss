@@ -136,14 +136,15 @@ func TestDiscoveryDocument_PublicMatchesInternal(t *testing.T) {
 		assert.Equalf(t, gotInternal, gotPublic, "case %d: discovery payload must match internal authority", i)
 
 		// Confirm the signing-alg policy survives the public seam:
-		// exactly EdDSA + ES256 + RS256 (THE-PKCE-DECISION — RS256 is
-		// a real, explicit-registration, testing-only capability),
-		// and nothing weaker.
+		// exactly EdDSA + ES256 — what the issuer signs an ID token with
+		// (THE-ADVERTISED-RS256). RS256 stays a per-client registration
+		// and is NOT advertised, here or anywhere else.
 		algs, ok := gotPublic["id_token_signing_alg_values_supported"].([]string)
 		require.Truef(t, ok, "case %d: alg list missing or wrong type", i)
 		assert.Containsf(t, algs, "EdDSA", "case %d: EdDSA must be advertised", i)
 		assert.Containsf(t, algs, "ES256", "case %d: ES256 must be advertised", i)
-		assert.Containsf(t, algs, "RS256", "case %d: RS256 must be advertised (real testing-only capability)", i)
+		assert.Lenf(t, algs, 2, "case %d: the advertised list is exactly EdDSA + ES256", i)
+		assert.NotContainsf(t, algs, "RS256", "case %d: RS256 is registrable, never advertised", i)
 		assert.NotContainsf(t, algs, "none", "case %d: 'none' must NOT be advertised", i)
 		assert.NotContainsf(t, algs, "HS256", "case %d: HS256 must NOT be advertised", i)
 	}

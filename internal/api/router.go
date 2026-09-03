@@ -25,6 +25,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/features"
 	"github.com/identuum/identuum-idp-oss/internal/handlers"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
@@ -1723,16 +1724,15 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				scopes = append(scopes, "offline_access")
 			}
 			body["scopes_supported"] = scopes
-			// THE-PKCE-DECISION (owner ruling, verbatim): "Add RS256
-			// into the list BUT DO NOT USE except testing and put this
-			// into documentation CLEARLY." RS256 is a real capability —
-			// key, JWKS, id_token signing — but fires ONLY on an
-			// explicit per-client id_token_signed_response_alg=RS256
-			// registration; EdDSA stays the default. Testing-only:
-			// docs/TESTING-OPERATORS.md. Must stay in sync with
-			// domain.IDTokenSigningAlgorithms and the smoke-handler list
-			// in internal/server/smoke.go.
-			body["id_token_signing_alg_values_supported"] = []string{"EdDSA", "ES256", "RS256"}
+			// THE-ADVERTISED-RS256 (owner ruling): the issuer advertises
+			// only what it will SIGN an id_token with — EdDSA (the
+			// default) and ES256. RS256 remains registrable per client
+			// (domain.IDTokenSigningAlgorithms, testing-only, see
+			// docs/TESTING-OPERATORS.md) but is NOT advertised: a reader
+			// takes this list as the OP's issuance policy, not as what an
+			// operator may opt a single client into. The list comes from
+			// domain so this builder and the smoke handler cannot drift.
+			body["id_token_signing_alg_values_supported"] = domain.IDTokenAdvertisedSigningAlgorithms
 			body["subject_types_supported"] = []string{"public"}
 			// claims_supported enumerates the claims the OP actually
 			// emits — in the id_token (IDTokenService) or at userinfo

@@ -239,7 +239,8 @@ THE-JAR-REQUEST-OBJECT, suite release-v5.2.4):**
 
 - Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
   zero findings). The former signing-alg finding is FIXED — discovery now
-  advertises `[EdDSA, ES256, RS256]` (see "RS256 — testing only" above).
+  advertises `[EdDSA, ES256]` — RS256 is registrable but NOT advertised
+  (see "RS256 — testing only" below).
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
   THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1872
@@ -639,16 +640,24 @@ the OP cannot keep.
 
 Owner ruling (THE-PKCE-DECISION, 2026-09-01, verbatim): **"Add RS256 into the
 list BUT DO NOT USE except testing and put this into documentation
-CLEARLY."**
+CLEARLY."** Amended by THE-ADVERTISED-RS256 (2026-09-03): the "list" RS256
+belongs to is the per-client REGISTRATION allow-list, not the discovery
+document. Discovery advertises only what the issuer will sign an ID token
+with by policy.
 
 What that means in this product:
 
-- **RS256 is a real capability.** `POST /api/v1/keys/generate` with
-  `{"algorithm":"RS256"}` mints a real RSA-2048 signing key; it publishes in
-  `/.well-known/jwks.json`; and it signs ID tokens. Discovery advertises
-  `id_token_signing_alg_values_supported: [EdDSA, ES256, RS256]` because the
-  OP can genuinely do all three — the list advertises nothing the OP cannot
-  do.
+- **RS256 is a real capability, and it is NOT advertised.**
+  `POST /api/v1/keys/generate` with `{"algorithm":"RS256"}` mints a real
+  RSA-2048 signing key; it publishes in `/.well-known/jwks.json`; and it
+  signs ID tokens for a client that registered it. But discovery advertises
+  `id_token_signing_alg_values_supported: [EdDSA, ES256]` only. A reader of
+  that field takes it as the OP's issuance posture — what it signs with —
+  and RS256 is an opt-in for one client, not a posture. The advertised list
+  and the registration allow-list have one source of truth each
+  (`domain.IDTokenAdvertisedSigningAlgorithms` and
+  `domain.IDTokenSigningAlgorithms`), and the rule `DISCOVERY-ALG-POLICY-1`
+  keeps the first a strict subset of the second.
 - **RS256 is NEVER the default.** The issuer default is EdDSA (ES256
   fallback). An RS256 key — even present, active, and signing-capable —
   signs an ID token ONLY for a client that explicitly registered

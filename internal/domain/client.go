@@ -266,13 +266,34 @@ type Client struct {
 }
 
 // IDTokenSigningAlgorithms is the closed set of values accepted for
-// id_token_signed_response_alg. It matches — and must stay in sync with —
-// the discovery document's id_token_signing_alg_values_supported list.
+// id_token_signed_response_alg — what a client may REGISTER. RS256 is a
+// member because the capability is real (THE-PKCE-DECISION: key, JWKS,
+// signing), but it fires only on that explicit registration and is
+// testing-only (docs/TESTING-OPERATORS.md).
+//
+// This is NOT the discovery list. See IDTokenAdvertisedSigningAlgorithms.
 var IDTokenSigningAlgorithms = map[string]struct{}{
 	"EdDSA": {},
 	"ES256": {},
 	"RS256": {},
 }
+
+// IDTokenAdvertisedSigningAlgorithms is the ONE source of truth for the
+// discovery document's id_token_signing_alg_values_supported.
+//
+// THE-ADVERTISED-RS256 (owner ruling): the issuer advertises only what it
+// will sign an id_token with — EdDSA (the default of EffectiveIDTokenAlg)
+// and ES256. RS256 stays registrable per client for conformance and interop
+// testing, and is deliberately NOT advertised: a discovery reader takes the
+// list as what the OP issues by policy, not as what an operator may opt one
+// client into.
+//
+// Both discovery builders (internal/api and the smoke handler in
+// internal/server) read this variable, so the advertised list and the
+// registration allow-list cannot part company by editing one of them.
+// Every member MUST also be registrable — the rule DISCOVERY-ALG-POLICY-1
+// pins the subset relation, the exact list and the banned set.
+var IDTokenAdvertisedSigningAlgorithms = []string{"EdDSA", "ES256"}
 
 // EffectiveAuthMethod returns the resolved token_endpoint_auth_method, applying
 // the backward-compat default (empty stored value → "none" for public clients,

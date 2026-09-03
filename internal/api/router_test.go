@@ -248,10 +248,16 @@ func TestNewOSSEngine_DiscoverySigningAlgSet(t *testing.T) {
 			algSet[s] = true
 		}
 	}
-	if !algSet["EdDSA"] || !algSet["ES256"] || !algSet["RS256"] {
-		t.Errorf("missing required EdDSA + ES256 + RS256; got %v", algSet)
+	// THE-ADVERTISED-RS256: the advertised set is exactly what the issuer
+	// signs id_tokens with. RS256 stays registrable per client but is not
+	// advertised, so it joins the banned list below.
+	if !algSet["EdDSA"] || !algSet["ES256"] {
+		t.Errorf("missing required EdDSA + ES256; got %v", algSet)
 	}
-	for _, banned := range []string{"RS384", "RS512", "PS256", "PS384", "PS512", "HS256"} {
+	if len(algSet) != 2 {
+		t.Errorf("advertised set must be exactly EdDSA + ES256; got %v", algSet)
+	}
+	for _, banned := range []string{"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "HS256"} {
 		if algSet[banned] {
 			t.Errorf("discovery advertises banned algorithm %q", banned)
 		}
