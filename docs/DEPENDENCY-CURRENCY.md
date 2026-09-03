@@ -21,6 +21,7 @@ Measured 2026-09-03 (`go list -m -u`, `govulncheck ./...`, `grype dir:`).
 | `github.com/pressly/goose/v3` | v3.26.0 | **v3.28.0** | Minor, the migration engine. Judged by `make verify-integration` (49 packages, 3804 tests, green — the migration-applying suites run there against a live database). Carried `sethvargo/go-retry` 0.3.0 → 0.4.0, `x/net` 0.57.0 → 0.58.0 and `protobuf` 1.36.11 → 1.36.12. |
 | `github.com/jackc/pgx/v5` | v5.9.2 | **v5.10.0** | Minor, the database driver — every repository, pool and transaction path. Judged by `make verify-integration` (49 packages, 3804 tests, green) and the unit suite: no code change. |
 | `github.com/redis/go-redis/v9` | v9.17.2 | **v9.22.0** | Five minors, the session and cache client. The currency file named no single judge for it, so it was given both: the unit suite (which drives it through the miniredis fake) and `make verify-integration`, both green, no code change. Added `go.uber.org/atomic` v1.11.0 and `zeebo/xxh3` as indirects. |
+| `github.com/gin-gonic/gin` | v1.11.0 | **v1.12.0** | Minor, the HTTP framework — routing and middleware. Judged by the two-repo mint (the route census, the role matrix and the coverage floor all held at 144 / 312 / 52) plus the unit suite and the docgen ratchet. No code change. Carried `goccy/go-yaml` 1.18.0 → 1.19.2, `ugorji/go/codec` 1.3.0 → 1.3.1, `x/arch` 0.20.0 → 0.22.0, and added `mongo-driver/v2` as an indirect of gin's binding layer. |
 
 ## Deliberately behind, with the reason
 
@@ -33,7 +34,6 @@ of them in one commit would make a single red impossible to attribute.
 
 | Module | Current | Latest | Note |
 | --- | --- | --- | --- |
-| `github.com/gin-gonic/gin` | v1.11.0 | v1.12.0 | The HTTP framework. A minor bump touches routing and middleware behaviour; the route census and the role matrix are the things to re-run. |
 | `github.com/go-webauthn/webauthn` | v0.15.0 | v0.18.0 | Three minors on a **v0 module**, where the semver compatibility promise does not apply. Needs the WebAuthn ceremony suites re-run, not just a compile. |
 
 Current at latest stable and needing no note: `github.com/google/uuid` v1.6.0,
