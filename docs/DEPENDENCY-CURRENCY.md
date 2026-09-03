@@ -19,6 +19,7 @@ Measured 2026-09-03 (`go list -m -u`, `govulncheck ./...`, `grype dir:`).
 | `go.uber.org/zap` | v1.27.0 | **v1.28.0** | Minor, logging. Judged by the unit suite: green, no code change. |
 | `github.com/prometheus/client_golang` | v1.23.2 | **v1.24.1** | Minor, metrics. Judged by the unit suite: green, no code change. Carried `prometheus/procfs` 0.16.1 → 0.21.1, `protobuf` 1.36.9 → 1.36.11 and `go.yaml.in/yaml/v2` 2.4.2 → 2.4.4 with it. |
 | `github.com/pressly/goose/v3` | v3.26.0 | **v3.28.0** | Minor, the migration engine. Judged by `make verify-integration` (49 packages, 3804 tests, green — the migration-applying suites run there against a live database). Carried `sethvargo/go-retry` 0.3.0 → 0.4.0, `x/net` 0.57.0 → 0.58.0 and `protobuf` 1.36.11 → 1.36.12. |
+| `github.com/jackc/pgx/v5` | v5.9.2 | **v5.10.0** | Minor, the database driver — every repository, pool and transaction path. Judged by `make verify-integration` (49 packages, 3804 tests, green) and the unit suite: no code change. |
 
 ## Deliberately behind, with the reason
 
@@ -33,7 +34,6 @@ of them in one commit would make a single red impossible to attribute.
 | --- | --- | --- | --- |
 | `github.com/gin-gonic/gin` | v1.11.0 | v1.12.0 | The HTTP framework. A minor bump touches routing and middleware behaviour; the route census and the role matrix are the things to re-run. |
 | `github.com/go-webauthn/webauthn` | v0.15.0 | v0.18.0 | Three minors on a **v0 module**, where the semver compatibility promise does not apply. Needs the WebAuthn ceremony suites re-run, not just a compile. |
-| `github.com/jackc/pgx/v5` | v5.9.2 | v5.10.0 | The database driver. The integration profile (`make verify-integration`) is the gate that would judge it. |
 | `github.com/redis/go-redis/v9` | v9.17.2 | v9.22.0 | Five minors. Session and cache paths. |
 
 Current at latest stable and needing no note: `github.com/google/uuid` v1.6.0,
