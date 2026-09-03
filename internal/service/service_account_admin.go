@@ -293,6 +293,14 @@ func (s *ServiceAccountService) AssignOwnerForActor(ctx context.Context, actor *
 		}
 		u, uerr := s.ownerUsers.GetByID(ctx, *in.OwnerUserID)
 		if uerr != nil {
+			// The user store reports an unknown, deleted or banned id as its
+			// TYPED not-found (MEASURED: the pgx repository maps pgx.ErrNoRows
+			// to domain.ErrUserNotFound and its query already excludes banned
+			// and soft-deleted rows). That is a verdict about the candidate,
+			// not an outage — it joins every other ineligible candidate.
+			if errors.Is(uerr, domain.ErrUserNotFound) {
+				return nil, ErrSAOwnerNotEligible
+			}
 			return nil, domain.AuthStoreUnavailable("service_account.owner_candidate", uerr)
 		}
 		if !isEligibleServiceAccountOwner(u, sa.OrganizationID) {

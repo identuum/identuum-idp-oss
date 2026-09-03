@@ -28,11 +28,17 @@ import (
 type saOwnerUsers struct {
 	rows map[uuid.UUID]*domain.User
 	err  error
+	// byIDErr returns a per-id error, so a test can drive the store's TYPED
+	// not-found as well as a nil row.
+	byIDErr map[uuid.UUID]error
 }
 
 func (f *saOwnerUsers) GetByID(_ context.Context, id uuid.UUID) (*domain.User, error) {
 	if f.err != nil {
 		return nil, f.err
+	}
+	if e, ok := f.byIDErr[id]; ok {
+		return nil, e
 	}
 	u, ok := f.rows[id]
 	if !ok {
@@ -203,12 +209,19 @@ func TestSAOwner_IneligibleCandidatesAreRefusedIdentically(t *testing.T) {
 	foreign := uuid.New()
 	w.users.rows[foreign] = &domain.User{ID: foreign, OrganizationID: uuid.New(), Role: domain.RoleOrgAdmin}
 
+	// The store reports an unknown id as its TYPED not-found rather than a nil
+	// row (MEASURED on a live appliance, where a 503 came back instead of a
+	// 400), so the fake answers both shapes.
+	typedMissing := uuid.New()
+	w.users.byIDErr = map[uuid.UUID]error{typedMissing: domain.ErrUserNotFound}
+
 	for name, candidate := range map[string]uuid.UUID{
-		"deleted user":            deleted,
-		"banned user":             banned,
-		"org_user":                orgUser,
-		"another org's org_admin": foreign,
-		"unknown id":              uuid.New(),
+		"deleted user":               deleted,
+		"banned user":                banned,
+		"org_user":                   orgUser,
+		"another org's org_admin":    foreign,
+		"unknown id (nil row)":       uuid.New(),
+		"unknown id (typed no-rows)": typedMissing,
 	} {
 		t.Run(name, func(t *testing.T) {
 			rec := assignOwner(t, w.engine(w.admin), w.sa.ID, map[string]any{"owner_user_id": candidate.String()})

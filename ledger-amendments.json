@@ -1,16 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "0c2c2aca96a691574d9bb8a28cc3f276c435d740",
-  "changes": [
-    {
-      "rule_id": "SA-STORE-503-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-OWNERLESS-ACCOUNT, measured by the live mint: the pgx service-account repository maps pgx.ErrNoRows to the TYPED domain.ErrServiceAccountNotFound rather than a nil row, so reading every repository error as an outage turned every unknown id into a 503 on the appliance (api-suite 2 failed, static-rows 1 failed, auth503-scan lines=3). The service now keeps the typed verdict as not-found and treats only other errors as AUTH-503, and the rule gained that exact shape on both the admin surface and the token path — an absence reported as a typed error must still answer not-found"
-    },
-    {
-      "rule_id": "SA-STORE-503-1",
-      "change_class": "proof_changed",
-      "reason": "The recorded proof now carries the live-mint finding and the new mutation observation (the typed not-found treated as an outage again gives FAIL 'expected 404 actual 503 temporarily_unavailable'), alongside the two original collapse-point observations"
-    }
-  ]
+  "base_commit": "8eeb7cbb794ef5ddc27126c2346bf2369562170f",
+  "changes": []
 }
