@@ -1,21 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "aacb07324ac46f170cfbd3fd2ee0dcff792a836c",
-  "changes": [
-    {
-      "rule_id": "AYGHU-REVOKED-INACTIVE-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-4: every issued participant-token jti is recorded bound to its authorization at issuance; revoking the authorization writes every still-live jti of BOTH participants to the jti revocation store at once, so introspection answers active:false immediately — not at token expiry; mutation red-proved (propagation skipped → the jtis stayed unrevoked and the tokens read active after revocation)"
-    },
-    {
-      "rule_id": "AYGHU-INTROSPECT-503-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-4: when the authorization store, the client store or the jti revocation store cannot answer, introspecting a participant token answers 503 temporarily_unavailable / auth_store_error with a correlation id — never active:false; an unjudged token is never presented as a judged verdict; mutation red-proved (the authorization-store error collapsed to inactive → the outage read as {active:false})"
-    },
-    {
-      "rule_id": "AYGHU-INTROSPECT-NO-KEYS-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-4: an active participant token introspects with token_type DPoP, cnf carrying ONLY the RFC 7638 thumbprint jkt, and the safe agent_communication projection (authorization id, session id, aci, role, policy version/digest, limits, authorization expiry) — never a JWK, key members, the proof, the token or capability descriptions; mutation red-proved (the whole cnf claim was copied into the response → the JWK material leaked)"
-    }
-  ]
+  "base_commit": "d1488cab531f79c248d2c481f59b58dce19d027d",
+  "changes": []
 }
