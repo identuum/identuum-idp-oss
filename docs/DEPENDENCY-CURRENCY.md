@@ -22,19 +22,19 @@ Measured 2026-09-03 (`go list -m -u`, `govulncheck ./...`, `grype dir:`).
 | `github.com/jackc/pgx/v5` | v5.9.2 | **v5.10.0** | Minor, the database driver — every repository, pool and transaction path. Judged by `make verify-integration` (49 packages, 3804 tests, green) and the unit suite: no code change. |
 | `github.com/redis/go-redis/v9` | v9.17.2 | **v9.22.0** | Five minors, the session and cache client. The currency file named no single judge for it, so it was given both: the unit suite (which drives it through the miniredis fake) and `make verify-integration`, both green, no code change. Added `go.uber.org/atomic` v1.11.0 and `zeebo/xxh3` as indirects. |
 | `github.com/gin-gonic/gin` | v1.11.0 | **v1.12.0** | Minor, the HTTP framework — routing and middleware. Judged by the two-repo mint (the route census, the role matrix and the coverage floor all held at 144 / 312 / 52) plus the unit suite and the docgen ratchet. No code change. Carried `goccy/go-yaml` 1.18.0 → 1.19.2, `ugorji/go/codec` 1.3.0 → 1.3.1, `x/arch` 0.20.0 → 0.22.0, and added `mongo-driver/v2` as an indirect of gin's binding layer. |
+| `github.com/go-webauthn/webauthn` | v0.15.0 | **v0.18.0** | Three minors on a **v0 module**, and the ONLY one of the nine that needed a code change: `RegistrationOption` and `LoginOption` now return an `error`, so the service's two option closures gained a `return nil`. That is a signature migration, not a behaviour change — neither closure can fail, each only sets fields on a struct the library owns. Judged by the WebAuthn ceremony suites inside the two-repo mint, plus the unit suite. Carried `go-webauthn/x` 0.1.26 → 0.3.0, `go-tpm` 0.9.6 → 0.9.8, `go-viper/mapstructure` 2.4.0 → 2.5.0, and added `tinylib/msgp` and `philhofer/fwd` as indirects. |
 
 ## Deliberately behind, with the reason
 
-Every row below is a MINOR upgrade, not a patch. The rule allows lag that has
-been decided; what it forbids is lag nobody looked at. Each was measured
-against latest stable on 2026-09-03, carries **no advisory** in either
-scanner, and is held for the same reason: a minor bump can add or change API,
-so each needs its own build-and-test pass and its own slice, and taking nine
-of them in one commit would make a single red impossible to attribute.
+**Nothing is held today.** The nine minors this section listed were all taken
+on 2026-09-03 (THE-NINE-MINORS), one commit each, in risk order, each judged
+by the gate named beside it above. The section stays because the rule needs a
+place for the next held row: a version below latest stable belongs here with
+its reason, or it is drift.
 
 | Module | Current | Latest | Note |
 | --- | --- | --- | --- |
-| `github.com/go-webauthn/webauthn` | v0.15.0 | v0.18.0 | Three minors on a **v0 module**, where the semver compatibility promise does not apply. Needs the WebAuthn ceremony suites re-run, not just a compile. |
+| — | — | — | nothing held |
 
 Current at latest stable and needing no note: `github.com/google/uuid` v1.6.0,
 `gopkg.in/yaml.v3` v3.0.1.

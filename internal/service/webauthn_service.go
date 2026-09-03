@@ -317,9 +317,14 @@ func (s *WebAuthnService) BeginRegistration(ctx context.Context, user *domain.Us
 	if err != nil {
 		return nil, "", err
 	}
-	registerOptions := func(opts *protocol.PublicKeyCredentialCreationOptions) {
+	// go-webauthn v0.18.0 made RegistrationOption/LoginOption return an
+	// error (they were bare mutators through v0.15.0). Nothing in these two
+	// closures can fail — they set fields on a struct the library owns — so
+	// the migration is a `return nil`, not a behaviour change.
+	registerOptions := func(opts *protocol.PublicKeyCredentialCreationOptions) error {
 		opts.AuthenticatorSelection.UserVerification = protocol.VerificationPreferred
 		opts.AuthenticatorSelection.ResidentKey = protocol.ResidentKeyRequirementPreferred
+		return nil
 	}
 	var sessionData *webauthn.SessionData
 	creation, sessionData, err = s.validator.BeginRegistration(wUser, registerOptions)
@@ -440,8 +445,10 @@ func (s *WebAuthnService) BeginLogin(ctx context.Context, user *domain.User) (as
 	if len(wUser.creds) == 0 {
 		return nil, "", ErrWebAuthnNoCredentials
 	}
-	loginOptions := func(opts *protocol.PublicKeyCredentialRequestOptions) {
+	// Same v0.18.0 signature change as BeginRegistration above.
+	loginOptions := func(opts *protocol.PublicKeyCredentialRequestOptions) error {
 		opts.UserVerification = protocol.VerificationPreferred
+		return nil
 	}
 	var sessionData *webauthn.SessionData
 	assertion, sessionData, err = s.validator.BeginLogin(wUser, loginOptions)
