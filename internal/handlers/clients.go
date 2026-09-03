@@ -435,6 +435,12 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
 		})
 		if err != nil {
+			// AUTH-503 (THE-SILENT-EXPIRY): a store outage while validating the
+			// service-account binding is not "your request is invalid".
+			if domain.IsAuthStoreUnavailable(err) {
+				mw.RespondAuthStoreUnavailable(c, "clients", err)
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
@@ -526,6 +532,11 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
 		})
 		if err != nil {
+			// AUTH-503 (THE-SILENT-EXPIRY): same distinction as create.
+			if domain.IsAuthStoreUnavailable(err) {
+				mw.RespondAuthStoreUnavailable(c, "clients", err)
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}

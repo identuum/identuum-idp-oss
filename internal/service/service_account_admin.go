@@ -410,7 +410,18 @@ func (s *ServiceAccountService) ValidateBindingForClient(ctx context.Context, sa
 		return ErrServiceAccountUnbound
 	}
 	sa, err := s.repo.GetByID(ctx, saID)
-	if err != nil || sa == nil {
+	if err != nil {
+		// THE-SILENT-EXPIRY: the third instance of the collapse
+		// THE-OWNERLESS-ACCOUNT closed on the other two readers. The store's
+		// TYPED verdict is still "no such account"; anything else is an
+		// outage, and the client register/update handlers answer 503 for it
+		// rather than telling the operator their request was invalid.
+		if errors.Is(err, domain.ErrServiceAccountNotFound) {
+			return ErrServiceAccountNotFound
+		}
+		return domain.AuthStoreUnavailable("service_account.binding_validation", err)
+	}
+	if sa == nil {
 		return ErrServiceAccountNotFound
 	}
 	if !sa.Active {

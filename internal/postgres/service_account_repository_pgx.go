@@ -172,14 +172,26 @@ func (r *PgxServiceAccountRepository) ListByOrganization(ctx context.Context, or
 	return accounts, nil
 }
 
+// Update writes the mutable columns of a service account.
+//
+// THE-SILENT-EXPIRY: expires_at is one of them. The statement used to cover
+// {name, description, role} only, while ServiceAccountService.UpdateForActor
+// assigned ExpiresAt on the aggregate — so a PUT carrying only expires_at
+// answered 200 and stored nothing, and the account went on minting tokens
+// past the expiry its operator had just set. The column is written from the
+// aggregate, so "not supplied" (the service leaves the loaded value in
+// place) rewrites the same value and nothing changes.
+//
+// Ownership and the active flag keep their own statements (UpdateOwner,
+// UpdateActive): they are audited lifecycle mutations, not field edits.
 func (r *PgxServiceAccountRepository) Update(ctx context.Context, sa *domain.ServiceAccount) (*domain.ServiceAccount, error) {
 	query := `
 		UPDATE service_accounts
-		SET name = $1, description = $2, role = $3, updated_at = NOW()
-		WHERE id = $4 AND organization_id = $5
+		SET name = $1, description = $2, role = $3, expires_at = $4, updated_at = NOW()
+		WHERE id = $5 AND organization_id = $6
 		RETURNING updated_at`
 
-	err := r.db.QueryRow(ctx, query, sa.Name, sa.Description, string(sa.Role), sa.ID, sa.OrganizationID).Scan(&sa.UpdatedAt)
+	err := r.db.QueryRow(ctx, query, sa.Name, sa.Description, string(sa.Role), sa.ExpiresAt, sa.ID, sa.OrganizationID).Scan(&sa.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrServiceAccountNotFound
 	}

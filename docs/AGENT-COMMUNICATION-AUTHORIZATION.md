@@ -499,6 +499,17 @@ Ayghu — nothing is built here), **out of scope v1**, **deferred**.
   Both now answer 503 with a correlation id, while the store's TYPED
   not-found verdict still answers not-found — a distinction the first live
   mint caught and the rule now pins (`SA-STORE-503-1`).
+- **Closed in P-039 (THE-SILENT-EXPIRY):** the service-account update
+  statement covered `{name, description, role}` while the service assigned
+  `ExpiresAt`, so a PUT carrying only `expires_at` answered 200 and stored
+  nothing — an agent identity went on minting tokens past the expiry its
+  operator had set. The statement now writes the column, an integration
+  tooth reads it back from a live database, and `SA-UPDATE-EXPIRY-1` pins
+  the whole behaviour. The third and last reader of the store-error
+  collapse, `ValidateBindingForClient`, is closed with it: a store outage
+  while validating a client's service-account binding answers 503 with a
+  correlation id on the client create and update routes instead of blaming
+  the caller with 400 (`SA-BINDING-503-1`).
 - **Indirect, not closed (small, measured):** a Go integration test that
   writes invalid rows directly and watches the 0037 triggers refuse (the
   triggers exist, are asserted by text in `AYGHU-MATERIAL-CHANGE-1`, and run
