@@ -152,3 +152,9 @@ func (m *mockServiceAccountRepository) UpdateActive(ctx context.Context, id uuid
 	args := m.Called(ctx, id, orgID, active)
 	return args.Error(0)
 }
+
+// UpdateOwner (THE-OWNERLESS-ACCOUNT).
+func (m *mockServiceAccountRepository) UpdateOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID) error {
+	args := m.Called(ctx, id, orgID, ownerUserID)
+	return args.Error(0)
+}

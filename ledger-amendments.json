@@ -1,27 +1,16 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "b2e6f6d75dd399af82a5700c3f70a79e139a9549",
+  "base_commit": "61169cfc91e5ff76d9ed2d939240400088134b37",
   "changes": [
     {
-      "rule_id": "AYGHU-NO-PROMPT-CONTENT-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "33e893eeff2360cbc1708b295673407a72447eef49a86643c5a524cfa22690f0",
-      "reason": "AYGHU-6 SPEC RE-BASELINE, second reading: ayghu.txt was rewritten again (971 lines, 2026-09-03 11:38) and its new 'Identuum IDP and Identuum AG' section states this server's negative obligations as a five-item list — 'The IDP never receives: Prompt plaintext. Repository contents. Command output. Transcripts. Final reports.' The sentence now names those five items verbatim instead of the earlier generic 'agent message content', and the rule additionally pins that the audit list itself keeps naming all five"
-    },
-    {
-      "rule_id": "AYGHU-NO-PROMPT-CONTENT-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "AYGHU-6 second reading: the surface audit gained the tokens that catch repository contents and command output (repository, workspace, stdout, stderr, command_output, diff, patch), the same words in the endpoint-census scan, and a self-check mapping each of the file's five items to the token that catches it; rehashed after review"
-    },
-    {
-      "rule_id": "AYGHU-NO-PROMPT-CONTENT-1",
-      "change_class": "proof_changed",
-      "reason": "AYGHU-6 second reading: the widened claim was re-proved with a new mutation — a LastCommandOutput field on the participant aggregate made the rule FAIL 'lastcommandoutput should not contain commandoutput' — and the recorded proof now carries both that observation and the earlier LastPromptText one; both mutations restored byte-identical"
-    },
-    {
-      "rule_id": "AYGHU-SIGNS-NOT-ENFORCES-1",
+      "rule_id": "SA-OWNER-TRANSFER-LIVE-1",
       "change_class": "rule_added",
-      "reason": "AYGHU-6 second reading (the new section: 'The IDP signs what was authorized. It does not enforce what an agent may do. Signing a capability is not enforcing it. Enforcement is AG's job.', with 'Identuum IDP must not own … execution policy, tool execution' and 'Identuum AG owns … session and capability policy … execution authorization'): a capability set changes no answer this server gives — a communication-only authorization issues a token and introspects active exactly as a fully capable one does, only the signed policy digest and the owner's own read differ, and no capability or permission vocabulary rides on a token or an introspection answer; mutation red-proved (issuance made to refuse an empty capability set → the communication-only authorization was refused 400 invalid_grant)"
+      "reason": "THE-OWNERLESS-ACCOUNT: the new owner-assignment route can hand a service account to another org_admin, and the agent-communication same-owner rule was judged against the owner of record when a live authorization was created (issuance re-checks it), so moving the owner underneath a live session would strand it. The rule pins the refusal — 409 conflict, stable reason agent_communication_authorization_active, nothing written — for BOTH participants, pins that an account no live authorization names transfers normally, and pins that the same transfer lands once the owner revokes. Its guard is the real repository predicate over a live authorization, not a boolean stub; mutation red-proved (the guard neutralized turned the 409 into a 200 that reported result transferred)"
+    },
+    {
+      "rule_id": "SA-STORE-503-1",
+      "change_class": "rule_added",
+      "reason": "THE-OWNERLESS-ACCOUNT closes the AUTH-503 straggler AYGHU measured and parked: ServiceAccountService.GetForActor and LookupForClient both mapped ANY store error to not-found, so a database outage read as 'no such service account' on the admin surface and as unauthorized_client at the token endpoint — verdicts the server had not reached. Both now answer AUTH-503 (503 + correlation id + ERROR log) while a genuine absence still answers not-found; IssueClientCredentials propagates the store class instead of collapsing it. Mutation red-proved twice, once per collapse point"
     }
   ]
 }

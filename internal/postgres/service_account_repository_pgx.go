@@ -234,6 +234,28 @@ func (r *PgxServiceAccountRepository) Delete(ctx context.Context, id uuid.UUID, 
 // feeds reflect the lifecycle change. The `active` column is set
 // unconditionally (no idempotency at the SQL layer) so the service
 // can record the previous_active state in the audit metadata.
+// UpdateOwner sets service_accounts.owner_user_id for a non-deleted row in
+// the given organization (THE-OWNERLESS-ACCOUNT). Same shape as
+// UpdateActive: its own statement so an ownership change cannot clobber
+// name/description/role, the organization scope as the load-bearing tenant
+// gate at the SQL layer, and updated_at bumped so the activity feeds show
+// the change. The service layer has already resolved the actor's authority
+// and the eligibility of the new owner.
+func (r *PgxServiceAccountRepository) UpdateOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID) error {
+	query := `
+		UPDATE service_accounts
+		SET owner_user_id = $3, updated_at = NOW()
+		WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL`
+	result, err := r.db.Exec(ctx, query, id, orgID, ownerUserID)
+	if err != nil {
+		return fmt.Errorf("failed to update service account owner: %w", err)
+	}
+	if result.RowsAffected() == 0 {
+		return fmt.Errorf("service account not found")
+	}
+	return nil
+}
+
 func (r *PgxServiceAccountRepository) UpdateActive(ctx context.Context, id uuid.UUID, orgID uuid.UUID, active bool) error {
 	query := `
 		UPDATE service_accounts

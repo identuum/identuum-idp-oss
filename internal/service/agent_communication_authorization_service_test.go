@@ -94,6 +94,28 @@ func (f *acRepoFake) Revoke(_ context.Context, org, id, by uuid.UUID, reason *st
 	return true, nil
 }
 
+// HasLiveParticipant mirrors the pgx EXISTS query (THE-OWNERLESS-ACCOUNT):
+// an authorization of the organization, neither revoked nor expired at
+// `now`, naming the service account.
+func (f *acRepoFake) HasLiveParticipant(_ context.Context, org, serviceAccountID uuid.UUID, now time.Time) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.getErr != nil {
+		return false, f.getErr
+	}
+	for _, row := range f.rows {
+		if row.OrganizationID != org || row.RevokedAt != nil || !row.ExpiresAt.After(now) {
+			continue
+		}
+		for _, p := range row.Participants {
+			if p.ServiceAccountID == serviceAccountID {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 type acSAFake struct {
 	rows  map[uuid.UUID]*domain.ServiceAccount
 	err   error

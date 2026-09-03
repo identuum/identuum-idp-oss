@@ -369,12 +369,22 @@ func (s *TokenService) IssueClientCredentials(ctx context.Context, client *Authe
 	// shape is preserved.
 	var saSubject *ServiceAccountTokenSubject
 	if client.Kind == AuthenticatedClientKindOAuth && s.HasServiceAccountLookup() {
+		// THE-OWNERLESS-ACCOUNT: a STORE outage on either lookup is not a
+		// verdict about the client. It travels up as AUTH-503 (the token
+		// endpoint answers 503 + correlation id); every other failure still
+		// answers unauthorized_client.
 		dc, lookupErr := s.clients.GetClientByClientID(ctx, client.ClientID)
 		if lookupErr != nil || dc == nil {
+			if domain.IsAuthStoreUnavailable(lookupErr) {
+				return nil, lookupErr
+			}
 			return nil, ErrTokenServiceUnauthorizedClient
 		}
 		saSubject, err = s.serviceAccounts.LookupForClient(ctx, dc)
 		if err != nil {
+			if domain.IsAuthStoreUnavailable(err) {
+				return nil, err
+			}
 			return nil, ErrTokenServiceUnauthorizedClient
 		}
 	}

@@ -128,10 +128,15 @@ func (s *ServiceAccountService) ListForActor(ctx context.Context, actor *domain.
 // GetForActor returns a single SA by ID. Tenant scoping applies:
 // org_admin may read only SAs in their own org. site_admin may
 // read any SA. Unknown ID → ErrSANotFound.
+//
+// THE-OWNERLESS-ACCOUNT: a STORE failure is not the verdict "no such
+// account". It answers AUTH-503 (503 + correlation id) so the caller
+// retries, exactly as every other auth-store read does; a genuine absence
+// still answers ErrSANotFound.
 func (s *ServiceAccountService) GetForActor(ctx context.Context, actor *domain.Principal, saID uuid.UUID) (*domain.ServiceAccount, error) {
 	sa, err := s.repo.GetByID(ctx, saID)
 	if err != nil {
-		return nil, ErrSANotFound
+		return nil, domain.AuthStoreUnavailable("service_account.get", err)
 	}
 	if sa == nil {
 		return nil, ErrSANotFound
@@ -195,6 +200,152 @@ func (s *ServiceAccountService) UpdateForActor(ctx context.Context, actor *domai
 	}
 	sa.UpdatedAt = s.now().UTC()
 	return s.repo.Update(ctx, sa)
+}
+
+// ── Owner assignment (THE-OWNERLESS-ACCOUNT) ─────────────────────────────
+//
+// A service account is a person's agent identity: the agent-communication
+// same-owner rule refuses two participants that do not share one owner, and
+// issuance re-checks the binding. Accounts created before AYGHU-2 carry no
+// owner at all and can never participate. This is the owner's own repair and
+// hand-over path — assign where there is none, transfer where there is.
+
+// ServiceAccountOwnerUserLookup reads the candidate owner. Narrow on
+// purpose: the service needs to know that the user is a live org_admin of
+// the service account's organization and nothing else.
+type ServiceAccountOwnerUserLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+}
+
+// AgentCommunicationLiveParticipantLookup answers whether a LIVE
+// authorization names the account. Ownership cannot move while one stands.
+type AgentCommunicationLiveParticipantLookup interface {
+	HasLiveParticipant(ctx context.Context, organizationID, serviceAccountID uuid.UUID, now time.Time) (bool, error)
+}
+
+// Owner-assignment sentinels. Wire mappings:
+//
+//   - ErrSAOwnerNotEligible    → 400 (reason owner_not_eligible)
+//   - ErrSAOwnerTransferBlocked → 409 (reason agent_communication_authorization_active)
+var (
+	ErrSAOwnerNotEligible      = errors.New("service: owner candidate is not an eligible owner of this service account")
+	ErrSAOwnerTransferBlocked  = errors.New("service: service-account ownership cannot be transferred while a live agent communication authorization names it")
+	errSAOwnerGuardUnavailable = errors.New("owner-transfer guard is not wired")
+)
+
+// AssignServiceAccountOwnerInput carries the requested owner. A nil
+// OwnerUserID means "the acting org_admin claims it".
+type AssignServiceAccountOwnerInput struct {
+	OwnerUserID *uuid.UUID
+}
+
+// ServiceAccountOwnerAssignment is the before/after record the audit trail
+// and the wire response are built from.
+type ServiceAccountOwnerAssignment struct {
+	ServiceAccount      *domain.ServiceAccount
+	PreviousOwnerUserID *uuid.UUID
+	OwnerUserID         uuid.UUID
+	// Result is one of "assigned" (there was no owner), "transferred" (there
+	// was a different one) or "unchanged" (already that owner).
+	Result string
+}
+
+// WithOwnerAssignment wires the two reads the assignment path needs: the
+// candidate-owner lookup and the live-authorization guard. Both are
+// optional at construction so existing callers keep compiling; a transfer
+// refuses to answer at all when the guard is missing (503, not a verdict),
+// and a candidate other than the actor is refused when the user lookup is
+// missing.
+func (s *ServiceAccountService) WithOwnerAssignment(users ServiceAccountOwnerUserLookup, live AgentCommunicationLiveParticipantLookup) *ServiceAccountService {
+	s.ownerUsers = users
+	s.liveAuthorizations = live
+	return s
+}
+
+// AssignOwnerForActor sets the service account's owner.
+//
+//   - org_admin of the account's OWN organization only; every other actor
+//     gets the same answer the rest of this surface gives (403, or 404 for
+//     another organization's id — no existence oracle).
+//   - The new owner defaults to the acting org_admin. A supplied owner must
+//     be a live, non-banned org_admin of the SAME organization.
+//   - Assigning where there is no owner always proceeds. TRANSFERRING away
+//     from an existing owner is refused while a live agent-communication
+//     authorization names the account.
+//   - Re-assigning the current owner writes nothing and reports "unchanged".
+//   - Every store failure answers AUTH-503, never a verdict.
+func (s *ServiceAccountService) AssignOwnerForActor(ctx context.Context, actor *domain.Principal, saID uuid.UUID, in AssignServiceAccountOwnerInput) (*ServiceAccountOwnerAssignment, error) {
+	sa, err := s.GetForActor(ctx, actor, saID)
+	if err != nil {
+		return nil, err
+	}
+	target := actor.UserID
+	if in.OwnerUserID != nil && *in.OwnerUserID != actor.UserID {
+		if s.ownerUsers == nil {
+			return nil, ErrSAOwnerNotEligible
+		}
+		u, uerr := s.ownerUsers.GetByID(ctx, *in.OwnerUserID)
+		if uerr != nil {
+			return nil, domain.AuthStoreUnavailable("service_account.owner_candidate", uerr)
+		}
+		if !isEligibleServiceAccountOwner(u, sa.OrganizationID) {
+			return nil, ErrSAOwnerNotEligible
+		}
+		target = u.ID
+	}
+	if target == uuid.Nil {
+		return nil, ErrSAOwnerNotEligible
+	}
+
+	previous := sa.OwnerUserID
+	if previous != nil && *previous == target {
+		return &ServiceAccountOwnerAssignment{
+			ServiceAccount: sa, PreviousOwnerUserID: previous, OwnerUserID: target, Result: "unchanged",
+		}, nil
+	}
+	result := "assigned"
+	if previous != nil {
+		result = "transferred"
+		// A live authorization was judged against the owner of record and
+		// issuance re-checks it: moving the owner underneath it would strand
+		// a running session. The owner revokes first, then transfers.
+		if s.liveAuthorizations == nil {
+			return nil, domain.AuthStoreUnavailable("service_account.owner_transfer_guard", errSAOwnerGuardUnavailable)
+		}
+		live, lerr := s.liveAuthorizations.HasLiveParticipant(ctx, sa.OrganizationID, sa.ID, s.now().UTC())
+		if lerr != nil {
+			return nil, domain.AuthStoreUnavailable("service_account.owner_transfer_guard", lerr)
+		}
+		if live {
+			return nil, ErrSAOwnerTransferBlocked
+		}
+	}
+	if err := s.repo.UpdateOwner(ctx, sa.ID, sa.OrganizationID, target); err != nil {
+		return nil, domain.AuthStoreUnavailable("service_account.owner_write", err)
+	}
+	owner := target
+	sa.OwnerUserID = &owner
+	sa.UpdatedAt = s.now().UTC()
+	return &ServiceAccountOwnerAssignment{
+		ServiceAccount: sa, PreviousOwnerUserID: previous, OwnerUserID: target, Result: result,
+	}, nil
+}
+
+// isEligibleServiceAccountOwner: a live, non-banned org_admin of the
+// service account's own organization. Anyone else — a deleted or banned
+// user, an org_user, a site_admin, another tenant's admin — is refused
+// identically, so the endpoint is no directory of who exists.
+func isEligibleServiceAccountOwner(u *domain.User, orgID uuid.UUID) bool {
+	if u == nil || u.ID == uuid.Nil {
+		return false
+	}
+	if u.DeletedAt != nil || u.Banned {
+		return false
+	}
+	if u.OrganizationID != orgID {
+		return false
+	}
+	return u.IsOrgAdminOnly()
 }
 
 // SetActiveForActor flips the active flag via the dedicated

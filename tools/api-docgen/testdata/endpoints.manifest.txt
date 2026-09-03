@@ -123,6 +123,7 @@ POST /api/v1/revoke
 POST /api/v1/scope-templates
 POST /api/v1/service-accounts/:id/disable
 POST /api/v1/service-accounts/:id/enable
+POST /api/v1/service-accounts/:id/owner
 POST /api/v1/users
 POST /api/v1/users/:id/approve
 POST /api/v1/users/:id/recovery/reset-mfa

@@ -24,6 +24,8 @@ import (
 // admin-method behaviors the handler exercises.
 type inMemorySARepoForHandlers struct {
 	byID map[uuid.UUID]*domain.ServiceAccount
+	// getErr makes GetByID fail like a store outage (AUTH-503 tests).
+	getErr error
 }
 
 func newSARepoForHandlers() *inMemorySARepoForHandlers {
@@ -48,6 +50,9 @@ func (r *inMemorySARepoForHandlers) Create(_ context.Context, sa *domain.Service
 	return &cp, nil
 }
 func (r *inMemorySARepoForHandlers) GetByID(_ context.Context, id uuid.UUID) (*domain.ServiceAccount, error) {
+	if r.getErr != nil {
+		return nil, r.getErr
+	}
 	sa, ok := r.byID[id]
 	if !ok {
 		return nil, nil
@@ -97,6 +102,18 @@ func (r *inMemorySARepoForHandlers) UpdateActive(_ context.Context, id, orgID uu
 		return errors.New("not found")
 	}
 	sa.Active = active
+	return nil
+}
+
+// UpdateOwner + getErr back the owner-assignment and AUTH-503 tests
+// (THE-OWNERLESS-ACCOUNT).
+func (r *inMemorySARepoForHandlers) UpdateOwner(_ context.Context, id, orgID, ownerUserID uuid.UUID) error {
+	sa, ok := r.byID[id]
+	if !ok || sa.OrganizationID != orgID {
+		return errors.New("not found")
+	}
+	owner := ownerUserID
+	sa.OwnerUserID = &owner
 	return nil
 }
 

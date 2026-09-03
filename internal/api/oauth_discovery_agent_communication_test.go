@@ -30,6 +30,9 @@ func (acDiscoveryAuthRepo) ListByOrganization(context.Context, uuid.UUID) ([]*do
 func (acDiscoveryAuthRepo) Revoke(context.Context, uuid.UUID, uuid.UUID, uuid.UUID, *string, time.Time) (bool, error) {
 	return false, nil
 }
+func (acDiscoveryAuthRepo) HasLiveParticipant(context.Context, uuid.UUID, uuid.UUID, time.Time) (bool, error) {
+	return false, nil
+}
 
 type acDiscoverySAs struct{}
 

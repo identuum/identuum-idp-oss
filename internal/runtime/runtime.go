@@ -976,7 +976,13 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	oauthClientAuth := service.NewOAuthClientAuthService(report, clientSvc, apiResourceSvc).
 		WithAssertionValidator(assertionValidator, clientSvc)
 
-	serviceAccountSvc := service.NewServiceAccountService(report, repos.ServiceAccount)
+	// THE-OWNERLESS-ACCOUNT: the owner-assignment path needs to know that a
+	// candidate owner is a live org_admin of the same organization, and that
+	// no LIVE agent-communication authorization names the account. Both
+	// seams are wired here; without them a transfer refuses to answer at all
+	// (503) rather than guessing.
+	serviceAccountSvc := service.NewServiceAccountService(report, repos.ServiceAccount).
+		WithOwnerAssignment(repos.User, repos.AgentCommunicationAuthorization)
 	clientSvc = clientSvc.WithServiceAccountBindingValidator(serviceAccountSvc)
 	saClientBundleRepo := postgres.NewPgxServiceAccountClientBundleRepository(pool)
 	saClientBundleSvc := service.NewServiceAccountClientBundleService(report, serviceAccountSvc, clientSvc, saClientBundleRepo)

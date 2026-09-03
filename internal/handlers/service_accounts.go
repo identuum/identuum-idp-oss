@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -114,6 +115,17 @@ func RegisterServiceAccountsRoutes(router gin.IRouter, deps ServiceAccountsHandl
 	// docgen:notes=Authorisation is enforced at the handler layer.
 	// docgen:status=204
 	saGroup.POST("/enable", HandleSetActiveServiceAccount(deps, true))
+
+	// docgen:endpoint
+	// docgen:surface=service-accounts
+	// docgen:method=POST
+	// docgen:path=/api/v1/service-accounts/:id/owner
+	// docgen:summary=Assign or transfer the owner of a service account: the acting org_admin claims it by default, or names another org_admin of the same organization. A service account is a person's agent identity, and the agent-communication same-owner rule is judged against this binding.
+	// docgen:tier=oss
+	// docgen:auth=org_admin
+	// docgen:notes=org_admin OWN-ORG only (ServiceAccountService.requireOrgAdmin); site_admin and org_user are refused, and another organization's id answers not-found exactly like an absent one. Body {"owner_user_id"} is optional — absent means the acting org_admin. A supplied candidate must be a live, non-banned org_admin of the SAME organization, else 400 invalid_request reason owner_not_eligible. TRANSFERRING away from an existing owner is refused 409 conflict reason agent_communication_authorization_active while a live (unrevoked, unexpired) agent communication authorization names the account — revoke it first. Re-assigning the current owner writes nothing and answers result unchanged. Any store failure answers 503 temporarily_unavailable with a correlation id (AUTH-503), never a verdict. Emits service_account.owner_assigned with the before and after owner ids.
+	// docgen:status=200
+	saGroup.POST("/owner", HandleAssignServiceAccountOwner(deps))
 
 	// docgen:endpoint
 	// docgen:surface=service-accounts
@@ -321,6 +333,80 @@ func HandleSetActiveServiceAccount(deps ServiceAccountsHandlerDeps, active bool)
 	}
 }
 
+// AuditActionServiceAccountOwnerAssigned records an ownership assignment or
+// transfer with the before and after owner ids (THE-OWNERLESS-ACCOUNT).
+const AuditActionServiceAccountOwnerAssigned = "service_account.owner_assigned"
+
+// HandleAssignServiceAccountOwner assigns or transfers the owner of a
+// service account. The response carries the before and after binding, not
+// the shared service-account projection, so the caller sees exactly what
+// changed.
+func HandleAssignServiceAccountOwner(deps ServiceAccountsHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		actor, _ := mw.PrincipalFromContext(c)
+		saID, ok := parseSAID(c)
+		if !ok {
+			return
+		}
+		var req serviceAccountOwnerRequest
+		// An absent or empty body means "the acting org_admin claims it".
+		if c.Request.ContentLength > 0 {
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "reason": "invalid_body"})
+				return
+			}
+		}
+		in := service.AssignServiceAccountOwnerInput{}
+		if s := strings.TrimSpace(req.OwnerUserID); s != "" {
+			ownerID, err := uuid.Parse(s)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "reason": "invalid_owner_user_id"})
+				return
+			}
+			in.OwnerUserID = &ownerID
+		}
+		assignment, err := deps.ServiceAccountService.AssignOwnerForActor(c.Request.Context(), actor, saID, in)
+		if err != nil {
+			respondSAError(c, err)
+			return
+		}
+		previous := ""
+		if assignment.PreviousOwnerUserID != nil {
+			previous = assignment.PreviousOwnerUserID.String()
+		}
+		if assignment.Result != "unchanged" {
+			_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
+				Action:         AuditActionServiceAccountOwnerAssigned,
+				Outcome:        "success",
+				SubjectID:      assignment.ServiceAccount.ID,
+				SubjectType:    "service_account",
+				OrganizationID: assignment.ServiceAccount.OrganizationID,
+				IPAddress:      c.ClientIP(),
+				UserAgent:      c.Request.UserAgent(),
+				Metadata: map[string]any{
+					"service_account_id":     assignment.ServiceAccount.ID.String(),
+					"organization_id":        assignment.ServiceAccount.OrganizationID.String(),
+					"previous_owner_user_id": previous,
+					"owner_user_id":          assignment.OwnerUserID.String(),
+					"result":                 assignment.Result,
+				},
+			}))
+		}
+		body := gin.H{
+			"service_account_id": assignment.ServiceAccount.ID,
+			"organization_id":    assignment.ServiceAccount.OrganizationID,
+			"owner_user_id":      assignment.OwnerUserID,
+			"result":             assignment.Result,
+		}
+		if assignment.PreviousOwnerUserID != nil {
+			body["previous_owner_user_id"] = *assignment.PreviousOwnerUserID
+		} else {
+			body["previous_owner_user_id"] = nil
+		}
+		c.JSON(http.StatusOK, body)
+	}
+}
+
 // ---------- Request DTOs ----------
 
 type serviceAccountCreateRequest struct {
@@ -328,6 +414,13 @@ type serviceAccountCreateRequest struct {
 	Description string     `json:"description"`
 	Role        string     `json:"role"`
 	ExpiresAt   *time.Time `json:"expires_at"`
+}
+
+// serviceAccountOwnerRequest is the owner-assignment body. The field is a
+// plain string so an absent, empty or blank value all mean the same thing:
+// the acting org_admin claims the account.
+type serviceAccountOwnerRequest struct {
+	OwnerUserID string `json:"owner_user_id"`
 }
 
 // THE-SILENT-DROP: pointers so absent and supplied-blank differ on the wire.
@@ -387,6 +480,21 @@ func parseSAID(c *gin.Context) (uuid.UUID, bool) {
 
 func respondSAError(c *gin.Context, err error) {
 	switch {
+	case domain.IsAuthStoreUnavailable(err):
+		// AUTH-503 (THE-OWNERLESS-ACCOUNT): the service-account store could
+		// not answer. That is not "no such account" and not a bare 500 — it
+		// is 503 + an ERROR log with a correlation id, so the caller retries.
+		mw.RespondAuthStoreUnavailable(c, "service_accounts", err)
+	case errors.Is(err, service.ErrSAOwnerTransferBlocked):
+		c.JSON(http.StatusConflict, gin.H{
+			"error":  "conflict",
+			"reason": "agent_communication_authorization_active",
+		})
+	case errors.Is(err, service.ErrSAOwnerNotEligible):
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error":  "invalid_request",
+			"reason": "owner_not_eligible",
+		})
 	case errors.Is(err, service.ErrSAForbidden):
 		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 	case errors.Is(err, service.ErrSANotFound):

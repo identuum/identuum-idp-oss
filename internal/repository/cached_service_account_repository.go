@@ -148,3 +148,14 @@ func (r *CachedServiceAccountRepository) UpdateActive(ctx context.Context, id uu
 	}
 	return err
 }
+
+// UpdateOwner invalidates the cached row the same way UpdateActive does: a
+// stale owner would be read back by the agent-communication same-owner
+// check, which is exactly the binding this write changes.
+func (r *CachedServiceAccountRepository) UpdateOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID) error {
+	err := r.delegate.UpdateOwner(ctx, id, orgID, ownerUserID)
+	if delErr := r.redisClient.Del(ctx, r.idKey(id)); delErr != nil {
+		logger.Warning.Printf("UpdateOwner: failed to invalidate cached SA %s: %v", id, delErr)
+	}
+	return err
+}

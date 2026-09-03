@@ -196,3 +196,25 @@ func (r *PgxAgentCommunicationAuthorizationRepository) Revoke(ctx context.Contex
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// HasLiveParticipant answers whether a LIVE authorization of the
+// organization names the service account (THE-OWNERLESS-ACCOUNT). Live is
+// the same predicate the domain derives: not revoked and not yet expired at
+// `now`. The index idx_acp_service_account_id carries the participant side.
+func (r *PgxAgentCommunicationAuthorizationRepository) HasLiveParticipant(ctx context.Context, organizationID, serviceAccountID uuid.UUID, now time.Time) (bool, error) {
+	var exists bool
+	err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM agent_communication_participants p
+			JOIN agent_communication_authorizations a ON a.id = p.authorization_id
+			WHERE p.service_account_id = $2
+			  AND a.organization_id = $1
+			  AND a.revoked_at IS NULL
+			  AND a.expires_at > $3)`,
+		organizationID, serviceAccountID, now).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check live agent communication participation: %w", err)
+	}
+	return exists, nil
+}

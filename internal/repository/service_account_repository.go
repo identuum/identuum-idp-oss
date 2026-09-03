@@ -26,4 +26,13 @@ type ServiceAccountRepository interface {
 	// when no row matches; callers upstream mask that as ErrForbidden
 	// for cross-org callers via the service-layer guards.
 	UpdateActive(ctx context.Context, id uuid.UUID, orgID uuid.UUID, active bool) error
+
+	// UpdateOwner sets service_accounts.owner_user_id for a non-deleted row
+	// in the given organization (THE-OWNERLESS-ACCOUNT). Like UpdateActive it
+	// is deliberately NOT part of Update, whose statement covers only
+	// {name, description, role}: ownership is its own audited lifecycle
+	// mutation and must not be clobbered by an unrelated edit. A row that
+	// does not exist, belongs to another organization, or is soft-deleted
+	// affects nothing and returns an error the service maps to not-found.
+	UpdateOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID) error
 }

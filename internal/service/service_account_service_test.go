@@ -17,8 +17,9 @@ import (
 // Unused methods panic so a future code-path drift is caught
 // instantly.
 type inMemoryServiceAccountRepo struct {
-	byID   map[uuid.UUID]*domain.ServiceAccount
-	getErr error
+	byID     map[uuid.UUID]*domain.ServiceAccount
+	getErr   error
+	ownerErr error
 }
 
 func newInMemorySARepo() *inMemoryServiceAccountRepo {
@@ -56,6 +57,21 @@ func (r *inMemoryServiceAccountRepo) UpdateLastUsedAt(context.Context, uuid.UUID
 }
 func (r *inMemoryServiceAccountRepo) UpdateActive(context.Context, uuid.UUID, uuid.UUID, bool) error {
 	panic("not used")
+}
+
+// UpdateOwner backs the owner-assignment tests (THE-OWNERLESS-ACCOUNT).
+// ownerErr lets a test make the write fail like a store outage.
+func (r *inMemoryServiceAccountRepo) UpdateOwner(_ context.Context, id, orgID, ownerUserID uuid.UUID) error {
+	if r.ownerErr != nil {
+		return r.ownerErr
+	}
+	sa, ok := r.byID[id]
+	if !ok || sa.OrganizationID != orgID {
+		return errors.New("service account not found")
+	}
+	owner := ownerUserID
+	sa.OwnerUserID = &owner
+	return nil
 }
 
 // Compile-time check that the fake satisfies the interface.
@@ -147,15 +163,23 @@ func TestLookup_OrgMismatchRejected(t *testing.T) {
 	}
 }
 
-func TestLookup_RepoErrorMapsToNotFound(t *testing.T) {
+// THE-OWNERLESS-ACCOUNT replaced TestLookup_RepoErrorMapsToNotFound: a store
+// outage was answering "this client has no service account", which the token
+// endpoint then reported as unauthorized_client — a verdict the server had
+// not reached. A repository error is now AUTH-503; an ABSENT row is still
+// not-found (TestLookup_MissingSARejected pins that side).
+func TestLookup_RepoErrorIsStoreUnavailable(t *testing.T) {
 	repo := newInMemorySARepo()
 	repo.getErr = errors.New("db down")
 	svc := NewServiceAccountService(nil, repo)
 	saID := uuid.New()
 	client := &domain.Client{ClientID: "cli", ServiceAccountID: &saID}
 	_, err := svc.LookupForClient(context.Background(), client)
-	if !errors.Is(err, ErrServiceAccountNotFound) {
-		t.Errorf("err = %v (fail-closed should map to not-found)", err)
+	if !domain.IsAuthStoreUnavailable(err) {
+		t.Errorf("err = %v (a store outage must be AUTH-503, not a verdict)", err)
+	}
+	if errors.Is(err, ErrServiceAccountNotFound) {
+		t.Errorf("err = %v (a store outage must not read as not-found)", err)
 	}
 }
 

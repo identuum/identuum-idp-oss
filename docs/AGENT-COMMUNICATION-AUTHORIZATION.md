@@ -91,9 +91,27 @@ ACIs, thumbprints, the audience and row order are not inputs.
 ### Owner of a service account
 
 `owner_user_id` is set to the creating org_admin on every service account
-created through the admin API (plain and with-client) since P-032. Service
-accounts created before that are ownerless and cannot participate; no
-owner-assignment path exists yet (see the deferred list).
+created through the admin API (plain and with-client) since P-032.
+
+Accounts created BEFORE that are ownerless. They are left as they are —
+nothing guesses a human authority for them — and the owner repairs each one
+explicitly through
+
+	POST /api/v1/service-accounts/:id/owner        {"owner_user_id": "…"}
+
+which assigns an owner where there is none and transfers it where there is
+(P-038). The acting org_admin claims the account when the body is absent; a
+named candidate must be a live, non-banned org_admin of the SAME
+organization, and every ineligible candidate is refused identically with
+`owner_not_eligible`. site_admin and org_user are refused, and another
+tenant's account answers not-found exactly like an absent one.
+
+A TRANSFER is refused with `409 conflict` and the reason
+`agent_communication_authorization_active` while a live authorization names
+the account: the same-owner rule was judged against the owner of record and
+issuance re-checks it, so the owner revokes the authorization first. The
+response carries the before and after owner ids, and so does the
+`service_account.owner_assigned` audit event.
 
 ## Participant-token grant (the existing token endpoint)
 
@@ -330,8 +348,9 @@ peer to compare (`AYGHU-NO-OWNER-IDENTITY-1`).
   for issuance and introspection), then replace the installation's keys.
   An attacker holding a stolen participant token can also introspect it;
   the answer carries no owner identity, no key and no message content.
-- **Owner assignment for pre-existing service accounts** is not built: such
-  accounts cannot participate until an assignment path exists.
+- **Pre-existing ownerless service accounts stay ownerless until an owner
+  claims them.** Nothing backfills an owner; the repair is the explicit,
+  audited assignment route above (P-038).
 - **A participant cannot read its own capability set from this server.**
   The token carries the policy DIGEST, not the capability list, and the
   authorization read is org_admin-only. The local enforcement point learns
@@ -471,11 +490,13 @@ Ayghu — nothing is built here), **out of scope v1**, **deferred**.
   authorization (a new route, census 143 → 144, matrix cells, sweep rows —
   about half a slice). Not started: the specification assigns capability
   enforcement to the client without saying who delivers the list.
-- **Reported, not started (large):** an owner-assignment/transfer path for
-  pre-existing service accounts (new route, census 143 → 144, matrix cells,
-  transfer refused while an authorization is live — about one slice); the
-  `LookupForClient` AUTH-503 collapse on the legacy client-credentials path
-  (about half a slice, outside the AYGHU surface).
+- **Closed in P-038 (THE-OWNERLESS-ACCOUNT):** the owner assignment and
+  transfer route (census 143 → 144, role-matrix cells, sweep rows, transfer
+  refused while an authorization is live — `SA-OWNER-TRANSFER-LIVE-1`), and
+  the AUTH-503 straggler: `GetForActor` and `LookupForClient` mapped every
+  store error to not-found, so an outage read as "no such service account"
+  on the admin surface and as `unauthorized_client` at the token endpoint.
+  Both now answer 503 with a correlation id (`SA-STORE-503-1`).
 - **Indirect, not closed (small, measured):** a Go integration test that
   writes invalid rows directly and watches the 0037 triggers refuse (the
   triggers exist, are asserted by text in `AYGHU-MATERIAL-CHANGE-1`, and run

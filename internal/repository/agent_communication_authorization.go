@@ -36,4 +36,13 @@ type AgentCommunicationAuthorizationRepository interface {
 	// the row and false when the row is absent, of another organization,
 	// or already revoked (revocation is terminal: the first stamp wins).
 	Revoke(ctx context.Context, organizationID, id, revokedBy uuid.UUID, reason *string, at time.Time) (bool, error)
+
+	// HasLiveParticipant reports whether an authorization of organizationID
+	// that is LIVE at `now` (not revoked, not yet expired) names
+	// serviceAccountID as one of its two participants
+	// (THE-OWNERLESS-ACCOUNT). Ownership of a participating agent identity
+	// cannot be transferred while such an authorization stands: the
+	// same-owner rule was judged against the owner of record, and issuance
+	// re-checks it, so a silent transfer would strand a live session.
+	HasLiveParticipant(ctx context.Context, organizationID, serviceAccountID uuid.UUID, now time.Time) (bool, error)
 }
