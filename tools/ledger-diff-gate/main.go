@@ -26,12 +26,52 @@ func main() {
 	repo := flag.String("repo", ".", "repository root")
 	rulefloorBin := flag.String("rulefloor", "rulefloor", "rulefloor binary")
 	printDoc := flag.Bool("print-doc", false, "also print the rulefloor ledger-diff.v1 document to stderr")
+	rebase := flag.Bool("rebase", false, "write base_commit from the measured previous accepted witness and exit; judges nothing")
 	flag.Parse()
 
+	// THE-MANIFEST-CADENCE: the two modes are exclusive by construction. The
+	// gate cannot write and the writer cannot judge, so a re-base can never
+	// happen inside the run that is about to check the result.
+	if *rebase {
+		if err := rebaseManifest(*manifestPath, *repo); err != nil {
+			fmt.Fprintln(os.Stderr, "ledger-rebase: FAIL —", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(*manifestPath, *repo, *rulefloorBin, *printDoc); err != nil {
 		fmt.Fprintln(os.Stderr, "ledger-diff-gate: FAIL —", err)
 		os.Exit(1)
 	}
+}
+
+// rebaseManifest derives base_commit from the SAME measurement the gate
+// checks against — previousAcceptedWitness — and writes nothing else.
+func rebaseManifest(manifestPath, repo string) error {
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("manifest %s: %w", manifestPath, err)
+	}
+	before, err := ParseManifest(raw)
+	if err != nil {
+		return err
+	}
+	// RevRebase, not RevGate: the commit that will carry this manifest does
+	// not exist yet, so the newest witness before it is the newest witness
+	// reachable from HEAD right now.
+	base, err := newestWitness(repo, RevRebase)
+	if err != nil {
+		return err
+	}
+	out, err := RebaseManifest(raw, base)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(manifestPath, out, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", manifestPath, err)
+	}
+	fmt.Println(RebaseSummary(before.BaseCommit, base, len(before.Changes)))
+	return nil
 }
 
 func run(manifestPath, repo, rulefloorBin string, printDoc bool) error {
@@ -63,9 +103,31 @@ func run(manifestPath, repo, rulefloorBin string, printDoc bool) error {
 	return nil
 }
 
+// RevGate and RevRebase are the two revisions the SAME rule is evaluated at.
+//
+// The rule is: the base is the newest witness that is an ancestor of the
+// commit carrying the manifest, not counting that commit itself.
+//
+// The gate runs when the manifest is already committed, so that commit is
+// HEAD and the search starts at HEAD~1. The re-base runs BEFORE that commit
+// exists, so the commit-to-be is not in history yet and the search starts at
+// HEAD. Same rule, two vantage points — and that is exactly why the derived
+// value is still correct when the gate re-measures it after the commit
+// lands. TestRuleLedgerRebaseDerivesBase1 pins the agreement across that
+// boundary with a real git history.
+const (
+	RevGate   = "HEAD~1"
+	RevRebase = "HEAD"
+)
+
 // previousAcceptedWitness: the newest witness commit strictly before HEAD.
 func previousAcceptedWitness(repo string) (string, error) {
-	cmd := exec.Command("git", "-C", repo, "log", "--format=%H", "-1", "--fixed-strings", "--grep="+WitnessSubjectPrefix, "HEAD~1")
+	return newestWitness(repo, RevGate)
+}
+
+// newestWitness is the single measurement both modes use.
+func newestWitness(repo, rev string) (string, error) {
+	cmd := exec.Command("git", "-C", repo, "log", "--format=%H", "-1", "--fixed-strings", "--grep="+WitnessSubjectPrefix, rev)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
@@ -73,7 +135,7 @@ func previousAcceptedWitness(repo string) (string, error) {
 	}
 	sha := strings.TrimSpace(stdout.String())
 	if sha == "" {
-		return "", errors.New("previous accepted witness: no `" + WitnessSubjectPrefix + "` commit reachable from HEAD~1")
+		return "", errors.New("previous accepted witness: no `" + WitnessSubjectPrefix + "` commit reachable from " + rev)
 	}
 	return sha, nil
 }

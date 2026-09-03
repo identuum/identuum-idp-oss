@@ -199,6 +199,26 @@ ledger-diff-gate:
 	@$(RULEFLOOR_RESOLVE); \
 	go run ./tools/ledger-diff-gate --manifest ledger-amendments.json --repo . --rulefloor "$$RF"
 
+## ledger-rebase (THE-MANIFEST-CADENCE, 2026-09-03): write base_commit from
+## the measured previous accepted witness. NOT A GATE and deliberately NOT in
+## the verify plan — verify judges this manifest, so a verify that rewrote it
+## first would be checking its own homework.
+##
+## base_commit had to equal a value the gate already computes for itself
+## (previousAcceptedWitness: the newest `Witness: make verify green at`
+## commit strictly before HEAD). Hand-copying it cost four reds across two
+## slices. Now the same binary writes it through the same function, so there
+## is no second implementation to drift — and the value is still RE-MEASURED
+## and CHECKED at verify time, which is what keeps deriving from becoming
+## asserting: if a witness lands between the re-base and the verify, the gate
+## refuses the manifest it just helped write.
+##
+## Run it when the manifest goes stale — which is exactly the first commit
+## after any witness. Reasons for a moved rule stay hand-written; this writes
+## ONLY base_commit. Rule LEDGER-REBASE-DERIVES-BASE-1.
+ledger-rebase:
+	@go run ./tools/ledger-diff-gate --rebase --manifest ledger-amendments.json --repo .
+
 ## repo-green: the commit floor — build + vet + test, as ONE named check.
 ##
 ## WIRED HERE ON PURPOSE (THE-GATE-THAT-CANNOT-RUN, 2026-08-04, owner ruling).

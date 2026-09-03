@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "3482384d7293d5e4bcea111caca0a3adcad6ee40",
-  "changes": []
+  "base_commit": "d61fe46c41f629deb29f46b3ffda9e764421dddb",
+  "changes": [
+    {
+      "rule_id": "LEDGER-REBASE-DERIVES-BASE-1",
+      "change_class": "rule_added",
+      "reason": "THE-MANIFEST-CADENCE: the manifest base is now derived by the gate's own measurement instead of hand-copied, and this rule is what keeps deriving from becoming asserting - only base_commit is written, an invalid manifest is refused not repaired, the derived base is still checked at verify time, and make verify never re-bases what it judges"
+    }
+  ]
 }
