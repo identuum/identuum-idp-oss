@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "270aad1e6ecd5a49cb878f188fe3d180c9d9cf62",
-  "changes": [
-    {
-      "rule_id": "GRYPE-FIXABLE-FAILS-1",
-      "change_class": "rule_added",
-      "reason": "THE-STALE-DEPENDENCY: `grype dir:. --fail-on high` exits 0 on a finding whose severity the database does not rate, and it did — golang.org/x/crypto v0.55.0 carried GO-2026-6354 and GO-2026-6355, both with a published fix in v0.56.0, both reported as severity Unknown, so the gate passed and the finding rode in three consecutive slice reports with nothing failing. The owner ruled that a finding WITH AN AVAILABLE FIX must fail: not because it is severe, but because the remedy exists and was not taken. tools/grype-gate now judges the scan — fixable fails, unfixable is reported and does not fail (a version bump cannot action it), the High/Critical floor is kept whatever the fix state so the gate is strictly stronger than the flag it replaces, and the only way past a fixable finding is a named entry in grype-allowlist.json carrying BOTH a reason and a ruling, with a malformed entry failing the gate rather than excusing anything. Mutation red-proved twice, and independently proved against the real pre-bump scan, which the old flag passed and the new gate exits 1 on"
-    }
-  ]
+  "base_commit": "005ad615a918827c26ceed1f9ad27648cb7ebbba",
+  "changes": []
 }
