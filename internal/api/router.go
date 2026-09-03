@@ -1806,6 +1806,14 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			body["backchannel_logout_session_supported"] = deps.BackchannelLogoutService != nil
 		}
 		body["grant_types_supported"] = grants
+		if deps.TokenService != nil && deps.TokenService.HasAgentCommunication() {
+			// RFC 9449 §5.1 and RFC 9396 §10: advertised iff the
+			// agent-communication issuance path is wired (AYGHU-4). The
+			// ONLY authorization_details type served is agent_communication;
+			// no general RFC 9396 support is claimed.
+			body["dpop_signing_alg_values_supported"] = service.DPoPSigningAlgValuesSupported()
+			body["authorization_details_types_supported"] = []string{service.AgentCommunicationAuthorizationDetailsType}
+		}
 		if hasJWTAssertion(deps.OAuthClientAuth) {
 			// OIDC Discovery 1.0 §3 — this field describes the
 			// JWS algorithms the OP accepts on INBOUND

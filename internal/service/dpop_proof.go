@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -238,6 +239,18 @@ func VerifyDPoPTokenEndpointProof(proof, htm, expectedHTU string, now time.Time)
 		return nil, fmt.Errorf("%w: jti", ErrDPoPProofInvalid)
 	}
 	return &DPoPProof{JTI: jti, HTM: gotHTM, HTU: normHTU, IssuedAt: iat, JKT: jkt, PublicKey: pub}, nil
+}
+
+// DPoPSigningAlgValuesSupported is the RFC 9449 §5.1 discovery value: the
+// asymmetric JWS algorithms a token-endpoint DPoP proof may use here, in
+// stable order.
+func DPoPSigningAlgValuesSupported() []string {
+	out := make([]string, 0, len(domain.PrivateKeyJWTSigningAlgorithms))
+	for alg := range domain.PrivateKeyJWTSigningAlgorithms {
+		out = append(out, alg)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // DPoPThumbprintMatches compares two RFC 7638 thumbprints in constant time.

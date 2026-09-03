@@ -49,6 +49,10 @@ type Repositories struct {
 	// DPoPProofReplay is the AYGHU-3 token-endpoint DPoP replay store
 	// (dpop_proof_replays, migration 0038) — separate from ClientAssertionReplay.
 	DPoPProofReplay repository.DPoPProofReplayRepository
+	// AgentCommunicationToken records issued participant-token jtis bound to
+	// their authorization (agent_communication_tokens, migration 0039) so a
+	// revocation can revoke them at once (AYGHU-4).
+	AgentCommunicationToken repository.AgentCommunicationTokenRepository
 	// Audit is the OSS plain persistent audit log store (L-2). Concrete
 	// type (not an interface) so the runtime can SetRetention on it after
 	// resolving the env override; it satisfies both the persistent
@@ -100,6 +104,7 @@ func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 		UserProfile:                     NewPgxUserProfileRepository(db),
 		AgentCommunicationAuthorization: NewPgxAgentCommunicationAuthorizationRepository(db),
 		DPoPProofReplay:                 NewPgxDPoPProofReplayRepository(db),
+		AgentCommunicationToken:         NewPgxAgentCommunicationTokenRepository(db),
 		Audit:                           NewPgxAuditRepository(db, DefaultAuditRetention),
 	}
 }

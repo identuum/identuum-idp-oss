@@ -102,8 +102,21 @@ func (v *RepositoryVerifier) IntrospectToken(ctx context.Context, rawToken strin
 
 // claimsToIntrospection mirrors claimsToPrincipal's field set but
 // additionally surfaces the RFC 7662 standard claims.
+// introspectionExtraClaims are the non-registered claims introspection
+// judges beyond the standard set (AYGHU-4 participant tokens). They are
+// copied from the SIGNED claim set only.
+var introspectionExtraClaims = []string{"cnf", "agent_communication", "authorization_details"}
+
 func claimsToIntrospection(claims jwt.MapClaims) *service.IntrospectionClaims {
 	out := &service.IntrospectionClaims{}
+	for _, k := range introspectionExtraClaims {
+		if v, ok := claims[k]; ok {
+			if out.Extra == nil {
+				out.Extra = map[string]any{}
+			}
+			out.Extra[k] = v
+		}
+	}
 	if sub, _ := claims["sub"].(string); sub != "" {
 		out.Sub = sub
 		if id, err := uuid.Parse(sub); err == nil {

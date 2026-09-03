@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 )
 
 // IntrospectionClaims is the OSS-owned struct that a
@@ -48,6 +50,12 @@ type IntrospectionClaims struct {
 	// pkg/oidc.SubjectResolver seam keys on it (CONF-10). Never rendered in
 	// an introspection response.
 	SessionID uuid.UUID
+
+	// Extra carries the non-standard claims introspection needs to judge
+	// beyond the registered set (AYGHU-4: cnf, agent_communication,
+	// authorization_details). Populated by the verifier from the SIGNED
+	// claim set; never from unverified input.
+	Extra map[string]any
 }
 
 // TokenClaimsVerifier is the seam between the IntrospectionService
@@ -92,6 +100,13 @@ type IntrospectionResponse struct {
 	Aud       []string `json:"aud,omitempty"`
 	Iss       string   `json:"iss,omitempty"`
 	Jti       string   `json:"jti,omitempty"`
+
+	// AYGHU-4 participant tokens: the confirmation key thumbprint ONLY
+	// (RFC 9449 §6.1 `cnf.jkt`, never the JWK), the accepted
+	// authorization_details, and the safe communication projection.
+	Cnf                  map[string]any                   `json:"cnf,omitempty"`
+	AuthorizationDetails any                              `json:"authorization_details,omitempty"`
+	AgentCommunication   *IntrospectionAgentCommunication `json:"agent_communication,omitempty"`
 }
 
 // TokenRevocationChecker is the seam the IntrospectionService
@@ -120,7 +135,132 @@ type IntrospectionService struct {
 	verifier TokenClaimsVerifier
 	scopeSvc *UserScopeService
 	revoker  TokenRevocationChecker
+
+	// AYGHU-4: participant-token introspection re-validates the token's
+	// authorization and participant binding against the store.
+	authorizations repository.AgentCommunicationAuthorizationRepository
+	clients        AgentCommunicationClientLookup
+	now            func() time.Time
 }
+
+// WithAgentCommunication enables participant-token introspection: a token
+// carrying the agent_communication claim is judged against its
+// authorization (must exist, be active) and its participant binding (ACI,
+// service account, client, role, policy digest). Without it, a
+// participant token is judged like any other token (signature, expiry,
+// jti) — never MORE active than the store allows once wired.
+func (s *IntrospectionService) WithAgentCommunication(authorizations repository.AgentCommunicationAuthorizationRepository, clients AgentCommunicationClientLookup) *IntrospectionService {
+	if authorizations == nil || clients == nil {
+		s.authorizations, s.clients = nil, nil
+		return s
+	}
+	s.authorizations, s.clients = authorizations, clients
+	return s
+}
+
+// HasAgentCommunication reports whether participant-token introspection is wired.
+func (s *IntrospectionService) HasAgentCommunication() bool {
+	return s.authorizations != nil && s.clients != nil
+}
+
+// IntrospectionAgentCommunication is the safe communication projection of
+// an active participant token (RFC 7662 extension fields).
+type IntrospectionAgentCommunication struct {
+	AuthorizationID        string `json:"authorization_id"`
+	SessionID              string `json:"session_id"`
+	ACI                    string `json:"aci"`
+	Role                   string `json:"role"`
+	PolicyVersion          string `json:"policy_version"`
+	PolicyDigest           string `json:"policy_digest"`
+	MaxMessages            int    `json:"max_messages"`
+	MaxMessageSizeBytes    int64  `json:"max_message_size_bytes"`
+	AuthorizationExpiresAt int64  `json:"authorization_expires_at"`
+}
+
+// agentCommunicationVerdict judges a participant token's binding. It
+// returns (nil, nil) for a token without the agent_communication claim,
+// (nil, ErrAgentCommunicationTokenInactive) when the token must read
+// inactive, a store error (unavailability) when the store could not answer,
+// and the projection when the token is live.
+func (s *IntrospectionService) agentCommunicationVerdict(ctx context.Context, claims *IntrospectionClaims) (*IntrospectionAgentCommunication, error) {
+	raw, ok := claims.Extra["agent_communication"].(map[string]any)
+	if !ok {
+		return nil, nil
+	}
+	if !s.HasAgentCommunication() {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	str := func(k string) string { v, _ := raw[k].(string); return v }
+	authID, err := uuid.Parse(str("authorization_id"))
+	if err != nil {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	aci, err := uuid.Parse(str("aci"))
+	if err != nil {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	if claims.OrgID == uuid.Nil {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	a, err := s.authorizations.GetByID(ctx, claims.OrgID, authID)
+	if err != nil {
+		if errors.Is(err, domain.ErrAgentCommunicationAuthorizationNotFound) {
+			return nil, ErrAgentCommunicationTokenInactive
+		}
+		return nil, domain.AuthStoreUnavailable("introspection.agent_communication.authorization", err)
+	}
+	now := time.Now
+	if s.now != nil {
+		now = s.now
+	}
+	if a.Status(now().UTC()) != domain.AgentCommunicationStatusActive {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	var p *domain.AgentCommunicationParticipant
+	for i := range a.Participants {
+		if a.Participants[i].ACI == aci {
+			p = &a.Participants[i]
+			break
+		}
+	}
+	if p == nil {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	if p.ServiceAccountID.String() != claims.Sub || string(p.Role) != str("role") {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	if str("policy_digest") != a.PolicyDigest || str("session_id") != a.SessionID.String() {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	if claims.ClientID == "" {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	dc, err := s.clients.GetClientByClientID(ctx, claims.ClientID)
+	if err != nil {
+		if errors.Is(err, domain.ErrClientNotFound) {
+			return nil, ErrAgentCommunicationTokenInactive
+		}
+		return nil, domain.AuthStoreUnavailable("introspection.agent_communication.client", err)
+	}
+	if dc == nil || dc.ID != p.OAuthClientID || dc.ServiceAccountID == nil || *dc.ServiceAccountID != p.ServiceAccountID {
+		return nil, ErrAgentCommunicationTokenInactive
+	}
+	return &IntrospectionAgentCommunication{
+		AuthorizationID:        a.ID.String(),
+		SessionID:              a.SessionID.String(),
+		ACI:                    p.ACI.String(),
+		Role:                   string(p.Role),
+		PolicyVersion:          a.PolicyVersion,
+		PolicyDigest:           a.PolicyDigest,
+		MaxMessages:            a.MaxMessages,
+		MaxMessageSizeBytes:    a.MaxMessageSizeBytes,
+		AuthorizationExpiresAt: a.ExpiresAt.Unix(),
+	}, nil
+}
+
+// ErrAgentCommunicationTokenInactive — the participant token's binding no
+// longer validates (a verdict, not a store failure).
+var ErrAgentCommunicationTokenInactive = errors.New("service: agent communication token inactive")
 
 // NewIntrospectionService constructs the service. verifier must
 // be non-nil — passing nil is a programmer error and panics so a
@@ -130,7 +270,7 @@ func NewIntrospectionService(report *lifecycle.StartupReport, verifier TokenClai
 	if verifier == nil {
 		report.Fatal("NewIntrospectionService", "service: NewIntrospectionService requires a non-nil TokenClaimsVerifier")
 	}
-	return &IntrospectionService{verifier: verifier, scopeSvc: scopeSvc}
+	return &IntrospectionService{verifier: verifier, scopeSvc: scopeSvc, now: time.Now}
 }
 
 // WithRevocationChecker installs a TokenRevocationChecker so the
@@ -236,6 +376,31 @@ func (s *IntrospectionService) IntrospectVerdict(ctx context.Context, rawToken s
 	// it — a revoked role disappears — but must never widen it back to
 	// the role set the user did not consent to hand this client. Login
 	// session tokens carry no client_id and keep the replace semantics.
+	// AYGHU-4: a participant token is judged against its authorization and
+	// binding; inactive on any mismatch, 503 (never active:false) when the
+	// store could not answer.
+	ac, acErr := s.agentCommunicationVerdict(ctx, claims)
+	if acErr != nil {
+		if errors.Is(acErr, ErrAgentCommunicationTokenInactive) {
+			return IntrospectionResponse{Active: false}, nil
+		}
+		return IntrospectionResponse{Active: false}, acErr
+	}
+	if ac != nil {
+		resp.TokenType = "DPoP"
+		resp.AgentCommunication = ac
+		if cnf, ok := claims.Extra["cnf"].(map[string]any); ok {
+			if jkt, ok := cnf["jkt"].(string); ok && jkt != "" {
+				resp.Cnf = map[string]any{"jkt": jkt}
+			}
+		}
+		if resp.Cnf == nil {
+			// A participant token without a confirmation key is not one
+			// this server issued.
+			return IntrospectionResponse{Active: false}, nil
+		}
+		resp.AuthorizationDetails = claims.Extra["authorization_details"]
+	}
 	if s.scopeSvc != nil && claims.UserID != uuid.Nil {
 		eff, scopeErr := s.scopeSvc.GetScopesForUser(ctx, claims.UserID, nil)
 		if scopeErr == nil {

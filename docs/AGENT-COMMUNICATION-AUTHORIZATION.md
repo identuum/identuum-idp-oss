@@ -180,16 +180,56 @@ expires_at}; the token and the proof never enter an event.
 Rules armed by this slice: `AYGHU-NO-BEARER-1`, `AYGHU-DPOP-THUMBPRINT-1`,
 `AYGHU-REVOKE-STOPS-ISSUANCE-1`, `AYGHU-DPOP-REPLAY-1`.
 
-Honest limits (documented, not built): no DPoP server nonce; discovery does
-not yet advertise `dpop_signing_alg_values_supported` /
-`authorization_details_types_supported`; introspection of participant tokens
-and revocation propagation to already-issued tokens are AYGHU-4 — an
-already-issued participant token stays verifiable offline until its
-(≤ 15 min) expiry.
+Honest limits (documented, not built): no DPoP server nonce. Introspection,
+revocation propagation and the discovery advertisement are AYGHU-4 (below).
+
+## AYGHU-4 INTROSPECTION + REVOCATION PROPAGATION — built
+
+**Issued-token record.** Every participant token's `jti` is written to
+`agent_communication_tokens` (migration 0039: jti, authorization id, ACI,
+expiry) BEFORE the token leaves the server; a token that cannot be recorded
+is never handed out (503). Rows are swept once expired and cascade with the
+authorization.
+
+**Revocation propagation.** `POST …/:id/revoke` stamps the authorization
+AND writes every still-live jti of both participants to
+`oauth_token_revocations` (reason `agent_communication.authorization_revoked`),
+so introspection — and every other jti-revocation consumer — turns those
+tokens inactive immediately, not at expiry. An idempotent repeat re-propagates
+(heals a partial earlier run). A store error on either side answers 503; the
+authorization row is already revoked at that point.
+
+**Introspection truth table** (`POST /api/v1/oauth/introspection`, client-authenticated as today):
+
+| Token | Answer |
+|---|---|
+| malformed, bad signature, wrong issuer/audience, expired | 200 `{"active": false}` |
+| jti in `oauth_token_revocations` (revoke endpoint or propagation) | `{"active": false}` |
+| authorization absent (or another organization's), revoked, or expired | `{"active": false}` |
+| ACI not in the authorization; `sub` ≠ participant's service account; `role`, `session_id` or `policy_digest` ≠ stored binding; client absent, not the participant's installation, or re-bound; no `cnf` | `{"active": false}` |
+| introspection not wired for agent communication | `{"active": false}` (fail closed) |
+| live participant token | `active: true`, `token_type: DPoP`, `cnf: {"jkt"}`, standard RFC 7662 fields (`sub` = service-account id, `client_id`, `scope agent_communication`, `exp`/`iat`/`nbf`, `aud`, `iss`, `jti`), `authorization_details`, `agent_communication` {authorization_id, session_id, aci, role, policy_version, policy_digest, max_messages, max_message_size_bytes, authorization_expires_at} |
+| authorization store, client store, jti revocation store or signing-key store unavailable | **503** `temporarily_unavailable` / `auth_store_error` + correlation id — never `active:false` |
+
+Never in an introspection answer: a JWK or any key member, the DPoP proof,
+the token, capability descriptions, owner email.
+
+**Discovery.** When the issuance path is wired, the OP advertises
+`dpop_signing_alg_values_supported` (the asymmetric allow-list) and
+`authorization_details_types_supported: ["agent_communication"]` (RFC 9449
+§5.1, RFC 9396 §10); the closed type list never widens.
+
+Rules armed by this slice: `AYGHU-REVOKED-INACTIVE-1`,
+`AYGHU-INTROSPECT-503-1`, `AYGHU-INTROSPECT-NO-KEYS-1`.
+
+Honest limits: a participant token verified OFFLINE (signature + expiry
+only) cannot see a revocation — only introspection can; the ≤ 15-minute
+lifetime bounds that window. No DPoP server nonce.
 
 ## Not built yet — later slices
 
-- **AYGHU-3 ISSUANCE + DPoP** — built above. — client-credentials issuance carrying
+- **AYGHU-3 ISSUANCE + DPoP** — built above.
+- **AYGHU-4 INTROSPECTION + REVOCATION PROPAGATION** — built above. — client-credentials issuance carrying
   `authorization_details` of type `agent_communication` bound to one
   participant ACI, DPoP (RFC 9449) proof binding to
   `proof_key_thumbprint`, relay audience as the token audience, session

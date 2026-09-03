@@ -83,6 +83,9 @@ type AgentCommunicationIssuanceDeps struct {
 	ServiceAccounts AgentCommunicationServiceAccountLookup
 	Clients         AgentCommunicationClientLookup
 	Replays         DPoPProofReplayMarker
+	// IssuedTokens records every issued jti bound to its authorization
+	// (AYGHU-4) so a revocation reaches live tokens immediately.
+	IssuedTokens repository.AgentCommunicationTokenRepository
 	// TokenEndpointURL is the advertised token endpoint (issuer +
 	// /api/v1/oauth/token): the DPoP proof's htu must name it.
 	TokenEndpointURL string
@@ -100,7 +103,7 @@ type agentCommunicationIssuance struct {
 // dependency leaves the feature OFF (requests with authorization_details
 // then answer invalid_authorization_details) — never a partial issuer.
 func (s *TokenService) WithAgentCommunication(deps AgentCommunicationIssuanceDeps) *TokenService {
-	if deps.Authorizations == nil || deps.ServiceAccounts == nil || deps.Clients == nil || deps.Replays == nil || strings.TrimSpace(deps.TokenEndpointURL) == "" {
+	if deps.Authorizations == nil || deps.ServiceAccounts == nil || deps.Clients == nil || deps.Replays == nil || deps.IssuedTokens == nil || strings.TrimSpace(deps.TokenEndpointURL) == "" {
 		s.agentComm = nil
 		return s
 	}
@@ -384,6 +387,14 @@ func (s *TokenService) IssueAgentCommunication(ctx context.Context, client *Auth
 	})
 	if err != nil {
 		return nil, nil, err
+	}
+	// Record the jti → authorization binding BEFORE the token leaves the
+	// server: a token a revocation could not reach is never handed out (the
+	// minted bytes are discarded on a store failure).
+	if err := d.IssuedTokens.Insert(ctx, &domain.AgentCommunicationToken{
+		JTI: jti, AuthorizationID: a.ID, ACI: participant.ACI, ExpiresAt: exp, IssuedAt: now,
+	}); err != nil {
+		return nil, nil, domain.AuthStoreUnavailable("agent_communication.issue.record", err)
 	}
 	return &TokenResponse{
 		AccessToken: wireToken,

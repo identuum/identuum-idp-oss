@@ -23,6 +23,7 @@ type TokenRevocationCleanup struct {
 	refreshes          *RefreshTokenService
 	replays            *ClientAssertionReplayService
 	dpopReplays        *DPoPProofReplayService
+	agentCommTokens    *AgentCommunicationTokenSweeper
 	userSessions       *UserSessionService
 	authCodes          *AuthorizationCodeService
 	loginRisk          *LoginRiskService
@@ -213,6 +214,16 @@ func (c *TokenRevocationCleanup) WithDPoPProofReplayService(svc *DPoPProofReplay
 	return c
 }
 
+// WithAgentCommunicationTokenSweeper adds the AYGHU-4 issued-token table
+// to the sweep.
+func (c *TokenRevocationCleanup) WithAgentCommunicationTokenSweeper(s *AgentCommunicationTokenSweeper) *TokenRevocationCleanup {
+	if c == nil {
+		return nil
+	}
+	c.agentCommTokens = s
+	return c
+}
+
 // WithRefreshTokenService composes a RefreshTokenService into the
 // cleanup driver so each tick prunes BOTH oauth_token_revocations
 // AND oauth_refresh_tokens. nil resets to "revocation-only"
@@ -357,6 +368,14 @@ func (c *TokenRevocationCleanup) tick(ctx context.Context) {
 			c.logger.Warn("dpop_proof_replay_cleanup: delete failed")
 		} else if dn > 0 {
 			c.logger.Info("dpop_proof_replay_cleanup: deleted expired rows", "count", dn)
+		}
+	}
+	if c.agentCommTokens != nil {
+		tn, terr := c.agentCommTokens.DeleteExpired(ctx)
+		if terr != nil {
+			c.logger.Warn("agent_communication_token_cleanup: delete failed")
+		} else if tn > 0 {
+			c.logger.Info("agent_communication_token_cleanup: deleted expired rows", "count", tn)
 		}
 	}
 	if c.userSessions != nil {

@@ -78,6 +78,10 @@ type AgentCommunicationAuthorizationService struct {
 	clients AgentCommunicationClientLookup
 	now     func() time.Time
 	newID   func() (uuid.UUID, error)
+
+	// AYGHU-4 revocation propagation (optional; see WithRevocationPropagation).
+	tokens  repository.AgentCommunicationTokenRepository
+	revoker AgentCommunicationJTIRevoker
 }
 
 // NewAgentCommunicationAuthorizationService wires the service. A nil
@@ -346,11 +350,77 @@ func (s *AgentCommunicationAuthorizationService) Revoke(ctx context.Context, org
 		return nil, err
 	}
 	if current.RevokedAt != nil {
+		// Idempotent repeat: still propagate, so a revocation whose token
+		// propagation failed earlier heals on retry.
+		if err := s.propagateRevocation(ctx, current); err != nil {
+			return nil, err
+		}
 		return current, nil
 	}
 	if _, err := s.repo.Revoke(ctx, organizationID, id, revokedBy, reasonPtr, s.now().UTC()); err != nil {
 		return nil, domain.AuthStoreUnavailable("agent_communication.revoke", err)
 	}
 	// Re-read: the first stamp wins even when a concurrent revoke raced us.
-	return s.Get(ctx, organizationID, id)
+	revoked, err := s.Get(ctx, organizationID, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.propagateRevocation(ctx, revoked); err != nil {
+		return nil, err
+	}
+	return revoked, nil
+}
+
+// AgentCommunicationJTIRevoker is the seam through which a revoked
+// authorization revokes its issued participant tokens (AYGHU-4);
+// *TokenRevocationService satisfies it.
+type AgentCommunicationJTIRevoker interface {
+	RevokeJTI(ctx context.Context, jti string, expiresAt time.Time, reason string, metadata map[string]any) error
+}
+
+// AgentCommunicationTokenRevocationReason is the oauth_token_revocations
+// reason stamped on every participant token a revocation reaches.
+const AgentCommunicationTokenRevocationReason = "agent_communication.authorization_revoked"
+
+// WithRevocationPropagation wires the issued-token store and the jti
+// revoker. Without both, revocation stays a row stamp (introspection still
+// refuses through the authorization status, but other jti consumers do not
+// learn of it until expiry).
+func (s *AgentCommunicationAuthorizationService) WithRevocationPropagation(tokens repository.AgentCommunicationTokenRepository, revoker AgentCommunicationJTIRevoker) *AgentCommunicationAuthorizationService {
+	if tokens == nil || revoker == nil {
+		s.tokens, s.revoker = nil, nil
+		return s
+	}
+	s.tokens, s.revoker = tokens, revoker
+	return s
+}
+
+// HasRevocationPropagation reports whether issued tokens are revoked with
+// the authorization.
+func (s *AgentCommunicationAuthorizationService) HasRevocationPropagation() bool {
+	return s.tokens != nil && s.revoker != nil
+}
+
+// propagateRevocation revokes every still-live jti issued for a — the
+// step that turns introspection inactive NOW rather than at token expiry.
+// A store error on either side is unavailability: the authorization row
+// is already revoked, and the caller's retry re-propagates.
+func (s *AgentCommunicationAuthorizationService) propagateRevocation(ctx context.Context, a *domain.AgentCommunicationAuthorization) error {
+	if !s.HasRevocationPropagation() || a == nil {
+		return nil
+	}
+	now := s.now().UTC()
+	live, err := s.tokens.ListActiveByAuthorization(ctx, a.ID, now)
+	if err != nil {
+		return domain.AuthStoreUnavailable("agent_communication.revoke.tokens", err)
+	}
+	for _, t := range live {
+		if err := s.revoker.RevokeJTI(ctx, t.JTI, t.ExpiresAt, AgentCommunicationTokenRevocationReason, map[string]any{
+			"authorization_id": a.ID.String(),
+			"aci":              t.ACI.String(),
+		}); err != nil {
+			return domain.AuthStoreUnavailable("agent_communication.revoke.propagate", err)
+		}
+	}
+	return nil
 }

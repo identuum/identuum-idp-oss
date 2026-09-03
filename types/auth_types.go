@@ -190,6 +190,12 @@ type IntrospectResponse struct {
 	Iat       int64    `json:"iat,omitempty"`
 	Nbf       int64    `json:"nbf,omitempty"`
 	Active    bool     `json:"active"`
+	// AYGHU-4 participant tokens (token_type DPoP): cnf carries ONLY jkt;
+	// agent_communication is the safe binding projection (authorization id,
+	// session id, aci, role, policy version/digest, limits, expiry).
+	Cnf                  map[string]any `json:"cnf,omitempty"`
+	AuthorizationDetails any            `json:"authorization_details,omitempty"`
+	AgentCommunication   map[string]any `json:"agent_communication,omitempty"`
 }
 
 // ValidateSessionResponse represents the response to a session validation request

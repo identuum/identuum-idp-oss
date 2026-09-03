@@ -40,6 +40,7 @@ type captureMinter struct {
 	mu    sync.Mutex
 	calls int
 	last  oidc.TokenClaims
+	byJTI map[string]oidc.TokenClaims
 }
 
 func (m *captureMinter) Mint(_ context.Context, c oidc.TokenClaims) (string, string, error) {
@@ -47,7 +48,19 @@ func (m *captureMinter) Mint(_ context.Context, c oidc.TokenClaims) (string, str
 	defer m.mu.Unlock()
 	m.calls++
 	m.last = c
+	if m.byJTI == nil {
+		m.byJTI = map[string]oidc.TokenClaims{}
+	}
+	m.byJTI[c.JTI] = c
 	return "test-token-" + c.JTI, c.JTI, nil
+}
+
+// claimsFor returns the claims minted under a wire token ("test-token-<jti>").
+func (m *captureMinter) claimsFor(wireToken string) (oidc.TokenClaims, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	c, ok := m.byJTI[strings.TrimPrefix(wireToken, "test-token-")]
+	return c, ok && strings.HasPrefix(wireToken, "test-token-")
 }
 
 type acReplayMarkerFake struct {
@@ -71,6 +84,42 @@ func (f *acReplayMarkerFake) Mark(_ context.Context, jkt, jti string) (bool, err
 	}
 	f.seen[k] = true
 	return true, nil
+}
+
+// acIssuedTokensStub is an in-memory AgentCommunicationTokenRepository.
+type acIssuedTokensStub struct {
+	mu   sync.Mutex
+	rows []domain.AgentCommunicationToken
+	fail error
+}
+
+func (f *acIssuedTokensStub) Insert(_ context.Context, t *domain.AgentCommunicationToken) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail != nil {
+		return f.fail
+	}
+	f.rows = append(f.rows, *t)
+	return nil
+}
+
+func (f *acIssuedTokensStub) ListActiveByAuthorization(_ context.Context, authID uuid.UUID, now time.Time) ([]domain.AgentCommunicationToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	var out []domain.AgentCommunicationToken
+	for _, r := range f.rows {
+		if r.AuthorizationID == authID && r.ExpiresAt.After(now) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *acIssuedTokensStub) DeleteExpiredBefore(_ context.Context, _ time.Time) (int64, error) {
+	return 0, nil
 }
 
 type dpopKey struct {
@@ -110,6 +159,7 @@ type acTokenWorld struct {
 	keyB    dpopKey
 	minter  *captureMinter
 	replays *acReplayMarkerFake
+	issued  *acIssuedTokensStub
 	tokens  *service.TokenService
 	audit   *audit.Recorder
 }
@@ -117,7 +167,7 @@ type acTokenWorld struct {
 func newACTokenWorld(t *testing.T) *acTokenWorld {
 	t.Helper()
 	base := newACWorld(t)
-	w := &acTokenWorld{acTestWorld: base, keyA: newDPoPKey(t), keyB: newDPoPKey(t), minter: &captureMinter{}, replays: &acReplayMarkerFake{}, audit: &audit.Recorder{}}
+	w := &acTokenWorld{acTestWorld: base, keyA: newDPoPKey(t), keyB: newDPoPKey(t), minter: &captureMinter{}, replays: &acReplayMarkerFake{}, issued: &acIssuedTokensStub{}, audit: &audit.Recorder{}}
 	// The token service runs on the wall clock (the handler has no clock
 	// seam of its own), so the authorization must be live NOW.
 	a, err := w.svc.CreateForActor(context.Background(), w.adminA, service.CreateAgentCommunicationAuthorizationInput{
@@ -132,7 +182,7 @@ func newACTokenWorld(t *testing.T) *acTokenWorld {
 	report := lifecycle.NewStartupReport()
 	w.tokens = service.NewTokenService(report, &handlerKeyProvider{}, service.TokenServiceOptions{Issuer: "https://idp.test", Minter: w.minter}).
 		WithAgentCommunication(service.AgentCommunicationIssuanceDeps{
-			Authorizations: w.repo, ServiceAccounts: w.sas, Clients: w.clients, Replays: w.replays, TokenEndpointURL: tokenEndpointURL,
+			Authorizations: w.repo, ServiceAccounts: w.sas, Clients: w.clients, Replays: w.replays, IssuedTokens: w.issued, TokenEndpointURL: tokenEndpointURL,
 		})
 	require.False(t, report.HasFatal())
 	return w

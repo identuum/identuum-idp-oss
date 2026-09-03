@@ -1,26 +1,21 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "6f6e3d98ff9e2e0cbb743a4d77ecbf786ece4141",
+  "base_commit": "aacb07324ac46f170cfbd3fd2ee0dcff792a836c",
   "changes": [
     {
-      "rule_id": "AYGHU-NO-BEARER-1",
+      "rule_id": "AYGHU-REVOKED-INACTIVE-1",
       "change_class": "rule_added",
-      "reason": "AYGHU-3 ISSUANCE: a token request carrying agent_communication authorization_details is sender-constrained — without a valid DPoP proof it is refused (invalid_dpop_proof) and no token of any type is minted; a success is token_type DPoP with cnf.jkt and never carries a refresh token; requests without authorization_details keep the pre-existing path; mutation red-proved (the handler branch guard was made to require the DPoP header, so a proof-less request fell through to the Bearer path)"
+      "reason": "AYGHU-4: every issued participant-token jti is recorded bound to its authorization at issuance; revoking the authorization writes every still-live jti of BOTH participants to the jti revocation store at once, so introspection answers active:false immediately — not at token expiry; mutation red-proved (propagation skipped → the jtis stayed unrevoked and the tokens read active after revocation)"
     },
     {
-      "rule_id": "AYGHU-DPOP-THUMBPRINT-1",
+      "rule_id": "AYGHU-INTROSPECT-503-1",
       "change_class": "rule_added",
-      "reason": "AYGHU-3 ISSUANCE: the DPoP proof key's RFC 7638 thumbprint must equal the participant's enrolled proof_key_thumbprint — a foreign key and the other participant's key are refused (invalid_dpop_proof, thumbprint_mismatch audited), the enrolled key is accepted and its thumbprint is the token's cnf.jkt; mutation red-proved (thumbprint comparison neutralized → a foreign key was accepted)"
+      "reason": "AYGHU-4: when the authorization store, the client store or the jti revocation store cannot answer, introspecting a participant token answers 503 temporarily_unavailable / auth_store_error with a correlation id — never active:false; an unjudged token is never presented as a judged verdict; mutation red-proved (the authorization-store error collapsed to inactive → the outage read as {active:false})"
     },
     {
-      "rule_id": "AYGHU-REVOKE-STOPS-ISSUANCE-1",
+      "rule_id": "AYGHU-INTROSPECT-NO-KEYS-1",
       "change_class": "rule_added",
-      "reason": "AYGHU-3 ISSUANCE: revoking an authorization stops participant-token issuance for BOTH participants immediately (invalid_grant, authorization_revoked audited); mutation red-proved (the revoked-status refusal was removed → tokens were minted after revocation)"
-    },
-    {
-      "rule_id": "AYGHU-DPOP-REPLAY-1",
-      "change_class": "rule_added",
-      "reason": "AYGHU-3 ISSUANCE: a DPoP proof is single-use per (proof key, jti) — the same proof presented again is refused (invalid_dpop_proof, dpop_replay audited) with no second token, a fresh jti is accepted, and a replay-store outage answers 503 with a correlation id, never a verdict; mutation red-proved (the replay verdict was ignored → the replayed proof minted a second token)"
+      "reason": "AYGHU-4: an active participant token introspects with token_type DPoP, cnf carrying ONLY the RFC 7638 thumbprint jkt, and the safe agent_communication projection (authorization id, session id, aci, role, policy version/digest, limits, authorization expiry) — never a JWK, key members, the proof, the token or capability descriptions; mutation red-proved (the whole cnf claim was copied into the response → the JWK material leaked)"
     }
   ]
 }

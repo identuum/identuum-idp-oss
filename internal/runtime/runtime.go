@@ -240,6 +240,9 @@ type Runtime struct {
 	// buildDeps (token issuance) and swept by the cleanup ticker in Start.
 	dpopReplaySvc *service.DPoPProofReplayService
 
+	// agentCommTokenSweeper prunes expired issued-token rows (AYGHU-4).
+	agentCommTokenSweeper *service.AgentCommunicationTokenSweeper
+
 	// done is closed once the serve loop returns. serveErr stores
 	// the loop's final error (nil for graceful shutdown).
 	done      chan struct{}
@@ -481,6 +484,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			WithRefreshTokenService(refreshTokenSvc).
 			WithClientAssertionReplayService(replaySvc).
 			WithDPoPProofReplayService(r.dpopReplaySvc).
+			WithAgentCommunicationTokenSweeper(r.agentCommTokenSweeper).
 			WithUserSessionService(userSessionSvc).
 			WithAuthorizationCodeService(authCodeSvc).
 			WithLoginRiskService(loginRiskSvc).
@@ -946,7 +950,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	introspectionSvc := service.NewIntrospectionService(report,
 		tokenVerifier.(*auth.RepositoryVerifier),
 		userScopeSvc,
-	)
+	).WithAgentCommunication(repos.AgentCommunicationAuthorization, repos.Client)
 
 	// Single source of truth: the minters stamp exactly the same anchor the
 	// bearer verifier confines to (resolved above). No independent
@@ -1133,10 +1137,15 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 			ServiceAccounts:  repos.ServiceAccount,
 			Clients:          repos.Client,
 			Replays:          r.dpopReplaySvc,
+			IssuedTokens:     repos.AgentCommunicationToken,
 			TokenEndpointURL: tokenSvcIssuer + "/api/v1/oauth/token",
 			TTL:              resolveAgentCommunicationTokenTTL(r.cfg.Getenv),
 		})
 	tokenRevocationSvc := service.NewTokenRevocationService(report, repos.TokenRevocation)
+	// AYGHU-4: revoking an authorization revokes its live participant-token
+	// jtis at once; expired rows of the issued-token table are swept in Start.
+	agentCommAuthSvc.WithRevocationPropagation(repos.AgentCommunicationToken, tokenRevocationSvc)
+	r.agentCommTokenSweeper = service.NewAgentCommunicationTokenSweeper(report, repos.AgentCommunicationToken)
 	refreshTokenSvc := service.NewRefreshTokenService(report, repos.RefreshToken, service.RefreshTokenServiceOptions{}).
 		WithTokenRevocationService(tokenRevocationSvc).
 		WithUserOrgLookup(repos.User)

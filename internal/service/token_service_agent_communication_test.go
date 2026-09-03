@@ -43,6 +43,54 @@ func (f *acReplayFake) Mark(_ context.Context, jkt, jti string) (bool, error) {
 	return true, nil
 }
 
+// acIssuedTokensFake is an in-memory AgentCommunicationTokenRepository.
+type acIssuedTokensFake struct {
+	mu   sync.Mutex
+	rows []domain.AgentCommunicationToken
+	fail error
+}
+
+func (f *acIssuedTokensFake) Insert(_ context.Context, t *domain.AgentCommunicationToken) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail != nil {
+		return f.fail
+	}
+	f.rows = append(f.rows, *t)
+	return nil
+}
+
+func (f *acIssuedTokensFake) ListActiveByAuthorization(_ context.Context, authID uuid.UUID, now time.Time) ([]domain.AgentCommunicationToken, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail != nil {
+		return nil, f.fail
+	}
+	var out []domain.AgentCommunicationToken
+	for _, r := range f.rows {
+		if r.AuthorizationID == authID && r.ExpiresAt.After(now) {
+			out = append(out, r)
+		}
+	}
+	return out, nil
+}
+
+func (f *acIssuedTokensFake) DeleteExpiredBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var kept []domain.AgentCommunicationToken
+	var n int64
+	for _, r := range f.rows {
+		if r.ExpiresAt.Before(cutoff) {
+			n++
+			continue
+		}
+		kept = append(kept, r)
+	}
+	f.rows = kept
+	return n, nil
+}
+
 // acIssuanceWorld: an AYGHU-1 fixture (org, owner, two agents), one active
 // authorization whose participants are enrolled with fresh DPoP keys, and a
 // TokenService with the agent-communication path wired.
@@ -52,6 +100,7 @@ type acIssuanceWorld struct {
 	keyA    dpopTestKey // initiator (saA / clientA)
 	keyB    dpopTestKey // responder (saB / clientB)
 	replays *acReplayFake
+	issued  *acIssuedTokensFake
 	tokens  *TokenService
 	now     time.Time
 }
@@ -61,7 +110,7 @@ const acIssuanceTokenEndpoint = "https://idp.test/api/v1/oauth/token"
 func newACIssuanceWorld(t *testing.T) *acIssuanceWorld {
 	t.Helper()
 	f := newACFixture(t)
-	w := &acIssuanceWorld{f: f, keyA: newEdDSAProofKey(t), keyB: newES256ProofKey(t), replays: &acReplayFake{}, now: f.now}
+	w := &acIssuanceWorld{f: f, keyA: newEdDSAProofKey(t), keyB: newES256ProofKey(t), replays: &acReplayFake{}, issued: &acIssuedTokensFake{}, now: f.now}
 	in := f.input()
 	in.Participants[0].ProofKeyThumbprint = w.keyA.jkt
 	in.Participants[1].ProofKeyThumbprint = w.keyB.jkt
@@ -77,6 +126,7 @@ func newACIssuanceWorld(t *testing.T) *acIssuanceWorld {
 			ServiceAccounts:  f.sas,
 			Clients:          f.clients,
 			Replays:          w.replays,
+			IssuedTokens:     w.issued,
 			TokenEndpointURL: acIssuanceTokenEndpoint,
 		})
 	w.tokens.now = func() time.Time { return w.now }
@@ -188,7 +238,7 @@ func TestIssueAgentCommunication_TTLNeverPastAuthorizationExpiry(t *testing.T) {
 	// Configured TTL above the hard maximum is clamped.
 	w2 := newACIssuanceWorld(t)
 	w2.tokens.WithAgentCommunication(AgentCommunicationIssuanceDeps{
-		Authorizations: w2.f.repo, ServiceAccounts: w2.f.sas, Clients: w2.f.clients, Replays: w2.replays,
+		Authorizations: w2.f.repo, ServiceAccounts: w2.f.sas, Clients: w2.f.clients, Replays: w2.replays, IssuedTokens: w2.issued,
 		TokenEndpointURL: acIssuanceTokenEndpoint, TTL: time.Hour,
 	})
 	assert.Equal(t, MaxAgentCommunicationTokenTTL, w2.tokens.AgentCommunicationTokenTTL())
