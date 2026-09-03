@@ -16,7 +16,7 @@ import (
 
 // AgentCommunicationAuthorization — AYGHU-1 FOUNDATION.
 //
-// An owner (a human user of the organization) authorizes exactly two of
+// An owner (the human authority of the organization) authorizes exactly two of
 // their own agent identities (service accounts, each installed as a
 // private_key_jwt OAuth client) to communicate through a relay for one
 // bounded session. The IdP allocates every identifier: the authorization

@@ -319,6 +319,12 @@ func (s *TokenService) IssueAgentCommunication(ctx context.Context, client *Auth
 	if !sa.Active || (sa.ExpiresAt != nil && !sa.ExpiresAt.After(now)) {
 		return nil, nil, refuseAgentCommunication("participant_not_usable", ErrAgentCommunicationGrantInvalid)
 	}
+	// The same-owner rule is re-checked at issuance (spec): if the service
+	// account's owner binding changed after the authorization was created,
+	// no token is issued for it.
+	if sa.OwnerUserID == nil || *sa.OwnerUserID != a.OwnerID {
+		return nil, nil, refuseAgentCommunication("participant_owner_mismatch", ErrAgentCommunicationGrantInvalid)
+	}
 	if err := domain.CheckAgentCommunicationParticipantClient(sa, dc); err != nil {
 		return nil, nil, refuseAgentCommunication("participant_binding_invalid", ErrAgentCommunicationGrantInvalid)
 	}

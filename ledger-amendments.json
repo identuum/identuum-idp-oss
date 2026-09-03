@@ -1,5 +1,41 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "d1488cab531f79c248d2c481f59b58dce19d027d",
-  "changes": []
+  "base_commit": "386a84d54b3d918c4b4050e8185aaafc0d015409",
+  "changes": [
+    {
+      "rule_id": "AYGHU-OWNER-AT-ISSUANCE-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-5 INTEGRATION (spec: 'at issuance the owner binding is re-checked; if ownership changed after creation, refuse' — the one small gap the conformance audit found, closed here): issuance refuses a participant whose service account's owner binding changed or disappeared (invalid_grant, participant_owner_mismatch audited); mutation red-proved (the re-check disabled → tokens minted for a re-owned service account)"
+    },
+    {
+      "rule_id": "AYGHU-ACI-ADDRESS-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-5 (spec rule 'ACI is an address, never a credential'): ACIs are public to the owner and yield no token without the participant's own installation and enrolled key; an ACI presented as a token introspects inactive; mutation red-proved (the client-is-participant check removed → the other installation obtained A's token by knowing A's ACI)"
+    },
+    {
+      "rule_id": "AYGHU-NO-WIDENING-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-5 (spec rule 'authorization cannot be widened after activation'): no PUT/PATCH/DELETE route, a widened policy digest introspects inactive, wider capabilities are a new authorization; mutation red-proved (the policy-digest comparison removed from introspection → a widened digest read active)"
+    },
+    {
+      "rule_id": "AYGHU-TOKEN-BINDING-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-5 (spec rule 'a participant token is bound to the exact authorization, session, ACI, OAuth client, service account, relay audience and proof key'): the claim set carries every binding and no owner identity; each broken binding is refused; mutation red-proved (the audience check removed from issuance → a foreign audience minted a token)"
+    },
+    {
+      "rule_id": "AYGHU-NO-REFRESH-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-5 (spec rule 'communication-token issuance never emits a refresh token'): no refresh_token on success and the refresh grant cannot prolong a participant's access; mutation red-proved (RefreshToken set on the participant response → the refresh token appeared)"
+    },
+    {
+      "rule_id": "AYGHU-TOKEN-AUDIT-SAFE-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-5 (spec rule 'secrets, tokens, proofs and message contents never enter audit metadata'): the token endpoint's issued and refused events carry identifiers and a reason code only — never the token, the proof, the thumbprint or key material; mutation red-proved (the DPoP proof copied into the refused event → the proof appeared in the audit)"
+    },
+    {
+      "rule_id": "AYGHU-IDENTITY-SIGNED-1",
+      "change_class": "rule_added",
+      "reason": "AYGHU-5 (spec rule 'owner identity is attested by IDP-signed tokens only; never a peer-checked message field'): participant identity comes from this server's signature over the claim set and nothing else — tampered, foreign-key-signed and unsigned claim sets are refused, no owner identity rides in the token; mutation red-proved (the verifier parsed without checking the signature → a tampered claim set was accepted)"
+    }
+  ]
 }
