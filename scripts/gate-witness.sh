@@ -147,11 +147,13 @@ write_header() { # <record> <label> <plan name>...
 }
 
 record_one() { # <record> <name> <command> — returns the command's exit
-	local rec="$1" name="$2" cmd="$3" out ec okpkgs
+	local rec="$1" name="$2" cmd="$3" out ec okpkgs t0 t1
 	out=$(mktemp "${TMPDIR:-/tmp}/gate-witness-out.XXXXXX")
 	echo "==> gate-witness: $name"
+	t0=$(date +%s)
 	bash -c "$cmd" 2>&1 | tee "$out"
 	ec=${PIPESTATUS[0]}
+	t1=$(date +%s)
 	if [ "$name" = "tool-versions" ]; then
 		sed 's/^/tool: /' "$out" >>"$rec"
 	fi
@@ -161,6 +163,13 @@ record_one() { # <record> <name> <command> — returns the command's exit
 	# (e.g. wiki-freshness rows) out of this count.
 	okpkgs=$(grep -c -E '^ok[[:space:]]+\S+[[:space:]]+([0-9.]+s|\(cached\))' "$out" 2>/dev/null || true)
 	[ "${okpkgs:-0}" -gt 0 ] && echo "evidence: [$name] go packages ok: $okpkgs" >>"$rec"
+	# THE-SLOW-RITUAL: wall clock per target, on its OWN line. The `target:`
+	# line's shape is load-bearing — finalize_into greps `^target: N exit=0$`
+	# anchored, and check_mode reads everything after the last `exit=` — so a
+	# suffix there would silently break both. A separate line adds the number
+	# without touching either parser, and a run that dies inside a target
+	# leaves no elapsed line at all, which is the honest record.
+	echo "elapsed: $name $((t1 - t0))s" >>"$rec"
 	echo "target: $name exit=$ec" >>"$rec"
 	rm -f "$out"
 	return "$ec"
