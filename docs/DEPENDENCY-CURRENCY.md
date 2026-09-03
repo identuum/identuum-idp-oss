@@ -15,6 +15,7 @@ Measured 2026-09-03 (`go list -m -u`, `govulncheck ./...`, `grype dir:`).
 | `golang.org/x/crypto` | v0.55.0 | **v0.56.0** | Security. GO-2026-6354 and GO-2026-6355, both fixed in 0.56.0. Build, vet and the whole suite unchanged. |
 | `github.com/golang-jwt/jwt/v5` | v5.3.0 | **v5.3.1** | Patch release, no API change. |
 | `github.com/stretchr/testify` | v1.11.1 | **v1.12.1** | Minor, test-only. Judged by the unit suite: green, no code change. Carried `stretchr/objx` v0.5.2 → v0.5.3 with it. |
+| `github.com/alicebob/miniredis/v2` | v2.35.0 | **v2.39.0** | Four minors, test-only (the Redis fake). Judged by the unit suite: green, no code change. |
 
 ## Deliberately behind, with the reason
 
@@ -34,7 +35,6 @@ of them in one commit would make a single red impossible to attribute.
 | `github.com/pressly/goose/v3` | v3.26.0 | v3.28.0 | The migration engine — a bump is a migration-path change, judged by a fresh-appliance mint. |
 | `github.com/prometheus/client_golang` | v1.23.2 | v1.24.1 | Metrics surface. |
 | `go.uber.org/zap` | v1.27.0 | v1.28.0 | Logging. |
-| `github.com/alicebob/miniredis/v2` | v2.35.0 | v2.39.0 | Test-only. |
 
 Current at latest stable and needing no note: `github.com/google/uuid` v1.6.0,
 `gopkg.in/yaml.v3` v3.0.1.
