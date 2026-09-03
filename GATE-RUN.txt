@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 900b847
-started: 2026-09-03T15:48:41Z
+repo-head: 94b93c6
+started: 2026-09-03T16:07:31Z
 plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -15,7 +15,7 @@ target: tracked-binary-check exit=0
 target: credential-transparency exit=0
 evidence: [rulefloor-check] check OK: 240 rows (240 armed), FLOOR 240, RED-PROOFS 240 (measured 240)
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=b6fcddfeb16358dc10cbd71f58c1549aa7b2973c status=different rule_changes=2 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=bc81e0b96e1e167b2690816cf8d5a7dd762fda384a9337e81d039e732f296449
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=358a5191b5d17726eda80a81c5f734de575130dd status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=125253765859753f4e56046c41360dd1952fbe154a410e62ebac995b6b17570d
 target: ledger-diff-gate exit=0
 target: image-base-check exit=0
 target: vet-integration exit=0
@@ -38,6 +38,6 @@ target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 target: wiki-fresh exit=0
 target: grype-scan exit=0
-finished: 2026-09-03T15:53:40Z
-tree: sha256=7217cb376c75930c78d0b8d5582d0e23330ed20168633112fef7b22665ebac29
+finished: 2026-09-03T16:12:32Z
+tree: sha256=3aefbc8c5bd711c7eda8c5014a51933b93bbf15ade481ec26b3c102b19dbeffc
 result: green
