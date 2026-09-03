@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "cd3ac72c6d7dba4bd702a4d6e4894dd11b9eb5da",
+  "base_commit": "270aad1e6ecd5a49cb878f188fe3d180c9d9cf62",
   "changes": [
     {
-      "rule_id": "INTEGRATION-GATE-1",
+      "rule_id": "GRYPE-FIXABLE-FAILS-1",
       "change_class": "rule_added",
-      "reason": "THE-UNRUN-SUITE: the integration-tagged suites had no gate. make verify type-checks them (vet-integration) and runs nothing, so a profile that stopped running, or ran red, changed no visible fact — which is how a broken bundle fixture stayed latent for a slice and a wrong advertised algorithm list for two days with a test on the right side sitting red. The owner ruled for a SEPARATE make verify-integration with its own gate-witness record (GATE-RUN.integration.txt, gitignored like the e2e-full record), wired into the two-repo mint where a database already stands up, leaving make verify database-free and runnable without Docker. The rule pins the judgement and the wiring: three outcomes with three distinct exit codes and only green at zero, a run that executes ZERO tests refused, a failing run refused, a missing database CANNOT-EVALUATE at exit 2 and never a pass, the witness executed as a built binary because go run collapses exit 2 into 1, the mint running the gate and re-checking its record, and make verify staying free of it. Mutation red-proved twice — the zero-test guard disabled turned a suite that never ran green, and the no-database classification disabled reported an absent environment as a red tree"
+      "reason": "THE-STALE-DEPENDENCY: `grype dir:. --fail-on high` exits 0 on a finding whose severity the database does not rate, and it did — golang.org/x/crypto v0.55.0 carried GO-2026-6354 and GO-2026-6355, both with a published fix in v0.56.0, both reported as severity Unknown, so the gate passed and the finding rode in three consecutive slice reports with nothing failing. The owner ruled that a finding WITH AN AVAILABLE FIX must fail: not because it is severe, but because the remedy exists and was not taken. tools/grype-gate now judges the scan — fixable fails, unfixable is reported and does not fail (a version bump cannot action it), the High/Critical floor is kept whatever the fix state so the gate is strictly stronger than the flag it replaces, and the only way past a fixable finding is a named entry in grype-allowlist.json carrying BOTH a reason and a ruling, with a malformed entry failing the gate rather than excusing anything. Mutation red-proved twice, and independently proved against the real pre-bump scan, which the old flag passed and the new gate exits 1 on"
     }
   ]
 }

@@ -904,12 +904,31 @@ distroless-exec-check:
 		exit 1; \
 	fi
 
-## grype-scan: Anchore Grype filesystem scan; fails on any High or Critical finding.
+## grype-scan: Anchore Grype filesystem scan, judged by tools/grype-gate.
 ## Requires grype to be installed (https://github.com/anchore/grype).
 ## Runs both locally (via `verify`) AND in CI (via `ci-verify`) — CI installs a
 ## tag-pinned grype in .github/workflows/ci.yml before invoking this target.
-grype-scan:
-	grype dir:. --fail-on high
+##
+## WHY IT IS NO LONGER `grype dir:. --fail-on high` (THE-STALE-DEPENDENCY,
+## owner ruling P-042): that flag exits 0 on a finding whose severity the
+## database does not rate, and it did — golang.org/x/crypto v0.55.0 carried
+## GO-2026-6354 and GO-2026-6355, BOTH with a published fix in v0.56.0, BOTH
+## reported as severity "Unknown". The gate passed and the finding rode in
+## three consecutive slice reports with nothing failing.
+##
+## The gate now fails on a finding that HAS AN AVAILABLE FIX — not because it
+## is severe, but because somebody published the remedy and this repository
+## has not taken it. A finding with NO fix cannot be actioned by a bump, so it
+## is reported, not failed. The High/Critical floor is kept exactly as it was,
+## so this is strictly stronger than the flag it replaces. The only way past a
+## fixable finding is a named entry in grype-allowlist.json carrying a reason
+## AND a ruling; an entry missing either fails the gate rather than excusing
+## anything. Rule GRYPE-FIXABLE-FAILS-1.
+grype-scan: bin/grype-gate
+	./bin/grype-gate
+
+bin/grype-gate:
+	go build -o bin/grype-gate ./tools/grype-gate
 
 ## fast-up: start the local development Postgres container.
 ## fast-up: start local dev Postgres with EVERY external call under a bound.
