@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: fcd95e4
-started: 2026-09-03T18:34:21Z
+repo-head: 41cab0c
+started: 2026-09-03T19:38:06Z
 plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -13,9 +13,9 @@ target: tool-versions exit=0
 target: repo-green exit=0
 target: tracked-binary-check exit=0
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 242 rows (242 armed), FLOOR 242, RED-PROOFS 242 (measured 242)
+evidence: [rulefloor-check] check OK: 243 rows (243 armed), FLOOR 243, RED-PROOFS 243 (measured 243)
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=cd3ac72c6d7dba4bd702a4d6e4894dd11b9eb5da status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=43787e0ebf0eb4ae331fa2a365576dd2c6f00a77c01e46296781a11f4bded53a
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=270aad1e6ecd5a49cb878f188fe3d180c9d9cf62 status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=b710bea85fd9e2c1ae18bf92aab222551dfb34747085612ccae944cd5dfd54c2
 target: ledger-diff-gate exit=0
 target: image-base-check exit=0
 target: vet-integration exit=0
@@ -37,7 +37,8 @@ target: staticcheck exit=0
 target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
 target: wiki-fresh exit=0
+evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
 target: grype-scan exit=0
-finished: 2026-09-03T18:39:51Z
-tree: sha256=a1718491b1e57a3ca182a9a5dfefce4015811659816404fd870a739f0fc72349
+finished: 2026-09-03T19:43:35Z
+tree: sha256=a6f414113f92a2ff8e57b11beef0df405d9005b9473d570c96d50d445cceb005
 result: green
