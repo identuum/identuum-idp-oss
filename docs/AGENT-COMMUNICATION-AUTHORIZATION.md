@@ -496,7 +496,9 @@ Ayghu — nothing is built here), **out of scope v1**, **deferred**.
   the AUTH-503 straggler: `GetForActor` and `LookupForClient` mapped every
   store error to not-found, so an outage read as "no such service account"
   on the admin surface and as `unauthorized_client` at the token endpoint.
-  Both now answer 503 with a correlation id (`SA-STORE-503-1`).
+  Both now answer 503 with a correlation id, while the store's TYPED
+  not-found verdict still answers not-found — a distinction the first live
+  mint caught and the rule now pins (`SA-STORE-503-1`).
 - **Indirect, not closed (small, measured):** a Go integration test that
   writes invalid rows directly and watches the 0037 triggers refuse (the
   triggers exist, are asserted by text in `AYGHU-MATERIAL-CHANGE-1`, and run

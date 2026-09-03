@@ -136,6 +136,13 @@ func (s *ServiceAccountService) ListForActor(ctx context.Context, actor *domain.
 func (s *ServiceAccountService) GetForActor(ctx context.Context, actor *domain.Principal, saID uuid.UUID) (*domain.ServiceAccount, error) {
 	sa, err := s.repo.GetByID(ctx, saID)
 	if err != nil {
+		// The store's TYPED verdict for "no such live row" stays not-found;
+		// anything else is an outage, not an answer (MEASURED on the live
+		// appliance: the pgx repository returns domain.ErrServiceAccountNotFound
+		// for pgx.ErrNoRows, so this distinction is load-bearing).
+		if errors.Is(err, domain.ErrServiceAccountNotFound) {
+			return nil, ErrSANotFound
+		}
 		return nil, domain.AuthStoreUnavailable("service_account.get", err)
 	}
 	if sa == nil {

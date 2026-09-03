@@ -101,6 +101,19 @@ func TestRule_SA_STORE_503_1(t *testing.T) {
 	absent := assignOwner(t, engine, uuid.New(), nil)
 	require.Equal(t, http.StatusNotFound, absent.Code, "a genuine absence is still not-found")
 
+	// The store reports a genuine absence as a TYPED error, not as a nil row
+	// (the pgx repository maps pgx.ErrNoRows to domain.ErrServiceAccountNotFound).
+	// MEASURED on a live appliance: reading that shape as an outage turned
+	// every unknown id into a 503. The typed verdict stays not-found.
+	w.repo.getErr = domain.ErrServiceAccountNotFound
+	typed := assignOwner(t, engine, w.sa.ID, nil)
+	require.Equal(t, http.StatusNotFound, typed.Code, typed.Body.String())
+	typedRead := httptest.NewRequest(http.MethodGet, "/api/v1/service-accounts/"+w.sa.ID.String(), nil)
+	typedRec := httptest.NewRecorder()
+	engine.ServeHTTP(typedRec, typedRead)
+	require.Equal(t, http.StatusNotFound, typedRec.Code, typedRec.Body.String())
+	w.repo.getErr = nil
+
 	w.repo.getErr = errors.New("db down")
 	for name, call := range map[string]func() *httptest.ResponseRecorder{
 		"owner assignment": func() *httptest.ResponseRecorder {
@@ -151,6 +164,13 @@ func TestRule_SA_STORE_503_1(t *testing.T) {
 
 	ok := postToken(t, tw.engine(client), form, "")
 	require.Equal(t, http.StatusOK, ok.Code, ok.Body.String())
+
+	// The same typed-absence distinction on the token path: a client bound to
+	// an account the store says is gone is still unauthorized_client, not 503.
+	saRepo.getErr = domain.ErrServiceAccountNotFound
+	gone := postToken(t, tw.engine(client), form, "")
+	require.Equal(t, http.StatusBadRequest, gone.Code, gone.Body.String())
+	assert.Equal(t, "unauthorized_client", tokenJSON(t, gone)["error"])
 
 	saRepo.getErr = errors.New("db down")
 	out := postToken(t, tw.engine(client), form, "")

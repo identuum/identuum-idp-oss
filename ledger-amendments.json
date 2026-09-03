@@ -1,16 +1,16 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "61169cfc91e5ff76d9ed2d939240400088134b37",
+  "base_commit": "0c2c2aca96a691574d9bb8a28cc3f276c435d740",
   "changes": [
     {
-      "rule_id": "SA-OWNER-TRANSFER-LIVE-1",
-      "change_class": "rule_added",
-      "reason": "THE-OWNERLESS-ACCOUNT: the new owner-assignment route can hand a service account to another org_admin, and the agent-communication same-owner rule was judged against the owner of record when a live authorization was created (issuance re-checks it), so moving the owner underneath a live session would strand it. The rule pins the refusal — 409 conflict, stable reason agent_communication_authorization_active, nothing written — for BOTH participants, pins that an account no live authorization names transfers normally, and pins that the same transfer lands once the owner revokes. Its guard is the real repository predicate over a live authorization, not a boolean stub; mutation red-proved (the guard neutralized turned the 409 into a 200 that reported result transferred)"
+      "rule_id": "SA-STORE-503-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "THE-OWNERLESS-ACCOUNT, measured by the live mint: the pgx service-account repository maps pgx.ErrNoRows to the TYPED domain.ErrServiceAccountNotFound rather than a nil row, so reading every repository error as an outage turned every unknown id into a 503 on the appliance (api-suite 2 failed, static-rows 1 failed, auth503-scan lines=3). The service now keeps the typed verdict as not-found and treats only other errors as AUTH-503, and the rule gained that exact shape on both the admin surface and the token path — an absence reported as a typed error must still answer not-found"
     },
     {
       "rule_id": "SA-STORE-503-1",
-      "change_class": "rule_added",
-      "reason": "THE-OWNERLESS-ACCOUNT closes the AUTH-503 straggler AYGHU measured and parked: ServiceAccountService.GetForActor and LookupForClient both mapped ANY store error to not-found, so a database outage read as 'no such service account' on the admin surface and as unauthorized_client at the token endpoint — verdicts the server had not reached. Both now answer AUTH-503 (503 + correlation id + ERROR log) while a genuine absence still answers not-found; IssueClientCredentials propagates the store class instead of collapsing it. Mutation red-proved twice, once per collapse point"
+      "change_class": "proof_changed",
+      "reason": "The recorded proof now carries the live-mint finding and the new mutation observation (the typed not-found treated as an outage again gives FAIL 'expected 404 actual 503 temporarily_unavailable'), alongside the two original collapse-point observations"
     }
   ]
 }

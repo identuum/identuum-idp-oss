@@ -119,7 +119,11 @@ func (s *ServiceAccountService) LookupForClient(ctx context.Context, client *dom
 	if err != nil {
 		// THE-OWNERLESS-ACCOUNT: a store outage is not "this client has no
 		// service account". AUTH-503 travels up to the token endpoint, which
-		// answers 503 + correlation id instead of unauthorized_client.
+		// answers 503 + correlation id instead of unauthorized_client. The
+		// store's TYPED not-found is still the ordinary verdict.
+		if errors.Is(err, domain.ErrServiceAccountNotFound) {
+			return nil, ErrServiceAccountNotFound
+		}
 		return nil, domain.AuthStoreUnavailable("service_account.lookup", err)
 	}
 	if sa == nil {
