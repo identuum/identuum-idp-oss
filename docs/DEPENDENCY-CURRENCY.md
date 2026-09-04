@@ -84,3 +84,12 @@ it fires — which side moves.
 machine. It cannot prove that CI, when it next runs, actually builds and
 installs what the env declares — nothing here can run CI. Those two are
 different claims, and only the first is gated.
+
+## A note on the mint
+
+Added 2026-09-04 (THE-UNMINTED-DIFF). A dependency bump changes `go.mod` and
+`go.sum`, and those REACH the running appliance: `make test-full` classifies
+them as requiring the e2e mint, and no bump recorded in the table above may
+skip it. Editing this file alone does not — prose cannot reach the appliance,
+which is why `docs/**` is a declared no-reach entry and this very paragraph
+is the worked example.

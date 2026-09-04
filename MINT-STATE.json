@@ -1,7 +1,19 @@
 {
   "schema_version": "mint-state.v1",
   "last_minted": {
-    "identuum-idp-oss": "e2620fb56ccb8956606f7fd78e5fd0a3890d368f",
+    "identuum-idp-oss": "c4c13aba18eac5cca10057249c2f17b4b8ecfee7",
     "identuum-ui": "e2b85a15ea75d35b2f56f55a125da42629e24316"
+  },
+  "last_decision": {
+    "at": "2026-09-04T12:11:02Z",
+    "mint": "skipped",
+    "repos": {
+      "identuum-idp-oss": "c4c13aba18eac5cca10057249c2f17b4b8ecfee7",
+      "identuum-ui": "e2b85a15ea75d35b2f56f55a125da42629e24316"
+    },
+    "justified_by": {
+      "MINT-STATE.json": "MINT-STATE.json",
+      "docs/DEPENDENCY-CURRENCY.md": "docs/**"
+    }
   }
 }

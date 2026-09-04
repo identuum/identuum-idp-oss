@@ -2020,17 +2020,27 @@ verify-oss-contract:
 .PHONY: test-full
 test-full:
 	@test -d ../identuum-ui || { echo "test-full: sibling checkout ../identuum-ui is required (the UI-driving phases and playwright specs live there)"; exit 1; }
-	@# THE-UNMINTED-DIFF: ask FIRST whether this diff can reach the appliance.
-	@# SKIPPABLE (exit 0) records the skip with the file list that justified
-	@# it and stops here; REQUIRED (10) and undecidable (anything else) both
-	@# fall through to the full mint. Fail closed: only an explicit 0 skips.
-	@set +e; go run ./tools/mint-reachability --repo . --record ""; rc=$$?; set -e; \
-	if [ $$rc -eq 0 ]; then \
+	@# THE-UNMINTED-DIFF: ask FIRST whether this diff can reach the appliance,
+	@# then DISPATCH. A dispatcher, not an early `exit 0`, because every make
+	@# recipe LINE runs in its own shell — the first version exited that one
+	@# line and the mint ran anyway. Caught by running it.
+	@#
+	@# The classifier's exit code IS the branch: 0 SKIPPABLE takes the skip,
+	@# and REQUIRED (10) or undecidable (anything else) both fall through to
+	@# the real mint. Fail closed: only an explicit 0 skips.
+	@if go run ./tools/mint-reachability --repo .; then \
 		go run ./tools/mint-reachability --repo . --record skipped > /dev/null; \
 		echo "test-full: MINT SKIPPED — recorded in MINT-STATE.json with the paths that justified it."; \
 		echo "test-full: every mint floor stands; the next mint that runs still holds them."; \
-		exit 0; \
+	else \
+		$(MAKE) --no-print-directory test-full-mint; \
 	fi
+
+## test-full-mint: the mint itself. Never invoke directly to dodge the
+## reachability check — test-full is the entry point, and this target exists
+## only so the skip can be a branch instead of an early exit.
+.PHONY: test-full-mint
+test-full-mint:
 	@# THE-UNRUN-SUITE (P-041): the integration profile runs HERE, before the
 	@# appliance phases, because the mint is the one place a database is a
 	@# given. fast-up is bounded and idempotent; the e2e harness tears the
