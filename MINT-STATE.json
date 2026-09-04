@@ -1,0 +1,7 @@
+{
+  "schema_version": "mint-state.v1",
+  "last_minted": {
+    "identuum-idp-oss": "e2620fb56ccb8956606f7fd78e5fd0a3890d368f",
+    "identuum-ui": "e2b85a15ea75d35b2f56f55a125da42629e24316"
+  }
+}

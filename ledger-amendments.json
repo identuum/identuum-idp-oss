@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "fbd072d07f764c8c718fcdf2cfcae5a9fa93a70f",
+  "base_commit": "e2620fb56ccb8956606f7fd78e5fd0a3890d368f",
   "changes": [
     {
-      "rule_id": "WITNESS-CLEAN-HEAD-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-RED-CI run 33854648164: the CI Verify job failed on WITNESS-CLEAN-HEAD-1 because the test shelled out to gate-witness.sh without setting cmd.Env and inherited CI's GATE_WITNESS_TIE=commit, so a dirty mint was refused under a commit tie instead of the digest tie the test measures - right refusal, wrong reason, green locally and red in CI for four runs. Both child-process paths now build their environment with every GATE_WITNESS_ variable removed. The sentence the rule proves is unchanged and no assertion was relaxed; only the test's environment handling moved, so this is a fingerprint change and not a new claim"
+      "rule_id": "MINT-REACHABILITY-1",
+      "change_class": "rule_added",
+      "reason": "THE-UNMINTED-DIFF: the owner ruled that a slice whose diff cannot reach the running appliance does not pay the e2e mint, and that the decision must be COMPUTED rather than judged. This rule is the computation and its direction: a path is no-reach only when it matches a declared entry, so go.mod, go.sum, deployment, the harness and any undeclared path all REQUIRE the mint, and a catch-all pattern can never be a declaration. Classified against real history with no new runs: the P-051 slice (ci.yml, one _test.go, the ledger files, a gate record) is SKIPPABLE, and the go-redis bump of THE-NINE-MINORS (docs plus go.mod plus go.sum) is REQUIRED"
     }
   ]
 }

@@ -399,6 +399,25 @@ toolchain-parity:
 ci-witness:
 	@go run ./tools/ci-witness --repo .
 
+## mint-check (THE-UNMINTED-DIFF, 2026-09-04): does the diff since the last
+## MINTED witness reach the running appliance? OWNER RULING: a slice whose
+## diff cannot reach it does not pay the e2e mint — and that is COMPUTED,
+## never judged.
+##
+## Exit codes are the contract test-full reads: 0 SKIPPABLE, 10 MINT
+## REQUIRED, 1 undecidable — which the harness treats as REQUIRED, because a
+## classifier that cannot decide is not a licence to skip. The direction of
+## the default is the whole design: a path is no-reach only when it matches a
+## DECLARED entry, so go.mod, go.sum and any path nobody has declared all
+## require the mint. Rule MINT-REACHABILITY-1.
+mint-check:
+	@go run ./tools/mint-reachability --repo . || true
+
+## mint-decide: the same classifier, but its exit code is the answer. Used by
+## test-full; kept separate so `make mint-check` stays a plain report.
+mint-decide:
+	@go run ./tools/mint-reachability --repo .
+
 verify:
 	# THE-UNWITNESSED-GREEN: the same targets in the same order, driven
 	# through scripts/gate-witness.sh so the run leaves a committed record
@@ -2001,6 +2020,17 @@ verify-oss-contract:
 .PHONY: test-full
 test-full:
 	@test -d ../identuum-ui || { echo "test-full: sibling checkout ../identuum-ui is required (the UI-driving phases and playwright specs live there)"; exit 1; }
+	@# THE-UNMINTED-DIFF: ask FIRST whether this diff can reach the appliance.
+	@# SKIPPABLE (exit 0) records the skip with the file list that justified
+	@# it and stops here; REQUIRED (10) and undecidable (anything else) both
+	@# fall through to the full mint. Fail closed: only an explicit 0 skips.
+	@set +e; go run ./tools/mint-reachability --repo . --record ""; rc=$$?; set -e; \
+	if [ $$rc -eq 0 ]; then \
+		go run ./tools/mint-reachability --repo . --record skipped > /dev/null; \
+		echo "test-full: MINT SKIPPED — recorded in MINT-STATE.json with the paths that justified it."; \
+		echo "test-full: every mint floor stands; the next mint that runs still holds them."; \
+		exit 0; \
+	fi
 	@# THE-UNRUN-SUITE (P-041): the integration profile runs HERE, before the
 	@# appliance phases, because the mint is the one place a database is a
 	@# given. fast-up is bounded and idempotent; the e2e harness tears the
@@ -2010,3 +2040,7 @@ test-full:
 	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
 	$(MAKE) -C ../identuum-ui e2e-full
 	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-full.txt
+	@# The mint ran and both halves checked out: move last_minted forward, so
+	@# the NEXT slice's diff is measured from what was actually minted.
+	@go run ./tools/mint-reachability --repo . --record minted > /dev/null || true
+	@echo "test-full: MINT RECORDED — MINT-STATE.json now names this pair."
