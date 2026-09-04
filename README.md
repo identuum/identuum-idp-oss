@@ -176,6 +176,14 @@ never a silent bypass.
 | `staticcheck` | `go install honnef.co/go/tools/cmd/staticcheck@latest` |
 | `govulncheck` | `go install golang.org/x/vuln/cmd/govulncheck@latest` |
 | `grype` | Anchore Grype — install with `brew install grype` or the upstream installer at https://github.com/anchore/grype#installation. `make verify` runs `grype dir:. --fail-on high`. |
+| `rulefloor` | Only for `make verify` / `make rulefloor-check`. Resolved as `$RULEFLOOR_BIN`, then `rulefloor` on PATH, then a sibling `../rulefloor` checkout — see "Rule ledger" below. |
+| `gograph` | Only for `make verify`, which runs `gograph capabilities`, `gograph build . --precise` and `gograph boundaries`. Not needed for `make fast-up`, `make integration-test`, or running the service. |
+
+Both rows above were missing until 2026-09-04: `make verify` has invoked
+`rulefloor` and `gograph` for months while this table listed neither, so a
+newcomer reading only the Prerequisites could not have assembled the toolchain
+that section asks for. `make verify` also needs the private maintainers' wiki as
+a sibling — see the note under "Developer quickstart".
 
 ## Developer quickstart
 
@@ -184,11 +192,25 @@ The `make verify`, `make fast-*`, `make dev-*`, and
 convenience only. They are not the customer install path; see the
 "Self-hosted install" section above for that.
 
+> **`make verify` does NOT run from a fresh clone, and that is by design.**
+> Measured 2026-09-04 by cloning this repository into an empty directory and
+> following this section verbatim: it fails at the `repo-green` target with
+> `bash: ../wiki/tools/repo-green-gate.sh: No such file or directory`, because
+> several of its gates live in the maintainers' wiki repository, which is
+> private and is not a sibling of your clone. `make verify` is the MAINTAINER
+> gate set, not a newcomer's first command. Everything else in this section
+> works from a clean clone — that was measured in the same run.
+>
+> From a fresh clone, start with `make fast-up` and `make integration-test`
+> below, or with the "Running locally" section further down, which was measured
+> end to end from the same clone: build, `migrate`, serve, and `/health` 200.
+
 ```bash
 git clone https://github.com/identuum/identuum-idp-oss.git
 cd identuum-idp-oss
 
 # Build + unit tests + staticcheck + govulncheck.
+# MAINTAINERS ONLY — needs the private ../wiki sibling; see the note above.
 make verify
 
 # Start a throwaway local Postgres on 127.0.0.1:5513.
