@@ -106,8 +106,8 @@ env:
   # tarball directory, ldflags stamp, and version assert from this pair.
   # (The previous job-level declaration let the Integration job keep a
   # second, older go-install route invisibly.) Bump both lines together.
-  RULEFLOOR_VERSION: v0.9.0
-  RULEFLOOR_SHA256: 525803b58c2881415da532555b927bc8e75a15d4c5a7c813836bfde17a517d36
+  RULEFLOOR_VERSION: v0.9.1
+  RULEFLOOR_SHA256: 7a04a6ccbd87a53b342a4f324318bf2034cd0bb640c8191badb87d23abb5f509
   # THE-UNWATCHED-FOUR: the discipline above was ONE TOOL WIDE — local
   # staticcheck drifted a whole slice unseen because rulefloor was the
   # only tool CI printed and asserted. One declaration per tool, every
