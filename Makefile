@@ -6,8 +6,19 @@
 #   make integration-test # run the DB-backed integration + teeth suites against the local DB
 #   make fast-down        # stop and remove containers (volume preserved)
 #
-# Routine validation:
-#   make verify
+# Routine validation — THE LOCAL CLOSE RITUAL:
+#   make verify-parallel  # both witness legs at once: measured 130s, not 229s
+#
+# THE-UNCOLLECTED-84 (2026-09-04): verify-parallel existed and saved a measured
+# 84s of 214s, and was referenced nowhere but its own block below — so the
+# saving only happened when a human remembered to type it. This line is where
+# the local ritual collects it. It runs the SAME two legs, unaltered, and
+# `make verify` / `make verify-integration` still work exactly as before for
+# anyone who wants one leg alone (or has no database).
+#
+# CI IS DELIBERATELY NOT SWITCHED: .github/workflows/ci.yml keeps running
+# ci-verify and ci-integration-test serially, on separate jobs, where a shared
+# runner and a per-job database make concurrency neither free nor safe.
 #
 # Optional live integration chain:
 #   make validate
