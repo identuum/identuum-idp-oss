@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "10d10fd6b028f4267942268178a64ce935c5f083",
-  "changes": [
-    {
-      "rule_id": "CI-RECORD-HONEST-1",
-      "change_class": "rule_added",
-      "reason": "THE-UNRUN-CI: three slices closed with pins CI has never executed, and nothing here carried a CI result at all. This rule makes a CI record checkable locally - absent or untracked reports NO CLAIM and never reads as a pass, and a committed record must be green, complete, commit-tied, clean and provenanced. It was written after the first version of the gate accepted a stale LOCAL make ci-verify record as CI evidence, which is why committed-plus-ci-run-provenance is the bar"
-    }
-  ]
+  "base_commit": "e542dba6bb053417e27ba10ef37436fb2c4dc94e",
+  "changes": []
 }

@@ -402,6 +402,25 @@ jobs:
       # IDENTUUM_IDP_TEST_DATABASE_URL when set. ci-integration-test, not
       # integration-test: the developer target additionally runs test-db
       # (createdb — the service container already provides the database).
+      - name: Migrate the integration database
+        # THE-UNRUN-CI (2026-09-04): the service container CREATES
+        # identuum_idp_oss_test but NOTHING MIGRATED IT, so every test that
+        # touches the live schema died on `relation "oidc_states" does not
+        # exist (SQLSTATE 42P01)`. Locally `test-db` is a prerequisite of the
+        # integration run and does create + build + migrate; CI had the create
+        # half and not the migrate half, and had been RED for five consecutive
+        # runs (33641794378, 33762990950, 33800808443, 33854648164 and the
+        # 2026-08-31 run before them) with every local gate green.
+        #
+        # `make test-db` on purpose, not an inline DSN: the connection string
+        # then comes from OSS_TEST_DB_URL like everywhere else, so this step
+        # cannot drift from the target it is standing in for. The CREATE half
+        # is idempotent and the service has already done it.
+        #
+        # DECLARED, UNRUN: written from the failure log of run 33854648164;
+        # no CI run has executed this step.
+        run: make test-db
+
       - name: make ci-integration-test
         env:
           IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss_test?sslmode=disable
