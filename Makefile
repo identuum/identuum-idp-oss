@@ -1668,6 +1668,39 @@ verify-integration: bin/integration-witness
 		'integration-profile=./bin/integration-witness' \
 		'rulefloor-integration=$(MAKE) --no-print-directory rulefloor-integration'
 
+.PHONY: verify-parallel
+## verify-parallel: the two idp-oss witness legs CONCURRENTLY (THE-PARALLEL-RITUAL).
+##
+## MEASURED, not assumed (2026-09-04, this machine, dev DB already up):
+##   serial      verify 102s + verify-integration 112s = 214s
+##   concurrent  verify 110s | verify-integration 130s = 130s   saving 84s (39%)
+## Both legs went green in BOTH arrangements. The legs DO contend for CPU —
+## each is slower here than alone (+8%, +16%) — which is why the concurrent
+## number is measured rather than taken as the longest leg.
+##
+## WHY THIS PAIR IS SAFE TO OVERLAP, enumerated rather than hoped:
+##   - different records: GATE-RUN.txt vs GATE-RUN.integration.txt, and
+##     gate-witness.sh now takes a per-record lock keyed on the record's
+##     ABSOLUTE path, so even a same-record collision refuses instead of
+##     interleaving (selftest case 10);
+##   - no shared database: `verify` is database-free; only the integration leg
+##     touches Postgres on $(DEV_PG_HOST_PORT) and identuum_idp_oss_test;
+##   - no shared port and no shared compose project between the two.
+##
+## The wiki check is deliberately NOT here. It is not an independent leg: it
+## READS both code repos' records (`check ../identuum-idp-oss GATE-RUN.txt`
+## and friends), so overlapping it with the runs that WRITE those records is
+## reading a file mid-write. It can only ever follow.
+##
+## Each recipe line is its own shell and this file declares bash, so the whole
+## thing is ONE line: pipefail is set before the subshells (they inherit it, so
+## a failing leg is not masked by its sed), and BOTH waits are collected before
+## exiting. Propagation was proved for all four leg outcomes
+## (true/true -> 0, false/true -> 1, true/false -> 1, false/false -> 1) and
+## then observed firing on the real target.
+verify-parallel:
+	@set -o pipefail; ( $(MAKE) --no-print-directory verify 2>&1 | sed 's/^/[verify]      /' ) & p1=$$!; ( $(MAKE) --no-print-directory verify-integration 2>&1 | sed 's/^/[integration] /' ) & p2=$$!; rc=0; wait $$p1 || rc=1; wait $$p2 || rc=1; if [ "$$rc" -ne 0 ]; then echo "verify-parallel: at least one leg FAILED — read GATE-RUN.txt and GATE-RUN.integration.txt for the per-target exit codes" >&2; fi; exit $$rc
+
 bin/integration-witness:
 	go build -o bin/integration-witness ./tools/integration-witness
 

@@ -128,7 +128,7 @@ env:
   # scripts/gate-witness.sh must be the wiki master, or the record CI uploads
   # is written by something else. Held identical to the wiki-side digest
   # (contracts/gate-witness.master.sha256) by gate-witness.sh --sync-check.
-  GATE_WITNESS_SHA256: "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e"
+  GATE_WITNESS_SHA256: "260c5e8184929bb16bc4ee4060dfad6a5d2780b16c7eb114d58dfb6afec84ad6"
 
 jobs:
   verify:

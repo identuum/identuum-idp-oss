@@ -213,9 +213,59 @@ finalize_into() { # <record> — green ONLY if every planned target recorded exi
 	return "$all"
 }
 
+# ── THE-PARALLEL-RITUAL (2026-09-04): ONE WRITER PER RECORD ──────────────
+# gate-witness took no lock, and it showed: two concurrent `wiki make check`
+# runs interleaved into ONE record — two `finished:` lines, two verdicts (red
+# at 09:25:10, green at 09:25:23) and 49 target lines for a 36-target plan. A
+# record with two runs in it witnesses nothing, and the first verdict a reader
+# greps decides what they believe.
+#
+# The lock is per RECORD, not global: different suites write different records
+# and must still run side by side. mkdir is the atomic primitive here — it
+# either creates the directory or fails, with no test-then-set window, and it
+# needs no flock(1), which macOS does not ship.
+#
+# The lock lives under TMPDIR, never beside the record: a lockfile inside the
+# repo would be an untracked, unignored file and would land in the very tree
+# digest this script computes.
+#
+# Waiting is a BOUNDED POLL with an honest ending — it refuses, loudly, rather
+# than blocking a gate forever. A stale lock from a killed run is broken only
+# after the same bound, and says so.
+GATE_WITNESS_LOCK_WAIT="${GATE_WITNESS_LOCK_WAIT:-120}"
+_gw_lock_dir=""
+
+gw_lock() {
+	local rec="$1" abs key waited=0
+	abs=$(cd "$(dirname "$rec")" 2>/dev/null && pwd)/$(basename "$rec") || abs="$rec"
+	key=$(printf '%s' "$abs" | $SHA256 | cut -d' ' -f1)
+	_gw_lock_dir="${TMPDIR:-/tmp}/gate-witness-$key.lock"
+	while ! mkdir "$_gw_lock_dir" 2>/dev/null; do
+		if [ "$waited" -ge "$GATE_WITNESS_LOCK_WAIT" ]; then
+			echo "GATE-WITNESS LOCKED: another run has been writing $rec for ${waited}s" >&2
+			echo "  (holder: $(cat "$_gw_lock_dir/owner" 2>/dev/null || echo unknown))" >&2
+			echo "  Refusing rather than interleaving: two runs in one record witness nothing." >&2
+			echo "  If that run is dead, remove $_gw_lock_dir and try again." >&2
+			_gw_lock_dir=""
+			exit 3
+		fi
+		[ "$waited" -eq 0 ] && echo "gate-witness: waiting for the lock on $rec (bound ${GATE_WITNESS_LOCK_WAIT}s)" >&2
+		sleep 1
+		waited=$((waited + 1))
+	done
+	printf 'pid=%s label=%s started=%s\n' "$$" "${2:-?}" "$(now_utc)" >"$_gw_lock_dir/owner" 2>/dev/null || true
+	trap gw_unlock EXIT INT TERM
+}
+
+gw_unlock() {
+	[ -n "$_gw_lock_dir" ] && rm -rf "$_gw_lock_dir"
+	_gw_lock_dir=""
+}
+
 run_mode() {
 	[ $# -ge 3 ] || { echo "usage: gate-witness.sh run <record> <label> <name=command>..." >&2; exit 2; }
 	local rec="$1" label="$2"; shift 2
+	gw_lock "$rec" "$label"
 	local names=() e
 	for e in "$@"; do names+=("${e%%=*}"); done
 	write_header "$rec" "$label" "${names[@]}"
@@ -237,12 +287,14 @@ run_mode() {
 init_mode() {
 	[ $# -ge 3 ] || { echo "usage: gate-witness.sh init <record> <label> <plan name>..." >&2; exit 2; }
 	local rec="$1" label="$2"; shift 2
+	gw_lock "$rec" "$label"
 	write_header "$rec" "$label" "$@"
 }
 
 step_mode() {
 	[ $# -eq 2 ] || { echo "usage: gate-witness.sh step <record> <name=command>" >&2; exit 2; }
 	local rec="$1" name="${2%%=*}" cmd="${2#*=}"
+	gw_lock "$rec" "step:$name"
 	if [ ! -f "$rec" ]; then
 		echo "gate-witness: no record at $rec — run init first" >&2
 		return 2
@@ -252,6 +304,7 @@ step_mode() {
 
 finalize_mode() {
 	[ $# -eq 1 ] || { echo "usage: gate-witness.sh finalize <record>" >&2; exit 2; }
+	gw_lock "$1" "finalize"
 	if [ ! -f "$1" ]; then
 		echo "gate-witness: no record at $1 — nothing to finalize" >&2
 		return 2
@@ -545,10 +598,31 @@ selftest() {
 		git -c user.name=selftest -c user.email=selftest@local -c commit.gpgsign=false commit -qm next --allow-empty
 		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS STALE:.*commit=' || { echo "SELFTEST FAIL 9d: HEAD moved but commit-tie did not read STALE"; exit 1; }
 
+		# 10 THE-PARALLEL-RITUAL: ONE WRITER PER RECORD, constructed rather
+		# than hoped for. Three green runs do not prove a lock — the
+		# interleaving has to be built. Here the contended state is created
+		# deterministically by pre-taking the lock, so there is no sleep and
+		# no race to lose.
+		rec_abs="$(pwd)/GATE-RUN.txt"
+		lock_key=$(printf '%s' "$rec_abs" | $SHA256 | cut -d' ' -f1)
+		held="${TMPDIR:-/tmp}/gate-witness-$lock_key.lock"
+		rm -rf "$held"; mkdir "$held"
+		echo 'pid=selftest label=holder' >"$held/owner"
+		cp GATE-RUN.txt /tmp/gw-before.$$ 2>/dev/null || true
+		out=$(GATE_WITNESS_LOCK_WAIT=1 bash "$self" run GATE-RUN.txt "selftest contended" 'a=true' 2>&1); code=$?
+		[ "$code" -eq 3 ] || { echo "SELFTEST FAIL 10a: a contended run exited $code, want 3 (refused)"; rm -rf "$held"; exit 1; }
+		case "$out" in *"GATE-WITNESS LOCKED"*) : ;; *) echo "SELFTEST FAIL 10b: refusal does not say LOCKED: $out"; rm -rf "$held"; exit 1 ;; esac
+		if ! cmp -s GATE-RUN.txt /tmp/gw-before.$$ 2>/dev/null; then
+			echo "SELFTEST FAIL 10c: the refused run WROTE to the record — that is the interleaving the lock exists to stop"; rm -rf "$held"; exit 1
+		fi
+		rm -rf "$held" /tmp/gw-before.$$
+		bash "$self" run GATE-RUN.txt "selftest uncontended" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 10d: the run failed once the lock was free"; exit 1; }
+		grep -c '^result:' GATE-RUN.txt | grep -qx 1 || { echo "SELFTEST FAIL 10e: record does not hold exactly one verdict"; exit 1; }
+
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 13 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling) and pass (run, stepwise, witness-commit, xrepo, commit-tie) proven"
+		echo "SELFTEST OK — 14 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release) proven"
 		return 0
 	fi
 	return 1
