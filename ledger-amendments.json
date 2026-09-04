@@ -1,16 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "e2620fb56ccb8956606f7fd78e5fd0a3890d368f",
+  "base_commit": "c4c13aba18eac5cca10057249c2f17b4b8ecfee7",
   "changes": [
-    {
-      "rule_id": "MINT-REACHABILITY-1",
-      "change_class": "rule_added",
-      "reason": "THE-UNMINTED-DIFF: the owner ruled that a slice whose diff cannot reach the running appliance does not pay the e2e mint, and that the decision must be COMPUTED rather than judged. This rule is the computation and its direction: a path is no-reach only when it matches a declared entry, so go.mod, go.sum, deployment, the harness and any undeclared path all REQUIRE the mint, and a catch-all pattern can never be a declaration. Classified against real history with no new runs: the P-051 slice (ci.yml, one _test.go, the ledger files, a gate record) is SKIPPABLE, and the go-redis bump of THE-NINE-MINORS (docs plus go.mod plus go.sum) is REQUIRED"
-    },
     {
       "rule_id": "INTEGRATION-GATE-1",
       "change_class": "test_fingerprint_changed",
-      "reason": "THE-UNMINTED-DIFF: the mint is now reached through a dispatch - test-full consults tools/mint-reachability and delegates the work to test-full-mint - so this rule's Makefile inspection moved one target along. It now asserts BOTH halves: that test-full still dispatches and consults the classifier, and that test-full-mint still runs verify-integration and re-checks the integration record. Checking only the delegate would let the dispatch be deleted; checking only the dispatch would let the body rot. The sentence the rule proves is unchanged"
+      "reason": "THE-UNMINTED-DIFF: the mint is now reached through a dispatch - test-full consults tools/mint-reachability and delegates to test-full-mint - so this rule's Makefile inspection moved one target along. It now asserts BOTH halves: that test-full still dispatches and consults the classifier, and that test-full-mint still runs verify-integration and re-checks the integration record. The sentence the rule proves is unchanged"
     }
   ]
 }
