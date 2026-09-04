@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "c4c13aba18eac5cca10057249c2f17b4b8ecfee7",
-  "changes": [
-    {
-      "rule_id": "INTEGRATION-GATE-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-UNMINTED-DIFF: the mint is now reached through a dispatch - test-full consults tools/mint-reachability and delegates to test-full-mint - so this rule's Makefile inspection moved one target along. It now asserts BOTH halves: that test-full still dispatches and consults the classifier, and that test-full-mint still runs verify-integration and re-checks the integration record. The sentence the rule proves is unchanged"
-    }
-  ]
+  "base_commit": "d649f83b04f46ba09a333e414fab3bfd42cef15e",
+  "changes": []
 }
