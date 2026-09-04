@@ -418,6 +418,21 @@ mint-check:
 mint-decide:
 	@go run ./tools/mint-reachability --repo .
 
+## witness-check (THE-UNEARNED-WITNESS, 2026-09-04): has this tree earned a
+## witness cycle? Run it BEFORE cutting one. A witness says "make verify was
+## green on THIS tree" and costs a full verify, so it is worth spending only
+## when the tree changed in a way a verify can judge.
+##
+## MEASURED from this repository: 50 witness commits, NINE record-only commits
+## (eight manifest re-bases, one mint marker), and one cycle whose entire diff
+## was records. Records are evidence; evidence does not earn a cycle.
+##
+## Exit 0 earned, 11 refused, 1 undecidable — and undecidable means GO AHEAD:
+## this check exists to save a cycle, never to block one it cannot reason
+## about. Rule WITNESS-EARNS-ITS-CYCLE-1.
+witness-check:
+	@go run ./tools/witness-earns --repo .
+
 verify:
 	# THE-UNWITNESSED-GREEN: the same targets in the same order, driven
 	# through scripts/gate-witness.sh so the run leaves a committed record

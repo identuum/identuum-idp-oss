@@ -75,6 +75,46 @@ func TestRuleLedgerDiffReconciled1_UndeclaredFails_WrongDigestFails_ReconciledPa
 		_, err := Reconcile(manifest(t, ""), sameDoc(), 0, otherBase, "d")
 		wantFail(t, err, "is not the previous accepted witness")
 	})
+	// THE-UNEARNED-WITNESS asked whether base_commit earns its place, since
+	// its only use is equality with a value the gate already derives from
+	// git. THIS IS THE CASE THAT ANSWERS IT — and the answer is yes.
+	//
+	// `test_fingerprint_changed` carries NO DIGEST. ParseManifest refuses one
+	// (only sentence_changed may carry after_sentence_sha256), and the diff
+	// row for a fingerprint change carries none either. So a declaration of
+	// (rule, test_fingerprint_changed) is CONTENT-FREE: it reconciles the
+	// edit it was written for and every later, different edit to the same
+	// rule's test, with a reason describing only the first.
+	//
+	// Two-way reconciliation cannot see the difference — both cycles produce
+	// the same row and the same declaration. base_commit is the only thing
+	// that does, because a witness landed in between. Remove it and a stale
+	// manifest launders the next fingerprint change silently.
+	t.Run("base_commit EARNS ITS PLACE: content alone cannot tell two fingerprint cycles apart", func(t *testing.T) {
+		doc := differentDoc(fingerprintRow, false)
+
+		// Cycle 1 — the edit the reason was written for.
+		if _, err := Reconcile(manifest(t, declFingerprint), doc, 1, base, "d"); err != nil {
+			t.Fatalf("the declaring cycle must pass: %v", err)
+		}
+		// Cycle 2 — a DIFFERENT edit to the same rule's test. The document
+		// reconciliation reads is identical in every field it inspects, so
+		// the same stale declaration reconciles it just as happily.
+		if _, err := Reconcile(manifest(t, declFingerprint), doc, 1, base, "d"); err != nil {
+			t.Fatalf("content-based reconciliation cannot distinguish the second edit: %v", err)
+		}
+		// …and base_commit is what refuses it, once a witness has landed.
+		_, err := Reconcile(manifest(t, declFingerprint), doc, 1, otherBase, "d")
+		wantFail(t, err, "is not the previous accepted witness")
+
+		// The premise above, pinned: this class may not carry a digest, so
+		// there is nothing else for reconciliation to compare.
+		withDigest := `{"rule_id":"OLD-2","change_class":"test_fingerprint_changed","after_sentence_sha256":"` + shaA + `","reason":"r"}`
+		if _, err := ParseManifest([]byte(`{"schema_version":"ledger-amendments.v1","base_commit":"` + base + `","changes":[` + withDigest + `]}`)); err == nil {
+			t.Fatal("test_fingerprint_changed accepted a digest — if it ever carries one, re-open the base_commit question")
+		}
+	})
+
 	t.Run("no previous witness in history → FAIL", func(t *testing.T) {
 		_, err := Reconcile(manifest(t, ""), sameDoc(), 0, "", "d")
 		wantFail(t, err, "previous accepted witness: not found")

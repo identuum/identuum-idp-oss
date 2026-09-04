@@ -1,5 +1,16 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "6a522d48b77207c930e7eb0cb46819fdd0a44a3f",
-  "changes": []
+  "base_commit": "73abe6c6ad74f04327c9908777c5395c7c4cfe44",
+  "changes": [
+    {
+      "rule_id": "LEDGER-DIFF-RECONCILED-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "THE-UNEARNED-WITNESS: this rule's test gained the case that decided whether base_commit earns its place. test_fingerprint_changed carries NO digest, so a declaration of it is content-free and reconciles the edit it was written for AND every later different edit to the same rule's test - two-way reconciliation cannot tell the cycles apart, and base_commit is the only thing that does. The rule's sentence is unchanged; the test now pins the premise (that class may never carry a digest) so the question re-opens automatically if it ever does"
+    },
+    {
+      "rule_id": "WITNESS-EARNS-ITS-CYCLE-1",
+      "change_class": "rule_added",
+      "reason": "THE-UNEARNED-WITNESS: records are evidence and evidence does not earn a verify cycle. Measured from this repository: 50 witness commits, nine record-only commits (eight manifest re-bases, one mint marker), and one cycle whose entire diff was records. The refusal is actionable - it names the record paths, says the tree is already witnessed, and tells you to fold them into the next work commit"
+    }
+  ]
 }
