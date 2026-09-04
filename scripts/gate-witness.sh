@@ -360,6 +360,32 @@ check_mode() {
 		echo "GATE-WITNESS FAIL: $path is not a gate-run.v1 record"
 		return 1
 	}
+	# ── THE-TWO-VERDICT-RECORD (2026-09-04): ONE RUN PER RECORD ──────────
+	# A record is one run's evidence. Two `gate:` headers or two `result:`
+	# verdicts mean two runs wrote into this file — and every reader below
+	# takes the FIRST of each (`head -1`), so an interleaved record could
+	# pass this check with run B's plan sitting above run A's targets and
+	# run B's verdict deciding what everyone believes. P-057's reviewer
+	# constructed exactly that and watched `check` answer
+	# "gate-witness OK ... (2 targets)", exit 0.
+	#
+	# THIS DOES NOT CLOSE GATE-WITNESS-STEPWISE-1. The interleaving still
+	# happens: init/step/finalize take the record lock per INVOCATION, so a
+	# `run` starting between an `init` and its `finalize` still truncates
+	# that session. What this stops is the result being BELIEVED. A backstop
+	# in the reader, not a fix in the writers — deliberately, because the
+	# reader is the one place every record must pass through.
+	#
+	# Only MORE THAN ONE fails. Zero verdicts is an unfinalized run and is
+	# already reported as INCOMPLETE below, with a better message than this
+	# one could give.
+	local gates verdicts
+	gates=$(grep -c '^gate: ' "$path" || true)
+	verdicts=$(grep -c '^result: ' "$path" || true)
+	if [ "$gates" -gt 1 ] || [ "$verdicts" -gt 1 ]; then
+		echo "GATE-WITNESS INTERLEAVED: $path carries $gates 'gate:' header(s) and $verdicts 'result:' verdict(s) — a record is ONE run's evidence, so more than one of either means two runs wrote into this file and neither can be believed"
+		return 1
+	fi
 	label=$(sed -n 's/^gate: //p' "$path" | head -1)
 	plan=$(sed -n 's/^plan: //p' "$path" | head -1)
 	if [ -z "$plan" ]; then
@@ -704,10 +730,34 @@ selftest() {
 		[ $? -eq 3 ] || { echo "SELFTEST FAIL 17c: contended finalize did not refuse"; rm -rf "$held"; exit 1; }
 		rm -rf "$held"
 
+		# 18 A TWO-RUN RECORD IS REFUSED, NOT READ. The lock stops runs
+		# colliding; this stops an interleaved record being believed if one
+		# ever gets through — and one can, because GATE-WITNESS-STEPWISE-1 is
+		# still open (init/step/finalize hold the lock per invocation, so a
+		# `run` can still truncate a stepwise session). P-057's reviewer built
+		# exactly such a record and watched `check` answer OK, exit 0.
+		#
+		# The bad record is CONSTRUCTED HERE BY HAND — a green record
+		# concatenated with itself — and deliberately not taken from case 15.
+		# Case 15 exists to prove the lock HOLDS, so it produces a correct
+		# single-verdict record every time; only its mutant produces a broken
+		# one, and a selftest that depended on a mutation would prove nothing
+		# on the shipped script.
+		bash "$self" run GATE-RUN.txt "selftest one-run" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 18a: could not mint the control record"; exit 1; }
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 18b: a single-verdict record did not pass"; exit 1; }
+		cp GATE-RUN.txt /tmp/gw-onerun.$$
+		cat /tmp/gw-onerun.$$ >>GATE-RUN.txt
+		out=$(bash "$self" check . GATE-RUN.txt 2>&1); code=$?
+		[ "$code" -ne 0 ] || { echo "SELFTEST FAIL 18c: a record with TWO verdicts passed check (exit 0) — an interleaved record would be believed"; rm -f /tmp/gw-onerun.$$; exit 1; }
+		case "$out" in *"GATE-WITNESS INTERLEAVED"*) : ;; *) echo "SELFTEST FAIL 18d: refusal does not name the interleaving: $out"; rm -f /tmp/gw-onerun.$$; exit 1 ;; esac
+		case "$out" in *"2 'gate:' header(s)"*) : ;; *) echo "SELFTEST FAIL 18e: refusal does not COUNT what it found: $out"; rm -f /tmp/gw-onerun.$$; exit 1 ;; esac
+		cp /tmp/gw-onerun.$$ GATE-RUN.txt; rm -f /tmp/gw-onerun.$$
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 18f: the restored single-verdict record did not pass again"; exit 1; }
+
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 17 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken) proven"
+		echo "SELFTEST OK — 18 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record) proven"
 		return 0
 	fi
 	return 1

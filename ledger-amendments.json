@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "006faf144b7fd8bb4f1fe127291b5b9ee9b0a734",
+  "base_commit": "fe59616b4c239ab397d2ec66825a092d32519500",
   "changes": [
     {
-      "rule_id": "ACR-ASSUMED-NEVER-STAMPED-1",
+      "rule_id": "WITNESS-ONE-RUN-PER-RECORD-1",
       "change_class": "rule_added",
-      "reason": "THE-ACR-AMR-TRUTH: mintSession discarded MapUpstreamACRToLadder's assumedDefault flag and stamped the assumed mfa rung on a federated session, so the id_token asserted multi-factor authentication on the evidence of an upstream that sent no acr at all. An assumed rung now stamps no acr; this rule pins it and is mutation red-proved."
+      "reason": "THE-TWO-VERDICT-RECORD: check took the FIRST gate/plan/result line of a record, so a file two runs had written into could pass with one run's plan above another's targets - constructed by P-057's reviewer and observed passing. check now refuses more than one gate header or verdict, naming the counts. Mutation red-proved against the vendored script."
     }
   ]
 }
