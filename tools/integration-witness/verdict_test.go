@@ -161,12 +161,27 @@ func TestRule_INTEGRATION_GATE_1(t *testing.T) {
 	}
 	// It runs in the two-repo mint, where a database already stands up —
 	// and the mint re-checks the record it left.
-	mint := section(makefile, "test-full:")
+	//
+	// THE-UNMINTED-DIFF: the mint is now reached through a DISPATCH.
+	// `test-full` asks tools/mint-reachability whether the diff can reach
+	// the appliance and delegates to `test-full-mint`, so the body this
+	// invariant is about moved one target along. Both halves are asserted —
+	// that test-full still delegates, and that the delegate still does the
+	// work — because checking only the delegate would let the dispatch be
+	// deleted, and checking only the dispatch would let the body rot.
+	entry := section(makefile, "test-full:")
+	if !strings.Contains(entry, "test-full-mint") {
+		t.Errorf("test-full must dispatch to test-full-mint; got:\n%s", entry)
+	}
+	if !strings.Contains(entry, "mint-reachability") {
+		t.Errorf("test-full must consult the reachability classifier before skipping the mint; got:\n%s", entry)
+	}
+	mint := section(makefile, "test-full-mint:")
 	if !strings.Contains(mint, "verify-integration") {
-		t.Errorf("test-full (the two-repo mint) must run verify-integration; got:\n%s", mint)
+		t.Errorf("test-full-mint (the two-repo mint) must run verify-integration; got:\n%s", mint)
 	}
 	if !strings.Contains(mint, "GATE-RUN.integration.txt") {
-		t.Errorf("test-full must re-check the integration record, as it does the e2e-full one; got:\n%s", mint)
+		t.Errorf("test-full-mint must re-check the integration record, as it does the e2e-full one; got:\n%s", mint)
 	}
 	// `make verify` stays DATABASE-FREE (the ruling's whole point): it must
 	// not gain the profile.
