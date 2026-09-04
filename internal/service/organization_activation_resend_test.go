@@ -45,6 +45,20 @@ func TestResendActivationToken_ReissuesAndDispatches(t *testing.T) {
 
 // (d) token: a resend AFTER an initial issue mints a DIFFERENT token and
 // overwrites the stored hash, so the old token can no longer validate.
+//
+// THE-ACTIVATION-SURFACE (2026-09-04): the comment at the resend site asserted
+// this as a security property — "the OLD token is invalidated" — and the
+// property held, and this test held it, but nothing in the ledger did. A claim
+// a reader relies on for security should not depend on someone noticing that a
+// test happens to exist. If a future refactor stopped writing the hash on
+// re-issue, TWO activation links would be live at once and the only thing
+// standing between that and a shipped release was this file being noticed.
+//
+// The row holds ONE activation_token_hash, so writing a new one necessarily
+// destroys the old — the property comes from the column, not from cleanup code,
+// which is why it is worth pinning where the overwrite happens.
+//
+// RULE: RESEND-INVALIDATES-OLD-TOKEN-1
 func TestResendActivationToken_InvalidatesOldToken(t *testing.T) {
 	_, users, orgs, _, admin, org := newActivationFixture(t)
 	svc := NewOrganizationActivationService(OrganizationActivationServiceConfig{

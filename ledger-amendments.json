@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "de5a76dcd1914d057a87605dafd026e46c171f1f",
+  "base_commit": "b2832bef3b9fe9bdf11f0d584672f787303be54b",
   "changes": [
     {
-      "rule_id": "AUTHCODE-DERIVED-AMR-EFFECTIVE-1",
+      "rule_id": "RESEND-INVALIDATES-OLD-TOKEN-1",
       "change_class": "rule_added",
-      "reason": "THE-ID-TOKEN-CLAIMS-PARITY: the authorization_code grant copied EffectiveACR beside the RAW session Amr, so a derived session inherited a step-up rung without the methods that step-up performed and its id_token contradicted itself. Both axes are effective now; the rule is an AST wiring pin asserting the VALUE, mutation red-proved."
+      "reason": "THE-ACTIVATION-SURFACE: the resend site asserted in a comment that overwriting activation_token_hash invalidates the old token. The property held and a test held it, but nothing in the ledger did, so a refactor that stopped writing the hash would have left two activation links live with only an unnoticed test in the way. The existing test is now a ruled row, mutation red-proved."
     }
   ]
 }
