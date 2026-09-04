@@ -1,39 +1,39 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 9127c53
-started: 2026-09-04T18:51:45Z
+repo-head: 3d8ae09
+started: 2026-09-04T19:52:48Z
 plan: tool-versions toolchain-parity ci-witness repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
 tool: grype       0.118.0  /opt/homebrew/bin/grype
 tool: govulncheck govulncheck@v1.7.0  /opt/homebrew/bin/govulncheck
 tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.9.1","toolchain_version":"v0.9.1","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
-elapsed: tool-versions 1s
+elapsed: tool-versions 2s
 target: tool-versions exit=0
-evidence: [toolchain-parity] check OK: toolchain-parity 7 pins agree (gate-witness.sh 7d8b1ef35b2587102a6ea44fe1e3918be6a709bd8361de76d78c6fe305ff7dce, go 1.27.1, govulncheck 1.7.0, grype 0.118.0, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1)
-elapsed: toolchain-parity 1s
+evidence: [toolchain-parity] check OK: toolchain-parity 7 pins agree (gate-witness.sh c6503195456af9c064cf9ff5f4cf2a405d467a59071b66e3423a9ebe523bec1d, go 1.27.1, govulncheck 1.7.0, grype 0.118.0, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1)
+elapsed: toolchain-parity 0s
 target: toolchain-parity exit=0
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 20 planned target(s) all exit=0, ties commit 73abe6c, 14 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/33875886668 attempt=1 sha=73abe6c6ad74f04327c9908777c5395c7c4cfe44
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 20 planned target(s) all exit=0, ties commit 73abe6c, 16 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/33875886668 attempt=1 sha=73abe6c6ad74f04327c9908777c5395c7c4cfe44
 elapsed: ci-witness 0s
 target: ci-witness exit=0
-elapsed: repo-green 37s
+elapsed: repo-green 33s
 target: repo-green exit=0
 elapsed: tracked-binary-check 5s
 target: tracked-binary-check exit=0
 elapsed: credential-transparency 0s
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 249 rows (249 armed), FLOOR 249, RED-PROOFS 249 (measured 249)
-elapsed: rulefloor-check 33s
+evidence: [rulefloor-check] check OK: 250 rows (250 armed), FLOOR 250, RED-PROOFS 250 (measured 250)
+elapsed: rulefloor-check 34s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=006faf144b7fd8bb4f1fe127291b5b9ee9b0a734 status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=90748b5466dc1a0a3ecacdafeb9d2b533e5c9bcd5ec862d37d3d83f0136531cd
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=fe59616b4c239ab397d2ec66825a092d32519500 status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=7fd7bdd177055fb3ebed0c9b36ba57fe7c5e4e1c6fefb90b2be686efca6bd1b5
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
 target: image-base-check exit=0
-elapsed: vet-integration 0s
+elapsed: vet-integration 1s
 target: vet-integration exit=0
-elapsed: doccomment-check 1s
+elapsed: doccomment-check 0s
 target: doccomment-check exit=0
 evidence: [r-suite] go packages ok: 3
 elapsed: r-suite 4s
@@ -48,28 +48,28 @@ elapsed: clock-fuse-report 1s
 target: clock-fuse-report exit=0
 elapsed: clock-fuse-gate 1s
 target: clock-fuse-gate exit=0
-elapsed: tagged-vet 2s
+elapsed: tagged-vet 1s
 target: tagged-vet exit=0
 elapsed: integration-inventory 0s
 target: integration-inventory exit=0
-elapsed: gograph-capabilities 0s
+elapsed: gograph-capabilities 1s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 23s
+elapsed: gograph-build 25s
 target: gograph-build exit=0
-elapsed: gograph-boundaries 0s
+elapsed: gograph-boundaries 1s
 target: gograph-boundaries exit=0
 elapsed: go-mod-tidy-diff 0s
 target: go-mod-tidy-diff exit=0
-elapsed: staticcheck 2s
+elapsed: staticcheck 0s
 target: staticcheck exit=0
-elapsed: govulncheck 6s
+elapsed: govulncheck 5s
 target: govulncheck exit=0
 evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadable
-elapsed: wiki-fresh 0s
+elapsed: wiki-fresh 1s
 target: wiki-fresh exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
 elapsed: grype-scan 3s
 target: grype-scan exit=0
-finished: 2026-09-04T18:53:46Z
-tree: sha256=61d17e7526fc3acf9517a66b2b08455a90ec6fde797c1670957632f76de35153
+finished: 2026-09-04T19:54:46Z
+tree: sha256=6538311415717ad0105ee9612e4f2fa5ea38959b6af26724ac5189438e3e3b44
 result: green
