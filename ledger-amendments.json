@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "fbd072d07f764c8c718fcdf2cfcae5a9fa93a70f",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "WITNESS-CLEAN-HEAD-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "THE-RED-CI run 33854648164: the CI Verify job failed on WITNESS-CLEAN-HEAD-1 because the test shelled out to gate-witness.sh without setting cmd.Env and inherited CI's GATE_WITNESS_TIE=commit, so a dirty mint was refused under a commit tie instead of the digest tie the test measures - right refusal, wrong reason, green locally and red in CI for four runs. Both child-process paths now build their environment with every GATE_WITNESS_ variable removed. The sentence the rule proves is unchanged and no assertion was relaxed; only the test's environment handling moved, so this is a fingerprint change and not a new claim"
+    }
+  ]
 }
