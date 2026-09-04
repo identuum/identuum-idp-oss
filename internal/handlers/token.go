@@ -499,10 +499,19 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 				maxSessions = *user.OrgMaxSessionsPerUser
 			}
 			issued, refreshErr := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
-				UserID:             user.ID,
-				ClientID:           &clientIDCopy,
+				UserID:   user.ID,
+				ClientID: &clientIDCopy,
+				// THE-ID-TOKEN-CLAIMS-PARITY: BOTH sides EFFECTIVE, or the
+				// derived session inherits a step-up it cannot account for.
+				// EffectiveACR returns the uplifted rung after a step-up
+				// while the raw Amr predates it, so copying one of each
+				// minted a session whose own id_token would say
+				// acr=urn:identuum:loa:mfa with an amr of just ["pwd"] —
+				// two claims in ONE token disagreeing about the same login,
+				// and disagreeing with what the parent session's id_token
+				// had already told the same relying party.
 				Acr:                session.EffectiveACR(),
-				Amr:                session.Amr,
+				Amr:                session.EffectiveAMR(),
 				MaxSessionsPerUser: maxSessions,
 				OrganizationID:     user.OrganizationID,
 				Role:               string(user.Role),

@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "68ada22eb50f567f632255e491c01ffd38e8d3d1",
-  "changes": []
+  "base_commit": "de5a76dcd1914d057a87605dafd026e46c171f1f",
+  "changes": [
+    {
+      "rule_id": "AUTHCODE-DERIVED-AMR-EFFECTIVE-1",
+      "change_class": "rule_added",
+      "reason": "THE-ID-TOKEN-CLAIMS-PARITY: the authorization_code grant copied EffectiveACR beside the RAW session Amr, so a derived session inherited a step-up rung without the methods that step-up performed and its id_token contradicted itself. Both axes are effective now; the rule is an AST wiring pin asserting the VALUE, mutation red-proved."
+    }
+  ]
 }
