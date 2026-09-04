@@ -1,31 +1,34 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: a041e8b
-started: 2026-09-03T23:43:05Z
-plan: tool-versions repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
+repo-head: 167cf89
+started: 2026-09-04T00:17:57Z
+plan: tool-versions toolchain-parity repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
 tool: grype       0.118.0  /opt/homebrew/bin/grype
 tool: govulncheck govulncheck@v1.7.0  /opt/homebrew/bin/govulncheck
 tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.9.0","toolchain_version":"v0.9.0","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
-elapsed: tool-versions 1s
+elapsed: tool-versions 2s
 target: tool-versions exit=0
-elapsed: repo-green 32s
+evidence: [toolchain-parity] check OK: toolchain-parity 7 pins agree (gate-witness.sh 1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e, go 1.27.1, govulncheck 1.7.0, grype 0.118.0, rulefloor 0.9.0, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1)
+elapsed: toolchain-parity 2s
+target: toolchain-parity exit=0
+elapsed: repo-green 31s
 target: repo-green exit=0
-elapsed: tracked-binary-check 5s
+elapsed: tracked-binary-check 4s
 target: tracked-binary-check exit=0
 elapsed: credential-transparency 0s
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 244 rows (244 armed), FLOOR 244, RED-PROOFS 244 (measured 244)
-elapsed: rulefloor-check 29s
+evidence: [rulefloor-check] check OK: 245 rows (245 armed), FLOOR 245, RED-PROOFS 245 (measured 245)
+elapsed: rulefloor-check 31s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=9926c049e486858fa9a7d94f0a642744978dc19c status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=254d9e39b77a22a0eace4a8844b5d8aa12a4632cb00c28872d8ac0b9047476e3
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=cf2f0dab1845c2cc2e66f3f9b743dfd3c817b591 status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=c332544b7d97059430827518f62c6b164775cb30911e1ce52aac58fee2967632
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
 target: image-base-check exit=0
-elapsed: vet-integration 1s
+elapsed: vet-integration 0s
 target: vet-integration exit=0
 elapsed: doccomment-check 0s
 target: doccomment-check exit=0
@@ -40,11 +43,11 @@ elapsed: distroless-exec-check 0s
 target: distroless-exec-check exit=0
 elapsed: clock-fuse-report 1s
 target: clock-fuse-report exit=0
-elapsed: clock-fuse-gate 1s
+elapsed: clock-fuse-gate 0s
 target: clock-fuse-gate exit=0
 elapsed: tagged-vet 1s
 target: tagged-vet exit=0
-elapsed: integration-inventory 0s
+elapsed: integration-inventory 1s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
@@ -62,8 +65,8 @@ evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadab
 elapsed: wiki-fresh 0s
 target: wiki-fresh exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
-elapsed: grype-scan 2s
+elapsed: grype-scan 3s
 target: grype-scan exit=0
-finished: 2026-09-03T23:44:49Z
-tree: sha256=20c3fb0bfbf4c3a13c915c99f1171a0cc75f74674cffdc76e8198ee5253bb426
+finished: 2026-09-04T00:19:44Z
+tree: sha256=c0db422697a5253239ba6af586d54b25e28a6f06f8a5d2648e1e0f5ed2db1f4f
 result: green
