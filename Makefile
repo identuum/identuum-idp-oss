@@ -57,6 +57,15 @@ SHELL := /bin/bash
 ## with the port missing. Reading the output is what found it; the exit code was
 ## the one I expected.
 DEV_PG_HOST_PORT ?= 5513
+## THE-SHARED-VOLUME (2026-09-04): EXPORTED, or the override is decoration.
+## The compose file now publishes ${DEV_PG_HOST_PORT:-5513}, and compose reads
+## it from the ENVIRONMENT — a make variable that is never exported reaches the
+## readiness probe below and not the container, so a second checkout would move
+## its probe and still collide on the bind. Same for the project name, whose
+## default lives in the compose file; exporting an unset variable is harmless
+## and lets `IDENTUUM_IDP_COMPOSE_PROJECT=x make fast-up` work.
+export DEV_PG_HOST_PORT
+export IDENTUUM_IDP_COMPOSE_PROJECT
 ## THE BOUNDS fast-up WAITS UNDER. All overridable so every failure branch can be
 ## red-proven cheaply instead of by waiting out the real values.
 ##

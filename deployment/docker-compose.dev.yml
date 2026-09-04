@@ -42,19 +42,36 @@
 #     attempt against PG16 failed at 0001) and is left untouched by this
 #     compose file.
 
-name: identuum-idp-oss
+# THE-SHARED-VOLUME (2026-09-04): the project name is OVERRIDABLE, defaulting to
+# today's value so nothing existing moves. It has to be overridable: two
+# checkouts of this repository are both directories called identuum-idp-oss, so a
+# FIXED project name makes every clone the SAME Compose project — same container
+# names, and same scoped volumes even after a volume stops naming itself
+# explicitly. Set IDENTUUM_IDP_COMPOSE_PROJECT in a second checkout to give it
+# its own stack.
+name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}
 
 services:
   postgres-idp-oss:
     image: postgres:18-alpine
-    container_name: identuum-idp-oss-postgres
+    # THE-SHARED-VOLUME: overridable for the same reason the volume lost its
+    # explicit name — a fixed container_name is project-independent, so a
+    # second checkout collided here even with its own project and port
+    # (measured: "Conflict. The container name ... is already in use").
+    # Default unchanged, so every tool that greps for it keeps working.
+    container_name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}-postgres
     environment:
       POSTGRES_USER: idp_oss_user
       POSTGRES_PASSWORD: dev-idp_oss_user-not-a-secret
       POSTGRES_DB: identuum_idp_oss
     ports:
       # Bind to loopback only — not exposed to the network.
-      - "127.0.0.1:5513:5432"
+      # THE-SHARED-VOLUME: the HOST port is overridable, defaulting to 5513 so
+      # nothing existing moves. A second checkout that only renamed its project
+      # would still fail on the bind; DEV_PG_HOST_PORT is the same variable the
+      # Makefile already probes for readiness, so overriding it keeps the probe
+      # pointed at the port the stack actually published.
+      - "127.0.0.1:${DEV_PG_HOST_PORT:-5513}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U idp_oss_user -d identuum_idp_oss"]
       interval: 3s
@@ -82,7 +99,8 @@ services:
       context: ..
       dockerfile: deployment/Dockerfile.local
     image: identuum-idp-oss:local
-    container_name: identuum-idp-oss
+    # THE-SHARED-VOLUME: same reasoning as the postgres container above.
+    container_name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}
     restart: unless-stopped
     depends_on:
       postgres-idp-oss:
@@ -120,5 +138,17 @@ services:
       IDENTUUM_IDP_UI_PUBLIC_BASE_URL: "${IDENTUUM_IDP_UI_PUBLIC_BASE_URL:-}"
 
 volumes:
+  # THE-SHARED-VOLUME (2026-09-04): NO EXPLICIT `name:` HERE, deliberately.
+  # It used to read `name: identuum-idp-oss-postgres-data-v18`, which opts a
+  # volume OUT of project scoping — so every checkout of this repository on a
+  # machine bound the SAME volume, and `make fast-clean` run in a newcomer's
+  # clone silently destroyed the maintainer's dev database. Measured before the
+  # change: two checkouts in different directories both resolved to that one
+  # volume name.
+  #
+  # Without the name, Compose scopes it to the project — which is why the
+  # project name above had to become overridable in the same change. The old
+  # volume is ORPHANED by this and is not migrated: a one-time dev reset is the
+  # accepted cost (owner ruling). The stale volume to remove once, by hand, is
+  # named in the commit message and the wiki entry.
   postgres-idp-oss-data-v18:
-    name: identuum-idp-oss-postgres-data-v18
