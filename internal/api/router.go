@@ -1760,12 +1760,22 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			// (domain.EmittableIdentityClaims), consent-gated and
 			// role-intersected; unknown claims are ignored per §5.5.1.
 			body["claims_parameter_supported"] = true
-			// THE-HONEST-ACR (owner ruling): advertise ONLY the contexts a
-			// local login actually performs — password, and password+TOTP.
-			// A request for one of them is honored (step-up when the
-			// session is below and TOTP is enrolled) or refused with
-			// unmet_authentication_requirements; the id_token acr is
-			// always the context performed, never the one requested.
+			// THE-HONEST-ACR (owner ruling): advertise the contexts a login
+			// here actually performs. A request for one is honored (step-up
+			// when the session is below it) or refused with
+			// unmet_authentication_requirements; the id_token acr is always
+			// the context performed, never the one requested.
+			//
+			// THE-ACR-AMR-TRUTH (2026-09-04) corrects this comment rather
+			// than the code. It said "ONLY ... password, and password+TOTP",
+			// two values, while AdvertisedACRValues has returned THREE since
+			// the passkey work: password, mfa AND phishing-resistant. The
+			// third is real and honored — a WebAuthn login stamps it
+			// (HandleWebAuthnLoginFinish) and a passkey step-up uplifts to it
+			// (HandlePasskeyStepUpFinish) — so the list was right and the
+			// sentence above it was stale. A relying party reads this
+			// endpoint, not the comment; the danger of the stale wording was
+			// the next reader trimming the list to match it.
 			body["acr_values_supported"] = service.AdvertisedACRValues()
 			// Identuum issuance posture beyond the three listed: never
 			// `none`, never HS*, never RS384/512 or PS*. Asserted in

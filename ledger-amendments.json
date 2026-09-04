@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "cf2e5079bb572098266baa061a62d5cde73669da",
-  "changes": []
+  "base_commit": "006faf144b7fd8bb4f1fe127291b5b9ee9b0a734",
+  "changes": [
+    {
+      "rule_id": "ACR-ASSUMED-NEVER-STAMPED-1",
+      "change_class": "rule_added",
+      "reason": "THE-ACR-AMR-TRUTH: mintSession discarded MapUpstreamACRToLadder's assumedDefault flag and stamped the assumed mfa rung on a federated session, so the id_token asserted multi-factor authentication on the evidence of an upstream that sent no acr at all. An assumed rung now stamps no acr; this rule pins it and is mutation red-proved."
+    }
+  ]
 }

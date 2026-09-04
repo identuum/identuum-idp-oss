@@ -306,7 +306,27 @@ func (s *OIDCCallbackService) HandleCallback(ctx context.Context, providerID uui
 // acr maps to the ladder's assumed default. The per-org max-sessions cap +
 // admin exemption are enforced inside CreateUserSession.
 func (s *OIDCCallbackService) mintSession(ctx context.Context, user *domain.User, upstreamACR, ip, ua string) (*IssuedUserSession, error) {
-	rung, _ := auth.MapUpstreamACRToLadder(upstreamACR)
+	// THE-ACR-AMR-TRUTH: an ASSUMED rung is not a performed one, and this
+	// call site used to throw the distinction away (`rung, _ :=`). When the
+	// upstream IdP sends no acr at all, MapUpstreamACRToLadder answers
+	// (ACRMFA, assumedDefault=true) — a floor for the mapper's own callers,
+	// not a measurement. Stamping it on the session made the id_token say
+	// `acr: urn:identuum:loa:mfa` to a relying party that reads acr to decide
+	// whether to trust the session, on the evidence of silence.
+	//
+	// So an assumed rung stamps NO acr. IDTokenService.Issue omits the claim
+	// entirely when the session carries none, which is the honest statement:
+	// this user authenticated upstream and we do not know how. It also fails
+	// CLOSED — acrLadder[""] is 0, so ACRMeetsFloor refuses every non-empty
+	// floor, and an RP that requires a rung gets step-up or
+	// unmet_authentication_requirements instead of a false assurance.
+	//
+	// The mapper is unchanged; its assumed default still serves callers that
+	// want a floor. What changes is that this one stops laundering it.
+	rung, assumed := auth.MapUpstreamACRToLadder(upstreamACR)
+	if assumed {
+		rung = ""
+	}
 	var ipPtr, uaPtr *string
 	if ip != "" {
 		ipPtr = &ip

@@ -312,16 +312,27 @@ func TestOIDCCallback_DeadOrg_RefusesExistingUserMatch(t *testing.T) {
 }
 
 // (ACR mapping) The session ACR rung is derived from the upstream acr via
-// auth.MapUpstreamACRToLadder — its first production caller. An absent upstream
-// acr maps to the ladder's assumed default; a phishing-resistant marker maps to
-// the phishing-resistant rung.
+// auth.MapUpstreamACRToLadder — its first production caller. A MEASURED
+// upstream value is stamped verbatim or mapped onto the ladder; an ASSUMED one
+// is not stamped at all.
+//
+// THE-ACR-AMR-TRUTH (2026-09-04) flipped the first case. It used to assert that
+// an absent upstream acr stamps the ladder's assumed default, urn:identuum:loa:mfa
+// — i.e. that a relying party reading acr would be told the user completed
+// multi-factor authentication because the upstream IdP said nothing at all. The
+// mapper still answers (ACRMFA, assumedDefault=true) as a floor for its callers;
+// mintSession now honours the flag and stamps no acr, so the id_token omits the
+// claim rather than asserting an unperformed one. Empty also fails CLOSED
+// against any requested rung (acrLadder[""] is 0).
+//
+// RULE: ACR-ASSUMED-NEVER-STAMPED-1
 func TestOIDCCallback_ACRStampedFromUpstream(t *testing.T) {
 	cases := []struct {
 		name     string
 		acr      any // set into the claim; nil ⇒ omit
 		wantRung string
 	}{
-		{"absent acr → assumed default (mfa)", nil, auth.ACRMFA},
+		{"absent acr → assumed, so NO acr is stamped", nil, ""},
 		{"password loa (0)", "0", auth.ACRPassword},
 		{"phishing-resistant marker", "phishing-resistant-webauthn", auth.ACRPhishingResistant},
 	}

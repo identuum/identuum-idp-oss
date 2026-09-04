@@ -596,8 +596,21 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		}
 		// THE-HONEST-ACR: a verified WebAuthn assertion is the
 		// phishing-resistant rung (the ladder's top; it satisfies any
-		// requested rung). Not advertised in acr_values_supported — only
-		// the password and password+TOTP contexts are.
+		// requested rung).
+		//
+		// THE-ACR-AMR-TRUTH (2026-09-04): the sentence that used to close
+		// this comment — "Not advertised in acr_values_supported" — was
+		// false. AdvertisedACRValues returns all three rungs including this
+		// one, and discovery serves it verbatim (router.go), so a relying
+		// party can and does request it. Corrected here rather than left to
+		// contradict the endpoint.
+		//
+		// NOT FIXED, and named so it is not mistaken for an oversight: this
+		// path stamps no Amr. RFC 8176 has no registered value for a
+		// WebAuthn assertion as such (swk/hwk describe key storage, not the
+		// ceremony), and inventing one would be a different kind of lie than
+		// the omission. The acr rung carries the meaning; amr is silent.
+		// Same for the passkey step-up in step_up_passkey.go.
 		issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
 			UserID:             user.ID,
 			IPAddress:          ipPtr,
