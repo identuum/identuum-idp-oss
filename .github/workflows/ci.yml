@@ -277,6 +277,31 @@ jobs:
       # (gograph, govulncheck, and the three wiki-coupled targets) — this
       # comment used to carry its own shorter list, which drifted the moment
       # the header's grew. One list, one place.
+      - name: Migrate the ci-verify database
+        # THE-RED-CI (run 33398057351): this job's Postgres service creates
+        # identuum_ci_test and nothing migrated it. Most DB-backed suites
+        # self-migrate (migrateTestSchema), which is why the job's header says
+        # so — but the encryption-key rotation pair does NOT: it drives the
+        # LIVE schema and needs it to exist. On 2026-08-31 this job failed on
+        # exactly those two tests, the same pair that has failed the
+        # Integration job ever since.
+        #
+        # REPRODUCED LOCALLY before adding this, against an empty but
+        # correctly-named *_test database:
+        #   rotate-encryption-key: lease check failed: instance_lease:
+        #   ERROR: relation "instance_lease" does not exist (SQLSTATE 42P01)
+        # — the same class as CI's `relation "oidc_states" does not exist`.
+        #
+        # The Integration job's migrate step (added in THE-UNRUN-CI) does NOT
+        # cover this job: different database, different port, different env.
+        #
+        # DECLARED, UNRUN: no CI run has executed this step. Every run so far
+        # failed earlier — at the digest check, then at rulefloor — so this
+        # job has never reached the DB tests with a current tree.
+        run: |
+          go build -o bin/identuum-idp ./cmd/identuum-idp
+          ./bin/identuum-idp migrate "$IDENTUUM_IDP_TEST_DATABASE_URL"
+
       - name: make ci-verify
         # GATE_WITNESS_TIE=commit: this checkout cannot commit its record, so
         # the witness ties it to the commit SHA the job executed against
