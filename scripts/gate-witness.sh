@@ -299,9 +299,71 @@ gw_unlock() {
 	_gw_lock_dir=""
 }
 
+# ── THE-STEPWISE-SESSION (2026-09-04): A SESSION OWNS ITS RECORD ──────────
+# The lock above serializes one INVOCATION at a time, which is all a `run`
+# needs. A stepwise session is not one invocation: identuum-ui's
+# e2e-full/scripts/full-run.sh opens a record with `init`, appends FIFTEEN
+# `step`s over roughly twelve minutes, and closes it with `finalize`. For
+# that whole window the per-invocation lock is free between calls, so a
+# `run` or a second `init` could truncate the session's header and land two
+# runs in one record. P-057's reviewer constructed exactly that.
+#
+# THE OWNER IS THE SHELL THAT RAN init, not the init process itself, which
+# exits immediately. $PPID at init is full-run.sh's shell, and it lives for
+# the whole session — so probing it answers "is that session still going?".
+#
+# WHY step IS NOT GUARDED, deliberately: identuum-ui CI runs its steps as
+# separate workflow steps on separate shells (and, for the matrix, separate
+# runners), so no ownership token could survive between them. Requiring one
+# would break the only CI user to protect a local one. Only the two entry
+# points that would DESTROY a session — `run` and a second `init` — consult
+# it, which is exactly the collision that can happen locally.
+#
+# A session whose owner is GONE is broken and taken, loudly, never waited
+# out — the same rule the lock uses for a SIGKILLed holder, and for the
+# same reason: waiting longer for a corpse is still waiting for a corpse.
+# In CI the init shell dies immediately after the step, so the session
+# reads dead from the next call onward; nothing there ever consults it.
+_gw_session_file() { # <record>
+	local rec="$1" dir abs
+	dir=$(cd "$(dirname "$rec")" 2>/dev/null && pwd -P) || dir=""
+	if [ -n "$dir" ]; then abs="$dir/$(basename "$rec")"; else abs="$rec"; fi
+	printf '/tmp/gate-witness-%s.session\n' "$(printf '%s' "$abs" | $SHA256 | cut -d' ' -f1)"
+}
+
+# Refuse when a LIVE stepwise session owns this record. Called by `run` and
+# by `init`, never by `step` or `finalize`.
+gw_session_guard() { # <record> <what-is-starting>
+	local rec="$1" what="$2" sf owner pid
+	sf=$(_gw_session_file "$rec")
+	[ -f "$sf" ] || return 0
+	owner=$(cat "$sf" 2>/dev/null || echo unknown)
+	pid=${owner#*owner=}; pid=${pid%% *}
+	if [ -z "$pid" ] || [ "$pid" = "unknown" ] || ! kill -0 "$pid" 2>/dev/null; then
+		echo "gate-witness: breaking a STALE session on $rec — its owner ($owner) is gone" >&2
+		rm -f "$sf"
+		return 0
+	fi
+	echo "GATE-WITNESS SESSION OPEN: $rec belongs to a stepwise session that is still running ($owner)" >&2
+	echo "  Refusing to start $what: it would truncate that session's header and leave two runs in one record." >&2
+	echo "  Wait for its finalize, or if that session is dead remove $sf and try again." >&2
+	exit 4
+}
+
+gw_session_open() { # <record> <label>
+	local sf
+	sf=$(_gw_session_file "$1")
+	printf 'owner=%s label=%s started=%s\n' "$PPID" "${2:-?}" "$(now_utc)" >"$sf" 2>/dev/null || true
+}
+
+gw_session_close() { # <record>
+	rm -f "$(_gw_session_file "$1")" 2>/dev/null || true
+}
+
 run_mode() {
 	[ $# -ge 3 ] || { echo "usage: gate-witness.sh run <record> <label> <name=command>..." >&2; exit 2; }
 	local rec="$1" label="$2"; shift 2
+	gw_session_guard "$rec" "a one-shot run"
 	gw_lock "$rec" "$label"
 	local names=() e
 	for e in "$@"; do names+=("${e%%=*}"); done
@@ -324,8 +386,10 @@ run_mode() {
 init_mode() {
 	[ $# -ge 3 ] || { echo "usage: gate-witness.sh init <record> <label> <plan name>..." >&2; exit 2; }
 	local rec="$1" label="$2"; shift 2
+	gw_session_guard "$rec" "a second stepwise session"
 	gw_lock "$rec" "$label"
 	write_header "$rec" "$label" "$@"
+	gw_session_open "$rec" "$label"
 }
 
 step_mode() {
@@ -346,7 +410,16 @@ finalize_mode() {
 		echo "gate-witness: no record at $1 — nothing to finalize" >&2
 		return 2
 	fi
-	finalize_into "$1"
+	# The session ends here whatever the verdict: a red record is finished,
+	# not still being written, and leaving the marker would refuse the next
+	# run for no reason. finalize_into's STATUS IS THE ANSWER, so it is
+	# captured and returned — making the close the last statement handed the
+	# caller rm's exit code instead, and selftest case 8a caught it
+	# immediately ("finalize wrote green with a planned step missing").
+	local frc=0
+	finalize_into "$1" || frc=$?
+	gw_session_close "$1"
+	return "$frc"
 }
 
 check_mode() {
@@ -754,10 +827,36 @@ selftest() {
 		cp /tmp/gw-onerun.$$ GATE-RUN.txt; rm -f /tmp/gw-onerun.$$
 		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 18f: the restored single-verdict record did not pass again"; exit 1; }
 
+		# 19 A STEPWISE SESSION OWNS ITS RECORD. This is the reviewer's REAL
+		# sequence, not a record built by concatenation (case 18 already has
+		# that one): open a session with init, then start a `run` against the
+		# same record while it is still open, and watch the run refused with
+		# the session's header still intact.
+		bash "$self" init GATE-RUN.txt "selftest session" a b >/dev/null 2>&1 || { echo "SELFTEST FAIL 19a: init did not open a session"; exit 1; }
+		out=$(bash "$self" run GATE-RUN.txt "selftest intruder" 'x=true' 2>&1); code=$?
+		[ "$code" -eq 4 ] || { echo "SELFTEST FAIL 19b: a run landed mid-session and exited $code, want 4 (refused)"; exit 1; }
+		case "$out" in *"GATE-WITNESS SESSION OPEN"*) : ;; *) echo "SELFTEST FAIL 19c: refusal does not name the open session: $out"; exit 1 ;; esac
+		grep -q '^plan: a b$' GATE-RUN.txt || { echo "SELFTEST FAIL 19d: the intruder REWROTE the session header — that is the truncation the session exists to stop"; exit 1; }
+		bash "$self" init GATE-RUN.txt "selftest second session" z >/dev/null 2>&1
+		[ $? -eq 4 ] || { echo "SELFTEST FAIL 19e: a second init was allowed over a live session"; exit 1; }
+		# the session runs to completion and releases the record
+		bash "$self" step GATE-RUN.txt 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 19f: step was refused inside its own session"; exit 1; }
+		bash "$self" step GATE-RUN.txt 'b=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 19g: second step was refused inside its own session"; exit 1; }
+		bash "$self" finalize GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 19h: finalize failed on a complete session"; exit 1; }
+		bash "$self" run GATE-RUN.txt "selftest after session" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 19i: a run was still refused after finalize released the session"; exit 1; }
+		# a session whose owner is gone is broken and taken, never waited out
+		sf="/tmp/gate-witness-$(printf '%s' "$(pwd -P)/GATE-RUN.txt" | $SHA256 | cut -d' ' -f1).session"
+		( : ) & corpse=$!; wait "$corpse" 2>/dev/null || true
+		printf 'owner=%s label=corpse started=%s\n' "$corpse" "$(now_utc)" >"$sf"
+		out=$(bash "$self" run GATE-RUN.txt "selftest after corpse" 'a=true' 2>&1); code=$?
+		[ "$code" -eq 0 ] || { echo "SELFTEST FAIL 19j: a session owned by a DEAD shell wedged the record (exit $code)"; rm -f "$sf"; exit 1; }
+		case "$out" in *"breaking a STALE session"*) : ;; *) echo "SELFTEST FAIL 19k: the stale session was not named as broken: $out"; rm -f "$sf"; exit 1 ;; esac
+		rm -f "$sf"
+
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 18 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record) proven"
+		echo "SELFTEST OK — 19 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record, run-into-open-session, second-init-into-open-session) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record, session completes and releases, dead-owner session broken) proven"
 		return 0
 	fi
 	return 1

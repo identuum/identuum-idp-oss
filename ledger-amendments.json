@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "fe59616b4c239ab397d2ec66825a092d32519500",
-  "changes": [
-    {
-      "rule_id": "WITNESS-ONE-RUN-PER-RECORD-1",
-      "change_class": "rule_added",
-      "reason": "THE-TWO-VERDICT-RECORD: check took the FIRST gate/plan/result line of a record, so a file two runs had written into could pass with one run's plan above another's targets - constructed by P-057's reviewer and observed passing. check now refuses more than one gate header or verdict, naming the counts. Mutation red-proved against the vendored script."
-    }
-  ]
+  "base_commit": "68ada22eb50f567f632255e491c01ffd38e8d3d1",
+  "changes": []
 }
