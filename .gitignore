@@ -93,6 +93,15 @@ docs/design/
 # uploaded as a CI artifact; never committed — a local run must not read as
 # an edit to the committed GATE-RUN.txt record's tree digest.
 /GATE-RUN.ci.txt
+# THE-UNMINTED-DIFF: the mint's own marker is LOCAL STATE, deliberately.
+# Committing it created a loop: the mint writes MINT-STATE.json when it
+# finishes, that commit moves HEAD, and the e2e record pins HEAD — so every
+# mint invalidated the record it had just produced, and the next mint would
+# too. Gitignored, the marker cannot move the tree the mint just witnessed.
+# A fresh clone has no marker, and the classifier FAILS CLOSED on that: no
+# last_minted means MINT REQUIRED, which is the right answer for a checkout
+# that has never minted anything.
+/MINT-STATE.json
 # The integration profile's witness record (THE-UNRUN-SUITE, P-041):
 # gitignored for the SAME reason as the CI record — a local run must not read
 # as an edit to the committed GATE-RUN.txt record's tree digest, and two
