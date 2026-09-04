@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "cf2f0dab1845c2cc2e66f3f9b743dfd3c817b591",
+  "base_commit": "10d10fd6b028f4267942268178a64ce935c5f083",
   "changes": [
     {
-      "rule_id": "CI-LOCAL-PARITY-1",
+      "rule_id": "CI-RECORD-HONEST-1",
       "change_class": "rule_added",
-      "reason": "THE-UNCOMPARED-TOOLCHAIN: tool-versions printed what is installed here and the workflow env declared what CI builds, and nothing compared them - the ledger was checked by rulefloor v0.8.1 locally and v0.7.0 in CI for weeks with every gate green. This rule makes that disagreement fail, and it found two more the day it was written: grype 0.118.0 against a v0.117.0 pin, and GATE_WITNESS_SHA256 still naming the pre-instrumentation script, which CI verifies by sha256sum and would have failed on"
+      "reason": "THE-UNRUN-CI: three slices closed with pins CI has never executed, and nothing here carried a CI result at all. This rule makes a CI record checkable locally - absent or untracked reports NO CLAIM and never reads as a pass, and a committed record must be green, complete, commit-tied, clean and provenanced. It was written after the first version of the gate accepted a stale LOCAL make ci-verify record as CI evidence, which is why committed-plus-ci-run-provenance is the bar"
     }
   ]
 }

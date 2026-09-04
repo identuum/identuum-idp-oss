@@ -377,6 +377,28 @@ tool-versions:
 toolchain-parity:
 	@go run ./tools/toolchain-parity --repo .
 
+## ci-witness (THE-UNRUN-CI, 2026-09-04): does anything here EVIDENCE a CI
+## run? Three slices closed with pins CI has never executed, and a stale
+## GATE_WITNESS_SHA256 proved CI can sit broken for two slices while every
+## local gate is green. `make verify` witnesses a local run into a committed
+## GATE-RUN.txt; CI writes the same kind of record and uploads it to an
+## artifact nobody downloads, so no local gate has ever seen one.
+##
+## This target judges a CI record IF ONE IS COMMITTED HERE. It fetches
+## nothing — a gate that reaches the network fails on a plane — and it
+## cannot make CI run. Absent, or present but UNTRACKED, it reports NO CLAIM
+## and passes: absence is honest. Committed, it must be green, complete,
+## commit-tied, clean, on HEAD's ancestry, and carry the `ci-run:`
+## provenance only the workflow writes.
+##
+## The untracked case is why the provenance line exists. A local
+## `make ci-verify` writes GATE-RUN.ci.txt to the same gitignored path with
+## the same gate label; one from 2026-08-28, green and commit-tied and 138
+## commits stale, was in this working tree, and the FIRST version of this
+## gate accepted it as CI evidence. Rule CI-RECORD-HONEST-1.
+ci-witness:
+	@go run ./tools/ci-witness --repo .
+
 verify:
 	# THE-UNWITNESSED-GREEN: the same targets in the same order, driven
 	# through scripts/gate-witness.sh so the run leaves a committed record
@@ -403,6 +425,7 @@ verify:
 	@bash scripts/gate-witness.sh run GATE-RUN.txt "identuum-idp-oss make verify" \
 		'tool-versions=$(MAKE) --no-print-directory tool-versions' \
 		'toolchain-parity=$(MAKE) --no-print-directory toolchain-parity' \
+		'ci-witness=$(MAKE) --no-print-directory ci-witness' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \

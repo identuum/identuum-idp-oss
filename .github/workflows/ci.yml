@@ -285,6 +285,21 @@ jobs:
           GATE_WITNESS_TIE: commit
         run: make ci-verify
 
+      - name: Stamp CI provenance into the record
+        # THE-UNRUN-CI: a gate-witness record cannot say where it came from.
+        # A LOCAL `make ci-verify` writes the same file, with the same gate
+        # label, into the same gitignored path — one such record (green,
+        # commit-tied, 138 commits stale) was sitting in a working tree and
+        # the first version of tools/ci-witness accepted it as CI evidence.
+        # This line is the only thing in the file a local run cannot forge,
+        # and tools/ci-witness REFUSES a committed record without it.
+        # if: always() — a red record needs provenance just as much.
+        if: always()
+        run: |
+          if [ -f GATE-RUN.ci.txt ]; then
+            echo "ci-run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID} attempt=${GITHUB_RUN_ATTEMPT} sha=${GITHUB_SHA}" >> GATE-RUN.ci.txt
+          fi
+
       - name: Upload the gate run record
         # if: always() — a red or half-dead run must still upload its record;
         # an INCOMPLETE record that names the unrun targets is the point.
