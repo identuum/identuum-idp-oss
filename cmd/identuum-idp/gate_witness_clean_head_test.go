@@ -36,10 +36,33 @@ func TestGateWitness_RecordMustNameTheCurrentCleanHead(t *testing.T) {
 		t.Fatalf("vendored gate-witness.sh missing: %v", err)
 	}
 
+	// THE-RED-CI (run 33854648164): this test exercises gate-witness's DEFAULT
+	// digest tie, and it inherited the caller's environment. CI exports
+	// GATE_WITNESS_TIE=commit for the whole `make ci-verify` step, so in CI —
+	// and only in CI — finalize wrote a commit tie instead, `check` failed
+	// with "commit-tied but finalized on a dirty tree" rather than
+	// "DIRTY-MINT", and the assertion below reported the right refusal for the
+	// wrong reason. Green here, red there, for four runs nobody read.
+	//
+	// The child now gets an environment with every GATE_WITNESS_* steering
+	// variable REMOVED, so the test measures the script's default behaviour no
+	// matter what the caller has set. Reproduced before the fix with
+	// `GATE_WITNESS_TIE=commit go test -run …` — byte-identical to the CI log.
+	hermeticEnv := func() []string {
+		out := make([]string, 0, len(os.Environ()))
+		for _, kv := range os.Environ() {
+			if strings.HasPrefix(kv, "GATE_WITNESS_") {
+				continue
+			}
+			out = append(out, kv)
+		}
+		return out
+	}()
 	sh := func(t *testing.T, dir string, name string, args ...string) (string, int) {
 		t.Helper()
 		cmd := exec.Command(name, args...)
 		cmd.Dir = dir
+		cmd.Env = hermeticEnv
 		out, err := cmd.CombinedOutput()
 		code := 0
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -119,7 +142,11 @@ func TestGateWitness_RecordMustNameTheCurrentCleanHead(t *testing.T) {
 	}
 	cmd := exec.Command("bash", script, "run", "GATE-RUN.txt", "t xrepo gate", "a=true")
 	cmd.Dir = main2
-	cmd.Env = append(os.Environ(), "GATE_WITNESS_XREPO=identuum-idp-oss=../identuum-idp-oss")
+	// hermeticEnv, not os.Environ(): this case declares the ONE gate-witness
+	// variable it wants and must not inherit CI's GATE_WITNESS_TIE=commit,
+	// which would tie the record by commit and fail the check below for a
+	// reason this case is not about (THE-RED-CI, run 33854648164).
+	cmd.Env = append(hermeticEnv, "GATE_WITNESS_XREPO=identuum-idp-oss=../identuum-idp-oss")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("xrepo mint failed: %v\n%s", err, out)
 	}
