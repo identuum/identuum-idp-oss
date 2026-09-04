@@ -115,7 +115,7 @@ env:
   # single source is go.mod's `go` directive (asserted, not
   # re-declared). Latest-stable owner rule applies to all of them.
   STATICCHECK_VERSION: v0.8.1
-  GRYPE_VERSION: v0.117.0
+  GRYPE_VERSION: v0.118.0
   GOVULNCHECK_VERSION: v1.7.0
   # THE-UNWATCHED-FOUR: the vendored install gate must be byte-identical
   # to the shared master — a weakened copy would let this CI pass with a
@@ -128,7 +128,7 @@ env:
   # scripts/gate-witness.sh must be the wiki master, or the record CI uploads
   # is written by something else. Held identical to the wiki-side digest
   # (contracts/gate-witness.master.sha256) by gate-witness.sh --sync-check.
-  GATE_WITNESS_SHA256: "48eeba51aac38bed3a70b5c547f8a898e0c6042c2b77fb5fcb8b2f62a502926b"
+  GATE_WITNESS_SHA256: "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e"
 
 jobs:
   verify:

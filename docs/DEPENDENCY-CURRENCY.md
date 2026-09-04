@@ -59,3 +59,28 @@ lucide-react 1.34.0→1.39.0, react-hook-form 7.86.0→7.87.0, zod 4.4.3→4.5.4
 @types/node 22.19.19→26.4.1 — the last one is a standing deliberate hold,
 recorded in that repository: types track the `engines` floor, not the newest
 local runtime). Acting on those belongs to a slice that may write there.
+
+## The toolchain: who is authoritative, per tool
+
+Added 2026-09-04 (THE-UNCOMPARED-TOOLCHAIN). `make tool-versions` prints what
+is installed here; the CI workflow env declares what CI builds. Both were
+true and nothing compared them, so the ledger was checked by rulefloor v0.8.1
+here and v0.7.0 in CI for weeks, silently. `make toolchain-parity` now refuses
+that disagreement (rule `CI-LOCAL-PARITY-1`). This table says what to do when
+it fires — which side moves.
+
+| Tool | Declared in | Authority when they differ |
+| --- | --- | --- |
+| `rulefloor` | workflow env `RULEFLOOR_VERSION` (+ `RULEFLOOR_SHA256`) | **Latest stable**, per the fourth standing rule. Neither side wins by being CI or local: the pin is the RECORD, and the fix is to bump the pin to latest stable and install that here. A version below latest stable belongs in the held table above with its reason. |
+| `staticcheck` | workflow env `STATICCHECK_VERSION` | Latest stable, as above. |
+| `grype` | workflow env `GRYPE_VERSION` | Latest stable, as above. |
+| `govulncheck` | workflow env `GOVULNCHECK_VERSION` | Latest stable, as above. |
+| `go` | **`go.mod`'s `go` directive** — not re-declared in the workflow | go.mod is authoritative for BOTH sides. CI's `setup-go` derives from it; this machine must match it. Changing the toolchain means changing go.mod, never the pin. |
+| `gograph` | nothing — **deliberately absent** | Local-only. CI does not install it (`ci-verify` subtracts the gograph targets), so there is no pin to disagree with. Recorded here so the absence is a decision, not an oversight: if gograph ever enters CI, it must gain an env pin and a row in the parity gate the same day. |
+| `scripts/gate-witness.sh` | workflow env `GATE_WITNESS_SHA256` | The **wiki master** is authoritative. CI verifies the vendored copy with `sha256sum -c`, so the pin must follow the master the moment the script changes — this is exactly the drift that was sitting here when the gate was written. |
+| `scripts/rulefloor-install-gate.sh` | workflow env `RULEFLOOR_GATE_SHA256` | The wiki master, as above. |
+
+**What the parity gate does NOT prove.** It compares declarations against THIS
+machine. It cannot prove that CI, when it next runs, actually builds and
+installs what the env declares — nothing here can run CI. Those two are
+different claims, and only the first is gated.

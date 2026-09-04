@@ -356,6 +356,27 @@ tool-versions:
 	@printf 'govulncheck %s  %s\n' "$$(govulncheck -version 2>/dev/null | awk '/Scanner/{print $$2}')" "$$(command -v govulncheck || echo MISSING)"
 	@printf 'rulefloor   %s  %s\n' "$$(rulefloor version --json 2>/dev/null)" "$$(command -v rulefloor || echo MISSING)"
 
+## toolchain-parity (THE-UNCOMPARED-TOOLCHAIN, 2026-09-04): tool-versions
+## above PRINTS what is installed here; the workflow env DECLARES what CI
+## builds. Both were true and neither compared to the other, so the ledger
+## was checked by rulefloor v0.8.1 here and v0.7.0 in CI for weeks and
+## nothing failed. This target refuses that disagreement.
+##
+## It found two more the day it was written: local grype 0.118.0 against a
+## CI pin of v0.117.0, and GATE_WITNESS_SHA256 still naming the
+## PRE-instrumentation gate-witness.sh — which CI verifies with
+## `sha256sum -c`, so CI would have failed outright, two slices after the
+## change that caused it, with every local gate green.
+##
+## NOT wired into ci-verify. In CI the tools are installed FROM these pins
+## moments earlier, so comparing them back is close to a self-check; the
+## drift this catches is between the two machines, and it is here that it
+## goes unseen. gograph is deliberately absent from the comparison: CI does
+## not install it at all (ci-verify subtracts the gograph targets), so there
+## is no pin to disagree with. Rule CI-LOCAL-PARITY-1.
+toolchain-parity:
+	@go run ./tools/toolchain-parity --repo .
+
 verify:
 	# THE-UNWITNESSED-GREEN: the same targets in the same order, driven
 	# through scripts/gate-witness.sh so the run leaves a committed record
@@ -381,6 +402,7 @@ verify:
 	# gograph lines; ci-verify documents the omission.
 	@bash scripts/gate-witness.sh run GATE-RUN.txt "identuum-idp-oss make verify" \
 		'tool-versions=$(MAKE) --no-print-directory tool-versions' \
+		'toolchain-parity=$(MAKE) --no-print-directory toolchain-parity' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \

@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "9926c049e486858fa9a7d94f0a642744978dc19c",
-  "changes": []
+  "base_commit": "cf2f0dab1845c2cc2e66f3f9b743dfd3c817b591",
+  "changes": [
+    {
+      "rule_id": "CI-LOCAL-PARITY-1",
+      "change_class": "rule_added",
+      "reason": "THE-UNCOMPARED-TOOLCHAIN: tool-versions printed what is installed here and the workflow env declared what CI builds, and nothing compared them - the ledger was checked by rulefloor v0.8.1 locally and v0.7.0 in CI for weeks with every gate green. This rule makes that disagreement fail, and it found two more the day it was written: grype 0.118.0 against a v0.117.0 pin, and GATE_WITNESS_SHA256 still naming the pre-instrumentation script, which CI verifies by sha256sum and would have failed on"
+    }
+  ]
 }
