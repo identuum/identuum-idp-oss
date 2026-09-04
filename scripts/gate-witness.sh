@@ -225,25 +225,62 @@ finalize_into() { # <record> — green ONLY if every planned target recorded exi
 # either creates the directory or fails, with no test-then-set window, and it
 # needs no flock(1), which macOS does not ship.
 #
-# The lock lives under TMPDIR, never beside the record: a lockfile inside the
+# The lock lives under /tmp, never beside the record: a lockfile inside the
 # repo would be an untracked, unignored file and would land in the very tree
-# digest this script computes.
+# digest this script computes. /tmp is DELIBERATE and TMPDIR is deliberately
+# NOT used — a review of this very code (2026-09-04) built the counterexample:
+# two runs with different TMPDIR values never see each other's lock, and the
+# interleaved record they produced passed `check` with two verdicts in it. A
+# lock only works when every writer computes the SAME path, and on macOS TMPDIR
+# is per-user and per-session. For the same reason the key is the PHYSICAL path
+# (pwd -P): the same record reached through /tmp/x and /private/tmp/x hashed to
+# two different keys under logical pwd, which is a lock in name only.
 #
 # Waiting is a BOUNDED POLL with an honest ending — it refuses, loudly, rather
-# than blocking a gate forever. A stale lock from a killed run is broken only
-# after the same bound, and says so.
+# than blocking a gate forever. A lock whose holder is DEAD is broken and taken
+# (the pid is probed with kill -0), because the alternative was measured and is
+# worse: a run killed with SIGKILL leaves the directory behind and every later
+# run refuses FOREVER until a human deletes it. INT, TERM and HUP release it
+# through the trap; only SIGKILL can strand it, and that is the case this
+# probe covers.
+#
+# WHAT THIS LOCK DOES NOT COVER, stated because the comment above used to
+# imply otherwise: it serializes single-invocation `run`s, which is the shape
+# every local entry point uses. The stepwise modes (init/step/finalize) take
+# and RELEASE it per invocation, so a `run` starting between an `init` and its
+# `finalize` still truncates that session's header and lands two verdicts in
+# one record — constructed and confirmed, and `check` passes the result. The
+# stepwise shape is used only by ui CI, where the jobs sit on separate runners
+# and no local lock could help either. GATE-WITNESS-STEPWISE-1 in the queue.
 GATE_WITNESS_LOCK_WAIT="${GATE_WITNESS_LOCK_WAIT:-120}"
 _gw_lock_dir=""
 
 gw_lock() {
-	local rec="$1" abs key waited=0
-	abs=$(cd "$(dirname "$rec")" 2>/dev/null && pwd)/$(basename "$rec") || abs="$rec"
+	local rec="$1" abs dir key waited=0 holder pid
+	# PHYSICAL path, and an explicit fallback that can actually fire: the
+	# previous form put the `||` on an assignment whose status came from
+	# basename, so it never ran and a missing directory silently keyed every
+	# record to sha256("/<basename>").
+	dir=$(cd "$(dirname "$rec")" 2>/dev/null && pwd -P) || dir=""
+	if [ -n "$dir" ]; then abs="$dir/$(basename "$rec")"; else abs="$rec"; fi
 	key=$(printf '%s' "$abs" | $SHA256 | cut -d' ' -f1)
-	_gw_lock_dir="${TMPDIR:-/tmp}/gate-witness-$key.lock"
+	_gw_lock_dir="/tmp/gate-witness-$key.lock"
 	while ! mkdir "$_gw_lock_dir" 2>/dev/null; do
+		holder=$(cat "$_gw_lock_dir/owner" 2>/dev/null || echo unknown)
+		pid=${holder#pid=}; pid=${pid%% *}
+		# A DEAD holder is not a holder. Only SIGKILL can leave one behind
+		# (every catchable signal releases through the trap), and without
+		# this probe that single kill -9 wedges the record permanently.
+		if [ -n "$pid" ] && [ "$pid" != "unknown" ] && ! kill -0 "$pid" 2>/dev/null; then
+			echo "gate-witness: breaking a STALE lock on $rec — its holder ($holder) is gone" >&2
+			rm -rf "$_gw_lock_dir"
+			continue
+		fi
 		if [ "$waited" -ge "$GATE_WITNESS_LOCK_WAIT" ]; then
-			echo "GATE-WITNESS LOCKED: another run has been writing $rec for ${waited}s" >&2
-			echo "  (holder: $(cat "$_gw_lock_dir/owner" 2>/dev/null || echo unknown))" >&2
+			# The seconds are OURS, and the message says so: how long the
+			# HOLDER has held it is in its own started= field, not here.
+			echo "GATE-WITNESS LOCKED: $rec is held by a live run; waited ${waited}s and refusing" >&2
+			echo "  (holder: $holder)" >&2
 			echo "  Refusing rather than interleaving: two runs in one record witness nothing." >&2
 			echo "  If that run is dead, remove $_gw_lock_dir and try again." >&2
 			_gw_lock_dir=""
@@ -603,11 +640,13 @@ selftest() {
 		# interleaving has to be built. Here the contended state is created
 		# deterministically by pre-taking the lock, so there is no sleep and
 		# no race to lose.
-		rec_abs="$(pwd)/GATE-RUN.txt"
+		rec_abs="$(pwd -P)/GATE-RUN.txt"
 		lock_key=$(printf '%s' "$rec_abs" | $SHA256 | cut -d' ' -f1)
-		held="${TMPDIR:-/tmp}/gate-witness-$lock_key.lock"
+		held="/tmp/gate-witness-$lock_key.lock"
 		rm -rf "$held"; mkdir "$held"
-		echo 'pid=selftest label=holder' >"$held/owner"
+		# A LIVE holder pid, deliberately: a dead one is now broken and taken
+		# (case 16), so a corpse here would test the opposite of case 10.
+		echo "pid=$$ label=holder started=$(now_utc)" >"$held/owner"
 		cp GATE-RUN.txt /tmp/gw-before.$$ 2>/dev/null || true
 		out=$(GATE_WITNESS_LOCK_WAIT=1 bash "$self" run GATE-RUN.txt "selftest contended" 'a=true' 2>&1); code=$?
 		[ "$code" -eq 3 ] || { echo "SELFTEST FAIL 10a: a contended run exited $code, want 3 (refused)"; rm -rf "$held"; exit 1; }
@@ -619,10 +658,56 @@ selftest() {
 		bash "$self" run GATE-RUN.txt "selftest uncontended" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 10d: the run failed once the lock was free"; exit 1; }
 		grep -c '^result:' GATE-RUN.txt | grep -qx 1 || { echo "SELFTEST FAIL 10e: record does not hold exactly one verdict"; exit 1; }
 
+		# 15 THE LOCK IS ATOMIC, not merely present. Case 10 pre-takes the
+		# lock and so only exercises the REFUSAL path: a review of this file
+		# replaced the atomic `mkdir` with a test-then-set `[ -d ] && mkdir -p`
+		# and case 10 still passed, while four real concurrent runs interleaved
+		# every time. This case runs the race for real. A record written by two
+		# runs shows it in three places at once: more than one `gate:` header,
+		# more than one verdict, and a plan that does not match the targets
+		# under it (run A's header over run B's targets).
+		for i in 1 2 3 4; do
+			( GATE_WITNESS_LOCK_WAIT=30 bash "$self" run GATE-RUN.txt "selftest race $i" "t$i=true" >/dev/null 2>&1 ) &
+		done
+		wait
+		n=$(grep -c '^gate:' GATE-RUN.txt)
+		[ "$n" -eq 1 ] || { echo "SELFTEST FAIL 15a: $n gate: headers in one record — the runs interleaved"; exit 1; }
+		n=$(grep -c '^result:' GATE-RUN.txt)
+		[ "$n" -eq 1 ] || { echo "SELFTEST FAIL 15b: $n verdicts in one record — the runs interleaved"; exit 1; }
+		n=$(grep -c '^target:' GATE-RUN.txt)
+		[ "$n" -eq 1 ] || { echo "SELFTEST FAIL 15c: $n target lines for a one-target plan — the runs interleaved"; exit 1; }
+		race_plan=$(sed -n 's/^plan: //p' GATE-RUN.txt)
+		race_tgt=$(sed -n 's/^target: \([^ ]*\) .*/\1/p' GATE-RUN.txt)
+		[ "$race_plan" = "$race_tgt" ] || { echo "SELFTEST FAIL 15d: plan '$race_plan' does not match target '$race_tgt' — one run's header over another's targets"; exit 1; }
+
+		# 16 A DEAD HOLDER IS NOT A HOLDER. Measured before this existed: one
+		# SIGKILL left the directory behind and every later run refused
+		# forever. The bound cannot fix that — waiting longer for a corpse is
+		# still waiting for a corpse — so the pid is probed.
+		( : ) & corpse=$!; wait "$corpse" 2>/dev/null || true
+		rm -rf "$held"; mkdir "$held"
+		echo "pid=$corpse label=corpse started=$(now_utc)" >"$held/owner"
+		out=$(GATE_WITNESS_LOCK_WAIT=1 bash "$self" run GATE-RUN.txt "selftest stale-holder" 'a=true' 2>&1); code=$?
+		[ "$code" -eq 0 ] || { echo "SELFTEST FAIL 16a: a lock held by a DEAD pid wedged the record (exit $code)"; rm -rf "$held"; exit 1; }
+		case "$out" in *"breaking a STALE lock"*) : ;; *) echo "SELFTEST FAIL 16b: the stale lock was not named as broken: $out"; exit 1 ;; esac
+
+		# 17 EVERY WRITING MODE TAKES IT. Removing gw_lock from init, step and
+		# finalize left case 10 green, because case 10 only ever exercises
+		# `run`. These three assert the other writers refuse under contention.
+		rm -rf "$held"; mkdir "$held"
+		echo "pid=$$ label=holder started=$(now_utc)" >"$held/owner"
+		GATE_WITNESS_LOCK_WAIT=1 bash "$self" init GATE-RUN.txt "selftest contended init" a >/dev/null 2>&1
+		[ $? -eq 3 ] || { echo "SELFTEST FAIL 17a: contended init did not refuse"; rm -rf "$held"; exit 1; }
+		GATE_WITNESS_LOCK_WAIT=1 bash "$self" step GATE-RUN.txt 'a=true' >/dev/null 2>&1
+		[ $? -eq 3 ] || { echo "SELFTEST FAIL 17b: contended step did not refuse"; rm -rf "$held"; exit 1; }
+		GATE_WITNESS_LOCK_WAIT=1 bash "$self" finalize GATE-RUN.txt >/dev/null 2>&1
+		[ $? -eq 3 ] || { echo "SELFTEST FAIL 17c: contended finalize did not refuse"; rm -rf "$held"; exit 1; }
+		rm -rf "$held"
+
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 14 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release) proven"
+		echo "SELFTEST OK — 17 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken) proven"
 		return 0
 	fi
 	return 1
