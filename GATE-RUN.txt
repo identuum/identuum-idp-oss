@@ -1,36 +1,39 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 167cf89
-started: 2026-09-04T00:17:57Z
-plan: tool-versions toolchain-parity repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
+repo-head: 7dab5f3
+started: 2026-09-04T08:50:31Z
+plan: tool-versions toolchain-parity ci-witness repo-green tracked-binary-check credential-transparency rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
 tool: grype       0.118.0  /opt/homebrew/bin/grype
 tool: govulncheck govulncheck@v1.7.0  /opt/homebrew/bin/govulncheck
 tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.9.0","toolchain_version":"v0.9.0","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
-elapsed: tool-versions 2s
+elapsed: tool-versions 1s
 target: tool-versions exit=0
 evidence: [toolchain-parity] check OK: toolchain-parity 7 pins agree (gate-witness.sh 1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e, go 1.27.1, govulncheck 1.7.0, grype 0.118.0, rulefloor 0.9.0, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1)
 elapsed: toolchain-parity 2s
 target: toolchain-parity exit=0
-elapsed: repo-green 31s
+evidence: [ci-witness] check OK: ci-witness NO CI CLAIM — a record exists but is UNTRACKED (a local `make ci-verify` writes the same file to the same gitignored path); an uncommitted record asserts nothing, so CI remains declared, unrun
+elapsed: ci-witness 0s
+target: ci-witness exit=0
+elapsed: repo-green 26s
 target: repo-green exit=0
-elapsed: tracked-binary-check 4s
+elapsed: tracked-binary-check 5s
 target: tracked-binary-check exit=0
 elapsed: credential-transparency 0s
 target: credential-transparency exit=0
-evidence: [rulefloor-check] check OK: 245 rows (245 armed), FLOOR 245, RED-PROOFS 245 (measured 245)
-elapsed: rulefloor-check 31s
+evidence: [rulefloor-check] check OK: 246 rows (246 armed), FLOOR 246, RED-PROOFS 246 (measured 246)
+elapsed: rulefloor-check 32s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=cf2f0dab1845c2cc2e66f3f9b743dfd3c817b591 status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=c332544b7d97059430827518f62c6b164775cb30911e1ce52aac58fee2967632
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=10d10fd6b028f4267942268178a64ce935c5f083 status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=d7b35932327789ba61e91b9e8d90ec5237351806c7c7251f8a7ad215f82fcffe
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
 target: image-base-check exit=0
 elapsed: vet-integration 0s
 target: vet-integration exit=0
-elapsed: doccomment-check 0s
+elapsed: doccomment-check 1s
 target: doccomment-check exit=0
 evidence: [r-suite] go packages ok: 3
 elapsed: r-suite 3s
@@ -41,7 +44,7 @@ elapsed: image-policy-restate-check 0s
 target: image-policy-restate-check exit=0
 elapsed: distroless-exec-check 0s
 target: distroless-exec-check exit=0
-elapsed: clock-fuse-report 1s
+elapsed: clock-fuse-report 2s
 target: clock-fuse-report exit=0
 elapsed: clock-fuse-gate 0s
 target: clock-fuse-gate exit=0
@@ -51,11 +54,11 @@ elapsed: integration-inventory 1s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 21s
+elapsed: gograph-build 22s
 target: gograph-build exit=0
-elapsed: gograph-boundaries 1s
+elapsed: gograph-boundaries 0s
 target: gograph-boundaries exit=0
-elapsed: go-mod-tidy-diff 0s
+elapsed: go-mod-tidy-diff 1s
 target: go-mod-tidy-diff exit=0
 elapsed: staticcheck 0s
 target: staticcheck exit=0
@@ -65,8 +68,8 @@ evidence: [wiki-fresh] wiki freshness: 1 fresh, 0 behind, 0 unpinned, 0 unreadab
 elapsed: wiki-fresh 0s
 target: wiki-fresh exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
-elapsed: grype-scan 3s
+elapsed: grype-scan 38s
 target: grype-scan exit=0
-finished: 2026-09-04T00:19:44Z
-tree: sha256=c0db422697a5253239ba6af586d54b25e28a6f06f8a5d2648e1e0f5ed2db1f4f
+finished: 2026-09-04T08:52:52Z
+tree: sha256=7a667537847c30c7f95b37a0a59db5124194fb1443312209ab9e89ff875e83f7
 result: green
