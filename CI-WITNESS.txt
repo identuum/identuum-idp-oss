@@ -1,0 +1,56 @@
+schema: gate-run.v1
+gate: identuum-idp-oss make ci-verify
+note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
+cites: the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments
+repo-head: 73abe6c
+started: 2026-09-04T13:03:51Z
+plan: tracked-binary-check credential-transparency rulefloor-check image-base-check fmt-check vet vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report tagged-vet integration-inventory go-mod-tidy-diff go-build go-test-race staticcheck grype-scan
+elapsed: tracked-binary-check 4s
+target: tracked-binary-check exit=0
+elapsed: credential-transparency 1s
+target: credential-transparency exit=0
+evidence: [rulefloor-check] check OK: 247 rows (247 armed), FLOOR 247, RED-PROOFS 247 (measured 247)
+elapsed: rulefloor-check 35s
+target: rulefloor-check exit=0
+elapsed: image-base-check 0s
+target: image-base-check exit=0
+elapsed: fmt-check 0s
+target: fmt-check exit=0
+elapsed: vet 8s
+target: vet exit=0
+elapsed: vet-integration 9s
+target: vet-integration exit=0
+elapsed: doccomment-check 0s
+target: doccomment-check exit=0
+evidence: [r-suite] go packages ok: 3
+elapsed: r-suite 1s
+target: r-suite exit=0
+elapsed: image-base-parity 0s
+target: image-base-parity exit=0
+elapsed: image-policy-restate-check 0s
+target: image-policy-restate-check exit=0
+elapsed: distroless-exec-check 1s
+target: distroless-exec-check exit=0
+elapsed: clock-fuse-report 1s
+target: clock-fuse-report exit=0
+elapsed: tagged-vet 56s
+target: tagged-vet exit=0
+elapsed: integration-inventory 1s
+target: integration-inventory exit=0
+elapsed: go-mod-tidy-diff 3s
+target: go-mod-tidy-diff exit=0
+elapsed: go-build 2s
+target: go-build exit=0
+evidence: [go-test-race] go packages ok: 51
+elapsed: go-test-race 113s
+target: go-test-race exit=0
+elapsed: staticcheck 15s
+target: staticcheck exit=0
+evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
+elapsed: grype-scan 64s
+target: grype-scan exit=0
+finished: 2026-09-04T13:09:05Z
+tie-note: CI cannot commit this record, so the committed-alongside witness chain does not exist here; the checkout IS an unmodified commit, so the full commit SHA below pins the tree content exactly as the local digest does — valid only while the tree stays clean, which check enforces
+tree: commit=73abe6c6ad74f04327c9908777c5395c7c4cfe44
+result: green
+ci-run: https://github.com/identuum/identuum-idp-oss/actions/runs/33875886668 attempt=1 sha=73abe6c6ad74f04327c9908777c5395c7c4cfe44

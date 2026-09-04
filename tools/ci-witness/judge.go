@@ -93,7 +93,7 @@ func Judge(r Record, a Ancestry) (summary string, ok bool) {
 		return "check OK: ci-witness NO CI RECORD — nothing here evidences a CI run; the workflow's declarations remain declared, unrun", true
 	}
 	if !r.Tracked {
-		return "check OK: ci-witness NO CI CLAIM — a record exists but is UNTRACKED (a local `make ci-verify` writes the same file to the same gitignored path); an uncommitted record asserts nothing, so CI remains declared, unrun", true
+		return "check OK: ci-witness NO CI CLAIM — a record exists but is UNTRACKED; an uncommitted record asserts nothing (it can be fetched, edited or deleted without leaving a trace), so CI remains declared, unrun. Review it and commit it to make the claim", true
 	}
 
 	var problems []string

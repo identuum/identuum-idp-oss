@@ -399,6 +399,35 @@ toolchain-parity:
 ci-witness:
 	@go run ./tools/ci-witness --repo .
 
+## ci-fetch (THE-GREEN-CI-BASELINE, 2026-09-04): the OPERATOR STEP that
+## downloads a CI run's record so ci-witness has something to judge.
+##
+## A GATE MUST NOT REACH THE NETWORK — it would fail on a plane, and a gate
+## whose verdict depends on GitHub being up is not a gate. So the fetch is
+## deliberately NOT part of verify, NOT part of the mint, and NOT invoked by
+## any check. A human or agent runs it, reviews what came back, and commits
+## it; only then does ci-witness see a claim.
+##
+## THE RUN MUST BE NAMED. There is no "latest" here: `make ci-fetch` without
+## RUN=<id> refuses, because a record fetched from whatever happened to be
+## newest is a record nobody chose. Recipes in this file run /bin/bash
+## (SHELL := /bin/bash, line 38), and the guard below was observed to fire.
+##
+##   make ci-fetch RUN=33875886668
+##   git add CI-WITNESS.txt && git commit
+ci-fetch:
+	@if [ -z "$(RUN)" ]; then \
+		echo "ci-fetch: name the run — make ci-fetch RUN=<id>"; \
+		echo "ci-fetch: refusing to fetch 'whatever is newest'; a record nobody chose witnesses nothing."; \
+		echo "ci-fetch: list them with: gh run list"; \
+		exit 1; \
+	fi
+	@rm -rf .ci-fetch && mkdir -p .ci-fetch
+	gh run download $(RUN) -n gate-run-ci-verify -D .ci-fetch
+	@cp .ci-fetch/GATE-RUN.ci.txt CI-WITNESS.txt && rm -rf .ci-fetch
+	@echo "ci-fetch: wrote CI-WITNESS.txt from run $(RUN) — READ IT, then commit it."
+	@go run ./tools/ci-witness --repo . || true
+
 ## mint-check (THE-UNMINTED-DIFF, 2026-09-04): does the diff since the last
 ## MINTED witness reach the running appliance? OWNER RULING: a slice whose
 ## diff cannot reach it does not pay the e2e mint — and that is COMPUTED,

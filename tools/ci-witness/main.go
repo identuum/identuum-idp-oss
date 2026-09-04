@@ -16,7 +16,14 @@ import (
 
 func main() {
 	repo := flag.String("repo", ".", "repository root")
-	record := flag.String("record", "GATE-RUN.ci.txt", "the CI gate record, if one has been committed here")
+	// THE-GREEN-CI-BASELINE: the COMMITTED claim lives at its own path.
+	// GATE-RUN.ci.txt is where a LOCAL `make ci-verify` writes, and it is
+	// gitignored for that reason — committing the CI record there would mean
+	// every local ci-verify run dirtied a tracked file, and the next verify
+	// would fail on a dirty tree. Two files, two jobs: the local artifact
+	// stays ignored and disposable; CI-WITNESS.txt is the fetched, committed
+	// evidence that a named CI run was green.
+	record := flag.String("record", "CI-WITNESS.txt", "the COMMITTED CI record (fetched by `make ci-fetch RUN=<id>`), not the local GATE-RUN.ci.txt")
 	flag.Parse()
 
 	raw, err := os.ReadFile(filepath.Join(*repo, *record))
