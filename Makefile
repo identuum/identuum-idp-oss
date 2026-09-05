@@ -113,9 +113,24 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
 .PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
-## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
-## Runs wiki-freshness.sh --repo identuum-idp-oss --strict against the sibling
-## wiki checkout. BE HONEST ABOUT WHAT THIS ENFORCES: at verify time HEAD is
+## wiki-fresh: WIKI-1 gate — fail verify when the wiki's repo pins are BEHIND.
+## Runs `achta wiki check` against the sibling wiki checkout (THE-FRESHNESS-
+## HANDOVER, 2026-09-05: it replaced wiki-freshness.sh, which is deleted).
+##
+## TWO THINGS CHANGED AND BOTH ARE STATED RATHER THAN DISCOVERED LATER:
+##   - SCOPE IS NOW THE WHOLE WIKI. achta has no --repo flag (measured: "flag
+##     provided but not defined: -repo"), so this gate now fails when ANY
+##     repository page is behind, not only this one's. That is broader, not
+##     narrower — it cannot pass something the old form caught — but it does
+##     couple this repo's verify to every sibling's pin.
+##   - THE TYPO GUARD IS GONE WITH THE FLAG. The old comment noted that a
+##     mistyped --repo made the checker exit 2, so the gate could not be
+##     disabled by a rename. There is no repo argument to mistype now.
+## Why achta at all: it is at least as strict on every case measured in P-069
+## and STRICTER on two — it refuses an UNREADABLE page, where the old script
+## counted one and still exited 0.
+##
+## BE HONEST ABOUT WHAT THIS ENFORCES: at verify time HEAD is
 ## the LAST commit, so a green gate means "the PREVIOUS slice's wiki update was
 ## banked before new work is verified" — zero commits of allowed drift. It does
 ## NOT and cannot check the commit you are about to make; the §F-bis append for
@@ -130,7 +145,7 @@ wiki-fresh:
 	@if [ ! -d "$(WIKI_DIR)" ]; then \
 		echo "WIKI FRESHNESS SKIPPED: no wiki at $(WIKI_DIR)"; \
 	else \
-		bash "$(WIKI_DIR)/tools/wiki-freshness.sh" --repo identuum-idp-oss --strict; \
+		(cd "$(WIKI_DIR)" && achta wiki check); \
 	fi
 
 ## rulefloor-check: RULE-FLOOR.md ledger gate — the sibling rulefloor CLI
