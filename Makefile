@@ -113,22 +113,29 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
 .PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
-## wiki-fresh: WIKI-1 gate — fail verify when the wiki's repo pins are BEHIND.
-## Runs `achta wiki check` against the sibling wiki checkout (THE-FRESHNESS-
-## HANDOVER, 2026-09-05: it replaced wiki-freshness.sh, which is deleted).
+## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
+## Runs wiki-freshness.sh --repo identuum-idp-oss --strict against the sibling
+## wiki checkout.
 ##
-## TWO THINGS CHANGED AND BOTH ARE STATED RATHER THAN DISCOVERED LATER:
-##   - SCOPE IS NOW THE WHOLE WIKI. achta has no --repo flag (measured: "flag
-##     provided but not defined: -repo"), so this gate now fails when ANY
-##     repository page is behind, not only this one's. That is broader, not
-##     narrower — it cannot pass something the old form caught — but it does
-##     couple this repo's verify to every sibling's pin.
-##   - THE TYPO GUARD IS GONE WITH THE FLAG. The old comment noted that a
-##     mistyped --repo made the checker exit 2, so the gate could not be
-##     disabled by a rename. There is no repo argument to mistype now.
-## Why achta at all: it is at least as strict on every case measured in P-069
-## and STRICTER on two — it refuses an UNREADABLE page, where the old script
-## counted one and still exited 0.
+## THIS GATE STAYS ON THE SCRIPT, AND THE REASON IS MEASURED (THE-FRESHNESS-
+## HANDOVER, 2026-09-05). Everything else moved to achta, which is at least as
+## strict on all four cases P-069 constructed and STRICTER on two. This one
+## could not move, and it is not a preference:
+##   - `achta wiki check` is the only achta command that FAILS on drift
+##     (`achta wiki freshness` reports it and exits 0), and it checks freshness
+##     AND derived blocks together. There is no way to ask for the freshness
+##     half alone — --freshness, --only, --no-derive, --skip-derive and
+##     --section all exit 2, "flag provided but not defined".
+##   - The derived block for this repo records `Working tree vs HEAD: clean`,
+##     and `make verify` DIRTIES this tree while it runs, writing GATE-RUN.txt.
+##     So the block is stale for the whole duration of every verify and the
+##     derive half fails every single time. Measured: wiki-fresh returned
+##     "freshness: pass / derive: fail" inside verify-parallel.
+##   - achta also has no --repo, so it could not answer the narrow question
+##     this gate asks — is THIS repo's page behind — even if the derive half
+##     were separable.
+## When achta grows a repo-scoped, freshness-only failing mode, this becomes a
+## one-line change and wiki-freshness.sh can go.
 ##
 ## BE HONEST ABOUT WHAT THIS ENFORCES: at verify time HEAD is
 ## the LAST commit, so a green gate means "the PREVIOUS slice's wiki update was
@@ -145,7 +152,7 @@ wiki-fresh:
 	@if [ ! -d "$(WIKI_DIR)" ]; then \
 		echo "WIKI FRESHNESS SKIPPED: no wiki at $(WIKI_DIR)"; \
 	else \
-		(cd "$(WIKI_DIR)" && achta wiki check); \
+		bash "$(WIKI_DIR)/tools/wiki-freshness.sh" --repo identuum-idp-oss --strict; \
 	fi
 
 ## rulefloor-check: RULE-FLOOR.md ledger gate — the sibling rulefloor CLI
