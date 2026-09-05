@@ -110,23 +110,41 @@ func ACRMax(a, b string) string {
 // rung that gets stamped on the locally-minted session.
 //
 // Mapping rules:
+//
 //   - Empty upstream ACR → ACRMFA. Per the design rationale, when the
 //     upstream IdP does not attest an authentication context we assume
 //     a federated IdP login is at least as strong as MFA (the operator
 //     who wired the federation made that policy call). Callers should
 //     emit a debug log with `assumed_default=true` so this is auditable.
+//
 //   - Verbatim Identuum URN (any of the three rungs) → pass through. A
 //     federated provider may already be using our ladder.
+//
 //   - "0" → ACRPassword. NIST SP 800-63 / OIDC convention for "no MFA".
+//
 //   - "1" → ACRMFA. NIST SP 800-63 / OIDC convention for "AAL2-ish MFA".
+//
 //   - URN containing "phishing-resistant", "fido", "webauthn", "passkey"
 //     (case-insensitive) → ACRPhishingResistant. Defensive substring
 //     match for the diversity of vendor-specific ladder strings.
-//   - Anything else → ACRMFA, with the upstream string preserved
-//     verbatim on the AMR/audit trail (the caller's responsibility, not
-//     this function's). Falling to MFA — rather than to ACRPassword —
-//     matches the empty-ACR default rationale: a configured federation
-//     is at least MFA-grade.
+//
+//   - Anything else → ACRMFA with assumedDefault=TRUE (THE-ACR-AMR-TRUTH,
+//     2026-09-06). An attestation this function does not recognise is an
+//     ASSUMPTION about the upstream's strength, exactly like silence is,
+//     so it reports the same flag silence does; a caller that refuses to
+//     stamp assumed rungs (the OIDC callback, ACR-ASSUMED-NEVER-STAMPED-1)
+//     then stamps nothing for it instead of a rung indistinguishable from
+//     a performed MFA. Until this date the flag said false here, so the
+//     weaker input (unrecognised) got the stronger outcome (stamped MFA)
+//     while the weakest (nothing) failed closed. Falling to MFA — rather
+//     than to ACRPassword — still matches the empty-ACR rationale for the
+//     callers that want a floor: a configured federation is at least
+//     MFA-grade. The rung is the owner's question; the flag is the truth.
+//
+//     The earlier text here said the caller preserves the upstream string
+//     verbatim on the AMR/audit trail. MEASURED 2026-09-06: nothing does.
+//     mintSession passes no Amr to CreateUserSession, and the callback's
+//     audit event carries no acr. The string is dropped after mapping.
 //
 // Never invents a rung above what the upstream attested. Callers needing
 // to differentiate "explicitly downgraded" from "passthrough" should
@@ -151,7 +169,9 @@ func MapUpstreamACRToLadder(upstream string) (rung string, assumedDefault bool) 
 			return ACRPhishingResistant, false
 		}
 	}
-	return ACRMFA, false
+	// Unrecognised: a floor for callers that want one, reported as ASSUMED
+	// so that no caller can stamp it as a performed rung (ACR-UNKNOWN-IS-ASSUMED-1).
+	return ACRMFA, true
 }
 
 // toLowerASCII / containsASCII are tiny dependency-free helpers so this

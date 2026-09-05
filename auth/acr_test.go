@@ -159,7 +159,14 @@ func TestACR_MapUpstreamACRToLadder(t *testing.T) {
 		{"FIDO marker → top rung", "urn:vendor:auth:fido2", ACRPhishingResistant, false},
 		{"webauthn marker → top rung", "https://example.com/acr/WebAuthn-attested", ACRPhishingResistant, false},
 		{"passkey marker → top rung", "urn:vendor:passkey", ACRPhishingResistant, false},
-		{"unknown vendor string → mfa floor", "urn:vendor:something-else", ACRMFA, false},
+		// THE-ACR-AMR-TRUTH (2026-09-06): an unrecognised string is an
+		// ASSUMPTION about the upstream's strength, not a measurement, so it
+		// reports assumedDefault=true like the empty attestation does. The
+		// rung stays ACRMFA for callers that want a floor; the flag is what
+		// lets the callback refuse to stamp it (ACR-UNKNOWN-IS-ASSUMED-1).
+		{"unknown vendor string → mfa floor, ASSUMED", "urn:vendor:something-else", ACRMFA, true},
+		{"unknown vendor otp string → mfa floor, ASSUMED", "urn:vendor:sms-otp", ACRMFA, true},
+		{"arbitrary string → mfa floor, ASSUMED", "banana", ACRMFA, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

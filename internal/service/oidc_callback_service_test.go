@@ -209,15 +209,21 @@ func TestOIDCCallback_HappyPathExternalUser(t *testing.T) {
 		t.Errorf("OrganizationID = %v, want %v", u.OrganizationID, h.orgID)
 	}
 	// A local session was minted for THIS user via the shared UserSessionService,
-	// with a non-empty refresh token and the ACR stamped from the upstream acr.
+	// with a non-empty refresh token. The harness's upstream acr is
+	// "urn:mace:incommon:iap:silver" — a real-world assurance URN the ladder
+	// does NOT recognise. Until THE-ACR-AMR-TRUTH (2026-09-06) this test
+	// asserted it was stamped as auth.ACRMFA: an unrecognised attestation
+	// laundered into a performed MFA rung. It is now ASSUMED and therefore
+	// not stamped (ACR-UNKNOWN-IS-ASSUMED-1); recognised values are covered by
+	// TestOIDCCallback_ACRStampedFromUpstream.
 	if res.Session == nil || res.Session.UserID != u.ID {
 		t.Fatalf("session not minted for the resolved user: %+v", res.Session)
 	}
 	if res.RefreshToken == "" {
 		t.Errorf("no refresh token issued")
 	}
-	if res.Session.Acr != auth.ACRMFA {
-		t.Errorf("session Acr = %q, want %q (upstream acr → ladder rung)", res.Session.Acr, auth.ACRMFA)
+	if res.Session.Acr != "" {
+		t.Errorf("session Acr = %q, want %q (an unrecognised upstream acr is assumed, never stamped)", res.Session.Acr, "")
 	}
 	if res.Session.IPAddress == nil || *res.Session.IPAddress != "203.0.113.7" {
 		t.Errorf("session IPAddress = %v, want the request IP recorded", res.Session.IPAddress)
@@ -227,8 +233,8 @@ func TestOIDCCallback_HappyPathExternalUser(t *testing.T) {
 	if res.ReturnURL != h.returnURL {
 		t.Errorf("ReturnURL = %q, want the stored %q", res.ReturnURL, h.returnURL)
 	}
-	// The persisted session carries the same ACR (mint reused UserSessionService).
-	if persisted, ok := h.sessionRepo.byID[res.Session.ID]; !ok || persisted.Acr != auth.ACRMFA {
+	// The persisted session carries the same (absent) ACR (mint reused UserSessionService).
+	if persisted, ok := h.sessionRepo.byID[res.Session.ID]; !ok || persisted.Acr != "" {
 		t.Errorf("persisted session missing or wrong ACR: %+v", persisted)
 	}
 	// The exchange sent the DECRYPTED verifier + secret, not the ciphertext.
@@ -352,6 +358,52 @@ func TestOIDCCallback_ACRStampedFromUpstream(t *testing.T) {
 			}
 			if res.Session.Acr != tc.wantRung {
 				t.Errorf("session Acr = %q, want %q", res.Session.Acr, tc.wantRung)
+			}
+		})
+	}
+}
+
+// THE-ACR-AMR-TRUTH (2026-09-06). The asymmetry this test exists for: an
+// upstream that attests NOTHING ("" — no acr claim) was reported assumed and
+// so stamped no acr (ACR-ASSUMED-NEVER-STAMPED-1), while an upstream that
+// attests something the mapper does not RECOGNISE ("urn:vendor:sms-otp",
+// "banana") was reported as a performed MFA rung and stamped
+// `urn:identuum:loa:mfa` — indistinguishable, to every relying party that
+// reads acr, from a genuine MFA attestation. The weaker input got the
+// stronger outcome, and the flag that would have revealed it said false.
+//
+// An unrecognised attestation is an assumption about its strength, not a
+// measurement of it, so it MUST report assumedDefault=true and the callback
+// MUST stamp no acr for it — exactly as for silence. The rung the mapper
+// returns for its other callers is the owner's question and is not asserted
+// here; only the stamping is.
+//
+// RULE: ACR-UNKNOWN-IS-ASSUMED-1
+func TestOIDCCallback_UnknownUpstreamACRIsAssumedNotStamped(t *testing.T) {
+	cases := []struct {
+		name string
+		acr  any // set into the claim; nil ⇒ omit
+	}{
+		{"vendor string the ladder does not know", "urn:vendor:sms-otp"},
+		{"arbitrary string", "banana"},
+		{"absent acr, the case the fix must keep", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newCallbackHarness(t)
+			c := h.validClaims()
+			if tc.acr == nil {
+				delete(c, "acr")
+			} else {
+				c["acr"] = tc.acr
+			}
+			*h.idToken = h.signEdDSA(t, h.priv, h.kid, c)
+			res, err := h.call()
+			if err != nil {
+				t.Fatalf("HandleCallback: %v", err)
+			}
+			if res.Session.Acr != "" {
+				t.Errorf("upstream acr %v: session Acr = %q, want %q (an unrecognised or absent attestation is assumed, never stamped)", tc.acr, res.Session.Acr, "")
 			}
 		})
 	}
