@@ -114,9 +114,26 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 .PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
-## Runs `achta --wiki-dir $(WIKI_DIR) wiki check --json` and enforces the
-## FRESHNESS half of the answer (THE-FRESHNESS-HANDOVER, 2026-09-05:
-## wiki-freshness.sh is deleted).
+## Runs `achta --wiki-dir $(WIKI_DIR) wiki check --only freshness` and uses
+## achta's OWN exit code (THE-PYTHONLESS-GATE, 2026-09-05; the python3 parse
+## of achta's JSON that stood here since THE-FRESHNESS-HANDOVER is gone —
+## achta v0.4.1 shipped the freshness-only enforcing mode this comment used
+## to ask for). Exit 0 = every pin fresh; 1 = drift (behind/unpinned);
+## 2 = cannot evaluate (an unreadable page, a refused directory).
+##
+## THIS GATE NEEDS achta >= v0.4.1, AND SAYS SO BY NAME. achta is installed
+## from a Homebrew cask and pinned nowhere — not in the seven ci.yml pins that
+## toolchain-parity checks, because CI never runs achta at all: a fresh clone
+## has no ../wiki and takes the SKIPPED branch below. A CI pin would assert a
+## tool CI never exercises, and parity compares declared version strings, not
+## what the binary accepts — a matching string is not proof the flag exists
+## (the same reason the binary was proved by running the flag, not by reading
+## `achta version`). So the refusal lives here, where the dependency is: an
+## older achta answers `--only` with "flag provided but not defined: -only"
+## (measured on v0.4.0) and exit 2; this recipe catches exactly that answer
+## and names the requirement and the installed version instead of dying on a
+## flag-parser message. A missing achta is named the same way. Neither branch
+## can pass: both exit 2, and 2 is fatal to verify.
 ##
 ## THE WIKI IS NAMED, NOT DISCOVERED (THE-NAMED-WIKI, 2026-09-05). achta
 ## v0.4.0 has repo-owned wikis, and --wiki-dir selects one fail-closed: a
@@ -129,38 +146,20 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 ## from this one. Naming it removes that possibility. The cd is gone with it:
 ## --wiki-dir accepts the relative $(WIKI_DIR) from this directory.
 ##
-## THE python3 PARSE STAYS, and this comment says why rather than leaving it
-## to look like an oversight. It is the pattern this workspace just deleted
-## elsewhere, now load-bearing for verify. Re-measured on achta v0.4.0: there
-## is still no freshness-only FAILING mode — `wiki check --freshness`,
-## `--only freshness`, `--no-derive`, and `wiki freshness --strict|--fail`
-## all exit 2, flag not defined — and `wiki check` still fails its derive
-## half on a dirty tree (exit 1 with only GATE-RUN.txt modified). WHAT ACHTA
-## NEEDS to retire this parse: one command whose exit code is the freshness
-## verdict alone, e.g. `wiki check --only freshness` or `wiki freshness
-## --strict`. Until then the JSON contract (achta.wiki-check.v1, checks[] by
-## name) is what this gate stands on; a renamed field breaks it LOUDLY rather
-## than passing, which is the right way for it to break.
-##
-## WHY THE MACHINE INTERFACE AND NOT THE PLAIN COMMAND, measured the hard way.
+## WHY --only freshness AND NOT THE PLAIN COMMAND, measured the hard way.
 ## `achta wiki freshness` REPORTS drift and exits 0 — wiring it would have
-## turned this hard gate into a report. `achta wiki check` does fail, but it
-## bundles freshness with derived blocks and cannot be narrowed: --freshness,
-## --only, --no-derive, --skip-derive and --section all exit 2, "flag provided
-## but not defined". And the derived block records `Working tree vs HEAD:
-## clean` while `make verify` DIRTIES this tree writing GATE-RUN.txt, so the
-## derive half fails for the whole duration of every verify — an earlier
-## attempt wired it that way and broke verify outright.
-##
-## The JSON separates them (achta.wiki-check.v1, checks[] by name), so this
-## gate asks only the question it owns and fails on exactly that. It is the
-## workspace rule anyway: use a tool's machine interface wherever a gate parses
-## its output.
+## turned this hard gate into a report. Plain `achta wiki check` does fail,
+## but it bundles freshness with derived blocks, and the derived block records
+## `Working tree vs HEAD: clean` while `make verify` DIRTIES this tree writing
+## GATE-RUN.txt, so its derive half fails for the whole duration of every
+## verify — an earlier attempt wired it that way and broke verify outright.
+## `--only freshness` evaluates and reports the freshness check alone under
+## achta's unchanged exit contract; that is the whole reason the flag exists.
 ##
 ## PROVED FAILING, not only passing: an UNREADABLE wiki page makes this print
-## "freshness cannot_evaluate (… unreadable 1)" and exit non-zero — the case the
-## deleted script counted and still exited 0 on. It also passes on a DIRTY tree,
-## which is what verify needs.
+## "wiki check freshness: cannot_evaluate" and exit 2 — the case the deleted
+## script counted and still exited 0 on. And it PASSES on a DIRTY tree with
+## fresh pins, which is what verify needs and what the plain command cannot do.
 ##
 ## BE HONEST ABOUT WHAT THIS ENFORCES: at verify time HEAD is
 ## the LAST commit, so a green gate means "the PREVIOUS slice's wiki update was
@@ -178,7 +177,11 @@ wiki-fresh:
 	@if [ ! -d "$(WIKI_DIR)" ]; then \
 		echo "WIKI FRESHNESS SKIPPED: no wiki at $(WIKI_DIR)"; \
 	else \
-		achta --wiki-dir "$(WIKI_DIR)" wiki check --json | python3 -c 'import json,sys; d=json.load(sys.stdin); f=[c for c in d["checks"] if c["name"]=="freshness"][0]; print("wiki-fresh: freshness", f["status"], "(fresh", f["detail"]["fresh"], "behind", f["detail"]["behind"], "unpinned", f["detail"]["unpinned"], "unreadable", f["detail"]["unreadable"], ")"); sys.exit(0 if f["status"]=="pass" else 1)'; \
+		command -v achta >/dev/null 2>&1 || { echo "wiki-fresh: achta is not installed — this gate needs achta >= v0.4.1 (wiki check --only freshness)" >&2; exit 2; }; \
+		out=$$(achta --wiki-dir "$(WIKI_DIR)" wiki check --only freshness 2>&1); rc=$$?; \
+		printf '%s\n' "$$out"; \
+		case "$$out" in *"flag provided but not defined: -only"*) echo "wiki-fresh: achta >= v0.4.1 required (wiki check --only freshness); installed: $$(achta version)" >&2; exit 2;; esac; \
+		exit $$rc; \
 	fi
 
 ## rulefloor-check: RULE-FLOOR.md ledger gate — the sibling rulefloor CLI
