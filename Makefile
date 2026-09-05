@@ -114,9 +114,33 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 .PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
-## Runs `achta wiki check --json` against the sibling wiki and enforces the
+## Runs `achta --wiki-dir $(WIKI_DIR) wiki check --json` and enforces the
 ## FRESHNESS half of the answer (THE-FRESHNESS-HANDOVER, 2026-09-05:
 ## wiki-freshness.sh is deleted).
+##
+## THE WIKI IS NAMED, NOT DISCOVERED (THE-NAMED-WIKI, 2026-09-05). achta
+## v0.4.0 has repo-owned wikis, and --wiki-dir selects one fail-closed: a
+## directory that is not the direct wiki child of its workspace root is
+## REFUSED (exit 2), and --wiki-dir with --workspace is refused too. Measured
+## before this change, discovery from both this directory and the wiki's
+## resolved to the same ten parent-wiki pages — so this is hardening, not a
+## fix — but achta's JSON never names the directory it resolved, so a gate
+## that checked the wrong wiki and PASSED would have been indistinguishable
+## from this one. Naming it removes that possibility. The cd is gone with it:
+## --wiki-dir accepts the relative $(WIKI_DIR) from this directory.
+##
+## THE python3 PARSE STAYS, and this comment says why rather than leaving it
+## to look like an oversight. It is the pattern this workspace just deleted
+## elsewhere, now load-bearing for verify. Re-measured on achta v0.4.0: there
+## is still no freshness-only FAILING mode — `wiki check --freshness`,
+## `--only freshness`, `--no-derive`, and `wiki freshness --strict|--fail`
+## all exit 2, flag not defined — and `wiki check` still fails its derive
+## half on a dirty tree (exit 1 with only GATE-RUN.txt modified). WHAT ACHTA
+## NEEDS to retire this parse: one command whose exit code is the freshness
+## verdict alone, e.g. `wiki check --only freshness` or `wiki freshness
+## --strict`. Until then the JSON contract (achta.wiki-check.v1, checks[] by
+## name) is what this gate stands on; a renamed field breaks it LOUDLY rather
+## than passing, which is the right way for it to break.
 ##
 ## WHY THE MACHINE INTERFACE AND NOT THE PLAIN COMMAND, measured the hard way.
 ## `achta wiki freshness` REPORTS drift and exits 0 — wiring it would have
@@ -144,16 +168,17 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 ## NOT and cannot check the commit you are about to make; the §F-bis append for
 ## THIS slice is still on you, and the gate will catch its absence on the NEXT
 ## slice's verify. A missing wiki dir (fresh clone / CI) prints one loud SKIPPED
-## line and continues — visible, never silent. A typo'd repo name FAILS (the
-## checker exits 2 when --repo matches no page), so the gate cannot be
-## accidentally disabled by a rename.
+## line and continues — visible, never silent. The old typo guard ("--repo
+## matches no page exits 2") is gone with the --repo flag; what replaces it is
+## --wiki-dir's own refusal of any directory that is not a workspace's direct
+## wiki child, so a mistyped WIKI_DIR fails here rather than checking nothing.
 WIKI_DIR ?= ../wiki
 
 wiki-fresh:
 	@if [ ! -d "$(WIKI_DIR)" ]; then \
 		echo "WIKI FRESHNESS SKIPPED: no wiki at $(WIKI_DIR)"; \
 	else \
-		(cd "$(WIKI_DIR)" && achta wiki check --json) | python3 -c 'import json,sys; d=json.load(sys.stdin); f=[c for c in d["checks"] if c["name"]=="freshness"][0]; print("wiki-fresh: freshness", f["status"], "(fresh", f["detail"]["fresh"], "behind", f["detail"]["behind"], "unpinned", f["detail"]["unpinned"], "unreadable", f["detail"]["unreadable"], ")"); sys.exit(0 if f["status"]=="pass" else 1)'; \
+		achta --wiki-dir "$(WIKI_DIR)" wiki check --json | python3 -c 'import json,sys; d=json.load(sys.stdin); f=[c for c in d["checks"] if c["name"]=="freshness"][0]; print("wiki-fresh: freshness", f["status"], "(fresh", f["detail"]["fresh"], "behind", f["detail"]["behind"], "unpinned", f["detail"]["unpinned"], "unreadable", f["detail"]["unreadable"], ")"); sys.exit(0 if f["status"]=="pass" else 1)'; \
 	fi
 
 ## rulefloor-check: RULE-FLOOR.md ledger gate — the sibling rulefloor CLI
