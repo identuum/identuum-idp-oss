@@ -114,7 +114,12 @@ now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # NOT a cap — every matching line is recorded. A tool whose count line does
 # not match this pattern is simply not summarized (its exit code still is);
 # that limitation is stated in the header of every record this writes.
-EVIDENCE_RE='^check OK:|Tests  [0-9]|Test Files |wiki freshness:|sync violations:|SELFTEST OK|gate-witness OK:'
+# THE-RECORD-SAYS-FAILED (2026-09-07): `check FAILED:` is captured beside
+# `check OK:`. Until now a failing phase's verdict reached the record only if
+# the tool printed it under an OK prefix — a line saying OK about a failure,
+# written to get past this regex. The exit code was always the verdict; now
+# the evidence line can say what it means too.
+EVIDENCE_RE='^check OK:|^check FAILED:|Tests  [0-9]|Test Files |wiki freshness:|sync violations:|SELFTEST OK|gate-witness OK:'
 
 # repo_state <repo-dir> <exclude-path> — "<short-sha>[ (dirty)]", where dirty
 # ignores ONLY the excluded record file (the record being written is not
