@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "8a59dcc3bb1ea9829bc3553ef24139417a85dbfb",
-  "changes": [
-    {
-      "rule_id": "ACR-UNKNOWN-IS-ASSUMED-1",
-      "change_class": "rule_added",
-      "reason": "THE-ACR-AMR-TRUTH (2026-09-06): ACR-UNKNOWN-IS-ASSUMED-1 declared and armed. An upstream acr the mapper does not recognise is reported assumed (assumedDefault=true) so the OIDC callback stamps no acr for it; mutation red-proved on TestOIDCCallback_UnknownUpstreamACRIsAssumedNotStamped. FLOOR 252 to 253."
-    }
-  ]
+  "base_commit": "66332c93cf816b510287ad386caebc61f13a26e0",
+  "changes": []
 }
