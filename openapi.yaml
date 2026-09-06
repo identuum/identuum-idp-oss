@@ -125,6 +125,85 @@ paths:
           description: "Replay a back-channel logout delivery (re-mints a fresh logout_token; the raw token is never returned to the caller)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/agent-communication-authorizations":
+    get:
+      operationId: "identuum-idp-oss.agent-communication-authorizations.list_agent_communication_authorizations"
+      summary: "List the acting org_admin's organization's agent communication authorizations (any status, newest first) with their participants' ACIs and derived status."
+      tags:
+        - "agent-communication-authorizations"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "List the acting org_admin's organization's agent communication authorizations (any status, newest first) with their participants' ACIs and derived status."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/oss_types_AgentCommunicationAuthorizationList"
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+    post:
+      operationId: "identuum-idp-oss.agent-communication-authorizations.create_agent_communication_authorization"
+      summary: "Create an agent communication authorization: exactly two participant service accounts of the acting org_admin (initiator + responder), each installed as a private_key_jwt OAuth client; the server allocates the authorization id, session id, participant ACIs and the canonical policy digest."
+      tags:
+        - "agent-communication-authorizations"
+      security:
+        - cookieAuth: []
+      responses:
+        "201":
+          description: "Create an agent communication authorization: exactly two participant service accounts of the acting org_admin (initiator + responder), each installed as a private_key_jwt OAuth client; the server allocates the authorization id, session id, participant ACIs and the canonical policy digest."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/oss_types_AgentCommunicationAuthorization"
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/agent-communication-authorizations/{id}":
+    get:
+      operationId: "identuum-idp-oss.agent-communication-authorizations.get_agent_communication_authorization"
+      summary: "Read one agent communication authorization of the acting org_admin's organization, with participants (ACI, role, service account, client, proof-key thumbprint, capabilities) and derived status."
+      tags:
+        - "agent-communication-authorizations"
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Read one agent communication authorization of the acting org_admin's organization, with participants (ACI, role, service account, client, proof-key thumbprint, capabilities) and derived status."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/oss_types_AgentCommunicationAuthorization"
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/agent-communication-authorizations/{id}/revoke":
+    post:
+      operationId: "identuum-idp-oss.agent-communication-authorizations.revoke_agent_communication_authorization"
+      summary: "Revoke an agent communication authorization (terminal): records the acting org_admin, the timestamp and an optional bounded reason; a repeated revocation is idempotent and returns the first stamp unchanged."
+      tags:
+        - "agent-communication-authorizations"
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Revoke an agent communication authorization (terminal): records the acting org_admin, the timestamp and an optional bounded reason; a repeated revocation is idempotent and returns the first stamp unchanged."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/oss_types_AgentCommunicationAuthorization"
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/api-resources":
     get:
       operationId: "identuum-idp-oss.api-resources.list_api_resources"
@@ -1986,6 +2065,25 @@ paths:
           description: "Enable a previously-disabled service account (handler enforces site_admin OR same-org membership)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/service-accounts/{id}/owner":
+    post:
+      operationId: "identuum-idp-oss.service-accounts.assign_service_account_owner"
+      summary: "Assign or transfer the owner of a service account: the acting org_admin claims it by default, or names another org_admin of the same organization. A service account is a person's agent identity, and the agent-communication same-owner rule is judged against this binding."
+      tags:
+        - "service-accounts"
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Assign or transfer the owner of a service account: the acting org_admin claims it by default, or names another org_admin of the same organization. A service account is a person's agent identity, and the agent-communication same-owner rule is judged against this binding."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/sessions":
     get:
       operationId: "identuum-idp-oss.sessions.list_own_sessions"
@@ -2386,6 +2484,12 @@ components:
     oss_handlers_safeUser:
       type: object
       description: "Response shape defined by the OSS handler package (schema record: oss.handlers.safeUser). Field-level shape is not modeled here — see the identuum-idp-oss Go source for the authoritative struct."
+    oss_types_AgentCommunicationAuthorization:
+      type: object
+      description: "Response shape defined by the OSS handler package (schema record: oss.types.AgentCommunicationAuthorization). Field-level shape is not modeled here — see the identuum-idp-oss Go source for the authoritative struct."
+    oss_types_AgentCommunicationAuthorizationList:
+      type: object
+      description: "Response shape defined by the OSS handler package (schema record: oss.types.AgentCommunicationAuthorizationList). Field-level shape is not modeled here — see the identuum-idp-oss Go source for the authoritative struct."
     oss_types_IdentityProviderResponse:
       type: object
       description: "Response shape defined by the OSS handler package (schema record: oss.types.IdentityProviderResponse). Field-level shape is not modeled here — see the identuum-idp-oss Go source for the authoritative struct."

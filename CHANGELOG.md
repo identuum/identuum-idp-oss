@@ -5,6 +5,20 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **Federated login, `acr`:** an upstream `acr` the ladder does not recognise
+  is now treated like an absent one — ASSUMED, and therefore stamped on no
+  session and emitted in no id_token (`a42997d`, decision P-060,
+  rule ACR-UNKNOWN-IS-ASSUMED-1). Previously an unrecognised value was stamped
+  `urn:identuum:loa:mfa`, indistinguishable from a performed MFA. Recognised
+  values (`0`, `1`, the three Identuum URNs, and strings carrying
+  `phishing-resistant` / `fido` / `webauthn` / `passkey`) map exactly as before.
+  A relying party that requests `acr_values` from such a login now gets
+  step-up or `unmet_authentication_requirements` instead of a false assurance;
+  one that requests nothing sees only the missing claim. No integrators are
+  affected today; this is a note, not a breaking-change announcement.
+
 ## `v0.3.6`
 
 Feature release: self-service password change, end to end. Measured delta
