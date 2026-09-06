@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "6d1cc92cfa6ef85f74889198da5b95c7271dc275",
-  "changes": [
-    {
-      "rule_id": "OPENAPI-CHECKED-IN-CURRENT-1",
-      "change_class": "rule_added",
-      "reason": "THE-UNGUARDED-SPEC (2026-09-06): OPENAPI-CHECKED-IN-CURRENT-1 declared and armed. The checked-in openapi.yaml must equal the generator output byte-for-byte; make verify runs openapi-check (the tool test, in-memory regeneration, never rewrites the file); mutation red-proved on a renamed path. FLOOR 253 to 254."
-    }
-  ]
+  "base_commit": "cdad5b5f286611d5bca5e2957b9cded4a2fb0f6a",
+  "changes": []
 }
