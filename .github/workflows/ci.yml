@@ -117,6 +117,16 @@ env:
   STATICCHECK_VERSION: v0.8.1
   GRYPE_VERSION: v0.118.0
   GOVULNCHECK_VERSION: v1.7.0
+  # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): yq for the workflow-yaml
+  # gate, which parses every file under .github/workflows the way GitHub
+  # will. Pinned the rulefloor way — an immutable release artifact plus its
+  # sha256, URL derived from this ONE declaration, version printed and
+  # asserted below — never a floating latest, never `go install` (module
+  # proxy, unstamped). YQ_SHA256 is the linux_amd64 release binary's digest,
+  # verified against the release's published checksums. toolchain-parity
+  # holds YQ_VERSION equal to the yq installed locally. Bump both together.
+  YQ_VERSION: v4.53.6
+  YQ_SHA256: c5f056448f973ae7d39b5401949648a78f2dc1947d6a8eb65be60d5c504b9385
   # THE-UNWATCHED-FOUR: the vendored install gate must be byte-identical
   # to the shared master — a weakened copy would let this CI pass with a
   # gate that no longer gates. This digest is the master's sha256; the
@@ -211,9 +221,9 @@ jobs:
           go version
           go version | grep -F "go$(awk '/^go /{print $2}' go.mod) "
 
-      # ci-verify runs staticcheck, grype, and the RULE-FLOOR.md ledger gate —
-      # install their binaries first. govulncheck is NOT installed here: it
-      # has its own job.
+      # ci-verify runs staticcheck, grype, yq (the workflow-yaml parse) and the
+      # RULE-FLOOR.md ledger gate — install their binaries first. govulncheck
+      # is NOT installed here: it has its own job.
       - name: Install staticcheck (and prove its version)
         # OWNER RULE (2026-08-27): CI workflows always pin the LATEST
         # stable tool version — pinned (never rolling @latest, which
@@ -270,6 +280,24 @@ jobs:
           curl -sSfL "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" | sh -s -- -b "$(go env GOPATH)/bin" "${GRYPE_VERSION}"
           grype --version
           grype --version | grep -F "grype ${GRYPE_VERSION#v}"
+
+      - name: Install yq (and prove its version)
+        # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): the gate that refuses
+        # an unparseable workflow (make workflow-yaml, in ci-verify below) ran
+        # only on developer machines until this step, because nothing here
+        # installed yq — so a workflow could still reach GitHub parsed by
+        # nothing but GitHub. Pinned as rulefloor is: the release BINARY at the
+        # workflow-env tag, its sha256 checked before it is installed, the
+        # printed version asserted against the same declaration. The binary
+        # is removed from the tree after install so the checkout stays exactly
+        # the commit the record ties to. ubuntu-latest is x86_64: linux_amd64.
+        run: |
+          curl -sSfL -o yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  yq" | sha256sum -c -
+          sudo install -m 0755 yq /usr/local/bin/yq
+          rm -f yq
+          yq --version
+          yq --version | grep -F "version ${YQ_VERSION}"
 
       # The whole verify matrix in one Makefile target: image-base-check,
       # tidy-diff, build, unit tests, staticcheck, grype-scan. The steps of

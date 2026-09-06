@@ -20,6 +20,7 @@
 //	STATICCHECK_VERSION    ↔ staticcheck --version
 //	GRYPE_VERSION          ↔ grype --version
 //	GOVULNCHECK_VERSION    ↔ govulncheck -version
+//	YQ_VERSION             ↔ yq --version   (THE-CI-PARSES-ITS-OWN-WORKFLOWS)
 //	go.mod `go` directive  ↔ go version
 //	GATE_WITNESS_SHA256    ↔ sha256(scripts/gate-witness.sh)
 //	RULEFLOOR_GATE_SHA256  ↔ sha256(scripts/rulefloor-install-gate.sh)

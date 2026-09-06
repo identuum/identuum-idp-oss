@@ -50,6 +50,12 @@ var toolSpecs = []toolSpec{
 	{"staticcheck", "STATICCHECK_VERSION", "staticcheck", []string{"staticcheck", "--version"}},
 	{"grype", "GRYPE_VERSION", "grype", []string{"grype", "--version"}},
 	{"govulncheck", "GOVULNCHECK_VERSION", "govulncheck", []string{"govulncheck", "-version"}},
+	// THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): CI installs yq for the
+	// workflow-yaml gate from a sha256-pinned release binary at YQ_VERSION;
+	// this pin holds that declaration to the yq installed here. yq prints
+	// `yq (https://github.com/mikefarah/yq/) version v4.53.6` — bare semver
+	// normalization reads the version out of it.
+	{"yq", "YQ_VERSION", "yq", []string{"yq", "--version"}},
 }
 
 // digestSpec is one file CI verifies by digest. A stale pin here means CI

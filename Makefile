@@ -409,10 +409,15 @@ credential-transparency:
 ## measured on the ui defect it refuses exactly what GitHub refuses. The file
 ## is read whole (`yq eval '.'`), the scanner's own error is printed
 ## verbatim, an absent yq is exit 2 by name, no workflow files is exit 2.
-## Sits after credential-transparency in verify. NOT in ci-verify: CI
-## installs no yq (0 mentions in ci.yml) and every ci-verify tool is
-## installed from a workflow pin (the CI-shape rule); adding it there needs
-## an install step and a toolchain-parity pin first.
+## Sits after credential-transparency in verify AND in ci-verify
+## (THE-CI-PARSES-ITS-OWN-WORKFLOWS, 2026-09-06): ci.yml installs yq from a
+## sha256-pinned release binary at the workflow-env YQ_VERSION, and
+## toolchain-parity holds that pin equal to the yq installed here — so CI
+## refuses what local refuses. Before that step the parse ran only on
+## developer machines, and a workflow could reach GitHub parsed by nothing
+## but GitHub. What CI cannot do is save ci.yml from itself: a ci.yml
+## GitHub cannot parse never starts the job; the local run is the one that
+## catches THIS file, CI catches every other workflow.
 ##
 ## THE RECIPE BELOW IS ONE OF TWO IDENTICAL COPIES (identuum-idp-oss,
 ## identuum-ui), held byte-identical by `workflow-yaml-parity` below against
@@ -492,6 +497,7 @@ tool-versions:
 	@printf 'grype       %s  %s\n' "$$(grype --version 2>/dev/null | awk '{print $$2}')" "$$(command -v grype || echo MISSING)"
 	@printf 'govulncheck %s  %s\n' "$$(govulncheck -version 2>/dev/null | awk '/Scanner/{print $$2}')" "$$(command -v govulncheck || echo MISSING)"
 	@printf 'rulefloor   %s  %s\n' "$$(rulefloor version --json 2>/dev/null)" "$$(command -v rulefloor || echo MISSING)"
+	@printf 'yq          %s  %s\n' "$$(yq --version 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)" "$$(command -v yq || echo MISSING)"
 
 ## toolchain-parity (THE-UNCOMPARED-TOOLCHAIN, 2026-09-04): tool-versions
 ## above PRINTS what is installed here; the workflow env DECLARES what CI
@@ -809,6 +815,8 @@ ci-verify:
 	bash scripts/gate-witness.sh run GATE-RUN.ci.txt "identuum-idp-oss make ci-verify" \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
+		'workflow-yaml=$(MAKE) --no-print-directory workflow-yaml' \
+		'workflow-yaml-parity=$(MAKE) --no-print-directory workflow-yaml-parity' \
 		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
