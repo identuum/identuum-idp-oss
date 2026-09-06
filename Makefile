@@ -560,6 +560,7 @@ verify:
 		'tool-versions=$(MAKE) --no-print-directory tool-versions' \
 		'toolchain-parity=$(MAKE) --no-print-directory toolchain-parity' \
 		'ci-witness=$(MAKE) --no-print-directory ci-witness' \
+		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
@@ -568,7 +569,6 @@ verify:
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
 		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
 		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \
-		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'r-suite=$(MAKE) --no-print-directory r-suite' \
 		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
 		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
@@ -718,13 +718,13 @@ ci-verify:
 	bash scripts/gate-witness.sh run GATE-RUN.ci.txt "identuum-idp-oss make ci-verify" \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
+		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
 		'fmt-check=$(MAKE) --no-print-directory fmt-check' \
 		'vet=$(MAKE) --no-print-directory vet' \
 		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
 		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \
-		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'r-suite=$(MAKE) --no-print-directory r-suite' \
 		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
 		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
