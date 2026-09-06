@@ -1,16 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "4cca3020fbc6547a4b69cce02784046f2632728f",
-  "changes": [
-    {
-      "rule_id": "LEDGER-REBASE-DERIVES-BASE-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-TWO-JUDGE-CONTRACTS: a new subtest widens the fixture — a commit whose BODY quotes the witness phrase is not a witness; the rule sentence is unchanged"
-    },
-    {
-      "rule_id": "MINT-REACHABILITY-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-TWO-JUDGE-CONTRACTS: a new subtest pins the mint-decide recipe shape and forbids the claim that a recipe's exit code is the answer; the rule sentence is unchanged"
-    }
-  ]
+  "base_commit": "c989dd3e0a6c492d42ab30f2e174b8377cd48620",
+  "changes": []
 }
