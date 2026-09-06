@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: f98208c
-started: 2026-09-06T21:36:28Z
+repo-head: c425ea7
+started: 2026-09-06T22:04:48Z
 plan: tool-versions toolchain-parity ci-witness openapi-check repo-green tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -15,17 +15,17 @@ target: tool-versions exit=0
 evidence: [toolchain-parity] check OK: toolchain-parity 8 pins agree (gate-witness.sh 6592e63cd84ba43f784f16ecd344c8df90515d5f67f4344a6d3cce68a9e6c4e7, go 1.27.1, govulncheck 1.7.0, grype 0.118.0, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1, yq 4.53.6)
 elapsed: toolchain-parity 1s
 target: toolchain-parity exit=0
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 20 planned target(s) all exit=0, ties commit 73abe6c, 56 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/33875886668 attempt=1 sha=73abe6c6ad74f04327c9908777c5395c7c4cfe44
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 23 planned target(s) all exit=0, ties commit f811f57, 2 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/34062537767 attempt=1 sha=f811f5744a85afbed91480c9e1067236fca9cc32
 elapsed: ci-witness 0s
 target: ci-witness exit=0
 evidence: [openapi-check] go packages ok: 1
 elapsed: openapi-check 1s
 target: openapi-check exit=0
-elapsed: repo-green 28s
+elapsed: repo-green 30s
 target: repo-green exit=0
-elapsed: tracked-binary-check 4s
+elapsed: tracked-binary-check 5s
 target: tracked-binary-check exit=0
-elapsed: credential-transparency 1s
+elapsed: credential-transparency 0s
 target: credential-transparency exit=0
 evidence: [workflow-yaml] check OK: workflow-yaml 2 workflow file(s) parse (yq v4.53.6)
 elapsed: workflow-yaml 0s
@@ -36,12 +36,12 @@ target: workflow-yaml-parity exit=0
 evidence: [rulefloor-check] check OK: 254 rows (254 armed), FLOOR 254, RED-PROOFS 254 (measured 254)
 elapsed: rulefloor-check 31s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=c989dd3e0a6c492d42ab30f2e174b8377cd48620 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=8261477351a7ba0ba8f6f827f0671dd531c789eec76fc4d3d328a9fc60bf4d7e
-elapsed: ledger-diff-gate 1s
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=f811f5744a85afbed91480c9e1067236fca9cc32 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=91e83d5a597be62fc262de434260807ecde66580ea581aebf9b0feed4dad876b
+elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
 target: image-base-check exit=0
-elapsed: vet-integration 0s
+elapsed: vet-integration 1s
 target: vet-integration exit=0
 elapsed: doccomment-check 0s
 target: doccomment-check exit=0
@@ -54,17 +54,17 @@ elapsed: image-policy-restate-check 0s
 target: image-policy-restate-check exit=0
 elapsed: distroless-exec-check 0s
 target: distroless-exec-check exit=0
-elapsed: clock-fuse-report 1s
+elapsed: clock-fuse-report 2s
 target: clock-fuse-report exit=0
-elapsed: clock-fuse-gate 1s
+elapsed: clock-fuse-gate 0s
 target: clock-fuse-gate exit=0
 elapsed: tagged-vet 1s
 target: tagged-vet exit=0
-elapsed: integration-inventory 0s
+elapsed: integration-inventory 1s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 24s
+elapsed: gograph-build 25s
 target: gograph-build exit=0
 elapsed: gograph-boundaries 0s
 target: gograph-boundaries exit=0
@@ -79,6 +79,6 @@ target: wiki-fresh exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
 elapsed: grype-scan 1s
 target: grype-scan exit=0
-finished: 2026-09-06T21:38:13Z
-tree: sha256=915e07667ae80d5c38d8fa7406cca0cc91331c7d45af70e04ed626e38a03b123
+finished: 2026-09-06T22:06:38Z
+tree: sha256=c559f900f8f5a94ee316f1f95b95438e771026a609be9c2722a139b54c27a79d
 result: green
