@@ -570,19 +570,42 @@ ci-fetch:
 ## diff cannot reach it does not pay the e2e mint — and that is COMPUTED,
 ## never judged.
 ##
-## Exit codes are the contract test-full reads: 0 SKIPPABLE, 10 MINT
-## REQUIRED, 1 undecidable — which the harness treats as REQUIRED, because a
-## classifier that cannot decide is not a licence to skip. The direction of
-## the default is the whole design: a path is no-reach only when it matches a
-## DECLARED entry, so go.mod, go.sum and any path nobody has declared all
-## require the mint. Rule MINT-REACHABILITY-1.
+## The TOOL's exit codes: 0 SKIPPABLE, 10 MINT REQUIRED, 1 undecidable — and
+## test-full treats undecidable as REQUIRED, because a classifier that cannot
+## decide is not a licence to skip. WHAT test-full ACTUALLY READS is narrower
+## than that (THE-TWO-JUDGE-CONTRACTS, 2026-09-06): it runs the tool through
+## `go run`, which collapses every non-zero child exit to 1 (MEASURED: the
+## tool's 10 prints "exit status 10" and go run returns 1), so its branch is
+## 0 versus non-zero — only an explicit 0 skips, 10 and 1 both mint. Fail
+## closed, and correct; but the three-way code never crosses `go run`. The
+## direction of the default is the whole design: a path is no-reach only when
+## it matches a DECLARED entry, so go.mod, go.sum and any path nobody has
+## declared all require the mint. Rule MINT-REACHABILITY-1.
 mint-check:
 	@go run ./tools/mint-reachability --repo . || true
 
-## mint-decide: the same classifier, but its exit code is the answer. Used by
-## test-full; kept separate so `make mint-check` stays a plain report.
+## mint-decide: the same classifier, run so a CALLER can read the answer.
+##
+## THE-TWO-JUDGE-CONTRACTS (2026-09-06): this comment used to say "its exit
+## code is the answer", and a dispatcher that tested `$?` for 10 never fired.
+## Make cannot hand a recipe's exit code through: ANY non-zero recipe exit is
+## make's own exit 2 (MEASURED with a one-line fixture: `exit 10` prints
+## "Error 10", make exits 2), and `go run` had already collapsed the tool's 10
+## to 1 before make saw it. So the contract, stated as what a caller sees:
+## `make mint-decide` exits 0 for SKIPPABLE and 2 for anything else — REQUIRED
+## or undecidable, fail closed — and its LAST LINE names the tool's own code
+## (`mint-decide: tool exit 10 …`). A three-way caller reads that line, never
+## the exit status. The tool is BUILT, not `go run`, so the code on that line
+## is the tool's (the clock-fuse-report pattern). test-full does not use this
+## target: it runs the classifier itself and branches on 0 versus non-zero.
+## TestRuleMintReachability1 pins both the recipe shape and this wording.
 mint-decide:
-	@go run ./tools/mint-reachability --repo .
+	@bin=$$(mktemp "$${TMPDIR:-/tmp}/mintreach.XXXXXX"); \
+	if [ -z "$$bin" ]; then echo "mint-decide: mktemp produced no path — CANNOT-EVALUATE"; exit 2; fi; \
+	if ! go build -o "$$bin" ./tools/mint-reachability; then rm -f "$$bin"; echo "mint-decide: the classifier does not build — CANNOT-EVALUATE"; exit 2; fi; \
+	"$$bin" --repo .; rc=$$?; rm -f "$$bin"; \
+	echo "mint-decide: tool exit $$rc (0 SKIPPABLE, 10 MINT REQUIRED, 1 undecidable); make itself exits 0 only for SKIPPABLE and 2 otherwise — read this line, not the exit status"; \
+	exit $$rc
 
 ## witness-check (THE-UNEARNED-WITNESS, 2026-09-04): has this tree earned a
 ## witness cycle? Run it BEFORE cutting one. A witness says "make verify was
@@ -2130,7 +2153,8 @@ oss-recover-site-admin:
 	fi
 	@# Exec the binary DIRECTLY — no `sh -c`. The runtime image is distroless
 	@# (no shell), so `app sh -c '…'` failed with exec: "sh": executable file
-	@# not found, make exit 127 (RECOVERY-BINARY-PATH-1). recover-site-admin
+	@# not found — "Error 127" in make's message; make's own exit is 2, as for
+	@# every failed recipe (RECOVERY-BINARY-PATH-1). recover-site-admin
 	@# with no positional URL reads the container's own IDENTUUM_IDP_DATABASE_URL
 	@# / IDENTUUM_IDP_OSS_DB (requirePositionalURL) — no DSN assembly, no shell.
 	@$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app exec \

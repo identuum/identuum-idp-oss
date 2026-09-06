@@ -10,6 +10,7 @@ package main
 // it covers real code.
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -134,4 +135,71 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 			}
 		}
 	})
+
+	t.Run("make mint-decide states the contract a CALLER sees, never a code make rewrites", func(t *testing.T) {
+		// THE-TWO-JUDGE-CONTRACTS (2026-09-06). The recipe's comment said "its
+		// exit code is the answer"; make turns every non-zero recipe exit into
+		// its own exit 2, and `go run` had already collapsed the tool's 10 to
+		// 1, so a dispatcher testing for 10 never fired and a mint was
+		// dispatched by hand. This subtest keeps that sentence out of the
+		// Makefile and keeps the recipe in the shape that makes the tool's
+		// real code visible: the tool is BUILT (not `go run`), its exit is
+		// captured, and it is printed on a line a caller can read.
+		src, err := os.ReadFile("../../Makefile")
+		if err != nil {
+			t.Fatalf("read Makefile: %v", err)
+		}
+		makefile := string(src)
+		if strings.Contains(makefile, "its exit code is the answer") {
+			t.Fatal("the Makefile claims a recipe's exit code is the answer — make rewrites every non-zero recipe exit to 2, so no caller can read it")
+		}
+		recipe := makefileRecipe(t, makefile, "mint-decide")
+		for _, want := range []string{
+			"go build -o",                 // the tool is built, so its exit code survives
+			"rc=$$?",                      // and captured
+			"mint-decide: tool exit $$rc", // and printed for the caller
+			"exit $$rc",                   // make still fails on anything but 0 (fail closed)
+		} {
+			if !strings.Contains(recipe, want) {
+				t.Errorf("mint-decide recipe lacks %q:\n%s", want, recipe)
+			}
+		}
+		if strings.Contains(recipe, "go run ./tools/mint-reachability") {
+			t.Errorf("mint-decide runs the classifier through `go run`, which collapses exit 10 to 1:\n%s", recipe)
+		}
+		// test-full's own branch is the fail-closed 0-versus-non-zero one, and
+		// must stay that way: only an explicit 0 skips.
+		testFull := makefileRecipe(t, makefile, "test-full")
+		if !strings.Contains(testFull, "if go run ./tools/mint-reachability --repo .; then") {
+			t.Errorf("test-full no longer branches on the classifier's 0-versus-non-zero exit:\n%s", testFull)
+		}
+	})
+}
+
+// makefileRecipe returns the recipe lines of a Makefile target: everything
+// indented under `name:` up to the first line that is neither blank nor
+// indented.
+func makefileRecipe(t *testing.T, src, name string) string {
+	t.Helper()
+	lines := strings.Split(src, "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, name+":") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("Makefile has no %s target", name)
+	}
+	var b strings.Builder
+	for i := start + 1; i < len(lines); i++ {
+		l := lines[i]
+		if l != "" && !strings.HasPrefix(l, "\t") && !strings.HasPrefix(l, " ") {
+			break
+		}
+		b.WriteString(l)
+		b.WriteString("\n")
+	}
+	return b.String()
 }
