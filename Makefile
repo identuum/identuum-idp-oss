@@ -498,6 +498,7 @@ tool-versions:
 	@printf 'govulncheck %s  %s\n' "$$(govulncheck -version 2>/dev/null | awk '/Scanner/{print $$2}')" "$$(command -v govulncheck || echo MISSING)"
 	@printf 'rulefloor   %s  %s\n' "$$(rulefloor version --json 2>/dev/null)" "$$(command -v rulefloor || echo MISSING)"
 	@printf 'yq          %s  %s\n' "$$(yq --version 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)" "$$(command -v yq || echo MISSING)"
+	@printf 'gograph     %s  %s\n' "$$(gograph version 2>/dev/null | awk '{print $$3}')" "$$(command -v gograph || echo MISSING)"
 
 ## toolchain-parity (THE-UNCOMPARED-TOOLCHAIN, 2026-09-04): tool-versions
 ## above PRINTS what is installed here; the workflow env DECLARES what CI
