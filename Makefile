@@ -111,7 +111,7 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
 .PHONY: verify-integration clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report tool-versions
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
-.PHONY: verify ci-verify tracked-binary-check credential-transparency image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
+.PHONY: verify ci-verify tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
 ## Runs `achta --wiki-dir $(WIKI_DIR) wiki check --only freshness` and uses
@@ -392,6 +392,72 @@ credential-transparency:
 	fi; \
 	echo "credential-transparency: every committed credential is fake by construction"
 
+## workflow-yaml: every .github/workflows/*.yml must PARSE as YAML, or the
+## workflow GitHub would run never starts and every gate it declares is a
+## claim. Ported BYTE-IDENTICAL from identuum-ui (THE-UI-YAML-LINE-111) by
+## THE-IDP-OSS-WORKFLOW-YAML (2026-09-06): identuum-ui's ci.yml was invalid
+## YAML for a day — a colon-space inside a plain scalar — behind a green
+## 16-target verify and a green two-repo mint; nothing parsed the workflows,
+## the byte-scanning route gate passed it, GitHub would have refused it.
+## This repo had the same blind spot across 28 targets, both its workflows
+## happening to parse.
+##
+## THE PARSER, and why: yq (mikefarah, Go yaml.v3 — the same yaml.v3 family
+## as go.mod's gopkg.in/yaml.v3 and the workspace's achta). A Go parser
+## in-repo would mean a new tool under tools/, which this port may not add;
+## the installed yq gives the same parser family with no new script, and
+## measured on the ui defect it refuses exactly what GitHub refuses. The file
+## is read whole (`yq eval '.'`), the scanner's own error is printed
+## verbatim, an absent yq is exit 2 by name, no workflow files is exit 2.
+## Sits after credential-transparency in verify. NOT in ci-verify: CI
+## installs no yq (0 mentions in ci.yml) and every ci-verify tool is
+## installed from a workflow pin (the CI-shape rule); adding it there needs
+## an install step and a toolchain-parity pin first.
+##
+## THE RECIPE BELOW IS ONE OF TWO IDENTICAL COPIES (identuum-idp-oss,
+## identuum-ui), held byte-identical by `workflow-yaml-parity` below against
+## WORKFLOW_YAML_MD5 — the image-base-check discipline. Edit one copy, read
+## the new digest out of the parity failure, update the pin and the block in
+## every copy. Comments above the target are outside the hashed block.
+workflow-yaml:
+	@command -v yq >/dev/null 2>&1 || { echo "workflow-yaml: yq is not installed — cannot parse .github/workflows/*.yml; refusing to pass silently" >&2; exit 2; }; \
+	bad=0; n=0; \
+	for f in .github/workflows/*.yml .github/workflows/*.yaml; do \
+		[ -f "$$f" ] || continue; n=$$((n+1)); \
+		if out=$$(yq eval '.' "$$f" 2>&1 >/dev/null); then \
+			echo "  parses   $$f"; \
+		else \
+			echo "  INVALID  $$f"; printf '%s\n' "$$out" | sed 's/^/           /'; bad=1; \
+		fi; \
+	done; \
+	[ "$$n" -gt 0 ] || { echo "workflow-yaml: no workflow files under .github/workflows — nothing to parse" >&2; exit 2; }; \
+	if [ "$$bad" -ne 0 ]; then \
+		echo "check FAILED: workflow-yaml — a workflow GitHub cannot parse never runs; fix the file, never the gate"; \
+		exit 1; \
+	fi; \
+	echo "check OK: workflow-yaml $$n workflow file(s) parse (yq $$(yq --version 2>/dev/null | grep -oE 'v[0-9.]+' | head -1))"
+
+## workflow-yaml-parity: this repo's workflow-yaml block must equal the copy
+## shared with identuum-ui, byte for byte (the image-base-parity discipline:
+## a copy that drifts to a laxer parser accepts what GitHub rejects, which is
+## worse than no gate). The block is the target line through the `check OK`
+## line, hashed as extracted; WORKFLOW_YAML_MD5 is the pin every copy carries.
+## The ui side's parity target is a follow-up there (read-only to the port).
+WORKFLOW_YAML_MD5 ?= d63f3fdb5cd211c38abe98a03ecb1544
+
+workflow-yaml-parity:
+	@blk="$$(awk '/^workflow-yaml:/{f=1} f{print} f&&/check OK: workflow-yaml/{exit}' Makefile)"; \
+	got="$$(printf '%s\n' "$$blk" | { md5sum 2>/dev/null || md5; } | awk '{print $$1}')"; \
+	if [ "$$got" != "$(WORKFLOW_YAML_MD5)" ]; then \
+		echo "WORKFLOW-YAML COPY HAS DIVERGED:"; \
+		echo "  wanted md5 $(WORKFLOW_YAML_MD5)"; \
+		echo "  got    md5 $$got"; \
+		echo "This repo's workflow-yaml no longer matches the copy shared with identuum-ui."; \
+		echo "Either restore this copy, or update the block AND WORKFLOW_YAML_MD5 in every copy."; \
+		exit 1; \
+	fi; \
+	echo "check OK: workflow-yaml-parity block md5 $$got matches the shared pin"
+
 ## verify: repo-local default validation; no Docker, DB, live services, or secrets.
 # WHY wiki-freshness RUNS LAST (slice THE-SEALED-GATES, 2026-08-04)
 # --------------------------------------------------------------------
@@ -564,6 +630,8 @@ verify:
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
+		'workflow-yaml=$(MAKE) --no-print-directory workflow-yaml' \
+		'workflow-yaml-parity=$(MAKE) --no-print-directory workflow-yaml-parity' \
 		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
 		'ledger-diff-gate=$(MAKE) --no-print-directory ledger-diff-gate' \
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
