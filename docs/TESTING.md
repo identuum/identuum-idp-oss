@@ -13,7 +13,8 @@ evidence chain works. The operator tier is
 1. **`make verify` (this repo)** — the per-commit gate: build, unit tests,
    staticcheck, govulncheck, grype, rulefloor ledger check (FLOOR 253 on
    2026-09-06 — the first line of RULE-FLOOR.md is the live number),
-   the IMG-NONALPINE gate, docgen golden, and the rest of the witnessed
+   the IMG-NONALPINE gate, docgen golden, openapi-check (the checked-in
+   openapi.yaml equals the generator's output byte-for-byte), and the rest of the witnessed
    target list. Writes `GATE-RUN.txt` (committed) via `scripts/gate-witness.sh`:
    per-target exits, tool versions, evidence lines, and a digest of the tree
    the run saw. `identuum-ui` has the same shape (`make verify`, FLOOR 66).

@@ -568,6 +568,7 @@ verify:
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
 		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
 		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \
+		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'r-suite=$(MAKE) --no-print-directory r-suite' \
 		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
 		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
@@ -723,6 +724,7 @@ ci-verify:
 		'vet=$(MAKE) --no-print-directory vet' \
 		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
 		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \
+		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'r-suite=$(MAKE) --no-print-directory r-suite' \
 		'image-base-parity=$(MAKE) --no-print-directory image-base-parity' \
 		'image-policy-restate-check=$(MAKE) --no-print-directory image-policy-restate-check' \
@@ -781,6 +783,26 @@ integration-staticcheck:
 		exit 1; \
 	}
 	staticcheck -tags integration ./...
+
+## openapi-check (THE-UNGUARDED-SPEC, 2026-09-06): the CHECKED-IN openapi.yaml
+## — the public machine-readable API surface for OSS consumers — must be
+## byte-for-byte what the generator emits from the source tree now. Until this
+## target, nothing in verify compared the two: the docgen golden pins the
+## generator against its own fixture, and a whole endpoint (GET
+## /api/v1/agent-communication-authorizations) was absent from the checked-in
+## spec while every gate stayed green; a hand-renamed path left `make verify`
+## green at 6d1cc92 (27 targets, exit 0). Proved RED on that same mutation.
+##
+## It runs the tool's own test, which regenerates IN MEMORY (--dry-run emits
+## the identical bytes --output writes; measured sha256-equal, and the
+## generator is byte-deterministic across runs) and compares with
+## ./openapi.yaml. It NEVER rewrites the file it judges — a gate that repairs
+## its own subject proves nothing; the failure names the paths that differ,
+## the first differing line, and the fixing command: `make api-docs`.
+## Rule OPENAPI-CHECKED-IN-CURRENT-1. In verify and ci-verify alike (Go only).
+.PHONY: openapi-check
+openapi-check:
+	go test ./tools/api-docgen -run '^TestOpenAPI_CheckedInSpecIsCurrent$$' -count=1
 
 ## doccomment-check: catch a SQL/code literal that gofmt TYPESET.
 ##
