@@ -385,7 +385,9 @@ The repo-local close gate is `make verify`. Its recipe in `Makefile` is the
 source of truth; in order, it runs:
 
 1. `repo-green` (gofmt, build, vet, and the untagged Go test suite).
-2. The tracked-binary and credential-transparency checks.
+2. The tracked-binary, credential-transparency and workflow-yaml checks (every
+   `.github/workflows/*.yml` must parse; the workflow-yaml block is held
+   byte-identical to identuum-ui by `workflow-yaml-parity`).
 3. `rulefloor-check` (unit rows execute; integration-profile rows are checked
    statically here), then `ledger-diff-gate`: `rulefloor ledger-diff` against
    the previous accepted witness commit, reconciled both ways with the
