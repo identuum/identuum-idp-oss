@@ -72,6 +72,15 @@ func gitCommit(t *testing.T, dir, subject string) string {
 	return git(t, dir, "rev-parse", "HEAD")
 }
 
+// gitCommitWithBody makes one empty commit whose SUBJECT is subject and whose
+// BODY is body, and returns its SHA. It exists for the one fixture that has to
+// tell the two apart.
+func gitCommitWithBody(t *testing.T, dir, subject, body string) string {
+	t.Helper()
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", subject, "-m", body)
+	return git(t, dir, "rev-parse", "HEAD")
+}
+
 // gitFixture builds a history shaped like the close ritual's: work, then a
 // witness, with HEAD sitting on the witness — the state a slice starts from.
 func gitFixture(t *testing.T) string {
@@ -221,6 +230,50 @@ func TestRuleLedgerRebaseDerivesBase1_OnlyBaseWritten_InvalidRefused_DerivedBase
 		}
 		if derived2 != measured2 || derived2 != derived {
 			t.Fatalf("the base moved inside one cycle: derived %s/%s, measured %s", derived, derived2, measured2)
+		}
+	})
+
+	t.Run("a commit whose BODY quotes the witness phrase is NOT a witness", func(t *testing.T) {
+		// THE-TWO-JUDGE-CONTRACTS (2026-09-06). The constant is named a
+		// SUBJECT prefix, and the close ritual writes it as a subject. But a
+		// rebase commit's body that NAMED the witness by quoting its subject
+		// was taken for the witness itself, and verify went red on its own
+		// manifest: `not the previous accepted witness db44f8b…`, db44f8b
+		// being that rebase commit. The match must be the subject line.
+		repo := gitFixture(t)
+		witness := git(t, repo, "rev-parse", "HEAD")
+		quoter := gitCommitWithBody(t, repo,
+			"ledger-rebase: manifest base to the accepted witness",
+			"Moves base_commit to the newest accepted witness ("+WitnessSubjectPrefix+"0000000). No declared changes.")
+
+		// Derived at HEAD (the quoter): must still be the real witness.
+		derived, err := newestWitness(repo, RevRebase)
+		if err != nil {
+			t.Fatalf("derive: %v", err)
+		}
+		if derived == quoter {
+			t.Fatalf("a commit whose BODY quotes %q was taken for a witness (derived %s); the real witness is %s",
+				WitnessSubjectPrefix, quoter, witness)
+		}
+		if derived != witness {
+			t.Fatalf("derived %s, want the real witness %s", derived, witness)
+		}
+		// And from the gate's vantage point, one work commit later.
+		gitCommit(t, repo, "work: the commit carrying the manifest")
+		measured, err := previousAcceptedWitness(repo)
+		if err != nil {
+			t.Fatalf("measure: %v", err)
+		}
+		if measured != witness {
+			t.Fatalf("the gate measured %s, want the real witness %s (quoter %s)", measured, witness, quoter)
+		}
+		// A history whose ONLY mention of the phrase is in a body has no
+		// witness at all — the error, not a body-quoting commit.
+		bare := t.TempDir()
+		git(t, bare, "init", "-q", "-b", "main")
+		gitCommitWithBody(t, bare, "work: no witness yet", "This body says "+WitnessSubjectPrefix+"deadbee and means nothing by it.")
+		if sha, err := newestWitness(bare, RevRebase); err == nil {
+			t.Fatalf("a history with the phrase only in a body yielded witness %s; want the no-witness error", sha)
 		}
 	})
 

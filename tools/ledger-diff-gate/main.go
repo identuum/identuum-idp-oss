@@ -126,18 +126,30 @@ func previousAcceptedWitness(repo string) (string, error) {
 }
 
 // newestWitness is the single measurement both modes use.
+//
+// THE-TWO-JUDGE-CONTRACTS (2026-09-06): the match is anchored to the SUBJECT
+// line. `git log --grep` matches the whole message, so a commit whose BODY
+// quoted the phrase — a rebase commit naming the witness it moved to — was
+// taken for the witness, and verify went red on its own manifest. `--grep`
+// stays as a cheap prefilter (a candidate must mention the phrase somewhere);
+// the decision is made on `%s`, the subject, by prefix.
 func newestWitness(repo, rev string) (string, error) {
-	cmd := exec.Command("git", "-C", repo, "log", "--format=%H", "-1", "--fixed-strings", "--grep="+WitnessSubjectPrefix, rev)
+	cmd := exec.Command("git", "-C", repo, "log", "--format=%H%x09%s", "--fixed-strings", "--grep="+WitnessSubjectPrefix, rev)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("git log for the previous accepted witness: %v: %s", err, strings.TrimSpace(stderr.String()))
 	}
-	sha := strings.TrimSpace(stdout.String())
-	if sha == "" {
-		return "", errors.New("previous accepted witness: no `" + WitnessSubjectPrefix + "` commit reachable from " + rev)
+	for line := range strings.SplitSeq(stdout.String(), "\n") {
+		sha, subject, ok := strings.Cut(line, "\t")
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(subject, WitnessSubjectPrefix) {
+			return sha, nil
+		}
 	}
-	return sha, nil
+	return "", errors.New("previous accepted witness: no commit whose SUBJECT starts with `" + WitnessSubjectPrefix + "` is reachable from " + rev)
 }
 
 // runLedgerDiff returns the raw document and rulefloor's exit code
