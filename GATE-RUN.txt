@@ -1,9 +1,9 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: e5508dd
-started: 2026-09-07T09:43:22Z
-plan: tool-versions toolchain-parity ci-witness openapi-check repo-green tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
+repo-head: bee68d4
+started: 2026-09-07T10:13:06Z
+plan: tool-versions toolchain-parity ci-witness openapi-check repo-green tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity rulefloor-check ledger-diff-gate image-base-check vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
 tool: grype       0.118.0  /opt/homebrew/bin/grype
@@ -16,17 +16,17 @@ target: tool-versions exit=0
 evidence: [toolchain-parity] check OK: toolchain-parity 8 pins agree (gate-witness.sh 54d67c9515fca53af8b33fd62695ebac062272c5a0029490bc85bf5ecfcd96ba, go 1.27.1, govulncheck 1.7.0, grype 0.118.0, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1, yq 4.53.6)
 elapsed: toolchain-parity 1s
 target: toolchain-parity exit=0
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 23 planned target(s) all exit=0, ties commit d4891ee, 3 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/34106485089 attempt=1 sha=d4891ee3f4931707e6ffd26910633a18aca17e81
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 23 planned target(s) all exit=0, ties commit d4891ee, 6 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/34106485089 attempt=1 sha=d4891ee3f4931707e6ffd26910633a18aca17e81
 elapsed: ci-witness 0s
 target: ci-witness exit=0
 evidence: [openapi-check] go packages ok: 1
 elapsed: openapi-check 1s
 target: openapi-check exit=0
-elapsed: repo-green 31s
+elapsed: repo-green 28s
 target: repo-green exit=0
-elapsed: tracked-binary-check 4s
+elapsed: tracked-binary-check 5s
 target: tracked-binary-check exit=0
-elapsed: credential-transparency 0s
+elapsed: credential-transparency 1s
 target: credential-transparency exit=0
 evidence: [workflow-yaml] check OK: workflow-yaml 2 workflow file(s) parse (yq v4.53.6)
 elapsed: workflow-yaml 0s
@@ -35,9 +35,9 @@ evidence: [workflow-yaml-parity] check OK: workflow-yaml-parity block md5 d63f3f
 elapsed: workflow-yaml-parity 0s
 target: workflow-yaml-parity exit=0
 evidence: [rulefloor-check] check OK: 254 rows (254 armed), FLOOR 254, RED-PROOFS 254 (measured 254)
-elapsed: rulefloor-check 32s
+elapsed: rulefloor-check 33s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=d4891ee3f4931707e6ffd26910633a18aca17e81 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=3ac2c8a8fe07e975f8c274a04a3956d3399c68902808d2b3c8fb0c54bc930eeb
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=f590fde8a337a0e21a8dd2be4cdc6b4000c9e374 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=1ad39fc6bbba55a8348d015f42a95eb268ab5601fef247ef15eb9b61cbc27fb3
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
@@ -47,15 +47,18 @@ target: vet-integration exit=0
 elapsed: doccomment-check 0s
 target: doccomment-check exit=0
 evidence: [r-suite] go packages ok: 3
-elapsed: r-suite 3s
+elapsed: r-suite 2s
 target: r-suite exit=0
 elapsed: image-base-parity 0s
 target: image-base-parity exit=0
+evidence: [witness-parity] check OK: witness-parity witness block md5 179ce4a5e5c1111f2c5c51ebb1ea2236 matches the shared pin
+elapsed: witness-parity 1s
+target: witness-parity exit=0
 elapsed: image-policy-restate-check 0s
 target: image-policy-restate-check exit=0
 elapsed: distroless-exec-check 0s
 target: distroless-exec-check exit=0
-elapsed: clock-fuse-report 2s
+elapsed: clock-fuse-report 1s
 target: clock-fuse-report exit=0
 elapsed: clock-fuse-gate 0s
 target: clock-fuse-gate exit=0
@@ -65,7 +68,7 @@ elapsed: integration-inventory 1s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 21s
+elapsed: gograph-build 26s
 target: gograph-build exit=0
 elapsed: gograph-boundaries 0s
 target: gograph-boundaries exit=0
@@ -78,8 +81,8 @@ target: govulncheck exit=0
 elapsed: wiki-fresh 0s
 target: wiki-fresh exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
-elapsed: grype-scan 2s
+elapsed: grype-scan 1s
 target: grype-scan exit=0
-finished: 2026-09-07T09:45:10Z
-tree: sha256=4c5498d53ec75594476c9ca3554d0dbf1c19830a926bc3fbd9511b14fb02a73a
+finished: 2026-09-07T10:14:57Z
+tree: sha256=ce3df10c86acf9f8d9d971e527d442d1ce3977383fa6bea7a12ec43de3545369
 result: green
