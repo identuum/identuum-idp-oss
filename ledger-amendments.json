@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "e78b16c842429cda953c5253bae92cbe7c56e821",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "MINT-REACHABILITY-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "THE-RECORD-ONLY-CLOSE: two new subtests — the no-reach set applies under the identuum-ui/ namespace (record paths skip, src/e2e-full/Makefile/package.json still mint, an undeclared namespace is not stripped) and an e2e record is judged only when green, finished and pinned to both heads; the rule sentence is unchanged"
+    }
+  ]
 }

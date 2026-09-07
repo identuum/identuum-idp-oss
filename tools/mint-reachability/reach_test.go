@@ -136,6 +136,79 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 		}
 	})
 
+	t.Run("the SAME declaration applies under the sibling's namespace — a record is a record in either repository", func(t *testing.T) {
+		// THE-RECORD-ONLY-CLOSE (2026-09-07). main.go prefixes the ui's paths
+		// with identuum-ui/ so a report can never confuse the repositories;
+		// the entries were then matched against the PREFIXED path, so the
+		// root-anchored GATE-RUN*.txt and the literal ledger-amendments.json
+		// never matched a ui record, and a record-only ui commit read as
+		// REACHING. Two wiki closes were refused on commits that cannot change
+		// e2e behaviour. The prefix is a namespace, not a directory: strip it
+		// and judge the path as the repository it came from would.
+		recordOnly := []string{
+			"identuum-ui/GATE-RUN.txt",
+			"identuum-ui/GATE-RUN.e2e-full.txt",
+			"identuum-ui/ledger-amendments.json",
+			"identuum-ui/CI-WITNESS.txt",
+			"identuum-ui/README.md",
+			"CI-WITNESS.txt",
+		}
+		d := Decide(recordOnly, NoReachSet)
+		if d.Required {
+			t.Fatalf("a record-only change demanded a mint: %v", d.Reaching)
+		}
+		if len(d.NoReach) != len(recordOnly) {
+			t.Fatalf("not every record path was justified: %+v", d.NoReach)
+		}
+		for _, p := range recordOnly {
+			if !strings.Contains(d.Line(), p) {
+				t.Fatalf("the skip does not name %s under its namespace: %q", p, d.Line())
+			}
+		}
+		for _, p := range []string{
+			"identuum-ui/src/app/login/page.tsx",
+			"identuum-ui/e2e-full/scripts/full-run.sh",
+			"identuum-ui/Makefile",
+			"identuum-ui/package.json",
+			"identuum-ui/something/nobody/declared.bin",
+		} {
+			if !Decide([]string{p}, NoReachSet).Required {
+				t.Errorf("%s classified SKIPPABLE — it reaches the appliance", p)
+			}
+		}
+		// Only a DECLARED sibling is a namespace. An unknown first segment is
+		// a directory like any other, and a record name under it is unknown.
+		if !Decide([]string{"identuum-idp-ce/GATE-RUN.txt"}, NoReachSet).Required {
+			t.Error("an undeclared namespace was stripped — only a declared sibling prefix may be")
+		}
+	})
+
+	t.Run("an e2e record is judged only when green, finished and pinned to both heads", func(t *testing.T) {
+		// The wiki's witness-ui-e2e falls through to this tool when achta's
+		// witness check fails; the tool must therefore refuse to judge a record
+		// that failed for any reason but staleness. Anything short of a green,
+		// finished record with both heads is undecidable, never accepted.
+		good := "gate: e2e-full\nrepo-head: 6dfca4e\nplan: a\ntarget: a exit=0\nfinished: 2026-09-06T00:00:00Z\ntree: sha256=abc\nxrepo: identuum-idp-oss head=5c08c1a tree=sha256:def\nresult: green\n"
+		heads, err := parseE2ERecord(good)
+		if err != nil {
+			t.Fatalf("a green, finished, pinned record was refused: %v", err)
+		}
+		if heads.UI != "6dfca4e" || heads.Sibling != "5c08c1a" {
+			t.Fatalf("heads = %+v, want ui 6dfca4e and sibling 5c08c1a", heads)
+		}
+		for name, bad := range map[string]string{
+			"red":          strings.Replace(good, "result: green", "result: red", 1),
+			"no result":    strings.Replace(good, "result: green\n", "", 1),
+			"unfinished":   strings.Replace(good, "finished: 2026-09-06T00:00:00Z\n", "", 1),
+			"no ui head":   strings.Replace(good, "repo-head: 6dfca4e\n", "", 1),
+			"no xrepo pin": strings.Replace(good, "xrepo: identuum-idp-oss head=5c08c1a tree=sha256:def\n", "", 1),
+		} {
+			if _, err := parseE2ERecord(bad); err == nil {
+				t.Errorf("a %s record was accepted for judging — it must be undecidable", name)
+			}
+		}
+	})
+
 	t.Run("make mint-decide states the contract a CALLER sees, never a code make rewrites", func(t *testing.T) {
 		// THE-TWO-JUDGE-CONTRACTS (2026-09-06). The recipe's comment said "its
 		// exit code is the answer"; make turns every non-zero recipe exit into

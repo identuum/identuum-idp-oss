@@ -30,9 +30,28 @@
 //	                      build`, not a convention, which is why it can be
 //	                      declared without an import analysis: a *_test.go
 //	                      file cannot be imported by a non-test file at all.
+//	CI-WITNESS.txt        The committed CI claim: fetched by `make ci-fetch`
+//	                      from a CI artifact, judged by tools/ci-witness at
+//	                      verify time. Not compiled, not served. P-055
+//	                      (2026-09-04) declined this entry because no mint had
+//	                      ever been forced by a record ALONE; by 2026-09-07 two
+//	                      wiki closes had been refused on ranges made ONLY of
+//	                      CI-WITNESS.txt, GATE-RUN.txt and
+//	                      ledger-amendments.json, so the number P-055 set to
+//	                      beat was beaten and the entry added
+//	                      (THE-RECORD-ONLY-CLOSE).
+//
+// THE SIBLING'S PATHS ARE NAMESPACED, NOT RELOCATED. main.go reports the ui's
+// paths as identuum-ui/<path> so a line can never confuse the repositories.
+// The prefix is stripped again before an entry is matched (SiblingPrefixes),
+// because a record is a record in either repository: until 2026-09-07 the
+// entries were matched against the prefixed path, so the root-anchored
+// GATE-RUN*.txt and the literal ledger-amendments.json never matched a ui
+// record and every record-only ui commit read as REACHING.
 //
 // Everything else — internal/**, cmd/**, auth/**, deployment/**, the
-// Makefile, the e2e specs and harness, go.mod, go.sum — REQUIRES the mint.
+// Makefile, the e2e specs and harness, go.mod, go.sum, this tool's own
+// source — REQUIRES the mint.
 //
 // Rule MINT-REACHABILITY-1 binds to reach_test.go.
 package main
@@ -63,6 +82,24 @@ var NoReachSet = []NoReachEntry{
 	{"MINT-STATE.json", "this classifier's own marker: written BY the mint, read only here. It is GITIGNORED — committing it created a loop, because the mint writes it on completion and that commit moved the tree the e2e record had just pinned, so every mint invalidated itself. Kept in the set anyway: an entry costs nothing and a future checkout that tracks it is then covered"},
 	{"wiki/**", "a sibling repository's prose"},
 	{"**/*_test.go", "the Go toolchain excludes *_test.go from every non-test build"},
+	{"CI-WITNESS.txt", "the committed CI claim: fetched from a CI artifact, judged by ci-witness at verify time, never compiled or served"},
+}
+
+// SiblingPrefixes are the namespaces main.go puts in front of a sibling
+// repository's paths. An entry is matched against the path WITHOUT its
+// namespace, so the one declaration governs both repositories; the reported
+// path keeps the namespace. Only a listed prefix is stripped — an unlisted
+// first segment is a directory like any other.
+var SiblingPrefixes = []string{"identuum-ui/"}
+
+// localPath returns p as the repository it came from would name it.
+func localPath(p string) string {
+	for _, prefix := range SiblingPrefixes {
+		if rest, ok := strings.CutPrefix(p, prefix); ok {
+			return rest
+		}
+	}
+	return p
 }
 
 // Decision is what the harness acts on.
@@ -88,7 +125,7 @@ func Decide(changed []string, set []NoReachEntry) Decision {
 	for _, p := range d.Changed {
 		matched := ""
 		for _, e := range set {
-			if matchPath(e.Pattern, p) {
+			if matchPath(e.Pattern, localPath(p)) {
 				matched = e.Pattern
 				break
 			}
@@ -164,20 +201,28 @@ func isCatchAll(pattern string) bool {
 // a build, it decides one — so both answers are OK lines, and each states
 // the decision explicitly rather than leaving it to be inferred.
 func (d Decision) Line() string {
+	if d.Required {
+		return "check OK: mint-reachability MINT REQUIRED — " + d.Summary()
+	}
+	return "check OK: mint-reachability SKIPPABLE — " + d.Summary()
+}
+
+// Summary is the justification without the verdict prefix: what changed and
+// why each path was (or was not) covered. The -e2e-record mode prints one
+// per repository.
+func (d Decision) Summary() string {
 	if len(d.Changed) == 0 {
-		return "check OK: mint-reachability SKIPPABLE — no change since the last minted witness"
+		return "no change since the last minted witness"
 	}
 	if d.Required {
-		return fmt.Sprintf(
-			"check OK: mint-reachability MINT REQUIRED — %d of %d changed path(s) reach the appliance: %s",
+		return fmt.Sprintf("%d of %d changed path(s) reach the appliance: %s",
 			len(d.Reaching), len(d.Changed), strings.Join(clip(d.Reaching, 8), ", "))
 	}
 	var justified []string
 	for _, p := range d.Changed {
 		justified = append(justified, fmt.Sprintf("%s [%s]", p, d.NoReach[p]))
 	}
-	return fmt.Sprintf(
-		"check OK: mint-reachability SKIPPABLE — all %d changed path(s) are declared no-reach: %s",
+	return fmt.Sprintf("all %d changed path(s) are declared no-reach: %s",
 		len(d.Changed), strings.Join(justified, "; "))
 }
 

@@ -4,6 +4,19 @@ package main
 // changed in each repo since its last MINTED commit, classify, print one
 // line. With -record it writes the decision back into MINT-STATE.json.
 //
+// With -e2e-record it judges a STALE e2e record instead (THE-RECORD-ONLY-
+// CLOSE, 2026-09-07): the wiki's witness-ui-e2e gate refuses a record whose
+// trees have moved, and twice the move was three record-only commits that
+// cannot change e2e behaviour. Re-running a 4-minute mint to re-prove an
+// unchanged appliance is a treadmill; reading a stale record unexamined is a
+// weakening. So the gate asks this classifier: the record's own heads are the
+// left-hand side, every path changed since them in BOTH repositories is
+// judged by the same no-reach set, and the record stands ONLY when every one
+// is declared no-reach. One reaching path and the record is refused exactly
+// as before. A record that is not green, not finished or not pinned to both
+// heads is never judged at all — it is undecidable, which the caller must
+// treat as refused.
+//
 // It never runs the mint and never skips it on its own: `make test-full`
 // reads the exit code. 0 = SKIPPABLE, 10 = MINT REQUIRED, 1 = it could not
 // decide (which the harness must treat as required — an undecidable
@@ -55,7 +68,17 @@ func main() {
 	sibling := flag.String("sibling", "../identuum-ui", "the sibling repository the mint also exercises")
 	statePath := flag.String("state", "MINT-STATE.json", "the committed last-minted marker")
 	record := flag.String("record", "", "record the outcome: skipped | minted")
+	e2eRecord := flag.String("e2e-record", "", "judge a stale e2e record instead: accept it only when every path changed since its heads, in this repo and the sibling, is declared no-reach")
 	flag.Parse()
+
+	siblingDir := *sibling
+	if !filepath.IsAbs(siblingDir) {
+		siblingDir = filepath.Join(*repo, siblingDir)
+	}
+
+	if *e2eRecord != "" {
+		os.Exit(judgeE2ERecord(*e2eRecord, *repo, siblingDir))
+	}
 
 	full := filepath.Join(*repo, *statePath)
 	st, err := loadState(full)
@@ -64,7 +87,7 @@ func main() {
 		os.Exit(ExitUndecidable)
 	}
 
-	repos := map[string]string{"identuum-idp-oss": *repo, "identuum-ui": filepath.Join(*repo, *sibling)}
+	repos := map[string]string{"identuum-idp-oss": *repo, "identuum-ui": siblingDir}
 	var changed []string
 	heads := map[string]string{}
 	for name, dir := range repos {
@@ -108,6 +131,101 @@ func main() {
 		os.Exit(ExitRequired)
 	}
 	os.Exit(ExitSkippable)
+}
+
+// E2EHeads are the two commits a finished e2e record pins: the ui's own
+// `repo-head:` and the `xrepo: identuum-idp-oss head=…` sibling pin.
+type E2EHeads struct {
+	UI      string
+	Sibling string
+}
+
+// parseE2ERecord reads the heads out of a gate-run.v1 record and refuses
+// anything that is not a green, finished record pinned to both heads. The
+// refusal matters more than the parse: this function is reached only after
+// achta's witness check has already FAILED the record, and staleness is the
+// one failure this tool may look past. Red, incomplete or unpinned it may not.
+func parseE2ERecord(text string) (E2EHeads, error) {
+	var h E2EHeads
+	green, finished := false, false
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "repo-head: "):
+			h.UI = strings.TrimSpace(strings.TrimPrefix(line, "repo-head: "))
+		case strings.HasPrefix(line, "xrepo: identuum-idp-oss "):
+			for _, f := range strings.Fields(strings.TrimPrefix(line, "xrepo: identuum-idp-oss ")) {
+				if v, ok := strings.CutPrefix(f, "head="); ok {
+					h.Sibling = v
+				}
+			}
+		case strings.HasPrefix(line, "finished: "):
+			finished = true
+		case line == "result: green":
+			green = true
+		}
+	}
+	switch {
+	case !green:
+		return h, errors.New("the record is not green — a red record is refused, not judged")
+	case !finished:
+		return h, errors.New("the record has no finished: line — an incomplete record is refused, not judged")
+	case h.UI == "":
+		return h, errors.New("the record has no repo-head: line")
+	case h.Sibling == "":
+		return h, errors.New("the record has no xrepo: identuum-idp-oss head= pin")
+	}
+	return h, nil
+}
+
+// judgeE2ERecord is the -e2e-record mode. Undecidable is exit 1, refused is
+// exit 10, accepted is exit 0 — the same contract as the mint decision, and
+// every line says which repository a path came from.
+func judgeE2ERecord(recordPath, repoDir, uiDir string) int {
+	raw, err := os.ReadFile(recordPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "check FAILED: e2e-record-reach —", err)
+		return ExitUndecidable
+	}
+	heads, err := parseE2ERecord(string(raw))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %s: %v\n", filepath.Base(recordPath), err)
+		return ExitUndecidable
+	}
+	// Each repository is judged on its own range and says so on its own
+	// line, so a reader sees WHICH tree moved and on what; the verdict is
+	// over the union, because the record pins both.
+	var changed []string
+	for _, r := range []struct{ name, dir, base string }{
+		{"identuum-ui", uiDir, heads.UI},
+		{"identuum-idp-oss", repoDir, heads.Sibling},
+	} {
+		files, err := changedSince(r.dir, r.base)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %s since %s: %v\n", r.name, r.base, err)
+			return ExitUndecidable
+		}
+		var named []string
+		for _, f := range files {
+			if r.name == "identuum-idp-oss" {
+				named = append(named, f)
+			} else {
+				named = append(named, r.name+"/"+f)
+			}
+		}
+		fmt.Printf("e2e-record: %s %s..HEAD — %s\n", r.name, r.base, Decide(named, NoReachSet).Summary())
+		changed = append(changed, named...)
+	}
+	d := Decide(changed, NoReachSet)
+	fmt.Printf("e2e-record: %s was minted at identuum-ui %s and identuum-idp-oss %s; %d path(s) changed since, in the two trees, judged by the no-reach set\n",
+		filepath.Base(recordPath), heads.UI, heads.Sibling, len(d.Changed))
+	fmt.Println(d.Line())
+	if d.Required {
+		fmt.Printf("check FAILED: e2e-record-reach REFUSED — the stale record cannot stand for this tree: %d reaching path(s) since its heads; mint a new e2e-full\n", len(d.Reaching))
+		return ExitRequired
+	}
+	fmt.Printf("check OK: e2e-record-reach ACCEPTED — the record's claim stands: every path since identuum-ui %s and identuum-idp-oss %s is declared no-reach (record-only commits)\n", heads.UI, heads.Sibling)
+	return ExitSkippable
 }
 
 func loadState(path string) (*MintState, error) {
