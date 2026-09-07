@@ -116,3 +116,8 @@ TEST-spec.MD
 # TLS work dirs appear inside the tree:
 # THE-CONFORMANCE-HARNESS: per-run TLS work dirs (teardown removes them)
 /.conformance-work.*/
+
+# THE-HONEST-HARNESS: a RED run keeps the suite's exported module logs
+# (conformance/.evidence/<UTC stamp>/export) so a failure can be read after
+# the teardown. A green run keeps nothing.
+/conformance/.evidence/

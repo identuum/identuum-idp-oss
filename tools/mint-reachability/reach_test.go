@@ -247,6 +247,40 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 			t.Errorf("test-full no longer branches on the classifier's 0-versus-non-zero exit:\n%s", testFull)
 		}
 	})
+
+	t.Run("the conformance harness and its floors do not reach the appliance, but source beside them still does", func(t *testing.T) {
+		// THE-HONEST-HARNESS-AND-THE-PUSH (owner decision, 2026-09-07):
+		// conformance/** is the OpenID conformance harness — its runner, the
+		// plan fixtures and the expected-failure floors. Nothing under it is
+		// compiled into the binary or served; the harness stands up its own
+		// disposable appliance, which the e2e mint never sees. A floor row
+		// cannot change what the mint measures, so demanding a ten-minute
+		// mint for one is a false signal, not caution.
+		for _, p := range []string{
+			"conformance/expected-failures-config.json",
+			"conformance/run.sh",
+			"conformance/plan-basic.json",
+			"conformance/PIN",
+		} {
+			if Decide([]string{p}, NoReachSet).Required {
+				t.Errorf("%s demanded the full e2e mint — nothing under conformance/ ships", p)
+			}
+		}
+		// The entry must not become a doorway: real source changed in the same
+		// commit still reaches, and is named alone.
+		d := Decide([]string{"conformance/run.sh", "internal/service/local_login_service.go"}, NoReachSet)
+		if !d.Required {
+			t.Fatal("a source change rode in under a conformance/ change")
+		}
+		if len(d.Reaching) != 1 || d.Reaching[0] != "internal/service/local_login_service.go" {
+			t.Fatalf("reaching set = %v, want exactly [internal/service/local_login_service.go]", d.Reaching)
+		}
+		// And a prefix is not a directory: a sibling path that merely starts
+		// with the same letters must still reach.
+		if !Decide([]string{"conformance-notes/plan.go"}, NoReachSet).Required {
+			t.Error("conformance-notes/plan.go escaped under the conformance/ entry")
+		}
+	})
 }
 
 // makefileRecipe returns the recipe lines of a Makefile target: everything

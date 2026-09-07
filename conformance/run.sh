@@ -55,7 +55,7 @@ if [ -n "${CONFORMANCE_MODULE:-}" ]; then
 		exit 2
 	fi
 	RERUN_ARGS="--rerun 1:$MODULE_IDX"
-	echo "openid-conformance: MODULE mode — basic plan module $MODULE_IDX ($CONFORMANCE_MODULE) only; config plan skipped"
+	echo "openid-conformance: MODULE mode — oidcc-basic-certification-test-plan module $MODULE_IDX ($CONFORMANCE_MODULE) only; oidcc-config-certification-test-plan skipped"
 fi
 
 # The one pinned truth about the suite version.
@@ -71,11 +71,27 @@ compose() {
 WORK=""
 teardown() {
 	ec=$?
+	# THE-HONEST-HARNESS (2026-09-07): the work dir is handled FIRST, before
+	# the unbounded docker call below. Two reasons. (1) EVIDENCE: on a red
+	# run the only record of WHAT failed is the suite's exported module logs,
+	# and they live in $WORK — the verdict used to be the only thing that
+	# survived the teardown. (2) A docker that hangs or is missing must not
+	# strand the work dir: the trap can be stopped mid-way by the kill that
+	# ends a hung `compose down`, and a stranded dir is committed debris
+	# nobody can explain later.
+	if [ -n "$WORK" ] && [ "$ec" -ne 0 ] && [ -n "$(ls -A "$WORK/export" 2>/dev/null)" ]; then
+		ev="$HERE/.evidence/$(date -u +%Y%m%dT%H%M%SZ)"
+		if mkdir -p "$ev" && mv "$WORK/export" "$ev/export"; then
+			echo "openid-conformance: EVIDENCE KEPT (exit $ec) — the suite's exported module logs are at $ev/export (gitignored; a green run keeps nothing)"
+		else
+			echo "openid-conformance: could NOT keep the exported module logs at $ev — they go with the work dir" >&2
+		fi
+	fi
+	[ -n "$WORK" ] && rm -rf "$WORK"
 	echo "openid-conformance: teardown (down --volumes on project $PROJECT — both stacks, every volume; the cached clone survives)"
 	if [ -z "${CONFORMANCE_STUB_STACK:-}" ] || [ -n "${CONFORMANCE_STUB_TEARDOWN:-}" ]; then
 		compose down --volumes --remove-orphans || true
 	fi
-	[ -n "$WORK" ] && rm -rf "$WORK"
 	exit "$ec"
 }
 trap teardown EXIT INT TERM
@@ -327,10 +343,10 @@ fi
 EXPECTED_INCOMPLETE=$(grep -v '^#' "$HERE/expected-basic-incomplete.txt" | grep -v '^$' | sort)
 if [ "$basic_ec" -eq 0 ]; then
 	if [ -n "$EXPECTED_INCOMPLETE" ]; then
-		echo "openid-conformance: BASIC PLAN RAN TO FULL COMPLETION — the recorded incomplete modules (see conformance/expected-basic-incomplete.txt) no longer stall. The floor MOVED: re-measure and re-record the expected files deliberately."
+		echo "openid-conformance: oidcc-basic-certification-test-plan RAN TO FULL COMPLETION — the recorded incomplete modules (see conformance/expected-basic-incomplete.txt) no longer stall. The floor MOVED: re-measure and re-record the expected files deliberately."
 		overall=1
 	else
-		echo "openid-conformance: basic plan green against the committed expected-failures floor"
+		echo "openid-conformance: oidcc-basic-certification-test-plan green against the committed expected-failures floor"
 	fi
 else
 	# Extract the "Incomplete test modules:" names (indented lines of the
@@ -342,9 +358,9 @@ else
 		! grep -q 'expected skips were not found' "$BASIC_LOG" &&
 		! grep -q 'UNEXPECTEDLY SKIPPED' "$BASIC_LOG" &&
 		! grep -q 'EXPECTED TO BE SKIPPED BUT COMPLETED' "$BASIC_LOG"; then
-		echo "openid-conformance: basic plan incomplete EXACTLY as recorded (re-auth finding; see conformance/expected-basic-incomplete.txt) — green against the committed floor"
+		echo "openid-conformance: oidcc-basic-certification-test-plan incomplete EXACTLY as recorded (re-auth finding; see conformance/expected-basic-incomplete.txt) — green against the committed floor"
 	else
-		echo "openid-conformance: basic plan failed BEYOND the recorded floor — an unexpected change; read the output above"
+		echo "openid-conformance: oidcc-basic-certification-test-plan failed BEYOND the recorded floor — an unexpected change; read the output above"
 		overall=1
 	fi
 fi

@@ -83,6 +83,7 @@ var NoReachSet = []NoReachEntry{
 	{"wiki/**", "a sibling repository's prose"},
 	{"**/*_test.go", "the Go toolchain excludes *_test.go from every non-test build"},
 	{"CI-WITNESS.txt", "the committed CI claim: fetched from a CI artifact, judged by ci-witness at verify time, never compiled or served"},
+	{"conformance/**", "the OpenID harness and its floors; nothing under it ships: the runner, the plan fixtures and the expected-failure files drive a disposable appliance the harness builds and destroys itself, and none of it is compiled into the binary or served (owner decision, THE-HONEST-HARNESS-AND-THE-PUSH, 2026-09-07)"},
 }
 
 // SiblingPrefixes are the namespaces main.go puts in front of a sibling
