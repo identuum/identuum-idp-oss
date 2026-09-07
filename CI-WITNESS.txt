@@ -2,10 +2,10 @@ schema: gate-run.v1
 gate: identuum-idp-oss make ci-verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
 cites: the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments
-repo-head: 5c08c1a
-started: 2026-09-07T00:03:18Z
+repo-head: d4891ee
+started: 2026-09-07T09:32:38Z
 plan: tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity openapi-check rulefloor-check image-base-check fmt-check vet vet-integration doccomment-check r-suite image-base-parity image-policy-restate-check distroless-exec-check clock-fuse-report tagged-vet integration-inventory go-mod-tidy-diff go-build go-test-race staticcheck grype-scan
-elapsed: tracked-binary-check 4s
+elapsed: tracked-binary-check 5s
 target: tracked-binary-check exit=0
 elapsed: credential-transparency 0s
 target: credential-transparency exit=0
@@ -42,24 +42,24 @@ elapsed: distroless-exec-check 0s
 target: distroless-exec-check exit=0
 elapsed: clock-fuse-report 1s
 target: clock-fuse-report exit=0
-elapsed: tagged-vet 58s
+elapsed: tagged-vet 61s
 target: tagged-vet exit=0
-elapsed: integration-inventory 1s
+elapsed: integration-inventory 0s
 target: integration-inventory exit=0
-elapsed: go-mod-tidy-diff 3s
+elapsed: go-mod-tidy-diff 4s
 target: go-mod-tidy-diff exit=0
 elapsed: go-build 2s
 target: go-build exit=0
 evidence: [go-test-race] go packages ok: 52
-elapsed: go-test-race 116s
+elapsed: go-test-race 117s
 target: go-test-race exit=0
-elapsed: staticcheck 15s
+elapsed: staticcheck 16s
 target: staticcheck exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
 elapsed: grype-scan 59s
 target: grype-scan exit=0
-finished: 2026-09-07T00:08:33Z
+finished: 2026-09-07T09:37:59Z
 tie-note: CI cannot commit this record, so the committed-alongside witness chain does not exist here; the checkout IS an unmodified commit, so the full commit SHA below pins the tree content exactly as the local digest does — valid only while the tree stays clean, which check enforces
-tree: commit=5c08c1a7ececa0a4d5a19801bab45912c836d1b9
+tree: commit=d4891ee3f4931707e6ffd26910633a18aca17e81
 result: green
-ci-run: https://github.com/identuum/identuum-idp-oss/actions/runs/34068521606 attempt=1 sha=5c08c1a7ececa0a4d5a19801bab45912c836d1b9
+ci-run: https://github.com/identuum/identuum-idp-oss/actions/runs/34106485089 attempt=1 sha=d4891ee3f4931707e6ffd26910633a18aca17e81
