@@ -1,6 +1,6 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "e78b16c842429cda953c5253bae92cbe7c56e821",
+  "base_commit": "d4891ee3f4931707e6ffd26910633a18aca17e81",
   "changes": [
     {
       "rule_id": "MINT-REACHABILITY-1",
