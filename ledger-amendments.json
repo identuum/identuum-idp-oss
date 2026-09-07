@@ -1,16 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "a08b3059b3651e9a05773d47c3166544ecc3e8fb",
-  "changes": [
-    {
-      "rule_id": "CONFORMANCE-FLOOR-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-HONEST-HARNESS-AND-THE-PUSH: two new cases through the committed stub seams \u2014 a RED plan that exports keeps exactly one conformance/.evidence/<stamp>/export directory and prints where, a GREEN one keeps and announces none, and the verdict lines carry the suite's exact plan names; the rule sentence and every existing case are unchanged"
-    },
-    {
-      "rule_id": "MINT-REACHABILITY-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-HONEST-HARNESS-AND-THE-PUSH: one new subtest for the owner's conformance/** no-reach decision \u2014 four conformance/ paths skip, source changed beside them still reaches and is named alone, and conformance-notes/ does not match because a prefix is not a directory; the rule sentence is unchanged"
-    }
-  ]
+  "base_commit": "3851cc2f6f745e7b3fa0b11cb310dd03eac847c9",
+  "changes": []
 }
