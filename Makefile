@@ -111,7 +111,7 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
 .PHONY: verify-integration clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report tool-versions
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
-.PHONY: verify ci-verify tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity image-base-check clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
+.PHONY: verify ci-verify tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity image-base-check api-surface clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
 ## Runs `achta --wiki-dir $(WIKI_DIR) wiki check --only freshness` and uses
@@ -667,6 +667,7 @@ verify:
 		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
 		'ledger-diff-gate=$(MAKE) --no-print-directory ledger-diff-gate' \
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
+		'api-surface=$(MAKE) --no-print-directory api-surface' \
 		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
 		'doccomment-check=$(MAKE) --no-print-directory doccomment-check' \
 		'r-suite=$(MAKE) --no-print-directory r-suite' \
@@ -824,6 +825,7 @@ ci-verify:
 		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'rulefloor-check=$(MAKE) --no-print-directory rulefloor-check' \
 		'image-base-check=$(MAKE) --no-print-directory image-base-check' \
+		'api-surface=$(MAKE) --no-print-directory api-surface' \
 		'fmt-check=$(MAKE) --no-print-directory fmt-check' \
 		'vet=$(MAKE) --no-print-directory vet' \
 		'vet-integration=$(MAKE) --no-print-directory vet-integration' \
@@ -1074,6 +1076,38 @@ clock-fuse-report:
 		echo "CLOCK-FUSE: findings above (tool exit $$rc). REPORT-ONLY — this does NOT fail the build."; \
 		echo "Each needs triage as FUSE or BENIGN; gating before that triage would fail every repo today."; \
 	fi
+
+## api-surface: the public API of this module is EXACTLY the six pkg/
+## packages CE imports — features, licenseprovider, oidc, pkce, totp,
+## webauthn — and nothing else under pkg/ (P-061, wiki/platform/decisions.md:
+## "that table IS the public-API decision"; executed by THE-THREE-DIRS,
+## d1b9830, which moved migrations, runtime and server under internal/pkg/).
+##
+## WHY A GATE AND NOT A COMMENT: a directory under pkg/ is a contract for
+## free — the moment it exists, a downstream module can import it, and
+## moving it back under internal/ later is a breaking change while the
+## reverse is not. So the set is enumerated HERE, in the recipe, and the
+## gate is red on either drift: a directory MISSING (a public seam deleted
+## or moved without this list changing) or a directory EXTRA (a new seam
+## published without a decision). Each offender is named. Listing the six
+## twice — in P-061 and here — is deliberate: the wiki says why, this recipe
+## makes the tree agree, and a change to one without the other is the red.
+##
+## No sibling checkout, no network, no tool but find/sort: runs in ci-verify
+## as well as verify (THE ONE-REPO RULE above ci-verify). Untracked
+## directories count — the tree is the API, not the index — which is also
+## how it is red-proved (an untracked pkg/decoy/ names `decoy`).
+API_SURFACE := features licenseprovider oidc pkce totp webauthn
+api-surface:
+	@want="$$(printf '%s\n' $(API_SURFACE) | sort | tr '\n' ' ' | sed 's/ $$//')"; \
+	have="$$(find pkg -mindepth 1 -maxdepth 1 -type d | sed 's#^pkg/##' | sort | tr '\n' ' ' | sed 's/ $$//')"; \
+	if [ "$$have" != "$$want" ]; then \
+		echo "check FAILED: api-surface — pkg/ must hold EXACTLY {$$want} (P-061); it holds {$$have}"; \
+		for d in $$have; do case " $$want " in *" $$d "*) ;; *) echo "  EXTRA   pkg/$$d — a public seam nobody decided; move it under internal/ or amend P-061 AND this list";; esac; done; \
+		for d in $$want; do case " $$have " in *" $$d "*) ;; *) echo "  MISSING pkg/$$d — a public seam CE imports is gone; restore it or amend P-061 AND this list";; esac; done; \
+		exit 1; \
+	fi; \
+	echo "check OK: api-surface — pkg/ holds exactly {$$want} (P-061)"
 
 ## image-base-check: fail if any Dockerfile builds FROM an Alpine base.
 ##

@@ -47,7 +47,7 @@
 #                     + the integration-tagged compile/lint that `verify`
 #                     itself does not exercise.
 #   2. integration  — `make ci-integration-test` against a Postgres service
-#                     (e2e + DB-backed runtime + pkg/runtime teeth), then
+#                     (e2e + DB-backed runtime + internal/pkg/runtime teeth), then
 #                     `make rulefloor-integration` (THE-CI-TEETH): the
 #                     RULE-FLOOR.md DB-profile teeth execute here too, with
 #                     the SAME workflow-env-derived rulefloor build as the
@@ -300,7 +300,8 @@ jobs:
           yq --version | grep -F "version ${YQ_VERSION}"
 
       # The whole verify matrix in one Makefile target: image-base-check,
-      # tidy-diff, build, unit tests, staticcheck, grype-scan. The steps of
+      # api-surface (P-061: pkg/ is exactly the six public seams), tidy-diff,
+      # build, unit tests, staticcheck, grype-scan. The steps of
       # `verify` omitted by design are enumerated ONCE, in this file's header
       # (gograph, govulncheck, and the three wiki-coupled targets) — this
       # comment used to carry its own shorter list, which drifted the moment
@@ -450,7 +451,8 @@ jobs:
           PGPASSWORD: oss_dev_local_only
 
       # Drives the Makefile target verbatim (e2e + DB-backed runtime +
-      # pkg/runtime teeth). The DSN is supplied via env and is NOT echoed —
+      # internal/pkg/runtime teeth, the former pkg/runtime — P-061). The DSN is
+      # supplied via env and is NOT echoed —
       # the recipe is @-prefixed and the Makefile respects
       # IDENTUUM_IDP_TEST_DATABASE_URL when set. ci-integration-test, not
       # integration-test: the developer target additionally runs test-db
