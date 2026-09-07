@@ -276,11 +276,18 @@ that stood from 2026-09-03 to 2026-09-07):**
   passed this plan with `[EdDSA, ES256, RS256]` advertised; `d9ab771`
   (2026-09-03) de-advertised RS256 and rewrote this paragraph to say the plan
   "PASSES clean (34 conditions, zero findings)" without re-running it —
-  `git log --since=2026-09-03 -- conformance/` is empty. The choice is OPEN
-  (owner's): (a) advertise RS256 and carry an RSA key in the default keyset —
-  certifiable; (b) keep `[EdDSA, ES256]` and record this condition as an
-  expected failure with its reason — not certifiable here. Until it is
-  decided this line is the measured state, not a floor change.
+  `git log --since=2026-09-03 -- conformance/` is empty. DECIDED (owner,
+  P-062 (b), 2026-09-07): discovery keeps `[EdDSA, ES256]`; RS256 stays
+  registrable, mintable on request, testing-only, never default, NOT
+  advertised; `OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported` is an
+  EXPECTED failure — the one row in `conformance/expected-failures-config.json`
+  (module `oidcc-discovery-endpoint-verification`, expected-result
+  `failure`, reason in its comment). Read the verdict exactly: the OP is
+  conformant AGAINST THE COMMITTED FLOOR and NOT certifiable on this
+  condition (Discovery 1.0 §3 is a MUST); `RESULT: GREEN against the
+  committed expected-failure floor` means "behaves as recorded", not
+  "certifiable". The alternative — advertise RS256 and carry an RSA key in
+  the default keyset — was measured and declined.
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
   THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1872
@@ -683,7 +690,11 @@ list BUT DO NOT USE except testing and put this into documentation
 CLEARLY."** Amended by THE-ADVERTISED-RS256 (2026-09-03): the "list" RS256
 belongs to is the per-client REGISTRATION allow-list, not the discovery
 document. Discovery advertises only what the issuer will sign an ID token
-with by policy.
+with by policy. Confirmed by P-062 (b) (2026-09-07): the OIDC config
+certification plan's `OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported`
+(Discovery 1.0 §3 — RS256 MUST be listed) is carried as the one EXPECTED
+failure in `conformance/expected-failures-config.json`, so this posture is
+conformant against the committed floor and not certifiable on that condition.
 
 What that means in this product:
 

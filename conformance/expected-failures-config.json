@@ -1,1 +1,11 @@
-[]
+[
+    {
+        "test-name": "oidcc-discovery-endpoint-verification",
+        "variant": "*",
+        "configuration-filename": "*/plan-config.json",
+        "current-block": "*",
+        "condition": "OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported",
+        "expected-result": "failure",
+        "comment": "DELIBERATE posture, not a defect (owner decision P-062 (b), 2026-09-07): discovery advertises id_token_signing_alg_values_supported [EdDSA, ES256] — what the issuer signs ID tokens with by policy (domain.IDTokenAdvertisedSigningAlgorithms). RS256 exists in this OP only as a per-client registration (domain.IDTokenSigningAlgorithms) and an explicit operator mint (POST /api/v1/keys/generate {\"algorithm\":\"RS256\"}): testing-only, never the default signer, never in the default keyset, never advertised (THE-PKCE-DECISION 2026-09-01, THE-ADVERTISED-RS256 2026-09-03). OpenID Connect Discovery 1.0 §3 says RS256 MUST be listed, so this condition fails by design: the OP is conformant against this floor and NOT certifiable on this condition."
+    }
+]
