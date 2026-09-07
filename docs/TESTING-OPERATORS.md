@@ -258,13 +258,29 @@ clone (and its python venv) survives between runs.
     deliberately, the same way a rulefloor floor is raised.
   - `could not run` (exit 2): infrastructure, not conformance.
 
-**The committed baseline (re-measured 2026-09-02 after
-THE-JAR-REQUEST-OBJECT, suite release-v5.2.4):**
+**The committed baseline (re-measured 2026-09-07 at `39be0f0` by the
+owner, suite release-v5.2.4; the config-plan line below CORRECTS a claim
+that stood from 2026-09-03 to 2026-09-07):**
 
-- Plan `oidcc-config-certification-test-plan`: PASSES clean (34 conditions,
-  zero findings). The former signing-alg finding is FIXED — discovery now
-  advertises `[EdDSA, ES256]` — RS256 is registrable but NOT advertised
-  (see "RS256 — testing only" below).
+- Plan `oidcc-config-certification-test-plan`: RED — module
+  `oidcc-discovery-endpoint-verification` 36 conditions passed, 1 failed:
+  `OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported` — "RS256 support
+  is required, but the server does not list it in
+  `id_token_signing_alg_values_supported`" (OpenID Connect Discovery 1.0 §3:
+  RS256 MUST be included). Discovery advertises `[EdDSA, ES256]`
+  (`domain.IDTokenAdvertisedSigningAlgorithms`); RS256 is registrable per
+  client and mintable on explicit operator request, never advertised, never
+  the default, and the default keyset holds no RSA key
+  (`auth.AutoGenerateInitialKey` mints EdDSA or ES256 only; see "RS256 —
+  testing only" below). HOW THE FALSE CLAIM AROSE: the 2026-09-02 measurement
+  passed this plan with `[EdDSA, ES256, RS256]` advertised; `d9ab771`
+  (2026-09-03) de-advertised RS256 and rewrote this paragraph to say the plan
+  "PASSES clean (34 conditions, zero findings)" without re-running it —
+  `git log --since=2026-09-03 -- conformance/` is empty. The choice is OPEN
+  (owner's): (a) advertise RS256 and carry an RSA key in the default keyset —
+  certifiable; (b) keep `[EdDSA, ES256]` and record this condition as an
+  expected failure with its reason — not certifiable here. Until it is
+  decided this line is the measured state, not a floor change.
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
   THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1872
