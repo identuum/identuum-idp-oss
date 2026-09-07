@@ -7,6 +7,45 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.4.0`
+
+The public API is frozen: `pkg/` holds exactly the six packages the
+commercial edition imports — `features`, `licenseprovider`, `oidc`, `pkce`,
+`totp`, `webauthn` — and a gate keeps it so. The three `pkg/` directories
+nobody outside this repository imported (`migrations`, `runtime`, `server`)
+moved under `internal/pkg/` (decision P-061). That is a change to the
+module's import surface, hence `0.4.0` and not `0.3.8`. Measured delta
+`v0.3.7..v0.4.0`: 12 commits (4 witness records, 4 manifest re-bases, 1 CI
+record, 3 others), 19 files changed, +258/−93. No migration added, no
+dependency moved, Go
+1.27.1 unchanged; no endpoint changed.
+
+### Changed
+
+- **`pkg/migrations`, `pkg/runtime`, `pkg/server` → `internal/pkg/…`**
+  (`d1b9830`). Measured first at `d461bd7`: inside this repository each was
+  imported only by its own test, `pkg/runtime` also by
+  `cmd/identuum-idp/main.go`; identuum-idp-ce's dependency closure named
+  none of them; identuum-ui and the AG repositories import no OSS package.
+  Package names, identifiers and behaviour are unchanged — only the import
+  path moved. The destination is `internal/pkg/<name>` rather than
+  `internal/<name>` because `internal/runtime` and `internal/server` already
+  exist as the authorities the two shims alias. An importer of the old
+  paths (there was none) would fail to compile; that is the SemVer minor.
+  The `boundaries.json` rules follow the packages.
+
+### Verification machinery (repository-visible, not in the binary)
+
+- **`api-surface`** (`958a7d7`) — a Makefile gate in both `verify` and
+  `ci-verify`: red unless the directories directly under `pkg/` are
+  exactly the six above, each extra or missing directory named; red-proved
+  with an untracked `pkg/decoy/` and with `pkg/totp` moved aside. `verify`
+  runs 32 targets (was 31), `ci-verify` 25. The CI matrix comment and two
+  workflow comments that still said `pkg/runtime` were corrected.
+- CI run 34149894245 at `eb54e7f` (the gate commit's witness) green on all
+  four jobs; its `ci-verify` record — 25 targets, `api-surface` among them —
+  is committed as `CI-WITNESS.txt` (`fe82a71`).
+
 ## `v0.3.7`
 
 Intermediate release on the v0.3 train, cut so identuum-idp-ce can pin a tag
