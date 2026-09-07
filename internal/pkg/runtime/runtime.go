@@ -1,10 +1,18 @@
-// Package runtime is the public OSS seam for the identuum-idp-oss
-// in-process IDP runtime lifecycle (open DB, wire services, mount the
-// Gin route surface, run a graceful HTTP server, drain).
+// Package runtime is the OSS seam for the identuum-idp-oss in-process
+// IDP runtime lifecycle (open DB, wire services, mount the Gin route
+// surface, run a graceful HTTP server, drain).
 //
-// It is the canonical import path for downstream callers — including
-// the identuum-idp-ce overlay — that need to start the OSS runtime
-// in-process without crossing the internal/ boundary.
+// MOVED under internal/ (P-061, THE-THREE-DIRS, 2026-09-07): this was
+// pkg/runtime, a public import path offered to downstream callers such as
+// the identuum-idp-ce overlay. Measured at d461bd7, the only importer was
+// this module's own cmd/identuum-idp, so it is no longer a public
+// contract; internal→pkg later is not a breaking change, the reverse is.
+// Nothing but the import path changed. The sentences below describe the
+// seam as designed; read "public" as "formerly public".
+//
+// It was the canonical import path for downstream callers that need to
+// start the OSS runtime in-process without crossing the internal/
+// boundary.
 //
 // Implementation note: this file is a thin shim over the existing
 // internal/runtime package. Config and Runtime are Go type aliases of
@@ -16,7 +24,7 @@
 // pins against.
 //
 // CE composition contract (R1 boundary — see wiki/repos/identuum-idp-oss.md
-// §"pkg/runtime"):
+// §"pkg/runtime", the section that describes this seam under its former path):
 //
 //	rt, err := runtime.New(runtime.Config{
 //	    Addr:      ":7113",
@@ -38,10 +46,10 @@
 //   - repository.* interfaces and internal/service.* concrete types
 //     are likewise not surfaced. CE composes with OSS through the
 //     internal/api engine (pkg/router was DELETED 2026-08-05, P3-8 — zero importers)
-//     and through the pkg/migrations seam (for OSS schema
+//     and through the internal/pkg/migrations seam (for OSS schema
 //     application), not by reaching into runtime internals.
 //   - Migrations are NOT run by Start. Operators run migrations
-//     separately (see pkg/migrations.Apply). The runtime expects the
+//     separately (see internal/pkg/migrations.Apply). The runtime expects the
 //     schema to be at the OSS embedded version before Start.
 //
 // SECURITY contract:

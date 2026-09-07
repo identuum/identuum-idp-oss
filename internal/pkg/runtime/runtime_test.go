@@ -1,6 +1,7 @@
 package runtime_test
 
-// Tests for the public OSS pkg/runtime seam.
+// Tests for the OSS internal/pkg/runtime seam (the former public
+// pkg/runtime, moved under internal/ by P-061).
 //
 // These tests guard four properties future identuum-idp-ce work will
 // rely on:
@@ -34,10 +35,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgruntime "github.com/identuum/identuum-idp-oss/internal/pkg/runtime"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	internalruntime "github.com/identuum/identuum-idp-oss/internal/runtime"
 	"github.com/identuum/identuum-idp-oss/internal/testsupport"
-	pkgruntime "github.com/identuum/identuum-idp-oss/pkg/runtime"
 )
 
 // TestPublicConfig_IsAliasOfInternal proves Config is a real Go type
@@ -196,7 +197,7 @@ func migratePkgTestSchema(t *testing.T, dbURL string) {
 // boundaries documented in wiki/agent-rules.md §D.
 //
 // Transitive import checking is owned by the module-wide validation
-// matrix; this test is scoped to the direct surface of pkg/runtime
+// matrix; this test is scoped to the direct surface of internal/pkg/runtime
 // so a drifting import shows up at the first edit.
 func TestPublicPackageDoesNotImportForbiddenTrees(t *testing.T) {
 	forbidden := []string{

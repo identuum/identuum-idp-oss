@@ -1,6 +1,7 @@
 // Package runtime hosts the production-shaped Gin OSS runtime
-// lifecycle. It is the implementation-side authority that the public
-// pkg/runtime seam re-exports.
+// lifecycle. It is the implementation-side authority that the
+// internal/pkg/runtime seam (the former public pkg/runtime, moved under
+// internal/ by P-061) re-exports.
 //
 // The public seam owns the stable import surface CE pins against;
 // this package owns the behaviour. Both surfaces describe the same
@@ -22,7 +23,7 @@
 //   - Migrations are NOT executed by Start. Operators run
 //     `identuum-idp --migrate <url>` separately; the runtime expects
 //     the DB schema to already be at the OSS embedded version.
-//   - The public seam (pkg/runtime) is a thin alias/shim over this
+//   - The seam (internal/pkg/runtime, formerly pkg/runtime) is a thin alias/shim over this
 //     package. Changing this package's behaviour changes the public
 //     behaviour; the alias never adds or hides logic.
 //

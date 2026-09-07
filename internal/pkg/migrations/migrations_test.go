@@ -1,11 +1,12 @@
 package migrations_test
 
-// Tests for the public OSS pkg/migrations seam.
+// Tests for the OSS internal/pkg/migrations seam (the former public
+// pkg/migrations, moved under internal/ by P-061).
 //
 // These tests guard four properties future identuum-idp-ce work will
 // rely on:
 //
-//   1. The EmbedFS surfaced by pkg/migrations is byte-identical to the
+//   1. The EmbedFS surfaced by internal/pkg/migrations is byte-identical to the
 //      core top-level migrations package's EmbedFS — there is no
 //      drift between the two paths.
 //   2. The embedded set carries the expected OSS migration history
@@ -30,8 +31,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	pkgmigrations "github.com/identuum/identuum-idp-oss/internal/pkg/migrations"
 	coremigrations "github.com/identuum/identuum-idp-oss/migrations"
-	pkgmigrations "github.com/identuum/identuum-idp-oss/pkg/migrations"
 )
 
 // expectedOSSFiles is the exact set of SQL filenames the public
@@ -84,8 +85,8 @@ var expectedOSSFiles = []string{
 // public seam opens at all and returns at least one entry.
 func TestEmbedFS_Opens(t *testing.T) {
 	entries, err := fs.ReadDir(pkgmigrations.EmbedFS, pkgmigrations.DirName)
-	require.NoErrorf(t, err, "pkg/migrations.EmbedFS must open at DirName=%q", pkgmigrations.DirName)
-	require.NotEmpty(t, entries, "pkg/migrations.EmbedFS must contain at least one entry")
+	require.NoErrorf(t, err, "internal/pkg/migrations.EmbedFS must open at DirName=%q", pkgmigrations.DirName)
+	require.NotEmpty(t, entries, "internal/pkg/migrations.EmbedFS must contain at least one entry")
 }
 
 // TestEmbedFS_MatchesCorePackage proves the public EmbedFS is the same
@@ -99,7 +100,7 @@ func TestEmbedFS_MatchesCorePackage(t *testing.T) {
 	pub := readSQLNames(t, pkgmigrations.EmbedFS, pkgmigrations.DirName)
 	core := readSQLNames(t, coremigrations.EmbedFS, ".")
 	assert.Equal(t, core, pub,
-		"pkg/migrations.EmbedFS must surface the same SQL set as the core embed")
+		"internal/pkg/migrations.EmbedFS must surface the same SQL set as the core embed")
 }
 
 // TestEmbedFS_ExactFileSet enforces that the public EmbedFS contains
@@ -151,9 +152,9 @@ func TestEmbedFS_NoFileIsEmpty(t *testing.T) {
 // different answer than the OSS runtime itself.
 func TestCurrent_MatchesCore(t *testing.T) {
 	assert.Equal(t, coremigrations.Current(), pkgmigrations.Current(),
-		"pkg/migrations.Current must agree with core migrations.Current")
+		"internal/pkg/migrations.Current must agree with core migrations.Current")
 	assert.Equal(t, "0039", pkgmigrations.Current(),
-		"pkg/migrations.Current must report the highest pinned version 0039")
+		"internal/pkg/migrations.Current must report the highest pinned version 0039")
 }
 
 // TestConstants_AreStable pins the three string constants the CE
@@ -201,7 +202,7 @@ func TestApplyFS_NilFS(t *testing.T) {
 //
 // Transitive import checking is owned by the module-wide validation
 // matrix (go list -deps + import-boundary grep); the test here is
-// scoped to the direct surface of the pkg/migrations package so a
+// scoped to the direct surface of the internal/pkg/migrations package so a
 // drifting import shows up at the first edit, not at module-wide
 // validation time.
 func TestPublicPackageDoesNotImportForbiddenTrees(t *testing.T) {

@@ -1824,7 +1824,7 @@ integration-inventory:
 	echo "  $(INTEGRATION_RUN_HINT)"
 
 ## integration-test: run the DB-backed suites against local dev Postgres — the
-## e2e end-to-end tests PLUS the runtime, pkg/runtime and internal/postgres
+## e2e end-to-end tests PLUS the runtime, internal/pkg/runtime and internal/postgres
 ## teeth (issuer-confinement, metrics listener, P3-5 key-encryption-at-rest,
 ## setup-state repository). All share one Postgres; see the per-test isolation
 ## notes (e.g. IDENTUUM_IDP_ALLOW_MULTI_REPLICA, the setup-state row-lock tx).
@@ -1838,6 +1838,7 @@ integration-inventory:
 ## THE RUN SET IS `./...`, AND THE PATHSPEC IT REPLACED IS THE POINT (RUN-SET,
 ## 2026-08-02). This target used to name four package trees explicitly:
 ##   ./internal/e2e/... ./internal/runtime/... ./pkg/runtime/... ./internal/postgres/...
+##   (pkg/runtime is internal/pkg/runtime since P-061, 2026-09-07; the list is quoted as it was)
 ## All 32 integration-tagged files happened to live in two of them, so the list
 ## was TOTAL BY COINCIDENCE, not by construction. A new `//go:build integration`
 ## file under internal/service would have compiled under vet-integration, passed

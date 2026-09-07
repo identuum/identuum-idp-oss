@@ -129,7 +129,7 @@ services:
       IDENTUUM_IDP_OSS_DB: "postgres://identuum_idp:dev-identuum_idp-not-a-secret@postgres:5432/identuum_idp?sslmode=disable"
       IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
       IDENTUUM_IDP_OSS_ISSUER: "http://localhost:7113"
-      # ── Appliance contract (pkg/runtime + show-setup-code subcommand) ──
+      # ── Appliance contract (internal/pkg/runtime, formerly pkg/runtime, + show-setup-code subcommand) ──
       # IDENTUUM_IDP_DATA_DIR is the persistent data directory the
       # appliance setup foundation writes to (setup-token.txt at mode
       # 0600). Mounted as a named volume below so the token survives

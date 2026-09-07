@@ -1,6 +1,7 @@
 package server_test
 
-// Tests for the public OSS pkg/server seam.
+// Tests for the OSS internal/pkg/server seam (the former public
+// pkg/server, moved under internal/ by P-061).
 //
 // These tests guard five properties future identuum-idp-ce work will
 // rely on:
@@ -46,8 +47,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	pkgserver "github.com/identuum/identuum-idp-oss/internal/pkg/server"
 	internalserver "github.com/identuum/identuum-idp-oss/internal/server"
-	pkgserver "github.com/identuum/identuum-idp-oss/pkg/server"
 )
 
 // TestPublicTypes_AreAliasesOfInternal pins every public named type
@@ -298,7 +299,7 @@ func TestPublicTypes_HaveIdenticalReflectType(t *testing.T) {
 //
 // Transitive import checking is owned by the module-wide validation
 // matrix (`go list -deps ./...` + import-boundary grep); this test
-// is scoped to the direct surface of pkg/server so a drifting import
+// is scoped to the direct surface of internal/pkg/server so a drifting import
 // shows up at the first edit, not at module-wide validation time.
 func TestPublicPackageDoesNotImportForbiddenTrees(t *testing.T) {
 	forbidden := []string{

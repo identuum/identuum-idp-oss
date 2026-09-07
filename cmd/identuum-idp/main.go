@@ -53,8 +53,8 @@ import (
 	"time"
 
 	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
+	pkgruntime "github.com/identuum/identuum-idp-oss/internal/pkg/runtime"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
-	pkgruntime "github.com/identuum/identuum-idp-oss/pkg/runtime"
 )
 
 // buildVersion is STAMPED at release build time via
@@ -412,7 +412,8 @@ func resolveMetricsAddr(flagVal, envVal string) string {
 	return addr
 }
 
-// runServe starts the full OSS IdP via the public pkg/runtime seam. It
+// runServe starts the full OSS IdP via the internal/pkg/runtime seam (the
+// former public pkg/runtime, moved under internal/ by P-061). It
 // builds a runtime.Config from the resolved serving configuration,
 // starts the runtime, blocks on either SIGINT/SIGTERM or the serve loop
 // terminating, then drives a 5-second graceful shutdown. The runtime

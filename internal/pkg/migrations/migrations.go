@@ -1,9 +1,17 @@
-// Package migrations is the public OSS seam for the embedded OSS
-// migration filesystem and a minimal Apply helper.
+// Package migrations is the OSS seam for the embedded OSS migration
+// filesystem and a minimal Apply helper.
 //
-// It is the canonical import path for downstream callers — including
-// the identuum-idp-ce overlay — that need to embed and run the OSS
-// baseline migrations without crossing an internal/ boundary.
+// MOVED under internal/ (P-061, THE-THREE-DIRS, 2026-09-07): this was
+// pkg/migrations, a public import path offered to downstream callers
+// such as the identuum-idp-ce overlay. Measured at d461bd7, nobody
+// outside this module imported it, so it is no longer a public contract;
+// internal→pkg later is not a breaking change, the reverse is. Nothing
+// but the import path changed. The sentences below describe the seam as
+// designed; read "public" as "formerly public".
+//
+// It was the canonical import path for downstream callers that need to
+// embed and run the OSS baseline migrations without crossing an
+// internal/ boundary.
 //
 // Implementation note: this file is a thin shim that re-exports the
 // embed.FS from the existing top-level migrations package
@@ -12,10 +20,11 @@
 // source of truth for the SQL file set and the //go:embed directive;
 // the public package is the stable import surface CE will pin against.
 //
-// Why a separate pkg/migrations seam:
-//   - It matches the pkg/features and pkg/licenseprovider naming
-//     convention established by the prior T1 seam slice, so CE has a
-//     single, predictable import root (github.com/identuum/identuum-idp-oss/pkg/*).
+// Why a separate migrations seam (internal/pkg/migrations, formerly pkg/migrations):
+//   - It matched the pkg/features and pkg/licenseprovider naming
+//     convention established by the prior T1 seam slice, so CE had a
+//     single, predictable import root (github.com/identuum/identuum-idp-oss/pkg/*);
+//     CE never took this one up, hence the move.
 //   - It carries no dependency on internal/ subtrees, so a CE binary
 //     that only wants to apply OSS migrations does not transitively
 //     pull in internal/postgres, internal/service, or any other OSS

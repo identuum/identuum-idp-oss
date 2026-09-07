@@ -151,7 +151,7 @@ func TestStart_InvalidPort(t *testing.T) {
 	// single-replica boundary. Opt out of the instance lease so it never
 	// contends with other DB-backed runtime tests that share this Postgres
 	// (P2-24: `make integration-test` now targets ./internal/runtime/... and
-	// ./pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
+	// ./internal/pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
 	// the gate, sharing one Postgres with e2e and each other — the lease
 	// opt-out is REQUIRED, not merely defensive, or they would contend on the
 	// migration-0023 single-replica instance lease).
@@ -190,7 +190,7 @@ func TestStart_MetricsListener_ServesOnSeparatePort(t *testing.T) {
 	// single-replica boundary. Opt out of the instance lease so it never
 	// contends with other DB-backed runtime tests that share this Postgres
 	// (P2-24: `make integration-test` now targets ./internal/runtime/... and
-	// ./pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
+	// ./internal/pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
 	// the gate, sharing one Postgres with e2e and each other — the lease
 	// opt-out is REQUIRED, not merely defensive, or they would contend on the
 	// migration-0023 single-replica instance lease).
@@ -250,7 +250,7 @@ func TestStart_MetricsListener_BindFailureDegradesGracefully(t *testing.T) {
 	// single-replica boundary. Opt out of the instance lease so it never
 	// contends with other DB-backed runtime tests that share this Postgres
 	// (P2-24: `make integration-test` now targets ./internal/runtime/... and
-	// ./pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
+	// ./internal/pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
 	// the gate, sharing one Postgres with e2e and each other — the lease
 	// opt-out is REQUIRED, not merely defensive, or they would contend on the
 	// migration-0023 single-replica instance lease).
@@ -307,7 +307,7 @@ func TestStart_MetricsAddrEmpty_NoListenerStarted(t *testing.T) {
 	// single-replica boundary. Opt out of the instance lease so it never
 	// contends with other DB-backed runtime tests that share this Postgres
 	// (P2-24: `make integration-test` now targets ./internal/runtime/... and
-	// ./pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
+	// ./internal/pkg/runtime/... alongside ./internal/e2e/..., so these tests DO run in
 	// the gate, sharing one Postgres with e2e and each other — the lease
 	// opt-out is REQUIRED, not merely defensive, or they would contend on the
 	// migration-0023 single-replica instance lease).

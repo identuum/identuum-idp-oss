@@ -68,7 +68,7 @@ func resetSetupStateRow(t *testing.T, ctx context.Context, db postgres.DBTX) {
 // system_setup_state is a fixed-ID production singleton
 // (domain.SetupStateSingletonID) written by production code this test must NOT
 // change: SetupService.Initialize on a runtime Start (internal/runtime/runtime.go:389,
-// exercised by the DB-backed tests in internal/runtime + pkg/runtime) and e2e's
+// exercised by the DB-backed tests in internal/runtime + internal/pkg/runtime) and e2e's
 // TestE2E_OSS_SetupFlow both mutate that one row. Now that
 // `make integration-test` runs internal/postgres alongside those packages
 // against a SHARED Postgres, the row cannot be partitioned per test.
