@@ -7,17 +7,133 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-- **Federated login, `acr`:** an upstream `acr` the ladder does not recognise
-  is now treated like an absent one — ASSUMED, and therefore stamped on no
-  session and emitted in no id_token (`a42997d`, decision P-060,
-  rule ACR-UNKNOWN-IS-ASSUMED-1). Previously an unrecognised value was stamped
-  `urn:identuum:loa:mfa`, indistinguishable from a performed MFA. Recognised
-  values (`0`, `1`, the three Identuum URNs, and strings carrying
-  `phishing-resistant` / `fido` / `webauthn` / `passkey`) map exactly as before.
-  A relying party that requests `acr_values` from such a login now gets
-  step-up or `unmet_authentication_requirements` instead of a false assurance;
-  one that requests nothing sees only the missing claim. No integrators are
-  affected today; this is a note, not a breaking-change announcement.
+## `v0.3.7`
+
+Intermediate release on the v0.3 train, cut so identuum-idp-ce can pin a tag
+instead of a pseudo-version (a pseudo-version's base-tag validation
+unshallows the module-cache clone, and GitHub's runners on git 2.55.0 die
+there with `fatal: shallow file has changed since we read it`). Measured
+delta `v0.3.6..v0.3.7`: 305 commits (81 witness records, 11 manifest
+re-bases, 4 CI records, 209 others), 445 files changed, +45336/−2588.
+Eight migrations added (`0032`–`0039`); Go 1.27.1; eleven dependency bumps.
+The Go source is identical to `f8a1e6a`, which identuum-idp-ce compiled and
+vetted against clean and which CI run 34115127258 proved green.
+
+### Added
+
+- **Forced re-authentication** — `prompt=login` and `max_age` at the
+  authorize endpoint; the login page is marked when re-authentication is
+  forced (`a45c186`, `41add7b`).
+- **The `claims` request parameter** — honored, consent-gated and
+  role-intersected (`afffe86`); the **full OIDC profile** modelled (unset is
+  never emitted; consent echoes `max_age`) (`0cabdc3`); **`address` and
+  `phone` claims** as real profile fields with scope/claims release
+  (`1a5fda9`); locale validated as RFC 5646 syntax (`d43044c`).
+  Migrations `0034_claims_parameter`, `0035_user_profiles`,
+  `0036_address_phone`.
+- **Request objects by value** — verified against registered keys or
+  unsigned; `request_uri` refused (`8dbcb01`).
+- **Per-client PKCE, testing-only RS256** and the conformance findings they
+  exposed (`ae6f837`); RS256 is a per-client registration again and discovery
+  advertises what the issuer signs with (`d9ab771`). Migration
+  `0032_client_id_token_alg`.
+- **Scope stamping and replay revocation** — consented ∩ role-permitted scope
+  is stamped on authorization-code access tokens (`37f3af7`); a replayed
+  authorization code revokes what it minted (`58cc5a8`). Migration
+  `0033_authcode_issued_tokens`.
+- **Agent communication (AYGHU)** — the AgentCommunicationAuthorization
+  aggregate with invariants and a canonical policy digest (`3d7dbc3`); the
+  org_admin own-org admin API create/list/get/revoke with no existence oracle
+  (`82bf8d6`); DPoP-bound participant tokens by client credentials
+  (`32717fd`); observable revocation of issued participant `jti`s
+  (`d4ab9cf`); introspection judged against the authorization (`ec2d785`);
+  the creating org_admin owns the service account (`ea5e283`), owners can be
+  set later (`c3cda23`). Migrations `0037_agent_communication_authorizations`,
+  `0038_dpop_proof_replays`, `0039_agent_communication_tokens`.
+- **Operators** — `rotate-encryption-key`, offline at-rest key rotation,
+  atomic and resumable, refusing unknown schemas, with a doctor census and
+  runbook (`47fb156`, `4b1abac`, `a916eba`); `audit-preupgrade`, the
+  read-only sweep for rows the guards refuse (`19cb94b`); provenance
+  announce and stale-binary refusal (`55eb706`); `create-organization` with
+  absent `active` meaning ACTIVE and `admin_email` honored atomically
+  (`f42c87b`); organization lifecycle filter on the list and deactivated
+  organizations reachable on detail (`67a62f6`); activation returns the
+  link that consumes the token or says why there is none (`6450c9b`);
+  `INSECURE_DEV_MODE`, the named test-only rate-limit escape hatch
+  (`da653e6`); a manual OpenID conformance harness, `make
+  openid-conformance` (`1541270`).
+
+### Changed
+
+- **Auth path truthfulness (AUTH-503)** — a store error on the auth path
+  answers `503` with an ERROR log line and a correlation id, never `401`;
+  every `401` names its reason (`73070bd`); a logout that cannot revoke
+  still clears the cookie but never passes silently (`9674215`).
+- **Cookies** — the session cookie and the browser-login CSRF cookie take
+  `Secure` from the request transport, decoupled from `gin.Mode`
+  (`b71ff9f`, `ad02bc0`, `0a9cdb2`).
+- **`site_admin` on tenant surfaces** — refused on the tenant OAuth-client
+  surface, domains, protocol-settings, rbac-roles, service-accounts and
+  api-resources (`1dcd479`, `15e235f`, `a813b4d`); scope templates invert to
+  org_admin with the reserved-prefix validation wired (`ca42ea8`).
+- **Refusal shapes tell the truth** — `weak_password` is `400`; sentinel
+  `404`s only for misses, `409` for duplicates, `500` for faults across five
+  write families and the update fallback (`75fba98`, `a6893b0`, `734e63c`);
+  bulk rows name their class. A client that matched the old statuses will
+  notice.
+- **Update paths validated** — organization, user and client update paths
+  distinguish "not supplied" from "supplied blank"; the client document
+  validator runs at create and on the updated document (`92d3384`,
+  `615d6fc`, `2bc4f1c`, `a4e718c`, `976432e`, `17f06a3`, `9bec8d4`);
+  organization fields validated — "lexus" is no longer a domain
+  (`92d3384`); org wire binds the five repository-supported fields and
+  refuses slug and tier loudly (`c14b753`); users `active` wire contract
+  fixed (`d952d06`).
+- **Federated login, `acr`** — the performed context is stamped and
+  `acr_values` is honored by step-up or refusal (`f0caeed`); a
+  phishing-resistant rung with passkey step-up and downward-only ranking is
+  the third advertised value (`f715b86`); the EFFECTIVE `amr` is copied onto
+  the derived session (`27c044c`); an assumed ACR rung is no longer stamped
+  on a federated session (`9127c53`); an upstream `acr` the ladder does not
+  recognise is ASSUMED — stamped on no session, emitted in no id_token
+  (`a42997d`, rule ACR-UNKNOWN-IS-ASSUMED-1). A relying party that requests
+  `acr_values` from such a login gets step-up or
+  `unmet_authentication_requirements` instead of a false assurance.
+- **Soft-deleted users** — restore recovers them; approve/reset-mfa answer
+  `404` not `500`; org_admin may delete same-org users; restore fails loud
+  (`da226c7`, `78eb077`).
+- **Discovery** advertises the issuer's signing algorithms (`d9ab771`); the
+  unused second DPoP verifier is deleted (`c4c0af5`); the instance-lease
+  uuid component is UUIDv7 (`ed56dca`).
+
+### Toolchain and dependencies
+
+- Go `1.27.0` → `1.27.1`; gin `1.11.0` → `1.12.0`; pgx/v5 `5.9.2` →
+  `5.10.0`; goose/v3 `3.26.0` → `3.28.0`; prometheus/client_golang `1.23.2`
+  → `1.24.1`; testify `1.11.1` → `1.12.1`; zap `1.27.0` → `1.28.0`;
+  go-redis/v9 `9.17.2` → `9.22.0`; miniredis/v2 `2.35.0` → `2.39.0`;
+  go-webauthn `0.15.0` → `0.18.0` (the one bump that needed code); jwt/v5
+  `5.3.0` → `5.3.1`; x/crypto `0.53.0` → `0.56.0` (GO-2026-6303).
+
+### Verification machinery (repository-visible, not in the binary)
+
+- The rule ledger grew from 88 to **254 armed rules** (FLOOR 254); the
+  `covers` map qualified on every rule; the ledger-diff gate reconciles a
+  single-use amendment manifest at every verify (`bb650b8`).
+- Every `make verify` and every CI run leaves a committed gate-run record
+  (`5c0e107`, `e294d7c`); the first CI record this repository held
+  (`91a8a7e`); records tie to the clean HEAD (`98ad34e`); the record is
+  locked and two verify legs run concurrently (`7165378`, `7d7f56a`).
+- **`make witness`** is the only way a witness commit is made, byte-identical
+  with identuum-ui and pinned by `witness-parity` (`a6edb7f`).
+- The e2e mint is COMPUTED by a reachability classifier, never judged
+  (`dd4a171`, `bb1355e`); it applies under the ui's namespace and judges a
+  stale e2e record by its two heads (`ad6a56b`).
+- `openapi-check` compares the checked-in `openapi.yaml` byte for byte with
+  its generator (`21a8b7e`); `workflow-yaml` parses every workflow with a
+  pinned yq, held byte-identical with identuum-ui (`ac68b79`, `f98208c`);
+  CI pins every gate tool and proves the versions it runs (`44990cf`,
+  `9260c9c`); architecture boundaries declared and pinned (`5e304ed`).
 
 ## `v0.3.6`
 
