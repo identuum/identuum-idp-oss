@@ -39,13 +39,15 @@
 # prove the commands actually executed, that output was not edited, or that
 # the clock was honest.
 #
-# THREE COPIES, ONE WITNESS
-# -------------------------
+# FOUR FILES, ONE WITNESS
+# -----------------------
 # Master: wiki/tools/gate-witness.sh. Vendored byte-identical copies:
-# identuum-idp-oss/scripts/gate-witness.sh, identuum-ui/scripts/gate-witness.sh
-# (single-repo checkouts have no ../wiki sibling). `--sync-check` holds all
-# three and the digest recorded in wiki/contracts/gate-witness.master.sha256
-# identical, and runs inside `wiki make check`.
+# identuum-idp-oss/scripts/gate-witness.sh, identuum-ui/scripts/gate-witness.sh,
+# identuum-idp-ce/scripts/gate-witness.sh (single-repo checkouts have no
+# ../wiki sibling; CE's copy since THE-CE-CI-RECORD, policed here since
+# THE-THIRD-COPY, 2026-09-09). `--sync-check` holds all four and the digest
+# recorded in wiki/contracts/gate-witness.master.sha256 identical, and runs
+# inside `wiki make check`.
 #
 # Modes:
 #   run <record> <label> <name=command>...   drive a gate, write the record
@@ -606,7 +608,8 @@ sync_check() {
 	master="${BASH_SOURCE[0]}"
 	digest_file="$wiki_dir/contracts/gate-witness.master.sha256"
 	for copy in "$wiki_dir/../identuum-idp-oss/scripts/gate-witness.sh" \
-		"$wiki_dir/../identuum-ui/scripts/gate-witness.sh"; do
+		"$wiki_dir/../identuum-ui/scripts/gate-witness.sh" \
+		"$wiki_dir/../identuum-idp-ce/scripts/gate-witness.sh"; do
 		if [ ! -f "$copy" ]; then
 			echo "  VIOLATION  vendored gate-witness copy MISSING: $copy"
 			bad=$((bad + 1))
@@ -626,7 +629,7 @@ sync_check() {
 			bad=$((bad + 1))
 		fi
 	fi
-	echo "gate-witness sync: master + 2 vendored copies + recorded digest"
+	echo "gate-witness sync: master + 3 vendored copies + recorded digest"
 	echo "gate-witness sync violations: $bad"
 	[ "$bad" -eq 0 ]
 }
