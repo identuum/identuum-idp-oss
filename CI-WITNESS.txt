@@ -2,10 +2,10 @@ schema: gate-run.v1
 gate: identuum-idp-oss make ci-verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
 cites: the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments
-repo-head: 3851cc2
-started: 2026-09-07T22:18:21Z
+repo-head: e7ad214
+started: 2026-09-09T00:50:38Z
 plan: tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity openapi-check rulefloor-check image-base-check api-surface fmt-check vet vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report tagged-vet integration-inventory go-mod-tidy-diff go-build go-test-race staticcheck grype-scan
-elapsed: tracked-binary-check 4s
+elapsed: tracked-binary-check 5s
 target: tracked-binary-check exit=0
 elapsed: credential-transparency 0s
 target: credential-transparency exit=0
@@ -16,10 +16,10 @@ evidence: [workflow-yaml-parity] check OK: workflow-yaml-parity block md5 d63f3f
 elapsed: workflow-yaml-parity 0s
 target: workflow-yaml-parity exit=0
 evidence: [openapi-check] go packages ok: 1
-elapsed: openapi-check 1s
+elapsed: openapi-check 2s
 target: openapi-check exit=0
 evidence: [rulefloor-check] check OK: 254 rows (254 armed), FLOOR 254, RED-PROOFS 254 (measured 254)
-elapsed: rulefloor-check 34s
+elapsed: rulefloor-check 35s
 target: rulefloor-check exit=0
 elapsed: image-base-check 0s
 target: image-base-check exit=0
@@ -28,7 +28,7 @@ elapsed: api-surface 0s
 target: api-surface exit=0
 elapsed: fmt-check 1s
 target: fmt-check exit=0
-elapsed: vet 7s
+elapsed: vet 9s
 target: vet exit=0
 elapsed: vet-integration 9s
 target: vet-integration exit=0
@@ -40,7 +40,7 @@ target: r-suite exit=0
 elapsed: image-base-parity 0s
 target: image-base-parity exit=0
 evidence: [witness-parity] check OK: witness-parity witness block md5 179ce4a5e5c1111f2c5c51ebb1ea2236 matches the shared pin
-elapsed: witness-parity 0s
+elapsed: witness-parity 1s
 target: witness-parity exit=0
 elapsed: image-policy-restate-check 0s
 target: image-policy-restate-check exit=0
@@ -48,7 +48,7 @@ elapsed: distroless-exec-check 0s
 target: distroless-exec-check exit=0
 elapsed: clock-fuse-report 1s
 target: clock-fuse-report exit=0
-elapsed: tagged-vet 56s
+elapsed: tagged-vet 60s
 target: tagged-vet exit=0
 elapsed: integration-inventory 1s
 target: integration-inventory exit=0
@@ -57,15 +57,15 @@ target: go-mod-tidy-diff exit=0
 elapsed: go-build 2s
 target: go-build exit=0
 evidence: [go-test-race] go packages ok: 52
-elapsed: go-test-race 116s
+elapsed: go-test-race 118s
 target: go-test-race exit=0
-elapsed: staticcheck 14s
+elapsed: staticcheck 16s
 target: staticcheck exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0
-elapsed: grype-scan 61s
+elapsed: grype-scan 60s
 target: grype-scan exit=0
-finished: 2026-09-07T22:23:34Z
+finished: 2026-09-09T00:56:02Z
 tie-note: CI cannot commit this record, so the committed-alongside witness chain does not exist here; the checkout IS an unmodified commit, so the full commit SHA below pins the tree content exactly as the local digest does — valid only while the tree stays clean, which check enforces
-tree: commit=3851cc2f6f745e7b3fa0b11cb310dd03eac847c9
+tree: commit=e7ad214535c26228372e0d19e6b44c6a6e124793
 result: green
-ci-run: https://github.com/identuum/identuum-idp-oss/actions/runs/34166138967 attempt=1 sha=3851cc2f6f745e7b3fa0b11cb310dd03eac847c9
+ci-run: https://github.com/identuum/identuum-idp-oss/actions/runs/34296603668 attempt=1 sha=e7ad214535c26228372e0d19e6b44c6a6e124793
