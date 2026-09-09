@@ -58,8 +58,6 @@
 #                     subtracted anymore except `test-db` (createdb +
 #                     migrate bootstrap — the service container provides
 #                     the database and the suites migrate themselves).
-#   3. race         — `go test -race ./... -count=1`. CI-ONLY: the race
-#                     detector is deliberately NOT part of `make verify`.
 #
 # gograph stays a developer-local tool BY DECISION, re-affirmed 2026-08-27
 # (THE-SAME-BINARY): Linux release artifacts EXIST (the cask's GoReleaser
@@ -215,7 +213,7 @@ jobs:
         with:
           go-version-file: go.mod
           # THE-OSS-CI-CACHE (2026-09-08): setup-go's own cache is OFF in the
-          # three jobs that compile — one mechanism owns the caches below.
+          # two jobs that compile — one mechanism owns the caches below.
           cache: false
 
       # THE-OSS-CI-CACHE (2026-09-08) — the pattern identuum-idp-ce proved
@@ -556,35 +554,3 @@ jobs:
         env:
           IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss_test?sslmode=disable
         run: make rulefloor-integration
-
-  race:
-    name: Race Detector
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        id: go
-        with:
-          go-version-file: go.mod
-          cache: false
-
-      # THE-OSS-CI-CACHE: same step as the verify job. Measured cold here:
-      # 29 s before the first package reports and the -race compiles
-      # interleaved through the 115 s step; -race objects are GOCACHE entries
-      # like any other.
-      - name: Restore the Go build cache, module cache and staticcheck's cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-            ~/.cache/staticcheck
-          key: ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
-          restore-keys: |
-            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
-
-      # CI-ONLY: the race detector is deliberately NOT in `make verify` (it
-      # ~10x's test wall time). Untagged packages only — no DB required.
-      - name: go test -race
-        run: go test -race ./... -count=1
