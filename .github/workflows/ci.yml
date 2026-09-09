@@ -211,8 +211,42 @@ jobs:
         run: bash scripts/rulefloor-install-gate.sh .github/workflows
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         with:
           go-version-file: go.mod
+          # THE-OSS-CI-CACHE (2026-09-08): setup-go's own cache is OFF in the
+          # three jobs that compile — one mechanism owns the caches below.
+          cache: false
+
+      # THE-OSS-CI-CACHE (2026-09-08) — the pattern identuum-idp-ce proved
+      # (its c6ec08a; run 34290503253: validate 244 → 95 s, every job a hit).
+      # MEASURED on OSS's own green run 34168593423 before applying it:
+      # setup-go's cache restored a 99 MB snapshot in all four jobs (saved
+      # ONCE at this go.sum, "not saving cache" ever since), so modules were
+      # warm and the BUILD cache cold in every job — in this one: the
+      # migrate build 29 s, rulefloor-check's Go rows 30 s, tagged-vet 50 s,
+      # go-test-race ~103 s, staticcheck 13 s + its install 8 s. GOCACHE is
+      # content-addressed (a stale entry is a MISS, never a wrong build),
+      # GOMODCACHE is verified against go.sum on use, and the tool builds
+      # (staticcheck via go install, rulefloor via go build — 1 s here) are
+      # ordinary compiles GOCACHE covers. The version asserts in this
+      # workflow cover the binaries on PATH, not cache contents. The run id
+      # in the key makes every green run save a fresh snapshot; the
+      # restore-keys prefix restores the newest prior run of the SAME job.
+      # GitHub scopes caches by branch. grype's vulnerability DB (its scan is
+      # ~49 s of this job) is deliberately NOT cached: it is meant to move.
+      # govulncheck's job keeps setup-go's cache and gets no step: 19 s in
+      # total, nothing to win (the CE measurement showed the same).
+      - name: Restore the Go build cache, module cache and staticcheck's cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/staticcheck
+          key: ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
 
       - name: Prove the Go toolchain version
         # THE-UNWATCHED-FOUR: Go's single declaration is go.mod's `go`
@@ -439,8 +473,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+
+      # THE-OSS-CI-CACHE: same step as the verify job (the header there says
+      # why). Measured cold here: the test-db build 43 s and the ~49 s
+      # compile gap before the e2e packages report, plus rulefloor-integration's
+      # Go rows.
+      - name: Restore the Go build cache, module cache and staticcheck's cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/staticcheck
+          key: ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
 
       - name: Wait for PostgreSQL
         run: |
@@ -513,8 +564,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+
+      # THE-OSS-CI-CACHE: same step as the verify job. Measured cold here:
+      # 29 s before the first package reports and the -race compiles
+      # interleaved through the 115 s step; -race objects are GOCACHE entries
+      # like any other.
+      - name: Restore the Go build cache, module cache and staticcheck's cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+            ~/.cache/staticcheck
+          key: ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
 
       # CI-ONLY: the race detector is deliberately NOT in `make verify` (it
       # ~10x's test wall time). Untagged packages only — no DB required.
