@@ -226,6 +226,31 @@ var ErrTenantMismatch = service.ErrWebAuthnTenantMismatch
 // it onto a generic 401.
 var ErrCloneDetected = service.ErrWebAuthnCloneDetected
 
+// ErrCredentialNotYours is the refusal Service.DeleteCredential returns
+// when the caller may not delete the credential id it named: the id
+// belongs to another user, the id belongs to nobody, or a nil user or
+// credential id was passed. The three cases are DELIBERATELY
+// indistinguishable — one sentinel, one message — so a caller can never
+// learn from the status whether a credential id exists (no existence
+// oracle); a CE handler maps it to one 404 for both.
+//
+// It is NOT ErrCredentialNotFound: that one is the repository's sentinel
+// for a raw credential id (the authenticator's bytes) with no live row,
+// returned by CredentialRepository.GetByCredentialID and surfaced by
+// FinishLogin as ErrCredentialMissing; DeleteCredential decides ownership
+// from the caller's own ListByUser and never consults it.
+//
+// Plain alias of `internal/domain.ErrResourceNotFound`, the cross-cutting
+// not-found sentinel the service already returns (THE-STALE-PROOF,
+// 2026-09-10): aliasing keeps the service's behaviour and the OSS
+// handler's own `errors.Is(err, domain.ErrResourceNotFound)` exactly as
+// they were, where a new sentinel would have needed the service to return
+// something else. The cost of the alias, stated: errors.Is against this
+// name also matches any other OSS error that wraps
+// domain.ErrResourceNotFound, so test it on DeleteCredential's error and
+// not on an arbitrary one.
+var ErrCredentialNotYours = domain.ErrResourceNotFound
+
 // ── Route path helpers ────────────────────────────────────────────────────
 
 // RoutePaths returns the canonical OSS WebAuthn route paths in a

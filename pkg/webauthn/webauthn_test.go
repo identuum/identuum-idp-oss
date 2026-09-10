@@ -146,11 +146,14 @@ func TestPkgSeam_NewService_RejectsNilDeps(t *testing.T) {
 	}
 }
 
-// TestPkgSeam_ErrorSentinels_ReExportedAndDistinct pins that the 6
+// TestPkgSeam_ErrorSentinels_ReExportedAndDistinct pins that the 7
 // service-level error sentinels are exported via the seam AND that
 // they are distinct (not aliases of each other). CE handler shims
 // will errors.Is against these — a mistaken collapse would map two
-// failure modes onto the same HTTP code.
+// failure modes onto the same HTTP code. The seventh,
+// ErrCredentialNotYours (THE-STALE-PROOF, 2026-09-10), is the one
+// DeleteCredential actually returns; without it a caller importing
+// only this package could not name that refusal.
 func TestPkgSeam_ErrorSentinels_ReExportedAndDistinct(t *testing.T) {
 	sentinels := []struct {
 		name string
@@ -162,6 +165,7 @@ func TestPkgSeam_ErrorSentinels_ReExportedAndDistinct(t *testing.T) {
 		{"ErrCredentialMissing", pkgwebauthn.ErrCredentialMissing},
 		{"ErrTenantMismatch", pkgwebauthn.ErrTenantMismatch},
 		{"ErrCloneDetected", pkgwebauthn.ErrCloneDetected},
+		{"ErrCredentialNotYours", pkgwebauthn.ErrCredentialNotYours},
 	}
 	for _, s := range sentinels {
 		if s.err == nil {
