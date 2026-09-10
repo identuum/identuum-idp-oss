@@ -21,6 +21,15 @@
 # record: unplanned-but-missing targets, nonzero exits, a missing result line,
 # or a tree digest that no longer matches all FAIL.
 #
+# A DIRTY TREE IS NOT MINTED (THE-MINT-THAT-REFUSES, 2026-09-10)
+# --------------------------------------------------------------
+# `run` decides before writing: on a tree that is dirty beyond the record
+# file it runs every target and prints the verdict but writes NO record and
+# leaves the one on disk byte-untouched — green exits 0 and says NOT MINTED,
+# red exits nonzero. A record can therefore only ever be minted at a clean
+# HEAD; `check` keeps refusing any record that carries a "(dirty)" stamp.
+# See the block above run_mode.
+#
 # THE TRAP AND ITS SOLUTION (self-exclusion)
 # ------------------------------------------
 # The record is committed, so it cannot contain a hash of a tree that contains
@@ -304,6 +313,9 @@ gw_lock() {
 gw_unlock() {
 	[ -n "$_gw_lock_dir" ] && rm -rf "$_gw_lock_dir"
 	_gw_lock_dir=""
+	# THE-MINT-THAT-REFUSES: a dirty-tree run's scratch record dies with it.
+	[ -n "${_gw_scratch:-}" ] && rm -f "$_gw_scratch"
+	_gw_scratch=""
 }
 
 # ── THE-STEPWISE-SESSION (2026-09-04): A SESSION OWNS ITS RECORD ──────────
@@ -367,6 +379,32 @@ gw_session_close() { # <record>
 	rm -f "$(_gw_session_file "$1")" 2>/dev/null || true
 }
 
+# ── THE-MINT-THAT-REFUSES (2026-09-10): REFUSE TO MINT, NOT MINT-THEN-REFUSE ──
+# `run` used to stamp "(dirty)" into the header it was writing and `check`
+# then refused that same record for carrying the stamp. In the wiki both
+# happen inside ONE target — `make check` mints and reads back what it just
+# minted — so every pre-commit run was red BY CONSTRUCTION (the tree is dirty
+# because it holds the work being checked), the refused record was scratch,
+# and a manual `git restore` was the only thing between that scratch and
+# history: 96 dirty records got in before the read-back existed.
+#
+# Now the decision comes BEFORE the first byte. When the tree is dirty beyond
+# the record file itself (the existing exclusion — the record being written
+# is not evidence against the tree it is about to witness), every target
+# still runs, the verdict is still printed, and the run writes into a scratch
+# file it deletes at the end: the record on disk is never opened, never
+# truncated, never partially written. Green targets on a dirty tree exit 0 and
+# say so in one line; red targets exit nonzero exactly as before. What did
+# NOT change: `check` still refuses a record that carries the stamp (a record
+# from before this date, or one written by hand), and every witness recipe
+# still runs `check` before it commits — a dirty tree cannot reach a witness
+# through this path or any other. There is deliberately no flag that mints
+# anyway: a way to opt out would be THE-UNWITNESSED-GREEN under a new name.
+# Selftest case 10 constructs all four properties. The stepwise modes
+# (init/step/finalize, used only by identuum-ui's CI job and its e2e-full
+# session) are unchanged: their records are gitignored or CI-only.
+_gw_scratch=""
+
 run_mode() {
 	[ $# -ge 3 ] || { echo "usage: gate-witness.sh run <record> <label> <name=command>..." >&2; exit 2; }
 	local rec="$1" label="$2"; shift 2
@@ -374,11 +412,21 @@ run_mode() {
 	gw_lock "$rec" "$label"
 	local names=() e
 	for e in "$@"; do names+=("${e%%=*}"); done
-	write_header "$rec" "$label" "${names[@]}"
+	local state target="$rec" minting=1
+	state=$(repo_state . "$rec")
+	case "$state" in
+	*' (dirty)')
+		minting=0
+		target=$(mktemp "${TMPDIR:-/tmp}/gate-witness-unminted.XXXXXX")
+		_gw_scratch="$target"
+		echo "gate-witness: NOT MINTING — the tree ($state) is dirty beyond $rec; every target runs and the verdict is printed, but no record is written and $rec stays as it is" >&2
+		;;
+	esac
+	write_header "$target" "$label" "${names[@]}"
 	local overall=0 n=0 name cmd
 	for e in "$@"; do
 		name="${e%%=*}"; cmd="${e#*=}"
-		record_one "$rec" "$name" "$cmd" || overall=1
+		record_one "$target" "$name" "$cmd" || overall=1
 		n=$((n + 1))
 		if [ -n "${GATE_WITNESS_ABORT_AFTER:-}" ] && [ "$n" -ge "$GATE_WITNESS_ABORT_AFTER" ]; then
 			echo "gate-witness: ABORTED by GATE_WITNESS_ABORT_AFTER=$GATE_WITNESS_ABORT_AFTER (record left unfinalized)" >&2
@@ -386,7 +434,17 @@ run_mode() {
 		fi
 		[ "$overall" -ne 0 ] && break
 	done
-	finalize_into "$rec" || true
+	finalize_into "$target" || true
+	if [ "$minting" -eq 0 ]; then
+		local verdict
+		verdict=$(sed -n 's/^result: //p' "$target" | head -1)
+		rm -f "$target"; _gw_scratch=""
+		if [ "$overall" -eq 0 ]; then
+			echo "GATE-WITNESS NOT MINTED: '$label' is $verdict on a DIRTY tree ($state) — no record was written and $rec is untouched. Commit the work, then run this gate again at the clean HEAD to mint the record and witness it."
+		else
+			echo "GATE-WITNESS NOT MINTED: '$label' is $verdict on a DIRTY tree ($state) — no record was written and $rec is untouched. Fix the red target(s) above, commit, and run again at the clean HEAD."
+		fi
+	fi
 	return "$overall"
 }
 
@@ -691,11 +749,45 @@ selftest() {
 		grep -q '^result: red$' GATE-RUN.txt || { echo "SELFTEST FAIL 8b: unfinished stepwise record is not red"; exit 1; }
 		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q "INCOMPLETE: target 'b'" || { echo "SELFTEST FAIL 8c: check did not name the unrun step"; exit 1; }
 
-		# 10 FIRE (THE-STALE-WITNESS): a green mint on a DIRTY tree fails check
+		# 10 THE-STALE-WITNESS + THE-MINT-THAT-REFUSES (2026-09-10). Until this
+		# date `run` minted a "(dirty)" record and `check` then refused it —
+		# every pre-commit run red BY CONSTRUCTION, and a manual restore the
+		# only thing between that scratch record and history (96 dirty records
+		# got in). Now `run` on a dirty tree runs every target, prints the
+		# verdict and WRITES NOTHING. Four invariants, each constructed:
+		#   (1) a record that EXISTS and carries "(dirty)" still fails check —
+		#       judging did not change; since run no longer writes such a
+		#       record, the stamp is put there BY HAND on a green record;
+		#   (2) a run on a dirty tree leaves the record on disk byte-identical
+		#       — green, red, aborted, and under the two names a mint-anyway
+		#       flag would have (there is none: a way to opt out is
+		#       THE-UNWITNESSED-GREEN under a new name);
+		#   (3) a dirty tree cannot reach a witness: check refuses the record
+		#       that exists while the tree is dirty, accepts it again once
+		#       clean — the witness recipes run check before committing;
+		#   (4) green targets on a dirty tree exit 0 and SAY no record was
+		#       minted; red targets still exit nonzero.
+		bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 10a: clean green run exited nonzero"; exit 1; }
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 10b: clean green record did not pass"; exit 1; }
+		cp GATE-RUN.txt /tmp/gw-clean.$$
+		awk '/^repo-head: /{print $0 " (dirty)"; next} {print}' /tmp/gw-clean.$$ >GATE-RUN.txt
+		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS DIRTY-MINT' || { echo "SELFTEST FAIL 10c: an existing record stamped (dirty) did not fail check — judging changed"; rm -f /tmp/gw-clean.$$; exit 1; }
+		cp /tmp/gw-clean.$$ GATE-RUN.txt
 		echo drift >>f.txt
-		bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' >/dev/null 2>&1
-		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS DIRTY-MINT' || { echo "SELFTEST FAIL 10: dirty mint did not fail check"; exit 1; }
+		out=$(bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' 2>&1); code=$?
+		[ "$code" -eq 0 ] || { echo "SELFTEST FAIL 10d: green targets on a dirty tree exited $code, want 0"; rm -f /tmp/gw-clean.$$; exit 1; }
+		case "$out" in *"GATE-WITNESS NOT MINTED"*) : ;; *) echo "SELFTEST FAIL 10e: the dirty-tree run did not say NOT MINTED: $out"; rm -f /tmp/gw-clean.$$; exit 1 ;; esac
+		cmp -s GATE-RUN.txt /tmp/gw-clean.$$ || { echo "SELFTEST FAIL 10f: a green run on a dirty tree WROTE the record"; rm -f /tmp/gw-clean.$$; exit 1; }
+		bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' 'b=false' >/dev/null 2>&1 && { echo "SELFTEST FAIL 10g: red targets on a dirty tree exited zero"; rm -f /tmp/gw-clean.$$; exit 1; }
+		cmp -s GATE-RUN.txt /tmp/gw-clean.$$ || { echo "SELFTEST FAIL 10h: a red run on a dirty tree WROTE the record"; rm -f /tmp/gw-clean.$$; exit 1; }
+		GATE_WITNESS_ABORT_AFTER=1 bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' 'b=true' >/dev/null 2>&1
+		cmp -s GATE-RUN.txt /tmp/gw-clean.$$ || { echo "SELFTEST FAIL 10i: an aborted run on a dirty tree WROTE the record"; rm -f /tmp/gw-clean.$$; exit 1; }
+		GATE_WITNESS_FORCE=1 GATE_WITNESS_SKIP_RECORD=1 bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' >/dev/null 2>&1
+		cmp -s GATE-RUN.txt /tmp/gw-clean.$$ || { echo "SELFTEST FAIL 10j: a force / skip-record name minted anyway on a dirty tree"; rm -f /tmp/gw-clean.$$; exit 1; }
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 && { echo "SELFTEST FAIL 10k: check ACCEPTED the clean-HEAD record on a dirty tree — a witness could follow"; rm -f /tmp/gw-clean.$$; exit 1; }
 		git checkout -q -- f.txt
+		bash "$self" check . GATE-RUN.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 10l: the untouched record did not pass again once the tree was clean"; rm -f /tmp/gw-clean.$$; exit 1; }
+		rm -f /tmp/gw-clean.$$
 
 		# 11 PASS: clean mint, then the WITNESS COMMIT (record only) still passes
 		bash "$self" run GATE-RUN.txt "selftest gate" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 11a: clean green run exited nonzero"; exit 1; }
@@ -864,7 +956,7 @@ selftest() {
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 19 case(s): fire (missing, stale x3, red, incomplete x2, dirty-mint x2, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record, run-into-open-session, second-init-into-open-session) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record, session completes and releases, dead-owner session broken) proven"
+		echo "SELFTEST OK — 19 case(s): fire (missing, stale x3, red, incomplete x2, hand-stamped dirty record, dirty tree refused by check, dirty-sibling mint, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record, run-into-open-session, second-init-into-open-session) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record, session completes and releases, dead-owner session broken, dirty-tree run writes nothing: green exit 0 saying NOT MINTED, red, aborted, force/skip-record names) proven"
 		return 0
 	fi
 	return 1
