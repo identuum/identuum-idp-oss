@@ -1,5 +1,16 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "48adcfa087340b8b265dacbe1f1416a221248c4f",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "WITNESS-CLEAN-HEAD-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "THE-MINT-THAT-REFUSES (2026-09-10, owner ruling (a)): the test's setup no longer asks run to mint on a dirty tree (run refuses to since this date); it constructs the dirty record by hand-stamping repo-head, keeps the DIRTY-MINT assertion unchanged, and adds the new guarantee that a dirty-tree run writes nothing and leaves the record byte-identical. rulefloor rehash 7eb91fefb331 -> 8011ff75873e."
+    },
+    {
+      "rule_id": "WITNESS-CLEAN-HEAD-1",
+      "change_class": "proof_changed",
+      "reason": "THE-MINT-THAT-REFUSES (2026-09-10): proof superseded after re-watching the extended test — mutation 1 (clean-head block neutralized) and mutation 2 (run's work_state decision replaced by the bare HEAD) both FAILED the test as quoted in the proof cell; the mirror restored byte-identical to the wiki master (cmp)."
+    }
+  ]
 }

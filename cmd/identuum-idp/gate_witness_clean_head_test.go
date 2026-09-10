@@ -19,7 +19,11 @@ import (
 // copy this repo's `make verify` actually runs; --sync-check holds it
 // byte-identical to the wiki master):
 //
-//   - a record minted on a DIRTY tree fails check;
+//   - a record that admits a DIRTY mint fails check — constructed by hand,
+//     because since THE-MINT-THAT-REFUSES (2026-09-10) `run` will not
+//     write one: on a dirty tree it runs the targets, prints the verdict,
+//     writes nothing and leaves the record on disk byte-identical, which
+//     this test pins as well;
 //   - a record naming any commit but the current clean HEAD fails check,
 //     with exactly one allowance — HEAD being the record's own witness
 //     commit (direct child, record file the only change);
@@ -96,17 +100,61 @@ func TestGateWitness_RecordMustNameTheCurrentCleanHead(t *testing.T) {
 	}
 	newRepo(t, repo)
 
-	// ── DIRTY MINT FAILS: the exact shape the false report hid ──
-	if err := os.WriteFile(filepath.Join(repo, "f.txt"), []byte("alpha\ndrift\n"), 0o644); err != nil {
+	// ── A DIRTY RECORD FAILS: the exact shape the false report hid ──
+	// THE-MINT-THAT-REFUSES (2026-09-10): `run` no longer writes a record on
+	// a dirty tree, so this fixture is CONSTRUCTED, not asked for — a test
+	// that asks the tool to produce a lie can only ever pin lies the tool is
+	// still willing to tell. The rule is a property of records that EXIST
+	// (a hand edit, an older tool, the 96 already in history): a green
+	// record minted at the clean HEAD gets `repo-head: <sha> (dirty)` stamped
+	// by hand, and check must refuse it for exactly that reason.
+	recPath := filepath.Join(repo, "GATE-RUN.txt")
+	sh(t, repo, "bash", script, "run", "GATE-RUN.txt", "t gate", "a=true")
+	clean, err := os.ReadFile(recPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	sh(t, repo, "bash", script, "run", "GATE-RUN.txt", "t gate", "a=true")
+	if !strings.Contains(string(clean), "\nresult: green\n") {
+		t.Fatalf("the clean-HEAD mint is not green:\n%s", clean)
+	}
+	stamped := regexp.MustCompile(`(?m)^repo-head: (\S+)$`).ReplaceAllString(string(clean), "repo-head: $1 (dirty)")
+	if stamped == string(clean) {
+		t.Fatalf("could not stamp the record's repo-head line:\n%s", clean)
+	}
+	if err := os.WriteFile(recPath, []byte(stamped), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	out, code := sh(t, repo, "bash", script, "check", ".", "GATE-RUN.txt")
 	if code == 0 {
 		t.Fatal("a record minted on a DIRTY tree passed check — the false 'minted at clean HEAD' report is reproducible again")
 	}
 	if !strings.Contains(out, "DIRTY-MINT") {
 		t.Fatalf("dirty mint failed for the wrong reason:\n%s", out)
+	}
+
+	// ── A DIRTY TREE IS NOT MINTED: the new guarantee ──
+	// The record on disk is the clean-HEAD one again; the tree goes dirty;
+	// a run must run its targets, exit 0 (they are green), SAY that nothing
+	// was minted, and leave the record byte-identical.
+	if err := os.WriteFile(recPath, clean, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "f.txt"), []byte("alpha\ndrift\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code = sh(t, repo, "bash", script, "run", "GATE-RUN.txt", "t gate", "a=true")
+	if code != 0 {
+		t.Fatalf("green targets on a dirty tree exited %d, want 0:\n%s", code, out)
+	}
+	if !strings.Contains(out, "GATE-WITNESS NOT MINTED") {
+		t.Fatalf("a run on a dirty tree did not say NOT MINTED:\n%s", out)
+	}
+	after, err := os.ReadFile(recPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(clean) {
+		t.Fatalf("a run on a DIRTY tree wrote the record — the dirty mint is back:\n%s", after)
 	}
 	git(t, repo, "checkout", "-q", "--", "f.txt")
 

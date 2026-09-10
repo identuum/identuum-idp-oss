@@ -23,8 +23,9 @@
 #
 # A DIRTY TREE IS NOT MINTED (THE-MINT-THAT-REFUSES, 2026-09-10)
 # --------------------------------------------------------------
-# `run` decides before writing: on a tree that is dirty beyond the record
-# file it runs every target and prints the verdict but writes NO record and
+# `run` decides before writing: on a tree whose WORK is dirty (dirty beyond
+# every GATE-RUN*.txt, not just the record being written — the owner's
+# correction, see work_state) it runs every target and prints the verdict but writes NO record and
 # leaves the one on disk byte-untouched — green exits 0 and says NOT MINTED,
 # red exits nonzero. A record can therefore only ever be minted at a clean
 # HEAD; `check` keeps refusing any record that carries a "(dirty)" stamp.
@@ -146,6 +147,29 @@ repo_state() {
 	)
 }
 
+# work_state <repo-dir> <exclude-path> — the MINT-TIME question: is the WORK
+# dirty? "<short-sha>[ (dirty)]" like repo_state, but excluding every gate
+# record (GATE-RUN*.txt) beside the one named, not just that one.
+# THE-MINT-THAT-REFUSES, the owner's correction (2026-09-10): the first cut
+# excluded a single record, and identuum-idp-oss's verify-parallel — two legs
+# writing two records concurrently — had the integration leg read the verify
+# leg's in-progress, TRACKED GATE-RUN.txt as a dirty tree and refuse to mint;
+# not intermittently, because a tracked record is modified in the whole
+# window between any verify and its witness commit. Gate records are written
+# by the gates and read by check (the mint's no-reach set already says so);
+# they are not work. `check`'s own DIRTY-NOW test keeps the single-record
+# exclusion: judging is not minting.
+work_state() {
+	local repo="$1" rec="$2"
+	(
+		cd "$repo" || { echo none; exit 0; }
+		local head dirty
+		head=$(git rev-parse --short HEAD 2>/dev/null || echo none)
+		dirty=$(git status --porcelain -- . ":(exclude)$rec" ":(exclude)GATE-RUN*.txt" 2>/dev/null | grep -q . && echo ' (dirty)')
+		echo "$head$dirty"
+	)
+}
+
 write_header() { # <record> <label> <plan name>...
 	local rec="$1" label="$2"; shift 2
 	{
@@ -153,7 +177,7 @@ write_header() { # <record> <label> <plan name>...
 		echo "gate: $label"
 		echo "note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code"
 		[ -n "${GATE_WITNESS_CITES:-}" ] && echo "cites: $GATE_WITNESS_CITES"
-		echo "repo-head: $(repo_state . "$rec")"
+		echo "repo-head: $(work_state . "$rec")"
 		echo "started: $(now_utc)"
 		local n
 		printf 'plan:'
@@ -388,10 +412,11 @@ gw_session_close() { # <record>
 # and a manual `git restore` was the only thing between that scratch and
 # history: 96 dirty records got in before the read-back existed.
 #
-# Now the decision comes BEFORE the first byte. When the tree is dirty beyond
-# the record file itself (the existing exclusion — the record being written
-# is not evidence against the tree it is about to witness), every target
-# still runs, the verdict is still printed, and the run writes into a scratch
+# Now the decision comes BEFORE the first byte. When the WORK tree is dirty —
+# dirty beyond the gate records, every GATE-RUN*.txt and not just the one
+# being written (work_state; a record is not evidence against the tree it is
+# about to witness, and neither is a sibling record another leg is writing) —
+# every target still runs, the verdict is still printed, and the run writes into a scratch
 # file it deletes at the end: the record on disk is never opened, never
 # truncated, never partially written. Green targets on a dirty tree exit 0 and
 # say so in one line; red targets exit nonzero exactly as before. What did
@@ -413,13 +438,13 @@ run_mode() {
 	local names=() e
 	for e in "$@"; do names+=("${e%%=*}"); done
 	local state target="$rec" minting=1
-	state=$(repo_state . "$rec")
+	state=$(work_state . "$rec")
 	case "$state" in
 	*' (dirty)')
 		minting=0
 		target=$(mktemp "${TMPDIR:-/tmp}/gate-witness-unminted.XXXXXX")
 		_gw_scratch="$target"
-		echo "gate-witness: NOT MINTING — the tree ($state) is dirty beyond $rec; every target runs and the verdict is printed, but no record is written and $rec stays as it is" >&2
+		echo "gate-witness: NOT MINTING — the tree ($state) is dirty beyond the gate records; every target runs and the verdict is printed, but no record is written and $rec stays as it is" >&2
 		;;
 	esac
 	write_header "$target" "$label" "${names[@]}"
@@ -802,6 +827,24 @@ selftest() {
 		bash "$self" check . GATE-RUN.txt 2>&1 | grep -q 'GATE-WITNESS STALE-HEAD' || { echo "SELFTEST FAIL 12: moved HEAD with unchanged content did not read STALE-HEAD"; exit 1; }
 		git reset -q --hard HEAD~1
 
+		# 20 GATE RECORDS ARE NOT WORK (THE-MINT-THAT-REFUSES, the owner's
+		# correction). The first cut excluded only the record being written
+		# from the mint-time dirtiness test, so idp-oss's verify-parallel —
+		# two legs, two records, concurrently — had the integration leg read
+		# the verify leg's in-progress GATE-RUN.txt as a dirty tree and refuse
+		# to mint, nearly always (a tracked record is modified in the normal
+		# window between any verify and its witness). The test now excludes
+		# EVERY GATE-RUN*.txt, the same reasoning the mint's no-reach set
+		# applies to them: the question at mint time is whether the WORK is
+		# dirty. Constructed: the tracked record is modified, nothing else is,
+		# and a run into a second record mints — green, no "(dirty)" stamp.
+		echo 'evidence: [selftest] a sibling record modified' >>GATE-RUN.txt
+		bash "$self" run GATE-RUN.second.txt "selftest second record" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 20a: a run beside a modified sibling record exited nonzero"; git checkout -q -- GATE-RUN.txt; exit 1; }
+		[ -f GATE-RUN.second.txt ] || { echo "SELFTEST FAIL 20b: the run REFUSED to mint with only another gate record modified — gate records are not work"; git checkout -q -- GATE-RUN.txt; exit 1; }
+		grep -q '^result: green$' GATE-RUN.second.txt || { echo "SELFTEST FAIL 20c: the second record is not green"; rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt; exit 1; }
+		grep -q '^repo-head: .* (dirty)$' GATE-RUN.second.txt && { echo "SELFTEST FAIL 20d: the second record was stamped (dirty) for a modified sibling record"; rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt; exit 1; }
+		rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt
+
 		# 13 the TWO-REPO witness: the record pins a sibling; the sibling moving
 		# or dirtying fails check. Fixture repos live OUTSIDE this selftest
 		# repo's work tree so they cannot dirty it.
@@ -956,7 +999,7 @@ selftest() {
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 19 case(s): fire (missing, stale x3, red, incomplete x2, hand-stamped dirty record, dirty tree refused by check, dirty-sibling mint, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record, run-into-open-session, second-init-into-open-session) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record, session completes and releases, dead-owner session broken, dirty-tree run writes nothing: green exit 0 saying NOT MINTED, red, aborted, force/skip-record names) proven"
+		echo "SELFTEST OK — 20 case(s): fire (missing, stale x3, red, incomplete x2, hand-stamped dirty record, dirty tree refused by check, dirty-sibling mint, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record, run-into-open-session, second-init-into-open-session) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record, session completes and releases, dead-owner session broken, dirty-tree run writes nothing: green exit 0 saying NOT MINTED, red, aborted, force/skip-record names; a modified sibling gate record still mints, unstamped) proven"
 		return 0
 	fi
 	return 1
