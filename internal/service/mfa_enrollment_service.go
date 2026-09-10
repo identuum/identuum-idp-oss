@@ -151,6 +151,13 @@ var (
 	// "wrong recovery code" from "wrong password" — all collapse to
 	// 401 invalid_code on the disable surface.
 	ErrMFADisableInvalidCode = errors.New("service: mfa disable invalid code")
+
+	// ErrMFARegenerateInvalidCode is the recovery-code regenerate's one
+	// cause-neutral refusal (THE-OSS-HALF-OF-THE-RULING, owner ruling (b)):
+	// the proof was absent, empty, wrong, or a recovery code — a recovery
+	// code must not buy more recovery codes. The handler maps it to the
+	// route family's existing 401 invalid_code.
+	ErrMFARegenerateInvalidCode = errors.New("service: mfa recovery codes regenerate invalid code")
 )
 
 // MFADisableReauthMethod identifies which leg of the re-auth chain
@@ -616,7 +623,7 @@ func (s *MFAEnrollmentService) VerifyAndConsume(ctx context.Context, pendingID u
 // included in any audit/metadata path inside this method. The
 // only escape route is the slice the method returns to the HTTP
 // handler.
-func (s *MFAEnrollmentService) RegenerateRecoveryCodes(ctx context.Context, userID uuid.UUID) ([]string, error) {
+func (s *MFAEnrollmentService) RegenerateRecoveryCodes(ctx context.Context, userID uuid.UUID, code string) ([]string, error) {
 	if userID == uuid.Nil {
 		return nil, ErrMFAEnrollmentInvalid
 	}
@@ -629,6 +636,16 @@ func (s *MFAEnrollmentService) RegenerateRecoveryCodes(ctx context.Context, user
 	}
 	if !user.MFAEnabled {
 		return nil, ErrMFANotEnrolled
+	}
+	// THE-OSS-HALF-OF-THE-RULING (2026-09-10, owner ruling (b)): the ONLY
+	// proof that mints fresh recovery codes is a current TOTP code. A
+	// recovery code is never consulted here — the disable accepts one,
+	// so a session that could regenerate with one would hold a fresh set
+	// of disable proofs a moment later. The refusal does not say which
+	// kind of proof was wrong: absent, empty, wrong and recovery code all
+	// answer ErrMFARegenerateInvalidCode, and nothing is burned.
+	if !s.totpProofOK(user, strings.TrimSpace(code)) {
+		return nil, ErrMFARegenerateInvalidCode
 	}
 	codes, err := generateRecoveryCodes(s.codeCount, s.codeBytes)
 	if err != nil {
@@ -730,16 +747,10 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 	var reauth MFADisableReauthMethod
 	trimmedCode := strings.TrimSpace(in.Code)
 	if trimmedCode != "" {
-		// Decrypt the at-rest seed ciphertext to verify TOTP; a cipher/
-		// decrypt failure leaves totpOK=false and falls through to the
-		// hash-matched recovery-code leg (no cipher needed).
-		totpOK := false
-		if user.MFASecret != nil && *user.MFASecret != "" {
-			if plaintextSeed, decErr := s.decryptSeed(*user.MFASecret); decErr == nil {
-				totpOK = verifyTOTPCodeAgainstSecret(plaintextSeed, trimmedCode, s.now())
-			}
-		}
-		if totpOK {
+		// The TOTP leg is totpProofOK (shared with the recovery-code
+		// regenerate); a cipher/decrypt failure leaves it false and falls
+		// through to the hash-matched recovery-code leg (no cipher needed).
+		if s.totpProofOK(user, trimmedCode) {
 			reauth = MFADisableReauthTOTP
 		} else {
 			remaining, ok := consumeRecoveryCode(user.MFARecoveryCodes, trimmedCode)
@@ -967,6 +978,23 @@ func buildOtpauthURL(issuer, email, secret string) string {
 // caring which). Window is hard-coded to ±1 step here — matches
 // MFAVerifierService's default. Constant-time compare prevents
 // timing leaks.
+// totpProofOK is the TOTP leg shared by DisableSelfWithProof and
+// RegenerateRecoveryCodes: decrypt the at-rest seed ciphertext, then
+// verify the (already trimmed) code against the plaintext seed at the
+// service clock. A missing seed or a cipher/decrypt failure is false —
+// the disable then falls through to its recovery-code leg, the
+// regenerate refuses. It lives once so the two call sites cannot drift.
+func (s *MFAEnrollmentService) totpProofOK(user *domain.User, trimmedCode string) bool {
+	if user == nil || user.MFASecret == nil || *user.MFASecret == "" || trimmedCode == "" {
+		return false
+	}
+	plaintextSeed, err := s.decryptSeed(*user.MFASecret)
+	if err != nil {
+		return false
+	}
+	return verifyTOTPCodeAgainstSecret(plaintextSeed, trimmedCode, s.now())
+}
+
 func verifyTOTPCodeAgainstSecret(secret, code string, now time.Time) bool {
 	trimmed := strings.TrimSpace(code)
 	if len(trimmed) != defaultTOTPDigits {

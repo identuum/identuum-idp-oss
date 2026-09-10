@@ -200,10 +200,10 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:surface=auth
 		// docgen:method=POST
 		// docgen:path=/api/v1/me/mfa/recovery-codes/regenerate
-		// docgen:summary=Self-service MFA recovery-code regeneration. Replaces the authenticated user's stored recovery codes with a fresh list of the same length+count as enrolment and returns the new codes EXACTLY ONCE. MFAEnabled and MFASecret are not modified; the user's existing TOTP enrolment continues to work.
+		// docgen:summary=Self-service MFA recovery-code regeneration. Requires a current TOTP code in the body ({code}) — a recovery code is NOT accepted as the proof. Replaces the authenticated user's stored recovery codes with a fresh list of the same length+count as enrolment and returns the new codes EXACTLY ONCE. MFAEnabled and MFASecret are not modified; the user's existing TOTP enrolment continues to work.
 		// docgen:tier=oss
 		// docgen:auth=authenticated
-		// docgen:notes=Response carries Cache-Control no-store + Pragma no-cache. 400 mfa_not_enrolled when MFAEnabled=false on the principal. 401 unauthorized for stale / missing principals. The raw recovery codes never appear in audit metadata, logs, or error envelopes — they are returned ONCE in the response body.
+		// docgen:notes=Response carries Cache-Control no-store + Pragma no-cache. 401 invalid_code for an absent, empty, wrong or recovery-code proof alike (cause-neutral; a refused recovery code is not burned). 400 invalid_request for a malformed body. 400 mfa_not_enrolled when MFAEnabled=false on the principal. 401 unauthorized for stale / missing principals. The raw recovery codes never appear in audit metadata, logs, or error envelopes — they are returned ONCE in the response body.
 		recovery.POST("/regenerate", HandleMFARecoveryCodesRegenerate(deps))
 
 		// Self-service MFA status read. Same authority shape as the

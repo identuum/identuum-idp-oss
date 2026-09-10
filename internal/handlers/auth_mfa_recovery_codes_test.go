@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/base32"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -19,6 +20,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
+	"github.com/identuum/identuum-idp-oss/pkg/totp"
 )
 
 // recoveryStubUserRepo is the minimal UserRepository the
@@ -226,8 +228,37 @@ func recoveryReq(t *testing.T, eng recoveryTestEngine) *httptest.ResponseRecorde
 	return w
 }
 
+// recoveryTestSeed is the RFC 6238 test-vector seed, stored unchanged
+// under the identity cipher: THE-OSS-HALF-OF-THE-RULING made a current
+// TOTP code the regenerate's only proof, so the seeded secret must be a
+// real base32 seed the test can mint a code from.
+const recoveryTestSeed = "JBSWY3DPEHPK3PXP"
+
+// recoveryTOTPNow mints the current TOTP code for recoveryTestSeed at the
+// wall clock the service reads (the engine's service has no pinned Now);
+// the verifier's ±1-step window covers a boundary straddle.
+func recoveryTOTPNow(t *testing.T) string {
+	t.Helper()
+	key, err := base32.StdEncoding.DecodeString(recoveryTestSeed)
+	if err != nil {
+		t.Fatalf("decode test seed: %v", err)
+	}
+	return totp.Code(key, uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds), 6)
+}
+
+// recoveryReqWithCode posts {code} to the regenerate route.
+func recoveryReqWithCode(t *testing.T, eng recoveryTestEngine, code string) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, _ := json.Marshal(map[string]string{"code": code})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/me/mfa/recovery-codes/regenerate", strings.NewReader(string(raw)))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	eng.r.ServeHTTP(w, req)
+	return w
+}
+
 func seedRecoveryUser(eng recoveryTestEngine, id uuid.UUID, mfaEnabled bool) *domain.User {
-	secret := "PRESERVED-SECRET-LITERAL"
+	secret := recoveryTestSeed
 	u := &domain.User{
 		ID:               id,
 		OrganizationID:   uuid.New(),
@@ -273,7 +304,7 @@ func TestMFARecoveryCodesRegenerate_HappyPath(t *testing.T) {
 	uid := uuid.New()
 	eng := newRecoveryEngine(t, &domain.Principal{UserID: uid, Role: domain.RoleOrgUser})
 	original := seedRecoveryUser(eng, uid, true /* MFAEnabled */)
-	w := recoveryReq(t, eng)
+	w := recoveryReqWithCode(t, eng, recoveryTOTPNow(t))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d; body=%q", w.Code, w.Body.String())
 	}
@@ -330,13 +361,13 @@ func TestMFARecoveryCodesRegenerate_HappyPath(t *testing.T) {
 	if !stored.MFAEnabled {
 		t.Error("MFAEnabled flipped off by regeneration")
 	}
-	if stored.MFASecret == nil || *stored.MFASecret != "PRESERVED-SECRET-LITERAL" {
+	if stored.MFASecret == nil || *stored.MFASecret != recoveryTestSeed {
 		t.Errorf("MFASecret mutated by regeneration: %v", stored.MFASecret)
 	}
 	// Response body MUST NOT carry MFASecret or the literal field
 	// name.
 	body := w.Body.String()
-	if strings.Contains(body, "PRESERVED-SECRET-LITERAL") {
+	if strings.Contains(body, recoveryTestSeed) {
 		t.Errorf("response leaked MFASecret: %q", body)
 	}
 	if strings.Contains(body, "mfa_secret") {
@@ -393,7 +424,7 @@ func TestMFARecoveryCodesRegenerate_OnlyAuthenticatedUserCodesAffected(t *testin
 		MFASecret:        &otherSecret,
 		MFARecoveryCodes: append([]string(nil), otherCodes...),
 	}
-	w := recoveryReq(t, eng)
+	w := recoveryReqWithCode(t, eng, recoveryTOTPNow(t))
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d", w.Code)
 	}
@@ -420,7 +451,9 @@ func TestMFARecoveryCodesRegenerate_SecondCallReplacesFirst(t *testing.T) {
 	uid := uuid.New()
 	eng := newRecoveryEngine(t, &domain.Principal{UserID: uid, Role: domain.RoleOrgUser})
 	seedRecoveryUser(eng, uid, true)
-	first := recoveryReq(t, eng)
+	// The same TOTP code carries both calls: this leg has no
+	// last-accepted-step guard (a measured gap, filed in the wiki).
+	first := recoveryReqWithCode(t, eng, recoveryTOTPNow(t))
 	if first.Code != http.StatusOK {
 		t.Fatalf("first status = %d", first.Code)
 	}
@@ -429,7 +462,7 @@ func TestMFARecoveryCodesRegenerate_SecondCallReplacesFirst(t *testing.T) {
 	}
 	_ = json.Unmarshal(first.Body.Bytes(), &firstResp)
 
-	second := recoveryReq(t, eng)
+	second := recoveryReqWithCode(t, eng, recoveryTOTPNow(t))
 	if second.Code != http.StatusOK {
 		t.Fatalf("second status = %d", second.Code)
 	}
@@ -471,5 +504,59 @@ func TestMFARecoveryCodesRegenerate_StalePrincipalRejected(t *testing.T) {
 	}
 	if eng.userRepo.calls != 0 {
 		t.Errorf("repo Update called %d times on stale principal; want 0", eng.userRepo.calls)
+	}
+}
+
+// TestMFARecoveryCodesRegenerate_NoTOTPIsOneRefusal (THE-OSS-HALF-OF-
+// THE-RULING): a request with no body, an empty body, an empty code, a
+// wrong code or a recovery code is refused with ONE byte-identical 401
+// invalid_code — the sibling disable's sentinel — and nothing is
+// written; only a malformed body is the route family's 400
+// invalid_request.
+func TestMFARecoveryCodesRegenerate_NoTOTPIsOneRefusal(t *testing.T) {
+	uid := uuid.New()
+	eng := newRecoveryEngine(t, &domain.Principal{UserID: uid, Role: domain.RoleOrgUser})
+	seedRecoveryUser(eng, uid, true)
+	want := `{"error":"invalid_code"}`
+	cases := []struct {
+		label string
+		body  string // "" = no body at all
+		ct    bool
+	}{
+		{"no body", "", false},
+		{"empty object", "{}", true},
+		{"empty code", `{"code":""}`, true},
+		{"wrong code", `{"code":"000000"}`, true},
+		{"recovery code", `{"code":"OLD-CODE-A"}`, true},
+	}
+	for _, c := range cases {
+		var req *http.Request
+		if c.body == "" {
+			req = httptest.NewRequest(http.MethodPost, "/api/v1/me/mfa/recovery-codes/regenerate", nil)
+		} else {
+			req = httptest.NewRequest(http.MethodPost, "/api/v1/me/mfa/recovery-codes/regenerate", strings.NewReader(c.body))
+		}
+		if c.ct {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		eng.r.ServeHTTP(w, req)
+		if w.Code != http.StatusUnauthorized || w.Body.String() != want {
+			t.Errorf("%s: status = %d body = %q; want 401 %s", c.label, w.Code, w.Body.String(), want)
+		}
+	}
+	if eng.userRepo.calls != 0 {
+		t.Errorf("repo Update called %d times across refusals; want 0 (nothing burned, nothing replaced)", eng.userRepo.calls)
+	}
+	if len(eng.rec.Events()) != 0 {
+		t.Errorf("audit events across refusals = %d; want 0 (the route audits success only, as before)", len(eng.rec.Events()))
+	}
+	// Malformed body: the sibling disable's 400 invalid_request.
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/me/mfa/recovery-codes/regenerate", strings.NewReader(`{"code":`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	eng.r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"invalid_request"`) {
+		t.Errorf("malformed body: status = %d body = %q; want 400 invalid_request", w.Code, w.Body.String())
 	}
 }

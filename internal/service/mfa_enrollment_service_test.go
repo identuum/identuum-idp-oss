@@ -1664,7 +1664,7 @@ func TestMFAEnrollment_GetMFAStatus_DoesNotMutateUserRow(t *testing.T) {
 
 func TestMFAEnrollment_RegenerateRecoveryCodes_NilUserIDInvalid(t *testing.T) {
 	svc, _, _, _ := newEnrollSvc(t)
-	_, err := svc.RegenerateRecoveryCodes(context.Background(), uuid.Nil)
+	_, err := svc.RegenerateRecoveryCodes(context.Background(), uuid.Nil, "")
 	if !errors.Is(err, ErrMFAEnrollmentInvalid) {
 		t.Errorf("nil userID = %v; want ErrMFAEnrollmentInvalid", err)
 	}
@@ -1672,7 +1672,7 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_NilUserIDInvalid(t *testing.T) {
 
 func TestMFAEnrollment_RegenerateRecoveryCodes_UnknownUserInvalid(t *testing.T) {
 	svc, _, _, _ := newEnrollSvc(t)
-	_, err := svc.RegenerateRecoveryCodes(context.Background(), uuid.New())
+	_, err := svc.RegenerateRecoveryCodes(context.Background(), uuid.New(), "")
 	if !errors.Is(err, ErrMFAEnrollmentInvalid) {
 		t.Errorf("unknown user = %v; want ErrMFAEnrollmentInvalid", err)
 	}
@@ -1684,7 +1684,7 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_NotEnrolledRejected(t *testing.T)
 	if user.MFAEnabled {
 		t.Fatal("fixture invariant: expected MFAEnabled=false to start")
 	}
-	_, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID)
+	_, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, "")
 	if !errors.Is(err, ErrMFANotEnrolled) {
 		t.Errorf("not-enrolled = %v; want ErrMFANotEnrolled", err)
 	}
@@ -1699,7 +1699,7 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_BannedRejected(t *testing.T) {
 	user.MFAEnabled = true
 	user.Banned = true
 	userRepo.byID[user.ID] = user
-	_, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID)
+	_, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, "")
 	if !errors.Is(err, ErrMFAEnrollmentInvalid) {
 		t.Errorf("banned = %v; want ErrMFAEnrollmentInvalid", err)
 	}
@@ -1711,7 +1711,7 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_DeletedRejected(t *testing.T) {
 	now := time.Now().UTC()
 	user.DeletedAt = &now
 	userRepo.byID[user.ID] = user
-	_, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID)
+	_, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, "")
 	if !errors.Is(err, ErrMFAEnrollmentInvalid) {
 		t.Errorf("deleted = %v; want ErrMFAEnrollmentInvalid", err)
 	}
@@ -1720,13 +1720,16 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_DeletedRejected(t *testing.T) {
 func TestMFAEnrollment_RegenerateRecoveryCodes_HappyPath(t *testing.T) {
 	svc, _, userRepo, user := newEnrollSvc(t)
 	original := []string{"OLDCODE-A", "OLDCODE-B", "OLDCODE-C"}
-	originalSecret := "PRESERVED-TOTP-SECRET"
+	// THE-OSS-HALF-OF-THE-RULING: the regenerate's only proof is a current
+	// TOTP code, so the seeded secret must be a real base32 seed and the
+	// call carries the code minted from it at the service clock.
+	originalSecret := regenerateSeedForTest(t)
 	user.MFAEnabled = true
 	user.MFASecret = &originalSecret
 	user.MFARecoveryCodes = hashCodesForTest(original)
 	userRepo.byID[user.ID] = user
 
-	codes, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID)
+	codes, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, regenerateTOTPForTest(t, svc, originalSecret))
 	if err != nil {
 		t.Fatalf("regenerate: %v", err)
 	}
@@ -1780,14 +1783,18 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_HappyPath(t *testing.T) {
 
 func TestMFAEnrollment_RegenerateRecoveryCodes_SecondCallReplacesFirst(t *testing.T) {
 	svc, _, userRepo, user := newEnrollSvc(t)
+	seed := regenerateSeedForTest(t)
 	user.MFAEnabled = true
+	user.MFASecret = &seed
 	userRepo.byID[user.ID] = user
 
-	first, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID)
+	// The same TOTP code carries both calls: the service clock is pinned
+	// and this leg has no last-accepted-step guard (a measured gap, filed).
+	first, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, regenerateTOTPForTest(t, svc, seed))
 	if err != nil {
 		t.Fatalf("first regenerate: %v", err)
 	}
-	second, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID)
+	second, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, regenerateTOTPForTest(t, svc, seed))
 	if err != nil {
 		t.Fatalf("second regenerate: %v", err)
 	}
@@ -1823,9 +1830,11 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_SecondCallReplacesFirst(t *testin
 // regeneration.
 func TestMFAEnrollment_RegenerateRecoveryCodes_FreshCodesMatchEnrollmentFormat(t *testing.T) {
 	svc, _, userRepo, user := newEnrollSvc(t)
+	seed := regenerateSeedForTest(t)
 	user.MFAEnabled = true
+	user.MFASecret = &seed
 	userRepo.byID[user.ID] = user
-	codes, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID)
+	codes, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, regenerateTOTPForTest(t, svc, seed))
 	if err != nil {
 		t.Fatalf("regenerate: %v", err)
 	}

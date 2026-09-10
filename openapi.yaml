@@ -919,14 +919,14 @@ paths:
   "/api/v1/me/mfa/recovery-codes/regenerate":
     post:
       operationId: "identuum-idp-oss.auth.mfa_recovery_codes_regenerate"
-      summary: "Self-service MFA recovery-code regeneration. Replaces the authenticated user's stored recovery codes with a fresh list of the same length+count as enrolment and returns the new codes EXACTLY ONCE. MFAEnabled and MFASecret are not modified; the user's existing TOTP enrolment continues to work."
+      summary: "Self-service MFA recovery-code regeneration. Requires a current TOTP code in the body ({code}) — a recovery code is NOT accepted as the proof. Replaces the authenticated user's stored recovery codes with a fresh list of the same length+count as enrolment and returns the new codes EXACTLY ONCE. MFAEnabled and MFASecret are not modified; the user's existing TOTP enrolment continues to work."
       tags:
         - "auth"
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: "Self-service MFA recovery-code regeneration. Replaces the authenticated user's stored recovery codes with a fresh list of the same length+count as enrolment and returns the new codes EXACTLY ONCE. MFAEnabled and MFASecret are not modified; the user's existing TOTP enrolment continues to work."
+          description: "Self-service MFA recovery-code regeneration. Requires a current TOTP code in the body ({code}) — a recovery code is NOT accepted as the proof. Replaces the authenticated user's stored recovery codes with a fresh list of the same length+count as enrolment and returns the new codes EXACTLY ONCE. MFAEnabled and MFASecret are not modified; the user's existing TOTP enrolment continues to work."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/me/mfa/status":

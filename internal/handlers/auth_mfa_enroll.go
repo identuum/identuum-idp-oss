@@ -251,6 +251,12 @@ type mfaRecoveryCodesRegenerateResponse struct {
 	Count         int      `json:"count"`
 }
 
+// mfaRecoveryCodesRegenerateRequest is the regenerate's body: the proof,
+// a current TOTP code and nothing else (THE-OSS-HALF-OF-THE-RULING).
+type mfaRecoveryCodesRegenerateRequest struct {
+	Code string `json:"code"`
+}
+
 // HandleMFARecoveryCodesRegenerate replaces the authenticated
 // user's MFA recovery codes with a fresh list and returns the new
 // codes ONCE. The request body is ignored entirely — the only
@@ -286,11 +292,27 @@ func HandleMFARecoveryCodesRegenerate(deps AuthSessionsHandlerDeps) gin.HandlerF
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-		codes, err := deps.MFAEnrollment.RegenerateRecoveryCodes(c.Request.Context(), principal.UserID)
+		// THE-OSS-HALF-OF-THE-RULING (2026-09-10, owner ruling (b)): the
+		// body carries the proof — a current TOTP code, and ONLY a TOTP
+		// code. An absent body is an absent proof, refused by the service
+		// with the same cause-neutral 401 invalid_code as a wrong one;
+		// only a malformed body is a 400, the sibling disable's shape.
+		var req mfaRecoveryCodesRegenerateRequest
+		if c.Request.Body != nil && c.Request.ContentLength != 0 {
+			if err := c.ShouldBindJSON(&req); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+				return
+			}
+		}
+		codes, err := deps.MFAEnrollment.RegenerateRecoveryCodes(c.Request.Context(), principal.UserID, req.Code)
 		if err != nil {
 			switch {
 			case errors.Is(err, service.ErrMFANotEnrolled):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "mfa_not_enrolled"})
+			case errors.Is(err, service.ErrMFARegenerateInvalidCode):
+				// One refusal for absent, empty, wrong and recovery-code
+				// proofs alike — the disable's invalid_code sentinel.
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_code"})
 			case errors.Is(err, service.ErrMFAEnrollmentInvalid):
 				// Stale principal / banned / deleted / programmer-
 				// error path: collapse to the same opaque 401 the
