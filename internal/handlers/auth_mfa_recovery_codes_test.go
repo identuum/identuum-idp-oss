@@ -2,9 +2,13 @@ package handlers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1" //nolint:gosec // SHA-1 mandated by RFC 6238 §1.
 	"encoding/base32"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +24,6 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
-	"github.com/identuum/identuum-idp-oss/pkg/totp"
 )
 
 // recoveryStubUserRepo is the minimal UserRepository the
@@ -236,14 +239,24 @@ const recoveryTestSeed = "JBSWY3DPEHPK3PXP"
 
 // recoveryTOTPNow mints the current TOTP code for recoveryTestSeed at the
 // wall clock the service reads (the engine's service has no pinned Now);
-// the verifier's ±1-step window covers a boundary straddle.
+// the verifier's ±1-step window covers a boundary straddle. The RFC 6238
+// step is inlined, as internal/e2e's computeHOTPForTest inlines it:
+// boundaries.json keeps pkg/totp out of the internal_handlers layer,
+// tests included (measured by the gograph-boundaries gate).
 func recoveryTOTPNow(t *testing.T) string {
 	t.Helper()
 	key, err := base32.StdEncoding.DecodeString(recoveryTestSeed)
 	if err != nil {
 		t.Fatalf("decode test seed: %v", err)
 	}
-	return totp.Code(key, uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds), 6)
+	var counter [8]byte
+	binary.BigEndian.PutUint64(counter[:], uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds))
+	mac := hmac.New(sha1.New, key) //nolint:gosec // SHA-1 mandated by RFC 6238 §1.
+	_, _ = mac.Write(counter[:])
+	sum := mac.Sum(nil)
+	offset := sum[len(sum)-1] & 0x0f
+	bin := (uint32(sum[offset])&0x7f)<<24 | uint32(sum[offset+1])<<16 | uint32(sum[offset+2])<<8 | uint32(sum[offset+3])
+	return fmt.Sprintf("%06d", bin%1000000)
 }
 
 // recoveryReqWithCode posts {code} to the regenerate route.
