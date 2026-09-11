@@ -434,7 +434,7 @@ endpoints:
     path: "/api/v1/me/mfa/disable"
     handler: "HandleMFADisableSelf"
     registrar: ""
-    summary: "Self-service MFA disable. Verifies a fresh TOTP code, one valid recovery code, OR the authenticated user's current password, then clears mfa_enabled / mfa_secret / mfa_recovery_codes on the authenticated user's row. Blocked when the principal is site_admin, org_admin, or in an organization whose mfa_policy is \"required\". On success the user's existing sessions and OAuth refresh tokens are revoked best-effort."
+    summary: "Self-service MFA disable. Verifies a fresh TOTP code or one valid recovery code — the account password is NOT a proof — then clears mfa_enabled / mfa_secret / mfa_recovery_codes on the authenticated user's row. Blocked when the principal is site_admin, org_admin, or in an organization whose mfa_policy is \"required\". On success the user's existing sessions and OAuth refresh tokens are revoked best-effort."
     tier: "oss"
     auth: "authenticated"
     request_schema: ""

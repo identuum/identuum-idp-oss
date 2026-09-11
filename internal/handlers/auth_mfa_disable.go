@@ -13,15 +13,17 @@ package handlers
 //
 //   - The handler accepts `code` and `password`. When `code` is
 //     non-empty, the service tries the TOTP leg first; on TOTP miss
-//     it falls back to a recovery-code match and does NOT try the
-//     password. A matched recovery code is burned BEFORE the final
-//     disable Update so a downstream failure cannot leave a reusable
-//     code on the row.
-//   - When `code` is empty and `password` is non-empty, the service
-//     verifies the authenticated local user's current password.
-//   - A code/password proof that does not match returns 401
-//     invalid_code. The wire NEVER distinguishes "wrong TOTP" from
-//     "wrong recovery code" from "wrong password".
+//     it falls back to a recovery-code match. A matched recovery code
+//     is burned BEFORE the final disable Update so a downstream
+//     failure cannot leave a reusable code on the row.
+//   - `password` is read off the wire (the bundled UI still sends the
+//     key) and NEVER consulted (THE-LAST-PASSWORD-DISARM, 2026-09-10):
+//     the account password is the first factor and cannot authorise
+//     removing the second, so a password-only body is refused exactly
+//     like a wrong code. The same rule identuum-idp-ce applies.
+//   - A proof that does not match returns 401 invalid_code. The wire
+//     NEVER distinguishes "wrong TOTP" from "wrong recovery code" from
+//     "no code at all".
 //
 // Policy gate:
 //

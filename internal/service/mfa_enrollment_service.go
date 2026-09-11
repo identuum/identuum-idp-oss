@@ -175,15 +175,14 @@ const (
 	// code is burned BEFORE the disable Update so a downstream
 	// failure cannot leave a reusable code on the row.
 	MFADisableReauthRecoveryCode MFADisableReauthMethod = "recovery_code"
-	// MFADisableReauthPassword indicates the supplied current
-	// password verified against the authenticated local user's stored
-	// password hash.
-	MFADisableReauthPassword MFADisableReauthMethod = "password"
 )
 
-// MFADisableSelfInput carries the accepted step-up proof material
-// for self-service MFA disable. Code is tried first when non-empty;
-// Password is considered only when Code is empty.
+// MFADisableSelfInput carries the step-up proof material for the
+// self-service MFA disable. Code is the only proof — a current TOTP
+// code or a recovery code. Password stays on the wire shape the bundled
+// UI still sends ({code, password}) and is never consulted
+// (THE-LAST-PASSWORD-DISARM): the first factor cannot authorise
+// removing the second.
 type MFADisableSelfInput struct {
 	Code     string
 	Password string
@@ -773,13 +772,14 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 			}
 		}
 	} else {
-		if strings.TrimSpace(in.Password) == "" {
-			return "", ErrMFADisableInvalidCode
-		}
-		if err := s.verifyCurrentPasswordForStepUp(ctx, user, in.Password); err != nil {
-			return "", ErrMFADisableInvalidCode
-		}
-		reauth = MFADisableReauthPassword
+		// THE-LAST-PASSWORD-DISARM (2026-09-10): no code, no proof. The
+		// account password is the FIRST factor and cannot authorise the
+		// removal of the second — a hijacked session already holds it —
+		// so in.Password is read off the wire for compatibility and never
+		// consulted, the password verifier is never called, and the
+		// refusal is the same opaque one a wrong code gets. The same rule
+		// identuum-idp-ce applies under the owner's ruling B.
+		return "", ErrMFADisableInvalidCode
 	}
 	// Clear the MFA fields. Mirrors UserService.ResetMFA exactly —
 	// MFAEnabled=false, MFASecret="", MFARecoveryCodes=[]. We

@@ -335,7 +335,14 @@ func TestMFADisable_RecoveryCodeHappyPath_FullWireShape(t *testing.T) {
 	}
 }
 
-func TestMFADisable_PasswordHappyPath_FullWireShape(t *testing.T) {
+// TestMFADisable_PasswordAloneIsNoProof_FullWireShape (THE-LAST-PASSWORD-
+// DISARM, 2026-09-10): the CORRECT current password, alone on the wire,
+// is refused with the route's existing opaque 401 invalid_code — the
+// answer does not say a password was once accepted — the password
+// verifier is never consulted, nothing is mutated, no revoker fires and
+// no audit row is written. This replaces the password happy path the
+// owner's ruling removed.
+func TestMFADisable_PasswordAloneIsNoProof_FullWireShape(t *testing.T) {
 	uid := uuid.New()
 	orgID := uuid.New()
 	eng := newDisableEngine(t, &domain.Principal{UserID: uid, OrganizationID: orgID, Role: domain.RoleOrgUser})
@@ -343,58 +350,36 @@ func TestMFADisable_PasswordHappyPath_FullWireShape(t *testing.T) {
 	password := "correct-current-password"
 	seedDisableEnrolledUser(eng, uid, orgID, domain.RoleOrgUser, nil, secret, []string{"REC-A", "REC-B"})
 	w := disableReq(t, eng, map[string]any{"password": password})
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("status = %d; want 204; body=%q", w.Code, w.Body.String())
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d; want 401 invalid_code; body=%q", w.Code, w.Body.String())
 	}
-	if body := w.Body.String(); body != "" {
-		t.Fatalf("body = %q; want empty", body)
+	body := w.Body.String()
+	if body != `{"error":"invalid_code"}` {
+		t.Fatalf("body = %q; want the route's opaque invalid_code envelope", body)
+	}
+	for _, banned := range []string{password, "HASH-CURRENT-PASSWORD", secret, "REC-A", "REC-B", "password"} {
+		if strings.Contains(body, banned) {
+			t.Errorf("response leaked %q in %q", banned, body)
+		}
 	}
 	stored := eng.userRepo.byID[uid]
-	if stored.MFAEnabled {
-		t.Errorf("MFAEnabled still true after password disable")
-	}
-	if stored.MFASecret == nil || *stored.MFASecret != "" {
-		t.Errorf("MFASecret not cleared: %v", stored.MFASecret)
-	}
-	if len(stored.MFARecoveryCodes) != 0 {
-		t.Errorf("MFARecoveryCodes not cleared: %v", stored.MFARecoveryCodes)
+	if !stored.MFAEnabled || stored.MFASecret == nil || *stored.MFASecret != secret || len(stored.MFARecoveryCodes) != 2 {
+		t.Errorf("password-only refusal mutated state: %+v", stored)
 	}
 	if stored.PasswordHash != "HASH-CURRENT-PASSWORD" {
 		t.Errorf("password_hash mutated: %q", stored.PasswordHash)
 	}
-	if calls := eng.sessionRevoker.Calls(); len(calls) != 1 || calls[0].UserID != uid {
-		t.Errorf("session revoker calls = %+v", calls)
+	if calls := eng.sessionRevoker.Calls(); len(calls) != 0 {
+		t.Errorf("session revoker fired on a password-only body: %+v", calls)
 	}
-	if calls := eng.refreshRevoker.Calls(); len(calls) != 1 || calls[0].UserID != uid {
-		t.Errorf("refresh revoker calls = %+v", calls)
+	if calls := eng.refreshRevoker.Calls(); len(calls) != 0 {
+		t.Errorf("refresh revoker fired on a password-only body: %+v", calls)
 	}
-	if eng.userRepo.verifyPasswordCalls != 1 {
-		t.Errorf("password verifier calls = %d; want 1", eng.userRepo.verifyPasswordCalls)
+	if eng.userRepo.verifyPasswordCalls != 0 {
+		t.Errorf("password verifier calls = %d; want 0 (the password is never consulted)", eng.userRepo.verifyPasswordCalls)
 	}
-	var auditMatched int
-	for _, e := range eng.rec.Events() {
-		if e.Action != string(domain.AuditMFADisabled) {
-			continue
-		}
-		auditMatched++
-		if got, _ := e.Metadata["reauth_method"].(string); got != "password" {
-			t.Errorf("audit reauth_method = %q; want password", got)
-		}
-		for k, v := range e.Metadata {
-			if k == "code" || k == "password" || k == "totp_code" || k == "mfa_secret" || k == "recovery_code" || k == "password_hash" || k == "session_id" || k == "refresh_token" || k == "token_hash" {
-				t.Errorf("audit metadata leaked banned key %q = %v", k, v)
-			}
-			if s, ok := v.(string); ok {
-				for _, banned := range []string{password, "HASH-CURRENT-PASSWORD", secret, "REC-A", "REC-B"} {
-					if strings.Contains(s, banned) {
-						t.Errorf("audit metadata leaked credential material %q in %q", banned, s)
-					}
-				}
-			}
-		}
-	}
-	if auditMatched == 0 {
-		t.Errorf("missing mfa_disabled audit event")
+	if len(eng.rec.Events()) != 0 {
+		t.Errorf("audit recorded a refused password-only proof: %+v", eng.rec.Events())
 	}
 }
 
@@ -559,28 +544,23 @@ func TestMFADisable_BothFieldsBehavior(t *testing.T) {
 			t.Fatalf("wrong-code rejection mutated MFAEnabled")
 		}
 	})
-	t.Run("empty code uses valid password", func(t *testing.T) {
+	t.Run("empty code is refused even with the valid password", func(t *testing.T) {
+		// THE-LAST-PASSWORD-DISARM: the password is not a proof.
 		uid := uuid.New()
 		eng := newDisableEngine(t, &domain.Principal{UserID: uid, Role: domain.RoleOrgUser})
 		seedDisableEnrolledUser(eng, uid, uuid.New(), domain.RoleOrgUser, nil, "JBSWY3DPEHPK3PXP", []string{"REC-A"})
 		w := disableReq(t, eng, map[string]any{"code": "", "password": "correct-current-password"})
-		if w.Code != http.StatusNoContent {
-			t.Fatalf("status = %d; want 204; body=%q", w.Code, w.Body.String())
+		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), `"error":"invalid_code"`) {
+			t.Fatalf("status/body = %d/%q; want 401 invalid_code", w.Code, w.Body.String())
 		}
-		if eng.userRepo.verifyPasswordCalls != 1 {
-			t.Fatalf("password verifier calls = %d; want 1", eng.userRepo.verifyPasswordCalls)
+		if eng.userRepo.verifyPasswordCalls != 0 {
+			t.Fatalf("password verifier calls = %d; want 0 (never consulted)", eng.userRepo.verifyPasswordCalls)
 		}
-		var found bool
-		for _, e := range eng.rec.Events() {
-			if e.Action == string(domain.AuditMFADisabled) {
-				found = true
-				if got, _ := e.Metadata["reauth_method"].(string); got != "password" {
-					t.Fatalf("reauth_method = %q; want password", got)
-				}
-			}
+		if !eng.userRepo.byID[uid].MFAEnabled {
+			t.Fatalf("empty-code refusal mutated MFAEnabled")
 		}
-		if !found {
-			t.Fatalf("missing audit event")
+		if len(eng.rec.Events()) != 0 {
+			t.Fatalf("audit recorded a refused password-only proof: %+v", eng.rec.Events())
 		}
 	})
 }

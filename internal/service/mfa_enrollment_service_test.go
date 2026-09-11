@@ -1216,31 +1216,11 @@ func TestMFAEnrollment_DisableSelf_WrongCodeInvalid(t *testing.T) {
 	}
 }
 
-func TestMFAEnrollment_DisableSelfWithProof_PasswordHappyPath(t *testing.T) {
-	svc, _, userRepo, user := newEnrollSvc(t)
-	secret := "JBSWY3DPEHPK3PXP"
-	seedEnrolledOrgUser(userRepo, user, secret, []string{"REC-A", "REC-B"})
-	method, err := svc.DisableSelfWithProof(context.Background(), user.ID, MFADisableSelfInput{Password: "correct-current-password"})
-	if err != nil {
-		t.Fatalf("disable: %v", err)
-	}
-	if method != MFADisableReauthPassword {
-		t.Errorf("reauth_method = %q; want password", method)
-	}
-	if userRepo.verifyPasswordCalls != 1 {
-		t.Errorf("password verifier calls = %d; want 1", userRepo.verifyPasswordCalls)
-	}
-	stored := userRepo.byID[user.ID]
-	if stored.MFAEnabled {
-		t.Errorf("MFAEnabled still true")
-	}
-	if stored.MFASecret == nil || *stored.MFASecret != "" {
-		t.Errorf("MFASecret not cleared: %v", stored.MFASecret)
-	}
-	if len(stored.MFARecoveryCodes) != 0 {
-		t.Errorf("MFARecoveryCodes not cleared: %v", stored.MFARecoveryCodes)
-	}
-}
+// THE-LAST-PASSWORD-DISARM (2026-09-10): the password happy path is
+// gone by ruling — the correct password alone is refused; see
+// mfa_disable_proof_rule_test.go for the pin. The wrong-password
+// case below stays: still refused, and the verifier is now never
+// consulted at all.
 
 func TestMFAEnrollment_DisableSelfWithProof_WrongPasswordInvalid(t *testing.T) {
 	svc, _, userRepo, user := newEnrollSvc(t)
@@ -1250,8 +1230,8 @@ func TestMFAEnrollment_DisableSelfWithProof_WrongPasswordInvalid(t *testing.T) {
 	if !errors.Is(err, ErrMFADisableInvalidCode) {
 		t.Fatalf("err = %v; want ErrMFADisableInvalidCode", err)
 	}
-	if userRepo.verifyPasswordCalls != 1 {
-		t.Errorf("password verifier calls = %d; want 1", userRepo.verifyPasswordCalls)
+	if userRepo.verifyPasswordCalls != 0 {
+		t.Errorf("password verifier calls = %d; want 0 (the password is never consulted)", userRepo.verifyPasswordCalls)
 	}
 	stored := userRepo.byID[user.ID]
 	if !stored.MFAEnabled || stored.MFASecret == nil || *stored.MFASecret != secret || len(stored.MFARecoveryCodes) != 2 {
@@ -1342,21 +1322,23 @@ func TestMFAEnrollment_DisableSelfWithProof_BothFieldsCodeFirst(t *testing.T) {
 			t.Errorf("wrong-code rejection mutated state: %+v", stored)
 		}
 	})
-	t.Run("empty code uses password", func(t *testing.T) {
+	t.Run("empty code is refused even with the correct password", func(t *testing.T) {
+		// THE-LAST-PASSWORD-DISARM: the password is not a proof; an empty
+		// code is refused before the password is looked at.
 		svc, _, userRepo, user := newEnrollSvc(t)
 		seedEnrolledOrgUser(userRepo, user, "JBSWY3DPEHPK3PXP", []string{"REC-A"})
-		method, err := svc.DisableSelfWithProof(context.Background(), user.ID, MFADisableSelfInput{
+		_, err := svc.DisableSelfWithProof(context.Background(), user.ID, MFADisableSelfInput{
 			Code:     "",
 			Password: "correct-current-password",
 		})
-		if err != nil {
-			t.Fatalf("disable: %v", err)
+		if !errors.Is(err, ErrMFADisableInvalidCode) {
+			t.Fatalf("err = %v; want ErrMFADisableInvalidCode", err)
 		}
-		if method != MFADisableReauthPassword {
-			t.Fatalf("method = %q; want password", method)
+		if userRepo.verifyPasswordCalls != 0 {
+			t.Fatalf("password verifier calls = %d; want 0 (never consulted)", userRepo.verifyPasswordCalls)
 		}
-		if userRepo.verifyPasswordCalls != 1 {
-			t.Fatalf("password verifier calls = %d; want 1", userRepo.verifyPasswordCalls)
+		if !userRepo.byID[user.ID].MFAEnabled {
+			t.Fatalf("empty-code refusal mutated MFAEnabled")
 		}
 	})
 }
