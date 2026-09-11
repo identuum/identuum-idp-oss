@@ -121,3 +121,18 @@ TEST-spec.MD
 # (conformance/.evidence/<UTC stamp>/export) so a failure can be read after
 # the teardown. A green run keeps nothing.
 /conformance/.evidence/
+
+# Legattus project state (THE-LAST-PASSWORD-DISARM, 2026-09-10): LOCAL, the
+# way the tool treats its own repository — legattus tracks only
+# .legattus.example.json and gitignores /.legattus/ entirely. .legattus.json
+# is per-checkout provider configuration (executables, timeouts) and
+# .legattus/ is per-run lifecycle state and evidence; neither describes this
+# repository's product, and both are re-created by `legattus init`, which is
+# idempotent and leaves an existing config byte-identical.
+# Ignored ALSO because they must not dirty the tree: untracked-unignored paths
+# make gate-witness `run` refuse to mint, so an initialised checkout would
+# otherwise be unmintable until someone committed tool state.
+# A tuned timeout worth keeping belongs in a committed .legattus.example.json,
+# not in the ignored live file.
+/.legattus.json
+/.legattus/
