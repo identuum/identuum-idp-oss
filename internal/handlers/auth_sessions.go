@@ -62,6 +62,15 @@ type AuthSessionsHandlerDeps struct {
 	// service touches neither sessions nor refresh tokens.
 	ChangePassword *service.ChangePasswordService
 	Audit          audit.Service
+	// RecoveryCodesRegenerateLimiter, when non-nil, is mounted on the
+	// /api/v1/me/mfa/recovery-codes group BEHIND mw.RequireAuthenticated, so
+	// it bounds how often one authenticated subject may present a TOTP to
+	// POST /regenerate (the composition root keys it per subject; see
+	// ratelimit.RateLimitConfig.MFARecoveryCodesRegenerateLimit). nil keeps
+	// the group exactly as before: the composition root always passes a
+	// limiter (a zero-value config yields the documented no-op middleware),
+	// and tests that register the routes directly pass nothing.
+	RecoveryCodesRegenerateLimiter gin.HandlerFunc
 }
 
 // ValidateTokenVerifier is the narrow seam GET /api/v1/validate
@@ -196,6 +205,12 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// neither rotates the session nor sets any cookies.
 		recovery := router.Group("/api/v1/me/mfa/recovery-codes")
 		recovery.Use(mw.RequireAuthenticated())
+		if deps.RecoveryCodesRegenerateLimiter != nil {
+			// THE-UNLIMITED-REGENERATE (2026-09-12): the per-subject bucket
+			// sits BEHIND the guard, so it is keyed by the principal the
+			// guard just admitted and never sees an unauthenticated request.
+			recovery.Use(deps.RecoveryCodesRegenerateLimiter)
+		}
 		// docgen:endpoint
 		// docgen:surface=auth
 		// docgen:method=POST

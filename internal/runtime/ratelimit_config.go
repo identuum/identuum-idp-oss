@@ -28,8 +28,11 @@ import (
 //	                          BEFORE the auth guard, so no client is
 //	                          authenticated yet when the key is computed)
 //	password-reset 10 / 15m  (tight; per IP — flooding / enumeration)
+//	mfa-recovery-codes-regenerate
+//	               5 / 15m   (tight; per authenticated SUBJECT — a TOTP
+//	                          guessed at wire speed; THE-UNLIMITED-REGENERATE)
 //
-// Only the six classes the router mounts are populated; the remaining
+// Only the seven classes the router mounts are populated; the remaining
 // ratelimit.RateLimitConfig fields are intentionally left zero (no route
 // reads them).
 func resolveRateLimitConfig(getenv func(string) string) ratelimit.RateLimitConfig {
@@ -52,6 +55,8 @@ func resolveRateLimitConfig(getenv func(string) string) ratelimit.RateLimitConfi
 		IntrospectionLimit: resolveRateLimit(getenv, "INTROSPECTION", 600, time.Minute),
 		RevocationLimit:    resolveRateLimit(getenv, "REVOCATION", 120, time.Minute),
 		PasswordResetLimit: resolveRateLimit(getenv, "PASSWORD_RESET", 10, 15*time.Minute),
+		// IDENTUUM_IDP_RATE_LIMIT_MFA_RECOVERY_CODES_REGENERATE_{REQUESTS,WINDOW}
+		MFARecoveryCodesRegenerateLimit: resolveRateLimit(getenv, "MFA_RECOVERY_CODES_REGENERATE", 5, 15*time.Minute),
 	}
 }
 

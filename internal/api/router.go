@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
@@ -1247,6 +1248,15 @@ func mountAuthSessions(router gin.IRouter, resolved OSSRouterDeps) {
 		// password reset). R2 parked: no session/refresh revocation wired.
 		authDeps.ChangePassword = service.NewChangePasswordService(resolved.UserRepo, 0)
 	}
+	// THE-UNLIMITED-REGENERATE (2026-09-12): POST /api/v1/me/mfa/recovery-codes/
+	// regenerate proves itself with a six-digit TOTP over a ±1-step window and
+	// had no bound on attempts. Keyed PER AUTHENTICATED SUBJECT (not per IP):
+	// the handler mounts it behind mw.RequireAuthenticated, so the principal is
+	// always present and one caller behind a shared NAT cannot throttle its
+	// neighbours. Unlike CONF-7 there is no failed authentication to bound
+	// here — the guard refuses those first. Noop when RateLimitConfig is
+	// zero-value.
+	authDeps.RecoveryCodesRegenerateLimiter = mw.NewRateLimitMiddlewareWithKeyFn(resolved.RateLimitConfig.MFARecoveryCodesRegenerateLimit, "mfa-recovery-codes-regenerate", authenticatedSubjectRateLimitKey)
 	handlers.RegisterAuthSessionRoutes(router, authDeps)
 }
 
@@ -1324,6 +1334,22 @@ func profileLookupFor(resolved OSSRouterDeps) handlers.ProfileByUserLookup {
 func oauthClientRateLimitKey(c *gin.Context) string {
 	if client, ok := mw.AuthenticatedClientFromContext(c); ok && client != nil {
 		return client.ClientID
+	}
+	return ""
+}
+
+// authenticatedSubjectRateLimitKey buckets a request by the authenticated
+// principal's user id (planted in context by the bearer / session
+// populators and required by mw.RequireAuthenticated). Meant for limiters
+// mounted BEHIND that guard: the subject is always present there, so one
+// caller on a shared egress IP never throttles a neighbour, and the bucket
+// follows the account rather than the network path. Returning "" when no
+// principal (or no user id) is in context makes
+// NewRateLimitMiddlewareWithKeyFn fall back to the client IP, so a request
+// is never un-bucketed.
+func authenticatedSubjectRateLimitKey(c *gin.Context) string {
+	if p, ok := mw.PrincipalFromContext(c); ok && p != nil && p.UserID != uuid.Nil {
+		return "user:" + p.UserID.String()
 	}
 	return ""
 }

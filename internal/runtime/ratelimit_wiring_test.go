@@ -105,6 +105,7 @@ func TestResolveRateLimitConfig_Defaults(t *testing.T) {
 		{"introspection", cfg.IntrospectionLimit, 600, time.Minute},
 		{"revocation", cfg.RevocationLimit, 120, time.Minute},
 		{"password-reset", cfg.PasswordResetLimit, 10, 15 * time.Minute},
+		{"mfa-recovery-codes-regenerate", cfg.MFARecoveryCodesRegenerateLimit, 5, 15 * time.Minute},
 	}
 	for _, c := range cases {
 		if c.got.RequestsPerWindow != c.req || c.got.WindowDuration != c.window {

@@ -69,6 +69,23 @@ type RateLimitConfig struct {
 	// enumeration). Default: 10 requests per 15 minutes per IP.
 	PasswordResetLimit RateLimit
 
+	// MFARecoveryCodesRegenerateLimit governs POST
+	// /api/v1/me/mfa/recovery-codes/regenerate, keyed PER AUTHENTICATED
+	// SUBJECT (the principal's user id; the IP fallback applies only when
+	// no principal is in context, which behind mw.RequireAuthenticated
+	// cannot happen). The route's proof is a six-digit TOTP matched over a
+	// ±1-step window with no replay guard, so without a bucket an
+	// authenticated caller could try codes at wire speed; this bounds how
+	// often ONE subject may try, and keys per subject rather than per IP so
+	// one caller behind a shared NAT cannot throttle its neighbours.
+	// Mounted BEHIND the auth guard on purpose — unlike RevocationLimit
+	// (CONF-7) there is no failed authentication to bound here: an
+	// unauthenticated request is refused by the guard before the bucket is
+	// consulted, and the exposure is the authenticated caller guessing the
+	// second factor. Tight — regeneration is a rare, deliberate act.
+	// Default: 5 requests per 15 minutes per subject.
+	MFARecoveryCodesRegenerateLimit RateLimit
+
 	RedisAddr     string
 	RedisPassword string
 }
