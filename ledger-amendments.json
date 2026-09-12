@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "5f3f7e9944f10170c0634003b81719146cf46658",
-  "changes": [
-    {
-      "rule_id": "GRYPE-SUBJECT-1",
-      "change_class": "rule_added",
-      "reason": "THE-JUDGE-AND-ITS-SUBJECT (2026-09-12): the shared grype judge now names its subject and evaluates the applied-configuration and exclude-coverage predicates only for a directory subject, reporting both not applicable for an image and refusing a -root that is not the subject; identuum-ui's image scan had been compared with this repository's .grype.yaml and this repository's gitignored executables since e12bd79. Pinned through the fixture-driven driver test, red-proved by three mutations."
-    }
-  ]
+  "base_commit": "a5b457ac5288c9e15e7e0b0c6ff4d02d651b8be0",
+  "changes": []
 }
