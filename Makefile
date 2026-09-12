@@ -2416,9 +2416,13 @@ test-full:
 	@# The classifier's exit code IS the branch: 0 SKIPPABLE takes the skip,
 	@# and REQUIRED (10) or undecidable (anything else) both fall through to
 	@# the real mint. Fail closed: only an explicit 0 skips.
+	@# THE-ONE-MINT-RECORD (2026-09-12): the classifier reads the mint's own
+	@# record — ../identuum-ui/GATE-RUN.e2e-full.txt, both heads and the
+	@# sibling's tree digest — and nothing else. MINT-STATE.json, the marker
+	@# only this target wrote, is retired: three mints paid from the sibling
+	@# had moved the record and never the marker.
 	@if go run ./tools/mint-reachability --repo .; then \
-		go run ./tools/mint-reachability --repo . --record skipped > /dev/null; \
-		echo "test-full: MINT SKIPPED — recorded in MINT-STATE.json with the paths that justified it."; \
+		echo "test-full: MINT SATISFIED by the e2e record in ../identuum-ui; every path since its heads is declared no-reach."; \
 		echo "test-full: every mint floor stands; the next mint that runs still holds them."; \
 	else \
 		$(MAKE) --no-print-directory test-full-mint; \
@@ -2438,7 +2442,6 @@ test-full-mint:
 	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
 	$(MAKE) -C ../identuum-ui e2e-full
 	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-full.txt
-	@# The mint ran and both halves checked out: move last_minted forward, so
-	@# the NEXT slice's diff is measured from what was actually minted.
-	@go run ./tools/mint-reachability --repo . --record minted > /dev/null || true
-	@echo "test-full: MINT RECORDED — MINT-STATE.json now names this pair."
+	@# The mint ran and both halves checked out. The record it wrote IS the
+	@# marker: the next decision reads its heads (THE-ONE-MINT-RECORD).
+	@echo "test-full: MINT PAID — ../identuum-ui/GATE-RUN.e2e-full.txt is the record of record for this pair."

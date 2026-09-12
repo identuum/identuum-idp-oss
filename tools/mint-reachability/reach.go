@@ -79,7 +79,7 @@ var NoReachSet = []NoReachEntry{
 	{"**/*.md", "prose (covers RULE-FLOOR.md and every README)"},
 	{"ledger-amendments.json", "the amendment manifest, read by ledger-diff-gate at verify time"},
 	{"GATE-RUN*.txt", "gate records: written by the gates, read by gate-witness check"},
-	{"MINT-STATE.json", "this classifier's own marker: written BY the mint, read only here. It is GITIGNORED — committing it created a loop, because the mint writes it on completion and that commit moved the tree the e2e record had just pinned, so every mint invalidated itself. Kept in the set anyway: an entry costs nothing and a future checkout that tracks it is then covered"},
+	{"MINT-STATE.json", "the RETIRED marker (THE-ONE-MINT-RECORD, 2026-09-12): the classifier now reads the mint's own record in the sibling and neither reads nor writes this file. The entry stays so a stale copy in an older checkout is never judged reaching"},
 	{"wiki/**", "a sibling repository's prose"},
 	{"**/*_test.go", "the Go toolchain excludes *_test.go from every non-test build"},
 	{"CI-WITNESS.txt", "the committed CI claim: fetched from a CI artifact, judged by ci-witness at verify time, never compiled or served"},

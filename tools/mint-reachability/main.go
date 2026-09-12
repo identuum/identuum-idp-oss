@@ -1,29 +1,39 @@
 package main
 
-// main.go — I/O for mint-reachability: read MINT-STATE.json, ask git what
-// changed in each repo since its last MINTED commit, classify, print one
-// line. With -record it writes the decision back into MINT-STATE.json.
+// main.go — I/O for mint-reachability: read the mint's own record, ask git
+// what changed in each repo since the heads that record pins, classify, print
+// one line.
 //
-// With -e2e-record it judges a STALE e2e record instead (THE-RECORD-ONLY-
-// CLOSE, 2026-09-07): the wiki's witness-ui-e2e gate refuses a record whose
-// trees have moved, and twice the move was three record-only commits that
-// cannot change e2e behaviour. Re-running a 4-minute mint to re-prove an
-// unchanged appliance is a treadmill; reading a stale record unexamined is a
-// weakening. So the gate asks this classifier: the record's own heads are the
-// left-hand side, every path changed since them in BOTH repositories is
-// judged by the same no-reach set, and the record stands ONLY when every one
-// is declared no-reach. One reaching path and the record is refused exactly
-// as before. A record that is not green, not finished or not pinned to both
-// heads is never judged at all — it is undecidable, which the caller must
-// treat as refused.
+// THE-ONE-MINT-RECORD (2026-09-12): the mint has ONE record of record — the
+// gate-run record identuum-ui's e2e-full run writes (GATE-RUN.e2e-full.txt in
+// the sibling checkout), carrying its own head, the identuum-idp-oss head and
+// tree digest it exercised, and its result. Until this slice the decision
+// read a second writer instead, MINT-STATE.json, written only by this
+// repository's test-full target — so three mints paid from identuum-ui moved
+// the record and never the marker, and the marker sat two slices and three
+// mints behind the record the wiki's judge already trusted. Two writers were
+// the defect; the marker is retired. A paid mint is SATISFIED only by a green,
+// finished record whose two heads are in the judged trees' histories and
+// since which every changed path is declared no-reach. An ABSENT record is
+// MINT REQUIRED: nothing says a mint was ever paid for this checkout. A RED
+// record is MINT REQUIRED: a red record is not a mint. A head outside the
+// judged tree is MINT REQUIRED: the record vouches for some other tree. The
+// rule that decides WHETHER a change reaches the appliance (reach.go,
+// MINT-REACHABILITY-1) is untouched — this file changes only how "already
+// paid" is established.
+//
+// With -e2e-record it judges a STALE e2e record for the wiki's witness-ui-e2e
+// gate (THE-RECORD-ONLY-CLOSE, 2026-09-07) by the same set: the record's own
+// heads are the left-hand side, every path changed since them in BOTH
+// repositories is judged, and the record stands ONLY when every one is
+// declared no-reach. That mode is unchanged.
 //
 // It never runs the mint and never skips it on its own: `make test-full`
-// reads the exit code. 0 = SKIPPABLE, 10 = MINT REQUIRED, 1 = it could not
-// decide (which the harness must treat as required — an undecidable
+// reads the exit code. 0 = SATISFIED (skippable), 10 = MINT REQUIRED, 1 = it
+// could not decide (which the harness must treat as required — an undecidable
 // classifier is not a licence to skip).
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -32,7 +42,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 )
 
 // ExitSkippable / ExitRequired / ExitUndecidable are the harness contract.
@@ -42,32 +51,14 @@ const (
 	ExitRequired    = 10
 )
 
-// MintState is the committed marker. It answers one question — which commit
-// of each repo the last GREEN mint actually covered — because without it
-// "the diff since the last mint" has no left-hand side.
-type MintState struct {
-	SchemaVersion string            `json:"schema_version"`
-	LastMinted    map[string]string `json:"last_minted"`
-	LastDecision  *Recorded         `json:"last_decision,omitempty"`
-}
-
-// Recorded is the audit trail the ruling demands: a skip that does not say
-// what justified it does not exist.
-type Recorded struct {
-	At           string            `json:"at"`
-	Mint         string            `json:"mint"`
-	Repos        map[string]string `json:"repos"`
-	JustifiedBy  map[string]string `json:"justified_by,omitempty"`
-	ReachingWere []string          `json:"reaching_paths,omitempty"`
-}
-
-const stateSchema = "mint-state.v1"
+// defaultRecord is the mint's record of record, relative to the sibling
+// checkout that produces it. It is gitignored there and never tracked.
+const defaultRecord = "GATE-RUN.e2e-full.txt"
 
 func main() {
 	repo := flag.String("repo", ".", "this repository root")
 	sibling := flag.String("sibling", "../identuum-ui", "the sibling repository the mint also exercises")
-	statePath := flag.String("state", "MINT-STATE.json", "the committed last-minted marker")
-	record := flag.String("record", "", "record the outcome: skipped | minted")
+	recordName := flag.String("mint-record", defaultRecord, "the mint's record of record, relative to the sibling checkout")
 	e2eRecord := flag.String("e2e-record", "", "judge a stale e2e record instead: accept it only when every path changed since its heads, in this repo and the sibling, is declared no-reach")
 	flag.Parse()
 
@@ -80,57 +71,78 @@ func main() {
 		os.Exit(judgeE2ERecord(*e2eRecord, *repo, siblingDir))
 	}
 
-	full := filepath.Join(*repo, *statePath)
-	st, err := loadState(full)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "check FAILED: mint-reachability —", err)
-		os.Exit(ExitUndecidable)
+	recordPath := *recordName
+	if !filepath.IsAbs(recordPath) {
+		recordPath = filepath.Join(siblingDir, recordPath)
 	}
+	line, code := decideFromRecord(recordPath, *repo, siblingDir)
+	if code == ExitUndecidable {
+		fmt.Fprintln(os.Stderr, line)
+	} else {
+		fmt.Println(line)
+	}
+	os.Exit(code)
+}
 
-	repos := map[string]string{"identuum-idp-oss": *repo, "identuum-ui": siblingDir}
+// decideFromRecord answers "is a mint owed for these two trees?" from the
+// mint's own record and nothing else. It returns the one evidence line and
+// the exit code of the harness contract.
+func decideFromRecord(recordPath, repoDir, uiDir string) (string, int) {
+	name := filepath.Base(recordPath)
+	raw, err := os.ReadFile(recordPath)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — no e2e record at %s: nothing says a mint was ever paid for this checkout", recordPath), ExitRequired
+	case err != nil:
+		return fmt.Sprintf("check FAILED: mint-reachability — %s: %v", name, err), ExitUndecidable
+	}
+	heads, err := parseE2ERecord(string(raw))
+	if err != nil {
+		if strings.Contains(err.Error(), "not green") {
+			return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s is not green: a red record is not a mint", name), ExitRequired
+		}
+		return fmt.Sprintf("check FAILED: mint-reachability — %s: %v", name, err), ExitUndecidable
+	}
+	// The record must vouch for THESE trees: each pinned head has to be in
+	// the history of the tree it names, or the record is some other tree's.
 	var changed []string
-	heads := map[string]string{}
-	for name, dir := range repos {
-		base, ok := st.LastMinted[name]
-		if !ok || strings.TrimSpace(base) == "" {
-			fmt.Fprintf(os.Stderr, "check FAILED: mint-reachability — %s has no last_minted commit in %s; the mint must run and record one\n", name, *statePath)
-			os.Exit(ExitUndecidable)
+	for _, r := range []struct{ name, dir, base string }{
+		{"identuum-ui", uiDir, heads.UI},
+		{"identuum-idp-oss", repoDir, heads.Sibling},
+	} {
+		if !isAncestor(r.dir, r.base) {
+			head, _ := gitOut(r.dir, "rev-parse", "--short", "HEAD")
+			return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s pins %s %s, which is not in the history of the %s tree being judged (HEAD %s): the record vouches for another tree",
+				name, r.name, r.base, r.name, head), ExitRequired
 		}
-		head, err := gitOut(dir, "rev-parse", "HEAD")
+		files, err := changedSince(r.dir, r.base)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "check FAILED: mint-reachability — %s: %v\n", name, err)
-			os.Exit(ExitUndecidable)
+			return fmt.Sprintf("check FAILED: mint-reachability — %s since %s: %v", r.name, r.base, err), ExitUndecidable
 		}
-		heads[name] = head
-		files, err := changedSince(dir, base)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "check FAILED: mint-reachability — %s: %v\n", name, err)
-			os.Exit(ExitUndecidable)
-		}
-		// Namespace the sibling's paths so a report can never confuse
-		// which repository a file came from.
+		// Namespace the sibling's paths so a report can never confuse which
+		// repository a file came from.
 		for _, f := range files {
-			if name == "identuum-idp-oss" {
+			if r.name == "identuum-idp-oss" {
 				changed = append(changed, f)
 			} else {
-				changed = append(changed, name+"/"+f)
+				changed = append(changed, r.name+"/"+f)
 			}
 		}
 	}
-
 	d := Decide(changed, NoReachSet)
-	fmt.Println(d.Line())
-
-	if *record != "" {
-		if err := recordOutcome(full, st, *record, heads, d); err != nil {
-			fmt.Fprintln(os.Stderr, "check FAILED: mint-reachability — recording:", err)
-			os.Exit(ExitUndecidable)
-		}
-	}
 	if d.Required {
-		os.Exit(ExitRequired)
+		return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s (since %s: identuum-ui %s, identuum-idp-oss %s)",
+			d.Summary(), name, heads.UI, heads.Sibling), ExitRequired
 	}
-	os.Exit(ExitSkippable)
+	return fmt.Sprintf("check OK: mint-reachability MINT SATISFIED by %s (identuum-ui %s, identuum-idp-oss %s) — %s",
+		name, heads.UI, heads.Sibling, d.Summary()), ExitSkippable
+}
+
+// isAncestor reports whether base is in the history of dir's HEAD. An
+// unknown or malformed revision is simply not an ancestor.
+func isAncestor(dir, base string) bool {
+	cmd := exec.Command("git", "-C", dir, "merge-base", "--is-ancestor", base, "HEAD")
+	return cmd.Run() == nil
 }
 
 // E2EHeads are the two commits a finished e2e record pins: the ui's own
@@ -142,9 +154,10 @@ type E2EHeads struct {
 
 // parseE2ERecord reads the heads out of a gate-run.v1 record and refuses
 // anything that is not a green, finished record pinned to both heads. The
-// refusal matters more than the parse: this function is reached only after
-// achta's witness check has already FAILED the record, and staleness is the
-// one failure this tool may look past. Red, incomplete or unpinned it may not.
+// refusal matters more than the parse: in -e2e-record mode this function is
+// reached only after achta's witness check has already FAILED the record, and
+// staleness is the one failure this tool may look past. Red, incomplete or
+// unpinned it may not — and the mint decision reads the same refusal.
 func parseE2ERecord(text string) (E2EHeads, error) {
 	var h E2EHeads
 	green, finished := false, false
@@ -226,56 +239,6 @@ func judgeE2ERecord(recordPath, repoDir, uiDir string) int {
 	}
 	fmt.Printf("check OK: e2e-record-reach ACCEPTED — the record's claim stands: every path since identuum-ui %s and identuum-idp-oss %s is declared no-reach (record-only commits)\n", heads.UI, heads.Sibling)
 	return ExitSkippable
-}
-
-func loadState(path string) (*MintState, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w (the mint must run once and record the commit it covered)", path, err)
-	}
-	var st MintState
-	dec := json.NewDecoder(strings.NewReader(string(raw)))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&st); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if st.SchemaVersion != stateSchema {
-		return nil, fmt.Errorf("%s: schema_version %q, want %q", path, st.SchemaVersion, stateSchema)
-	}
-	if len(st.LastMinted) == 0 {
-		return nil, errors.New("last_minted is empty")
-	}
-	return &st, nil
-}
-
-// recordOutcome writes the decision back. A skip records the FILE LIST that
-// justified it; a mint moves last_minted forward.
-func recordOutcome(path string, st *MintState, outcome string, heads map[string]string, d Decision) error {
-	rec := &Recorded{
-		At:    time.Now().UTC().Format(time.RFC3339),
-		Mint:  outcome,
-		Repos: heads,
-	}
-	switch outcome {
-	case "skipped":
-		if d.Required {
-			return errors.New("refusing to record a skip for a change set that REQUIRES the mint")
-		}
-		rec.JustifiedBy = d.NoReach
-	case "minted":
-		rec.ReachingWere = d.Reaching
-		for name, head := range heads {
-			st.LastMinted[name] = head
-		}
-	default:
-		return fmt.Errorf("unknown outcome %q (want skipped|minted)", outcome)
-	}
-	st.LastDecision = rec
-	out, err := json.MarshalIndent(st, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, append(out, '\n'), 0o644)
 }
 
 // changedSince lists paths changed between base and HEAD, plus anything

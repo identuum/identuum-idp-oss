@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "a5b457ac5288c9e15e7e0b0c6ff4d02d651b8be0",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "MINT-RECORD-AUTHORITY-1",
+      "change_class": "rule_added",
+      "reason": "THE-ONE-MINT-RECORD (2026-09-12): the mint decision now reads the one record the mint produces in the sibling checkout (both heads, the sibling tree digest, the result) and the MINT-STATE marker is retired; an absent record, a red record or a head outside the judged tree never satisfies the question. Pinned by the classifier's fixture-driven record test, red-proved by three mutations."
+    }
+  ]
 }
