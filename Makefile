@@ -1358,7 +1358,13 @@ distroless-exec-check:
 grype-scan: bin/grype-gate
 	./bin/grype-gate
 
-bin/grype-gate:
+## THE-JUDGE-AND-ITS-SUBJECT (2026-09-12): the binary is rebuilt whenever a
+## source of the judge is newer than it. Without the prerequisite this was a
+## bare file target, so a bin/grype-gate built at e12bd79 kept judging every
+## later verify — a verify at 65374fc recorded the OLD judge's evidence line
+## for a tool that had changed in that very commit. A gate must run the judge
+## the tree commits, not the one that happened to be lying in bin/.
+bin/grype-gate: $(wildcard tools/grype-gate/*.go)
 	go build -o bin/grype-gate ./tools/grype-gate
 
 ## fast-up: start the local development Postgres container.
