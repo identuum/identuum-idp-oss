@@ -166,7 +166,35 @@ func RespondAuthStoreUnavailable(c *gin.Context, where string, err error) {
 }
 
 // RespondUnauthenticatedReason is the 401 verdict with its reason.
+//
+// THE-SILENT-REFUSAL (2026-09-12): the verdict is ALSO logged, once, on the
+// security logger — the reason code with the request's method, path and
+// client IP, never the credential. Until this line a refusal reached only the
+// caller's response body and left no server-side trace: three September e2e
+// mints failed on a bearer 401 that nothing could name (wiki log/0025,
+// 0026, 0029 and the mint of 2026-09-12). The reason already travels to the
+// caller, so logging it discloses nothing new; the token, the Authorization
+// header and every other credential stay out of the line by construction —
+// nothing here reads them, and AUTH-REFUSAL-LOGGED-1 pins that. request_id
+// rides along from the context when CorrelationIDMiddleware set it. The
+// status, body and verdict are unchanged.
 func RespondUnauthenticatedReason(c *gin.Context, reason string) {
+	ctx := context.Background()
+	method, path := "", ""
+	if c.Request != nil {
+		ctx = c.Request.Context()
+		method = c.Request.Method
+		if c.Request.URL != nil {
+			path = c.Request.URL.Path
+		}
+	}
+	logger.Security.WarnContext(ctx, "authentication refused",
+		zap.String("event_type", "auth_refused"),
+		zap.String("reason", reason),
+		zap.String("method", method),
+		zap.String("path", path),
+		zap.String("ip_address", c.ClientIP()),
+	)
 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
 		"error":  "unauthorized",
 		"reason": reason,

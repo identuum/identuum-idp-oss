@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "c9c6c359e07ed1671efae689fa5fd482a81e66e9",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "AUTH-REFUSAL-LOGGED-1",
+      "change_class": "rule_added",
+      "reason": "THE-SILENT-REFUSAL (2026-09-12): a bearer 401 reached only the caller's body and left no server-side trace, so the e2e mint's refusal could not be named (fourth occurrence). mw.RespondUnauthenticatedReason now logs one security line with the reason code and never the credential; pinned by internal/mw/auth_refusal_logged_rule_test.go, red-proved by two mutations (log removed: 0 lines where 1 was due; Authorization header logged: the negative proof found the token)."
+    }
+  ]
 }
