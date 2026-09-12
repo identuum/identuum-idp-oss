@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "9ba961fbe4f55117b9f73ec4791b7557a504505d",
-  "changes": [
-    {
-      "rule_id": "ROUTE-RATELIMIT-2",
-      "change_class": "rule_added",
-      "reason": "THE-UNLIMITED-REGENERATE (2026-09-12): POST /api/v1/me/mfa/recovery-codes/regenerate carried mw.RequireAuthenticated and nothing else, so an authenticated caller could try six-digit TOTP codes at wire speed; a per-subject bucket (RateLimitConfig.MFARecoveryCodesRegenerateLimit, default 5 per 15 minutes) is now mounted behind the guard in mountAuthSessions and pinned through the real router by internal/api/mfa_regenerate_ratelimit_wiring_test.go, red-proved by two mutations (limit zeroed: 401 where 429 was due; config ignored: 429 under a zero-value config)."
-    }
-  ]
+  "base_commit": "c9c6c359e07ed1671efae689fa5fd482a81e66e9",
+  "changes": []
 }
