@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: e12bd79
-started: 2026-09-12T09:43:32Z
+repo-head: 3bd83c0
+started: 2026-09-12T15:48:40Z
 plan: tool-versions toolchain-parity ci-witness openapi-check repo-green tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity rulefloor-check ledger-diff-gate image-base-check api-surface vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck wiki-fresh grype-scan
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /Users/odemir/go/bin/staticcheck
@@ -14,30 +14,30 @@ tool: gograph     v1.7.2  /opt/homebrew/bin/gograph
 elapsed: tool-versions 1s
 target: tool-versions exit=0
 evidence: [toolchain-parity] check OK: toolchain-parity 8 pins agree (gate-witness.sh 651402aa7df9e76472496514aa26343f76268378ccc1c354b7762c635f448809, go 1.27.1, govulncheck 1.7.0, grype 0.118.0, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1, yq 4.53.6)
-elapsed: toolchain-parity 2s
+elapsed: toolchain-parity 1s
 target: toolchain-parity exit=0
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 25 planned target(s) all exit=0, ties commit e70071e, 5 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/34643765411 attempt=1 sha=e70071e20cfd9f2f90a715f92a523e5db918c876
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 25 planned target(s) all exit=0, ties commit e70071e, 8 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/34643765411 attempt=1 sha=e70071e20cfd9f2f90a715f92a523e5db918c876
 elapsed: ci-witness 0s
 target: ci-witness exit=0
 evidence: [openapi-check] go packages ok: 1
-elapsed: openapi-check 1s
+elapsed: openapi-check 0s
 target: openapi-check exit=0
-elapsed: repo-green 34s
+elapsed: repo-green 29s
 target: repo-green exit=0
 elapsed: tracked-binary-check 5s
 target: tracked-binary-check exit=0
 elapsed: credential-transparency 0s
 target: credential-transparency exit=0
 evidence: [workflow-yaml] check OK: workflow-yaml 2 workflow file(s) parse (yq v4.53.6)
-elapsed: workflow-yaml 1s
+elapsed: workflow-yaml 0s
 target: workflow-yaml exit=0
 evidence: [workflow-yaml-parity] check OK: workflow-yaml-parity block md5 d63f3fdb5cd211c38abe98a03ecb1544 matches the shared pin
 elapsed: workflow-yaml-parity 0s
 target: workflow-yaml-parity exit=0
-evidence: [rulefloor-check] check OK: 254 rows (254 armed), FLOOR 254, RED-PROOFS 254 (measured 254)
-elapsed: rulefloor-check 36s
+evidence: [rulefloor-check] check OK: 255 rows (255 armed), FLOOR 255, RED-PROOFS 255 (measured 255)
+elapsed: rulefloor-check 31s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=8400a0180a783f01cf5cf91dfd33090b53d5b9e2 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=8df09d05ec6914589b1075ecd734b8bdb43774ce3e97d9fb49b282f166d15144
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=9ba961fbe4f55117b9f73ec4791b7557a504505d status=different rule_changes=1 classes=rule_added header_changes=floor_changed,red_proofs_changed ledger_diff_sha256=7684a570d4eee5edaafa048df091504a558c41517e768ac773fd6fca5c2eec9a
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
@@ -47,10 +47,10 @@ elapsed: api-surface 0s
 target: api-surface exit=0
 elapsed: vet-integration 0s
 target: vet-integration exit=0
-elapsed: doccomment-check 0s
+elapsed: doccomment-check 1s
 target: doccomment-check exit=0
 evidence: [r-suite] go packages ok: 3
-elapsed: r-suite 5s
+elapsed: r-suite 2s
 target: r-suite exit=0
 elapsed: image-base-parity 0s
 target: image-base-parity exit=0
@@ -67,11 +67,11 @@ elapsed: clock-fuse-gate 1s
 target: clock-fuse-gate exit=0
 elapsed: tagged-vet 1s
 target: tagged-vet exit=0
-elapsed: integration-inventory 0s
+elapsed: integration-inventory 1s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 24s
+elapsed: gograph-build 23s
 target: gograph-build exit=0
 elapsed: gograph-boundaries 1s
 target: gograph-boundaries exit=0
@@ -79,13 +79,13 @@ elapsed: go-mod-tidy-diff 0s
 target: go-mod-tidy-diff exit=0
 elapsed: staticcheck 0s
 target: staticcheck exit=0
-elapsed: govulncheck 7s
+elapsed: govulncheck 5s
 target: govulncheck exit=0
 elapsed: wiki-fresh 0s
 target: wiki-fresh exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0 — config applied (3 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s)); coverage: 5 gitignored executable(s), all excluded (./bin/**, ./identuum-idp, ./.gograph/**)
-elapsed: grype-scan 2s
+elapsed: grype-scan 4s
 target: grype-scan exit=0
-finished: 2026-09-12T09:45:34Z
-tree: sha256=35c2bff313ade7bf0372b6aaf85c463d791412deafc6c917f028a4ef0394daab
+finished: 2026-09-12T15:50:27Z
+tree: sha256=7a31bc88ce90f108143d1c6797407f6125e7474b9bb50a3269b8344adfbb244e
 result: green
