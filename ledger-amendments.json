@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "5bb75fca08bed69a7f288249fbe0abe2d43c53c7",
-  "changes": [
-    {
-      "rule_id": "TOOLS-NO-REACH-1",
-      "change_class": "rule_added",
-      "reason": "THE-TOOLS-THAT-CANNOT-REACH (2026-09-13): the eleven gate programs under tools/ are declared no-reach for the e2e mint, each entry proved from the appliance's own build closure (go list -deps ./cmd/...: 487 packages, 39 of this module, none under tools/) whenever a decision relies on it and on every test run; an imported gate program makes the decision undecidable and names it. Pinned by the classifier's fixture-driven closure test, red-proved by three mutations."
-    }
-  ]
+  "base_commit": "8becb8924f7c1358dd0e67681b21180894363df4",
+  "changes": []
 }
