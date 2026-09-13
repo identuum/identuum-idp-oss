@@ -241,6 +241,11 @@ type Runtime struct {
 	// buildDeps (token issuance) and swept by the cleanup ticker in Start.
 	dpopReplaySvc *service.DPoPProofReplayService
 
+	// totpReplayGuard is the TOTP single-use store (totp_used_steps,
+	// THE-CODE-THAT-WORKS-TWICE), built in buildDeps for the MFA verifier
+	// and the enrolment service and swept by the cleanup ticker in Start.
+	totpReplayGuard *service.TOTPReplayGuard
+
 	// agentCommTokenSweeper prunes expired issued-token rows (AYGHU-4).
 	agentCommTokenSweeper *service.AgentCommunicationTokenSweeper
 
@@ -485,6 +490,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			WithRefreshTokenService(refreshTokenSvc).
 			WithClientAssertionReplayService(replaySvc).
 			WithDPoPProofReplayService(r.dpopReplaySvc).
+			WithTOTPReplayGuard(r.totpReplayGuard).
 			WithAgentCommunicationTokenSweeper(r.agentCommTokenSweeper).
 			WithUserSessionService(userSessionSvc).
 			WithAuthorizationCodeService(authCodeSvc).
@@ -1028,7 +1034,13 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		}
 	}
 
-	mfaVerifier := service.NewMFAVerifierService(report, service.EncryptedTOTPSecretResolver{Cipher: mfaCipher}, service.MFAVerifierOptions{})
+	// THE-CODE-THAT-WORKS-TWICE: every TOTP proof the appliance accepts
+	// claims its (user, step) in totp_used_steps once, through this guard;
+	// both the verifier (login, step-up) and the enrolment service
+	// (enrol, pending-login verify, regenerate, self-disable) consult it,
+	// and the cleanup ticker sweeps it (Start).
+	r.totpReplayGuard = service.NewTOTPReplayGuard(report, repos.TOTPUsedStep, service.TOTPReplayGuardOptions{})
+	mfaVerifier := service.NewMFAVerifierService(report, service.EncryptedTOTPSecretResolver{Cipher: mfaCipher}, service.MFAVerifierOptions{Replay: r.totpReplayGuard})
 	loginRiskSvc := service.NewLoginRiskService(report, repos.LoginAttempt, service.LoginRiskServiceOptions{Logger: serviceLogger()})
 	// TEST-ONLY escape hatch (insecure_dev_mode.go): under
 	// IDENTUUM_IDP_INSECURE_DEV_MODE=true the login-risk lockout gate is left
@@ -1051,6 +1063,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		Users:   repos.User,
 		Issuer:  mfaIssuer,
 		Cipher:  mfaCipher,
+		Replay:  r.totpReplayGuard,
 	}, service.MFAEnrollmentServiceOptions{})
 
 	// OIDC-provider config service (OSS basic single-provider login, Slice 2).

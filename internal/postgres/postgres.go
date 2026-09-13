@@ -49,6 +49,10 @@ type Repositories struct {
 	// DPoPProofReplay is the AYGHU-3 token-endpoint DPoP replay store
 	// (dpop_proof_replays, migration 0038) — separate from ClientAssertionReplay.
 	DPoPProofReplay repository.DPoPProofReplayRepository
+	// TOTPUsedStep is the TOTP single-use store (totp_used_steps, migration
+	// 0040): every accepted TOTP proof claims its (user, step) here once
+	// (THE-CODE-THAT-WORKS-TWICE).
+	TOTPUsedStep repository.TOTPUsedStepRepository
 	// AgentCommunicationToken records issued participant-token jtis bound to
 	// their authorization (agent_communication_tokens, migration 0039) so a
 	// revocation can revoke them at once (AYGHU-4).
@@ -104,6 +108,7 @@ func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 		UserProfile:                     NewPgxUserProfileRepository(db),
 		AgentCommunicationAuthorization: NewPgxAgentCommunicationAuthorizationRepository(db),
 		DPoPProofReplay:                 NewPgxDPoPProofReplayRepository(db),
+		TOTPUsedStep:                    NewPgxTOTPUsedStepRepository(db),
 		AgentCommunicationToken:         NewPgxAgentCommunicationTokenRepository(db),
 		Audit:                           NewPgxAuditRepository(db, DefaultAuditRetention),
 	}

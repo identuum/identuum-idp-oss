@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
@@ -23,6 +25,10 @@ func freshTOTPSecret(t *testing.T) string {
 func userWithMFA(secret string) *domain.User {
 	s := secret
 	return &domain.User{
+		// A verifier user has an identity: the single-use guard claims the
+		// accepted step FOR a user (THE-CODE-THAT-WORKS-TWICE) and refuses
+		// to claim for uuid.Nil.
+		ID:         uuid.New(),
 		MFAEnabled: true,
 		MFASecret:  &s,
 	}
@@ -36,20 +42,20 @@ func TestNewMFAVerifierService_NilResolverPanics(t *testing.T) {
 			t.Errorf("nil resolver did not panic")
 		}
 	}()
-	_ = NewMFAVerifierService(nil, nil, MFAVerifierOptions{})
+	_ = NewMFAVerifierService(nil, nil, MFAVerifierOptions{Replay: testReplayGuard(t)})
 }
 
 // ---------- Verify ----------
 
 func TestVerify_NilUserIsInvalid(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	if err := svc.Verify(context.Background(), nil, "123456"); !errors.Is(err, ErrMFAInvalid) {
 		t.Errorf("err = %v", err)
 	}
 }
 
 func TestVerify_MFADisabledReturnsNotEnabled(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	u := &domain.User{MFAEnabled: false}
 	if err := svc.Verify(context.Background(), u, "000000"); !errors.Is(err, ErrMFANotEnabled) {
 		t.Errorf("err = %v", err)
@@ -57,7 +63,7 @@ func TestVerify_MFADisabledReturnsNotEnabled(t *testing.T) {
 }
 
 func TestVerify_MFAEnabledMissingCodeIsRequired(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	secret := freshTOTPSecret(t)
 	u := userWithMFA(secret)
 	if err := svc.Verify(context.Background(), u, ""); !errors.Is(err, ErrMFARequired) {
@@ -66,7 +72,7 @@ func TestVerify_MFAEnabledMissingCodeIsRequired(t *testing.T) {
 }
 
 func TestVerify_MFASecretMissingIsUnavailable(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	u := &domain.User{MFAEnabled: true, MFASecret: nil}
 	if err := svc.Verify(context.Background(), u, "123456"); !errors.Is(err, ErrMFASecretUnavailable) {
 		t.Errorf("err = %v", err)
@@ -74,7 +80,7 @@ func TestVerify_MFASecretMissingIsUnavailable(t *testing.T) {
 }
 
 func TestVerify_WrongLengthRejected(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	secret := freshTOTPSecret(t)
 	u := userWithMFA(secret)
 	if err := svc.Verify(context.Background(), u, "12345"); !errors.Is(err, ErrMFAInvalid) {
@@ -83,7 +89,7 @@ func TestVerify_WrongLengthRejected(t *testing.T) {
 }
 
 func TestVerify_ValidCodeAccepted(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	secret := freshTOTPSecret(t)
 	u := userWithMFA(secret)
 	frozen := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -96,7 +102,7 @@ func TestVerify_ValidCodeAccepted(t *testing.T) {
 }
 
 func TestVerify_PreviousWindowAccepted(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Window: 1})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Window: 1, Replay: testReplayGuard(t)})
 	secret := freshTOTPSecret(t)
 	u := userWithMFA(secret)
 	frozen := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -109,7 +115,7 @@ func TestVerify_PreviousWindowAccepted(t *testing.T) {
 }
 
 func TestVerify_OutsideWindowRejected(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Window: 1})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Window: 1, Replay: testReplayGuard(t)})
 	secret := freshTOTPSecret(t)
 	u := userWithMFA(secret)
 	frozen := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -131,7 +137,7 @@ func TestVerify_OutsideWindowRejected(t *testing.T) {
 // `window < 0` → the zero value stays window 0 (exact step only) → this
 // previous-window code is rejected → this test FAILS.
 func TestVerify_DefaultOptionsAcceptsPreviousWindow(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	secret := freshTOTPSecret(t)
 	u := userWithMFA(secret)
 	frozen := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -147,7 +153,7 @@ func TestVerify_DefaultOptionsAcceptsPreviousWindow(t *testing.T) {
 // default is EXACTLY ±1, not wider: a code two steps back (current-2) — the
 // tightest position just outside the ±1 window — is rejected.
 func TestVerify_DefaultOptionsRejectsOutsideWindow(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	secret := freshTOTPSecret(t)
 	u := userWithMFA(secret)
 	frozen := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
@@ -160,7 +166,7 @@ func TestVerify_DefaultOptionsRejectsOutsideWindow(t *testing.T) {
 }
 
 func TestVerify_ErrorPathDoesNotLeakSecretOrCode(t *testing.T) {
-	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	svc := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	const secret = "RAW-SECRET-MUST-NOT-LEAK"
 	const code = "RAW-CODE-MUST-NOT-LEAK"
 	u := userWithMFA(secret)

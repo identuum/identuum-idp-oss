@@ -23,6 +23,7 @@ type TokenRevocationCleanup struct {
 	refreshes          *RefreshTokenService
 	replays            *ClientAssertionReplayService
 	dpopReplays        *DPoPProofReplayService
+	totpSteps          *TOTPReplayGuard
 	agentCommTokens    *AgentCommunicationTokenSweeper
 	userSessions       *UserSessionService
 	authCodes          *AuthorizationCodeService
@@ -214,6 +215,17 @@ func (c *TokenRevocationCleanup) WithDPoPProofReplayService(svc *DPoPProofReplay
 	return c
 }
 
+// WithTOTPReplayGuard adds the TOTP single-use store (totp_used_steps,
+// THE-CODE-THAT-WORKS-TWICE) to the sweep: a row is dropped only once its
+// step can no longer be accepted, so the sweep can never resurrect a code.
+func (c *TokenRevocationCleanup) WithTOTPReplayGuard(g *TOTPReplayGuard) *TokenRevocationCleanup {
+	if c == nil {
+		return nil
+	}
+	c.totpSteps = g
+	return c
+}
+
 // WithAgentCommunicationTokenSweeper adds the AYGHU-4 issued-token table
 // to the sweep.
 func (c *TokenRevocationCleanup) WithAgentCommunicationTokenSweeper(s *AgentCommunicationTokenSweeper) *TokenRevocationCleanup {
@@ -368,6 +380,14 @@ func (c *TokenRevocationCleanup) tick(ctx context.Context) {
 			c.logger.Warn("dpop_proof_replay_cleanup: delete failed")
 		} else if dn > 0 {
 			c.logger.Info("dpop_proof_replay_cleanup: deleted expired rows", "count", dn)
+		}
+	}
+	if c.totpSteps != nil {
+		sn, serr := c.totpSteps.DeleteExpired(ctx)
+		if serr != nil {
+			c.logger.Warn("totp_used_steps_cleanup: delete failed")
+		} else if sn > 0 {
+			c.logger.Info("totp_used_steps_cleanup: deleted expired rows", "count", sn)
 		}
 	}
 	if c.agentCommTokens != nil {

@@ -41,7 +41,7 @@ func enrollViaService(t *testing.T, cipher MFASecretCipher) (*MFAEnrollmentServi
 	}
 	userRepo.byID[uid] = user
 	svc := NewMFAEnrollmentService(nil, MFAEnrollmentRepoOptions{
-		Pending: pendingRepo, Users: userRepo, Issuer: "Identuum", Cipher: cipher,
+		Pending: pendingRepo, Users: userRepo, Issuer: "Identuum", Cipher: cipher, Replay: testReplayGuard(t),
 	}, MFAEnrollmentServiceOptions{})
 
 	row, err := svc.CreatePending(context.Background(), user, domain.MFAPendingKindEnroll, false)
@@ -82,7 +82,7 @@ func TestMFAAtRest_TOTPSeedEncryptedAndVerifies(t *testing.T) {
 	if err != nil || got != plaintextSeed {
 		t.Fatalf("(a) resolver did not decrypt back to the seed: err=%v", err)
 	}
-	verifier := NewMFAVerifierService(nil, resolver, MFAVerifierOptions{})
+	verifier := NewMFAVerifierService(nil, resolver, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	stored.MFAEnabled = true
 	counter := uint64(time.Now().Unix()) / defaultTOTPPeriod
 	code, _ := computeHOTP(plaintextSeed, counter, defaultTOTPDigits)
@@ -139,7 +139,7 @@ func TestMFAAtRest_PendingRowEncryptedAndHashed(t *testing.T) {
 	uid := uuid.New()
 	user := &domain.User{ID: uid, OrganizationID: uuid.New(), Email: "p@test", Role: domain.RoleOrgUser, AuthSource: domain.AuthSourceLocal, EmailVerified: true}
 	userRepo.byID[uid] = user
-	svc := NewMFAEnrollmentService(nil, MFAEnrollmentRepoOptions{Pending: pendingRepo, Users: userRepo, Issuer: "Identuum", Cipher: cipher}, MFAEnrollmentServiceOptions{})
+	svc := NewMFAEnrollmentService(nil, MFAEnrollmentRepoOptions{Pending: pendingRepo, Users: userRepo, Issuer: "Identuum", Cipher: cipher, Replay: testReplayGuard(t)}, MFAEnrollmentServiceOptions{})
 	row, _ := svc.CreatePending(context.Background(), user, domain.MFAPendingKindEnroll, false)
 	init, err := svc.Initiate(context.Background(), row.ID)
 	if err != nil {
@@ -172,7 +172,7 @@ func TestMFAAtRest_NilCipherFailsClosedNoPlaintextNoPanic(t *testing.T) {
 	user := &domain.User{ID: uid, OrganizationID: uuid.New(), Email: "d@test", Role: domain.RoleOrgUser, AuthSource: domain.AuthSourceLocal, EmailVerified: true}
 	userRepo.byID[uid] = user
 	// Cipher omitted (nil) — mirrors a missing/invalid MFA encryption key.
-	svc := NewMFAEnrollmentService(nil, MFAEnrollmentRepoOptions{Pending: pendingRepo, Users: userRepo, Issuer: "Identuum"}, MFAEnrollmentServiceOptions{})
+	svc := NewMFAEnrollmentService(nil, MFAEnrollmentRepoOptions{Pending: pendingRepo, Users: userRepo, Issuer: "Identuum", Replay: testReplayGuard(t)}, MFAEnrollmentServiceOptions{})
 	row, _ := svc.CreatePending(context.Background(), user, domain.MFAPendingKindEnroll, false)
 	_, err := svc.Initiate(context.Background(), row.ID)
 	if err == nil {

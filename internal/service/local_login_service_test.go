@@ -35,7 +35,7 @@ func newLoginHarness(t *testing.T) (*LocalLoginService, *inMemoryUserLookup) {
 	t.Helper()
 	users := newUserLookup()
 	sessions := NewUserSessionService(nil, newSessionRepo(), UserSessionServiceOptions{DefaultTTL: time.Hour})
-	mfa := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{})
+	mfa := NewMFAVerifierService(nil, PlaintextTOTPSecretResolver{}, MFAVerifierOptions{Replay: testReplayGuard(t)})
 	return NewLocalLoginService(nil, users, sessions, mfa), users
 }
 

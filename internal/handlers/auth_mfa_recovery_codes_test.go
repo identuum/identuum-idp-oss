@@ -213,6 +213,7 @@ func newRecoveryEngine(t *testing.T, principal *domain.Principal) recoveryTestEn
 		Users:   userRepo,
 		Issuer:  "Identuum",
 		Cipher:  identityMFACipher{},
+		Replay:  testReplayGuardForHandlers(),
 	}, service.MFAEnrollmentServiceOptions{})
 	rec := &audit.Recorder{}
 	RegisterAuthSessionRoutes(r, AuthSessionsHandlerDeps{
@@ -245,12 +246,21 @@ const recoveryTestSeed = "JBSWY3DPEHPK3PXP"
 // tests included (measured by the gograph-boundaries gate).
 func recoveryTOTPNow(t *testing.T) string {
 	t.Helper()
+	return recoveryTOTPAtOffset(t, 0)
+}
+
+// recoveryTOTPAtOffset mints the code for the current step plus stepOffset
+// (±service.TOTPWindowSteps stays inside the verifier's window). A test
+// that must present a SECOND accepted code uses +1: since
+// THE-CODE-THAT-WORKS-TWICE the current step's code is single-use.
+func recoveryTOTPAtOffset(t *testing.T, stepOffset int64) string {
+	t.Helper()
 	key, err := base32.StdEncoding.DecodeString(recoveryTestSeed)
 	if err != nil {
 		t.Fatalf("decode test seed: %v", err)
 	}
 	var counter [8]byte
-	binary.BigEndian.PutUint64(counter[:], uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds))
+	binary.BigEndian.PutUint64(counter[:], uint64(int64(time.Now().Unix()/int64(service.TOTPPeriodSeconds))+stepOffset))
 	mac := hmac.New(sha1.New, key) //nolint:gosec // SHA-1 mandated by RFC 6238 §1.
 	_, _ = mac.Write(counter[:])
 	sum := mac.Sum(nil)
@@ -464,8 +474,8 @@ func TestMFARecoveryCodesRegenerate_SecondCallReplacesFirst(t *testing.T) {
 	uid := uuid.New()
 	eng := newRecoveryEngine(t, &domain.Principal{UserID: uid, Role: domain.RoleOrgUser})
 	seedRecoveryUser(eng, uid, true)
-	// The same TOTP code carries both calls: this leg has no
-	// last-accepted-step guard (a measured gap, filed in the wiki).
+	// THE-CODE-THAT-WORKS-TWICE: a TOTP code is single-use, so the second
+	// call presents the NEXT step's code (inside the verifier's ±1 window).
 	first := recoveryReqWithCode(t, eng, recoveryTOTPNow(t))
 	if first.Code != http.StatusOK {
 		t.Fatalf("first status = %d", first.Code)
@@ -475,7 +485,7 @@ func TestMFARecoveryCodesRegenerate_SecondCallReplacesFirst(t *testing.T) {
 	}
 	_ = json.Unmarshal(first.Body.Bytes(), &firstResp)
 
-	second := recoveryReqWithCode(t, eng, recoveryTOTPNow(t))
+	second := recoveryReqWithCode(t, eng, recoveryTOTPAtOffset(t, 1))
 	if second.Code != http.StatusOK {
 		t.Fatalf("second status = %d", second.Code)
 	}

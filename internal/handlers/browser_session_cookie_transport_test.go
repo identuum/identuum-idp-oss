@@ -39,7 +39,7 @@ func TestBrowserLoginSessionCookie_SecureFollowsTransport(t *testing.T) {
 		PasswordHash: hashPasswordForHandlers(t, "correct"), EmailVerified: true,
 	}}
 	sessions := service.NewUserSessionService(nil, newSessionRepoForHandlers(), service.UserSessionServiceOptions{DefaultTTL: time.Hour})
-	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: testReplayGuardForHandlers()})
 	login := service.NewLocalLoginService(nil, users, sessions, mfa)
 	// AllowPlainHTTP unset mirrors the runtime: the service bakes Secure=true;
 	// the handler stamp is what makes the localhost transport work.

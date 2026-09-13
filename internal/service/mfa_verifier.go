@@ -111,6 +111,7 @@ func (r EncryptedTOTPSecretResolver) Resolve(_ context.Context, user *domain.Use
 // validation algorithm + a configurable clock-skew window.
 type MFAVerifierService struct {
 	resolver TOTPSecretResolver
+	replay   *TOTPReplayGuard
 	period   uint64
 	digits   int
 	window   int
@@ -119,11 +120,17 @@ type MFAVerifierService struct {
 
 // MFAVerifierOptions parameterises the verifier. Zero values fall
 // back to the RFC 6238 §5.2 defaults (period 30 s, digits 6,
-// skew window 1 step on either side).
+// skew window 1 step on either side). Replay is REQUIRED.
 type MFAVerifierOptions struct {
 	Period uint64 // step interval in seconds. Default 30.
 	Digits int    // code length. Default 6.
 	Window int    // accepted ± steps. Default 1.
+	// Replay is the TOTP single-use guard (THE-CODE-THAT-WORKS-TWICE): a
+	// matched code is accepted only when its step is claimed for the user
+	// for the first time. A nil guard is a recorded startup fault AND makes
+	// every verification refuse (fail closed) — it can never be left out to
+	// obtain a verifier that accepts a code twice.
+	Replay *TOTPReplayGuard
 }
 
 const (
@@ -152,6 +159,9 @@ func NewMFAVerifierService(report *lifecycle.StartupReport, resolver TOTPSecretR
 	if resolver == nil {
 		report.Fatal("NewMFAVerifierService", "service: NewMFAVerifierService requires a non-nil TOTPSecretResolver")
 	}
+	if opts.Replay == nil {
+		report.Fatal("NewMFAVerifierService", "service: NewMFAVerifierService requires a non-nil TOTPReplayGuard — without it every TOTP verification fails closed")
+	}
 	period := opts.Period
 	if period == 0 {
 		period = defaultTOTPPeriod
@@ -171,6 +181,7 @@ func NewMFAVerifierService(report *lifecycle.StartupReport, resolver TOTPSecretR
 	}
 	return &MFAVerifierService{
 		resolver: resolver,
+		replay:   opts.Replay,
 		period:   period,
 		digits:   digits,
 		window:   window,
@@ -216,7 +227,13 @@ var (
 //   - user.MFAEnabled && code == "" → ErrMFARequired.
 //   - resolver returns an error → ErrMFASecretUnavailable.
 //   - code does not match within window → ErrMFAInvalid.
-//   - code matches → nil.
+//   - code matches but its step was ALREADY accepted for this user →
+//     ErrMFAInvalid — the same sentinel as a wrong code, so a replay is
+//     never distinguishable from a miss (THE-CODE-THAT-WORKS-TWICE).
+//   - code matches but the single-use store cannot be consulted →
+//     ErrMFAReplayStateUnavailable (fail closed; the wire maps it like
+//     every other MFA failure).
+//   - code matches and its step is claimed for the first time → nil.
 //
 // The raw code and secret are NEVER logged or echoed.
 func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code string) error {
@@ -245,14 +262,25 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 	if derr != nil {
 		return ErrMFASecretUnavailable
 	}
-	if _, ok := totp.Match(key, trimmed, s.now(), totp.Options{
+	step, ok := totp.Match(key, trimmed, s.now(), totp.Options{
 		Period: s.period,
 		Digits: s.digits,
 		Window: s.window,
-	}); ok {
-		return nil
+	})
+	if !ok {
+		return ErrMFAInvalid
 	}
-	return ErrMFAInvalid
+	// The match says the code is genuine; the guard says whether it is
+	// FRESH. Both are required, and the guard's failure to answer is a
+	// refusal, never a pass.
+	first, err := s.replay.FirstUse(ctx, user.ID, step)
+	if err != nil {
+		return err
+	}
+	if !first {
+		return ErrMFAInvalid
+	}
+	return nil
 }
 
 // decodeBase32Secret normalises and base32-decodes a TOTP shared secret to

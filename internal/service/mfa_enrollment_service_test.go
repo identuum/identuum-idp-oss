@@ -295,6 +295,7 @@ func newEnrollSvc(t *testing.T) (*MFAEnrollmentService, *stubPendingRepo, *stubU
 		Users:   userRepo,
 		Issuer:  "Identuum",
 		Cipher:  identityMFACipher{},
+		Replay:  testReplayGuard(t),
 	}, MFAEnrollmentServiceOptions{})
 	// P2-23: pin the service clock to a SINGLE captured instant so TOTP window
 	// math is deterministic. The flake was two independent time.Now() reads —
@@ -1435,6 +1436,7 @@ func TestMFAEnrollment_DisableSelf_RecoveryCodeBurnRemovesMatchedFromList(t *tes
 		Users:   userRepo,
 		Issuer:  "Identuum",
 		Cipher:  identityMFACipher{},
+		Replay:  testReplayGuard(t),
 	}, MFAEnrollmentServiceOptions{})
 
 	// Count Update calls by wrapping the repo — we cannot mutate
@@ -1770,12 +1772,15 @@ func TestMFAEnrollment_RegenerateRecoveryCodes_SecondCallReplacesFirst(t *testin
 	user.MFASecret = &seed
 	userRepo.byID[user.ID] = user
 
-	// The same TOTP code carries both calls: the service clock is pinned
-	// and this leg has no last-accepted-step guard (a measured gap, filed).
+	// THE-CODE-THAT-WORKS-TWICE: a TOTP code is single-use, so the second
+	// call presents the NEXT step's code — the pinned service clock is moved
+	// one period forward between the calls.
 	first, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, regenerateTOTPForTest(t, svc, seed))
 	if err != nil {
 		t.Fatalf("first regenerate: %v", err)
 	}
+	firstNow := svc.now()
+	svc.now = func() time.Time { return firstNow.Add(defaultTOTPPeriod * time.Second) }
 	second, err := svc.RegenerateRecoveryCodes(context.Background(), user.ID, regenerateTOTPForTest(t, svc, seed))
 	if err != nil {
 		t.Fatalf("second regenerate: %v", err)

@@ -64,12 +64,20 @@ type MFAEnrollmentRepoOptions struct {
 	// (no plaintext seed is ever stored or read — closing the MFA
 	// at-rest regression). *crypto.CryptoService satisfies it.
 	Cipher MFASecretCipher
+	// Replay is the TOTP single-use guard (THE-CODE-THAT-WORKS-TWICE).
+	// REQUIRED: every TOTP leg here — enrolment complete, pending-login
+	// verify, recovery-code regenerate, self-disable — accepts a matched
+	// code only when its step is claimed for the user for the first time.
+	// A nil guard is a recorded startup fault AND makes every TOTP leg
+	// answer false (fail closed).
+	Replay *TOTPReplayGuard
 }
 
 // MFAEnrollmentService owns the pending-MFA login state machine.
 type MFAEnrollmentService struct {
 	pending           repository.MFAPendingLoginSessionRepository
 	users             repository.UserRepository
+	replay            *TOTPReplayGuard
 	issuer            string
 	cipher            MFASecretCipher
 	ttl               time.Duration
@@ -213,6 +221,9 @@ func NewMFAEnrollmentService(report *lifecycle.StartupReport, repos MFAEnrollmen
 	if strings.TrimSpace(repos.Issuer) == "" {
 		report.Fatal("NewMFAEnrollmentService", "service: NewMFAEnrollmentService requires non-empty Issuer")
 	}
+	if repos.Replay == nil {
+		report.Fatal("NewMFAEnrollmentService", "service: NewMFAEnrollmentService requires a non-nil TOTPReplayGuard — without it every TOTP leg fails closed")
+	}
 	ttl := opts.TTL
 	if ttl <= 0 {
 		ttl = defaultMFAEnrollmentTTL
@@ -236,6 +247,7 @@ func NewMFAEnrollmentService(report *lifecycle.StartupReport, repos MFAEnrollmen
 	return &MFAEnrollmentService{
 		pending:           repos.Pending,
 		users:             repos.Users,
+		replay:            repos.Replay,
 		issuer:            repos.Issuer,
 		cipher:            repos.Cipher,
 		ttl:               ttl,
@@ -425,7 +437,10 @@ func (s *MFAEnrollmentService) Complete(ctx context.Context, pendingID uuid.UUID
 	if decErr != nil {
 		return nil, decErr
 	}
-	if !verifyTOTPCodeAgainstSecret(plaintextSeed, code, s.now()) {
+	// The enrolment code is a TOTP proof like any other: its step is
+	// claimed for the user, so the same code cannot later complete a login
+	// (THE-CODE-THAT-WORKS-TWICE).
+	if !s.totpAccept(ctx, row.UserID, plaintextSeed, code) {
 		return nil, ErrMFAEnrollmentInvalid
 	}
 	ok, err := s.pending.MarkConsumed(ctx, pendingID, s.now())
@@ -519,7 +534,7 @@ func (s *MFAEnrollmentService) VerifyAndConsume(ctx context.Context, pendingID u
 	// no cipher.
 	totpOK := false
 	if plaintextSeed, decErr := s.decryptSeed(*user.MFASecret); decErr == nil {
-		totpOK = verifyTOTPCodeAgainstSecret(plaintextSeed, code, s.now())
+		totpOK = s.totpAccept(ctx, user.ID, plaintextSeed, code)
 	}
 	if !totpOK {
 		// TOTP did not match; fall back to the recovery-code list.
@@ -643,7 +658,7 @@ func (s *MFAEnrollmentService) RegenerateRecoveryCodes(ctx context.Context, user
 	// of disable proofs a moment later. The refusal does not say which
 	// kind of proof was wrong: absent, empty, wrong and recovery code all
 	// answer ErrMFARegenerateInvalidCode, and nothing is burned.
-	if !s.totpProofOK(user, strings.TrimSpace(code)) {
+	if !s.totpProofOK(ctx, user, strings.TrimSpace(code)) {
 		return nil, ErrMFARegenerateInvalidCode
 	}
 	codes, err := generateRecoveryCodes(s.codeCount, s.codeBytes)
@@ -749,7 +764,7 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 		// The TOTP leg is totpProofOK (shared with the recovery-code
 		// regenerate); a cipher/decrypt failure leaves it false and falls
 		// through to the hash-matched recovery-code leg (no cipher needed).
-		if s.totpProofOK(user, trimmedCode) {
+		if s.totpProofOK(ctx, user, trimmedCode) {
 			reauth = MFADisableReauthTOTP
 		} else {
 			remaining, ok := consumeRecoveryCode(user.MFARecoveryCodes, trimmedCode)
@@ -971,20 +986,14 @@ func buildOtpauthURL(issuer, email, secret string) string {
 	return fmt.Sprintf("otpauth://totp/%s:%s?%s", encIssuer, encEmail, v.Encode())
 }
 
-// verifyTOTPCodeAgainstSecret runs the RFC 6238 verification
-// against the supplied secret. Mirrors MFAVerifierService.Verify's
-// validation block but takes a raw secret (so it can verify against
-// a pending-row candidate or a user's persisted secret without
-// caring which). Window is hard-coded to ±1 step here — matches
-// MFAVerifierService's default. Constant-time compare prevents
-// timing leaks.
 // totpProofOK is the TOTP leg shared by DisableSelfWithProof and
 // RegenerateRecoveryCodes: decrypt the at-rest seed ciphertext, then
-// verify the (already trimmed) code against the plaintext seed at the
-// service clock. A missing seed or a cipher/decrypt failure is false —
-// the disable then falls through to its recovery-code leg, the
+// accept the (already trimmed) code against the plaintext seed at the
+// service clock — match AND first use of its step. A missing seed, a
+// cipher/decrypt failure, a replay or an unavailable single-use store is
+// false — the disable then falls through to its recovery-code leg, the
 // regenerate refuses. It lives once so the two call sites cannot drift.
-func (s *MFAEnrollmentService) totpProofOK(user *domain.User, trimmedCode string) bool {
+func (s *MFAEnrollmentService) totpProofOK(ctx context.Context, user *domain.User, trimmedCode string) bool {
 	if user == nil || user.MFASecret == nil || *user.MFASecret == "" || trimmedCode == "" {
 		return false
 	}
@@ -992,26 +1001,47 @@ func (s *MFAEnrollmentService) totpProofOK(user *domain.User, trimmedCode string
 	if err != nil {
 		return false
 	}
-	return verifyTOTPCodeAgainstSecret(plaintextSeed, trimmedCode, s.now())
+	return s.totpAccept(ctx, user.ID, plaintextSeed, trimmedCode)
 }
 
-func verifyTOTPCodeAgainstSecret(secret, code string, now time.Time) bool {
+// totpAccept is the one place a TOTP proof is accepted in this service
+// (THE-CODE-THAT-WORKS-TWICE): the code must match the seed inside the
+// window AND its matched step must be claimed for userID for the first
+// time. A mismatch, a replay, a nil guard and a store failure all answer
+// false — the same answer, so no caller can tell a replay from a wrong
+// code, and a guard that cannot run never becomes a pass.
+func (s *MFAEnrollmentService) totpAccept(ctx context.Context, userID uuid.UUID, seed, code string) bool {
+	step, ok := matchTOTPStep(seed, code, s.now())
+	if !ok {
+		return false
+	}
+	first, err := s.replay.FirstUse(ctx, userID, step)
+	return err == nil && first
+}
+
+// matchTOTPStep runs the RFC 6238 window match against the supplied
+// secret and returns the matched step. Mirrors MFAVerifierService.Verify's
+// validation block but takes a raw secret (so it can verify against a
+// pending-row candidate or a user's persisted secret without caring
+// which). Window is hard-coded to ±1 step here — matches
+// MFAVerifierService's default. The match is constant-time across the
+// window. It decides genuineness only; freshness is totpAccept's.
+func matchTOTPStep(secret, code string, now time.Time) (int64, bool) {
 	trimmed := strings.TrimSpace(code)
 	if len(trimmed) != defaultTOTPDigits {
-		return false
+		return 0, false
 	}
 	key, err := decodeBase32Secret(secret)
 	if err != nil {
-		return false
+		return 0, false
 	}
 	// Shared RFC 6238 ±1-step window match (constant-time across the
 	// window) — same primitive MFAVerifierService.Verify uses.
-	_, ok := totp.Match(key, trimmed, now, totp.Options{
+	return totp.Match(key, trimmed, now, totp.Options{
 		Period: defaultTOTPPeriod,
 		Digits: defaultTOTPDigits,
 		Window: defaultTOTPWindow,
 	})
-	return ok
 }
 
 // constantTimeEqualString is the package-local constant-time string

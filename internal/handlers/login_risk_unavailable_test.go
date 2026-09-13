@@ -53,7 +53,7 @@ func newAuthEngineWithRisk(t *testing.T, seed func(*inMemoryUserLookupForHandler
 		seed(users)
 	}
 	sessions := service.NewUserSessionService(nil, newSessionRepoForHandlers(), service.UserSessionServiceOptions{DefaultTTL: time.Hour})
-	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: testReplayGuardForHandlers()})
 	riskSvc := service.NewLoginRiskService(nil, risk, service.LoginRiskServiceOptions{Threshold: 5, Window: time.Minute})
 	login := service.NewLocalLoginService(nil, users, sessions, mfa).WithLoginRiskService(riskSvc)
 	RegisterAuthSessionRoutes(r, AuthSessionsHandlerDeps{

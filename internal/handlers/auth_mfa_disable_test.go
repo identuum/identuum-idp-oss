@@ -45,6 +45,7 @@ func newDisableEngine(t *testing.T, principal *domain.Principal) disableTestEngi
 		Users:   userRepo,
 		Issuer:  "Identuum",
 		Cipher:  identityMFACipher{},
+		Replay:  testReplayGuardForHandlers(),
 	}, service.MFAEnrollmentServiceOptions{})
 	rec := &audit.Recorder{}
 	sessionRevoker := &service.RecorderSessionRevoker{}

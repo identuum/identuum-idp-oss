@@ -94,7 +94,7 @@ func newBrowserLoginEngine(t *testing.T, browserTokens *service.BrowserSessionTo
 		PasswordHash: hashPasswordForHandlers(t, "correct"), EmailVerified: true,
 	}}
 	sessions := service.NewUserSessionService(nil, newSessionRepoForHandlers(), service.UserSessionServiceOptions{DefaultTTL: time.Hour})
-	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: testReplayGuardForHandlers()})
 	login := service.NewLocalLoginService(nil, users, sessions, mfa)
 	cookieSvc := service.NewCookieSessionService(nil, sessions, nil, service.CookieSessionServiceOptions{AllowPlainHTTP: true})
 	rec := &audit.Recorder{}

@@ -114,6 +114,7 @@ func newRegenEngine(t *testing.T, cfg ratelimit.RateLimitConfig, subjects ...str
 		Users:   users,
 		Issuer:  "Identuum",
 		Cipher:  regenIdentityCipher{},
+		Replay:  testReplayGuardForAPI(),
 	}, service.MFAEnrollmentServiceOptions{})
 	sessions := service.NewUserSessionService(nil, regenStubSessionRepo{}, service.UserSessionServiceOptions{})
 	engine := NewOSSEngine(OSSRouterDeps{

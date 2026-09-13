@@ -208,7 +208,7 @@ func newAuthEngine(t *testing.T, seed func(*inMemoryUserLookupForHandlers)) (*gi
 		seed(users)
 	}
 	sessions := service.NewUserSessionService(nil, newSessionRepoForHandlers(), service.UserSessionServiceOptions{DefaultTTL: time.Hour})
-	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: testReplayGuardForHandlers()})
 	login := service.NewLocalLoginService(nil, users, sessions, mfa)
 	rec := &audit.Recorder{}
 	RegisterAuthSessionRoutes(r, AuthSessionsHandlerDeps{
@@ -428,7 +428,7 @@ func newAuthEngineWithToken(t *testing.T, seed func(*inMemoryUserLookupForHandle
 		seed(users, byID)
 	}
 	sessions := service.NewUserSessionService(nil, newSessionRepoForHandlers(), service.UserSessionServiceOptions{DefaultTTL: time.Hour})
-	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: testReplayGuardForHandlers()})
 	login := service.NewLocalLoginService(nil, users, sessions, mfa)
 	// Build a UserTokenService backed by an in-memory EdDSA key.
 	keyProvider := userTokenKeyProvider(t)
