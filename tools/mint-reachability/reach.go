@@ -40,6 +40,19 @@
 //	                      ledger-amendments.json, so the number P-055 set to
 //	                      beat was beaten and the entry added
 //	                      (THE-RECORD-ONLY-CLOSE).
+//	tools/<program>/**    A gate program: each directory in GateProgramDirs is
+//	                      its own package main, run at verify time, and the
+//	                      appliance never executes it — cmd/identuum-idp's
+//	                      build closure (`go list -deps ./cmd/...`, what
+//	                      deployment/Dockerfile.local compiles) contains no
+//	                      tools/ package. That is not taken on trust: closure.go
+//	                      re-proves it whenever a decision relies on one of
+//	                      these entries and fails CLOSED if a declared program
+//	                      is ever imported by the product, and closure_test.go
+//	                      re-proves it on every test run. The root tools/tools.go
+//	                      (package tools, a helper library) is NOT a gate
+//	                      program and is NOT declared; only the listed programs
+//	                      are (THE-TOOLS-THAT-CANNOT-REACH, 2026-09-13).
 //
 // THE SIBLING'S PATHS ARE NAMESPACED, NOT RELOCATED. main.go reports the ui's
 // paths as identuum-ui/<path> so a line can never confuse the repositories.
@@ -50,10 +63,11 @@
 // record and every record-only ui commit read as REACHING.
 //
 // Everything else — internal/**, cmd/**, auth/**, deployment/**, the
-// Makefile, the e2e specs and harness, go.mod, go.sum, this tool's own
-// source — REQUIRES the mint.
+// Makefile, scripts/**, the e2e specs and harness, go.mod, go.sum, the root
+// tools/tools.go — REQUIRES the mint.
 //
-// Rule MINT-REACHABILITY-1 binds to reach_test.go.
+// Rule MINT-REACHABILITY-1 binds to reach_test.go; rule TOOLS-NO-REACH-1
+// binds the gate-program entries and their proof to closure_test.go.
 package main
 
 import (
@@ -69,21 +83,78 @@ import (
 type NoReachEntry struct {
 	Pattern string
 	Why     string
+	// ThisRepoOnly entries are matched only against this repository's own
+	// paths, never against a sibling's namespaced ones: a proof about THIS
+	// module's build closure says nothing about a sibling's tree.
+	ThisRepoOnly bool
+}
+
+// GateProgramDirs names the gate programs under tools/: each is its own
+// package main, run at verify time by a Makefile target, and never built into
+// the appliance. MEASURED on 2026-09-13 (THE-TOOLS-THAT-CANNOT-REACH): `go
+// list -deps ./cmd/...` — the closure deployment/Dockerfile.local compiles —
+// held 487 packages, 39 of this module, and NONE under tools/; no package in
+// the module, test or non-test, imports any of them. The list is NAMES, not
+// `tools/**`: tools/tools.go at the root is a library package (imported by
+// nothing, and equally outside the closure) that is not a gate program and is
+// not declared here. Adding a directory to this list is a declaration that
+// closure.go will re-prove, so an entry that is ever imported by the product
+// fails the decision rather than excusing it.
+var GateProgramDirs = []string{
+	"api-docgen",
+	"ci-witness",
+	"clockfuse",
+	"devseed",
+	"grype-gate",
+	"integration-witness",
+	"ledger-diff-gate",
+	"mint-reachability",
+	"notrun",
+	"toolchain-parity",
+	"witness-earns",
+}
+
+// gateProgramWhy is the shared reason; the proof behind it lives in closure.go.
+const gateProgramWhy = "a gate program: its own package main under tools/, run at verify time and never built into the appliance — cmd/identuum-idp's build closure holds no tools/ package, re-proved by the closure check whenever this entry is relied on"
+
+// gateProgramEntries renders GateProgramDirs as declarations, one per program,
+// each scoped to this repository only.
+func gateProgramEntries() []NoReachEntry {
+	entries := make([]NoReachEntry, 0, len(GateProgramDirs))
+	for _, dir := range GateProgramDirs {
+		entries = append(entries, NoReachEntry{Pattern: "tools/" + dir + "/**", Why: gateProgramWhy, ThisRepoOnly: true})
+	}
+	return entries
+}
+
+// IsGateProgramEntry reports whether pattern is one of the gate-program
+// declarations, i.e. an entry whose truth rests on the closure proof.
+func IsGateProgramEntry(pattern string) bool {
+	for _, e := range gateProgramEntries() {
+		if e.Pattern == pattern {
+			return true
+		}
+	}
+	return false
 }
 
 // NoReachSet is the committed declaration. Order does not matter; a path is
-// no-reach if ANY entry matches it.
-var NoReachSet = []NoReachEntry{
-	{".github/**", "CI configuration: read by GitHub, never compiled, never served"},
-	{"docs/**", "prose"},
-	{"**/*.md", "prose (covers RULE-FLOOR.md and every README)"},
-	{"ledger-amendments.json", "the amendment manifest, read by ledger-diff-gate at verify time"},
-	{"GATE-RUN*.txt", "gate records: written by the gates, read by gate-witness check"},
-	{"MINT-STATE.json", "the RETIRED marker (THE-ONE-MINT-RECORD, 2026-09-12): the classifier now reads the mint's own record in the sibling and neither reads nor writes this file. The entry stays so a stale copy in an older checkout is never judged reaching"},
-	{"wiki/**", "a sibling repository's prose"},
-	{"**/*_test.go", "the Go toolchain excludes *_test.go from every non-test build"},
-	{"CI-WITNESS.txt", "the committed CI claim: fetched from a CI artifact, judged by ci-witness at verify time, never compiled or served"},
-	{"conformance/**", "the OpenID harness and its floors; nothing under it ships: the runner, the plan fixtures and the expected-failure files drive a disposable appliance the harness builds and destroys itself, and none of it is compiled into the binary or served (owner decision, THE-HONEST-HARNESS-AND-THE-PUSH, 2026-09-07)"},
+// no-reach if ANY entry matches it. The gate-program entries are appended
+// after the hand-written ones so the earlier declarations stay as they were.
+var NoReachSet = append(baseNoReachSet, gateProgramEntries()...)
+
+// baseNoReachSet is every declaration that needs no proof beyond its reason.
+var baseNoReachSet = []NoReachEntry{
+	{Pattern: ".github/**", Why: "CI configuration: read by GitHub, never compiled, never served"},
+	{Pattern: "docs/**", Why: "prose"},
+	{Pattern: "**/*.md", Why: "prose (covers RULE-FLOOR.md and every README)"},
+	{Pattern: "ledger-amendments.json", Why: "the amendment manifest, read by ledger-diff-gate at verify time"},
+	{Pattern: "GATE-RUN*.txt", Why: "gate records: written by the gates, read by gate-witness check"},
+	{Pattern: "MINT-STATE.json", Why: "the RETIRED marker (THE-ONE-MINT-RECORD, 2026-09-12): the classifier now reads the mint's own record in the sibling and neither reads nor writes this file. The entry stays so a stale copy in an older checkout is never judged reaching"},
+	{Pattern: "wiki/**", Why: "a sibling repository's prose"},
+	{Pattern: "**/*_test.go", Why: "the Go toolchain excludes *_test.go from every non-test build"},
+	{Pattern: "CI-WITNESS.txt", Why: "the committed CI claim: fetched from a CI artifact, judged by ci-witness at verify time, never compiled or served"},
+	{Pattern: "conformance/**", Why: "the OpenID harness and its floors; nothing under it ships: the runner, the plan fixtures and the expected-failure files drive a disposable appliance the harness builds and destroys itself, and none of it is compiled into the binary or served (owner decision, THE-HONEST-HARNESS-AND-THE-PUSH, 2026-09-07)"},
 }
 
 // SiblingPrefixes are the namespaces main.go puts in front of a sibling
@@ -125,8 +196,14 @@ func Decide(changed []string, set []NoReachEntry) Decision {
 	sort.Strings(d.Changed)
 	for _, p := range d.Changed {
 		matched := ""
+		local := localPath(p)
 		for _, e := range set {
-			if matchPath(e.Pattern, localPath(p)) {
+			if e.ThisRepoOnly && local != p {
+				// A namespaced sibling path: this entry is about THIS
+				// repository's build closure and says nothing about the sibling.
+				continue
+			}
+			if matchPath(e.Pattern, local) {
 				matched = e.Pattern
 				break
 			}

@@ -60,11 +60,22 @@ func main() {
 	sibling := flag.String("sibling", "../identuum-ui", "the sibling repository the mint also exercises")
 	recordName := flag.String("mint-record", defaultRecord, "the mint's record of record, relative to the sibling checkout")
 	e2eRecord := flag.String("e2e-record", "", "judge a stale e2e record instead: accept it only when every path changed since its heads, in this repo and the sibling, is declared no-reach")
+	proveNoReach := flag.Bool("prove-no-reach", false, "only prove that no declared gate program is in the appliance's build closure (go list -deps ./cmd/...); exit 0 with the proof line, 1 naming the reachable program")
 	flag.Parse()
 
 	siblingDir := *sibling
 	if !filepath.IsAbs(siblingDir) {
 		siblingDir = filepath.Join(*repo, siblingDir)
+	}
+
+	if *proveNoReach {
+		line, err := ProveGateProgramsUnreachable(*repo)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "check FAILED: mint-reachability —", err)
+			os.Exit(ExitUndecidable)
+		}
+		fmt.Println(line)
+		os.Exit(ExitSkippable)
 	}
 
 	if *e2eRecord != "" {
@@ -133,6 +144,14 @@ func decideFromRecord(recordPath, repoDir, uiDir string) (string, int) {
 	if d.Required {
 		return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s (since %s: identuum-ui %s, identuum-idp-oss %s)",
 			d.Summary(), name, heads.UI, heads.Sibling), ExitRequired
+	}
+	// A gate-program entry excused something: its proof must hold on THIS
+	// tree before that excuse stands. If the proof cannot run or fails, the
+	// answer is undecidable, which the harness treats as MINT REQUIRED.
+	if reliesOnGateProgram(d) {
+		if _, err := ProveGateProgramsUnreachable(repoDir); err != nil {
+			return fmt.Sprintf("check FAILED: mint-reachability — %v", err), ExitUndecidable
+		}
 	}
 	return fmt.Sprintf("check OK: mint-reachability MINT SATISFIED by %s (identuum-ui %s, identuum-idp-oss %s) — %s",
 		name, heads.UI, heads.Sibling, d.Summary()), ExitSkippable
@@ -236,6 +255,16 @@ func judgeE2ERecord(recordPath, repoDir, uiDir string) int {
 	if d.Required {
 		fmt.Printf("check FAILED: e2e-record-reach REFUSED — the stale record cannot stand for this tree: %d reaching path(s) since its heads; mint a new e2e-full\n", len(d.Reaching))
 		return ExitRequired
+	}
+	// The same proof obligation as the mint decision: an excuse resting on
+	// a gate-program entry stands only while the entry is provably sound.
+	if reliesOnGateProgram(d) {
+		line, err := ProveGateProgramsUnreachable(repoDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %v\n", err)
+			return ExitUndecidable
+		}
+		fmt.Println(line)
 	}
 	fmt.Printf("check OK: e2e-record-reach ACCEPTED — the record's claim stands: every path since identuum-ui %s and identuum-idp-oss %s is declared no-reach (record-only commits)\n", heads.UI, heads.Sibling)
 	return ExitSkippable
