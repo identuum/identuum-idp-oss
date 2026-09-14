@@ -15,7 +15,8 @@ context="ci-context: $identity job=$GITHUB_JOB"
 case "${1:-}" in
 produce)
 	shift
-	[ "$#" -ge 6 ] && [ "$1" = bash ] && [ "$3" = run ] || refuse 'expected a Bash recorder run invocation'
+	[ "$#" -ge 6 ] && [ "$1" = bash ] || refuse 'expected a Bash recorder run or init invocation'
+	case "$3" in run|init) ;; *) refuse 'expected recorder run or init mode';; esac
 	# CI starts clean. Never let an old record stand in for a producer that
 	# refuses to mint; leave such a file untouched and fail the job explicitly.
 	[ ! -e "$4" ] && [ ! -L "$4" ] || refuse "record already exists before this invocation: $4"

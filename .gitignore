@@ -93,6 +93,9 @@ docs/design/
 # uploaded as a CI artifact; never committed — a local run must not read as
 # an edit to the committed GATE-RUN.txt record's tree digest.
 /GATE-RUN.ci.txt
+# The CI Integration Tests job's partial, commit-tied record; distinct from
+# the local verify-integration record below.
+/GATE-RUN.ci-integration.txt
 # MINT-STATE.json is RETIRED (THE-ONE-MINT-RECORD, 2026-09-12): the mint's
 # record of record is ../identuum-ui/GATE-RUN.e2e-full.txt, which the
 # classifier now reads directly; nothing writes this marker any more. The
