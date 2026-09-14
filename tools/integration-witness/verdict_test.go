@@ -224,5 +224,15 @@ func section(makefile, name string) string {
 		}
 		break
 	}
-	return strings.Join(out, "\n")
+	recipe := strings.Join(out, "\n")
+	// Follow extracted argument vectors; all wiring assertions still inspect
+	// the commands the selected recipe actually passes to its driver.
+	for _, definition := range strings.Split(makefile, "\ndefine ")[1:] {
+		declaration, _, closed := strings.Cut(definition, "\nendef")
+		variable, body, named := strings.Cut(declaration, "\n")
+		if closed && named {
+			recipe = strings.ReplaceAll(recipe, "$("+variable+")", body)
+		}
+	}
+	return recipe
 }

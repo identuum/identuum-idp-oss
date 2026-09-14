@@ -26,7 +26,7 @@ func manifestJSON(baseSHA, changes string) []byte {
 
 // makefileRecipe returns the recipe lines of a Makefile target: everything
 // indented under `name:` up to the first line that is neither blank nor
-// indented.
+// indented, expanding the named argument vectors extracted from those recipes.
 func makefileRecipe(t *testing.T, src, name string) string {
 	t.Helper()
 	lines := strings.Split(src, "\n")
@@ -49,7 +49,15 @@ func makefileRecipe(t *testing.T, src, name string) string {
 		b.WriteString(l)
 		b.WriteString("\n")
 	}
-	return b.String()
+	recipe := b.String()
+	for _, definition := range strings.Split(src, "\ndefine ")[1:] {
+		declaration, _, closed := strings.Cut(definition, "\nendef")
+		variable, body, named := strings.Cut(declaration, "\n")
+		if closed && named {
+			recipe = strings.ReplaceAll(recipe, "$("+variable+")", body)
+		}
+	}
+	return recipe
 }
 
 // git runs one git command in the fixture repo and fails the test on error.
