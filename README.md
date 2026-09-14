@@ -403,8 +403,15 @@ source of truth; in order, it runs:
 6. A precise gograph rebuild followed by
    `gograph boundaries --config boundaries.json`. This is part of the full
    local gate, not an optional review command.
-7. `go mod tidy -diff`, `staticcheck ./...`, `govulncheck ./...`, wiki
-   freshness, and `grype dir:. --fail-on high`.
+7. `go mod tidy -diff`, `staticcheck ./...`, `govulncheck ./...`,
+   `grype-scan`, then wiki freshness as the final entry.
+
+The local driver attempts every independent planned target after a failure;
+any failure keeps the final verdict red. A target blocked by a failed declared
+prerequisite is recorded as NOT-RUN with its reason and exit 125. In particular,
+boundary evaluation requires that run's successful graph rebuild. Freshness
+remains fatal, but cannot mask the security checks. The shared record writer
+is unchanged; dirty work is evaluated without replacing the gate record.
 
 ```bash
 make verify

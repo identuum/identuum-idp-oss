@@ -481,6 +481,15 @@ workflow-yaml-parity:
 # every build/vet/test/lint gate first, wiki-fresh LAST. wiki-fresh is
 # still fatal — nothing here is downgraded to a warning — it simply no
 # longer masks what it is not about.
+# THE-GATE-THAT-STOPS-TOO-EARLY (2026-09-14): freshness is the LAST
+# plan entry, after grype-scan, with nothing below it. It remains fatal.
+# A red target no longer stops this local run: verify-all drives every
+# independent target through the shared recorder's init/step/finalize API,
+# preserving each exit code and a RED final verdict if any target fails.
+# Failed prerequisites are explicit NOT-RUN results (exit=125), with their
+# reason in the record. Boundaries requires this run's gograph-build, so a
+# failed rebuild cannot let it judge a stale graph. The plan and that edge
+# live here; the shared, byte-pinned recorder is not forked or weakened.
 # This recipe is the canonical repo-local close gate. README.md's Validation
 # matrix mirrors its ordered coverage and omissions; the focused
 # TestVerifyGateSetBoundaryContract pin makes removing the boundary step fail
@@ -632,16 +641,16 @@ witness-check:
 	@go run ./tools/witness-earns --repo .
 
 verify:
-	# THE-UNWITNESSED-GREEN: the same targets in the same order, driven
-	# through scripts/gate-witness.sh so the run leaves a committed record
+	# THE-UNWITNESSED-GREEN: the declared targets are driven by verify-all
+	# through scripts/gate-witness.sh so a committed-head run leaves a record
 	# (GATE-RUN.txt): per-target exit codes, the five tool versions with
 	# paths, the tools' own count lines, and a digest of the tree the run
-	# saw (minus the record itself). A run that stops early reads
+	# saw (minus the record itself). An interrupted run reads
 	# INCOMPLETE, never green.
 	#
 	# rulefloor-check sits EARLY on purpose: it is cheap (hash pins + four
-	# standalone go test -run rows) and a tampered rule proof should fail the
-	# aggregate before the expensive gates spend their minutes. Sibling-coupled,
+	# standalone go test -run rows), so a tampered proof is reported early;
+	# remaining targets still run to give the complete verdict. Sibling-coupled,
 	# so ci-verify subtracts it — see the ci.yml header enumeration.
 	#
 	# fmt-check / vet / go build / go test are NOT missing: `repo-green`
@@ -654,7 +663,8 @@ verify:
 	# graph reports stale imports. Red-proved: internal/crypto importing
 	# internal/api fails with [boundary_violation]. Local-only like the other
 	# gograph lines; ci-verify documents the omission.
-	@bash scripts/gate-witness.sh run GATE-RUN.txt "identuum-idp-oss make verify" \
+	@bash scripts/verify-all.sh GATE-RUN.txt "identuum-idp-oss make verify" \
+		--requires gograph-boundaries:gograph-build -- \
 		'tool-versions=$(MAKE) --no-print-directory tool-versions' \
 		'toolchain-parity=$(MAKE) --no-print-directory toolchain-parity' \
 		'ci-witness=$(MAKE) --no-print-directory ci-witness' \
@@ -685,8 +695,8 @@ verify:
 		'go-mod-tidy-diff=go mod tidy -diff' \
 		'staticcheck=staticcheck ./...' \
 		'govulncheck=govulncheck ./...' \
-		'wiki-fresh=$(MAKE) --no-print-directory wiki-fresh' \
-		'grype-scan=$(MAKE) grype-scan'
+		'grype-scan=$(MAKE) grype-scan' \
+		'wiki-fresh=$(MAKE) --no-print-directory wiki-fresh'
 
 ## ci-verify: CI mirror of `make verify` MINUS the two gograph lines, MINUS
 ## govulncheck, and MINUS wiki-fresh. THREE omissions, all deliberate and all
