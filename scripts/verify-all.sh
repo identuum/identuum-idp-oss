@@ -41,7 +41,18 @@ done
 # init intentionally permits dirty stepwise clients. This local driver must
 # retain run's stricter rule: dirty WORK is evaluated, but never minted.
 # Gate records themselves are excluded exactly as in work_state.
-dirty=$(git status --porcelain -- . ":(exclude)$record" ':(exclude)GATE-RUN*.txt') || exit 2
+root=$(git rev-parse --show-toplevel) || exit 2
+record_dir=$(cd "$(dirname "$record")" && pwd -P) || exit 2
+dirty=""
+case "$record_dir/" in
+"$root/"*)
+	dirty=$(git status --porcelain -- . ":(exclude)$record" ':(exclude)GATE-RUN*.txt') || exit 2
+	;;
+*)
+	# An external record is diagnostic only, even on dirty work. Git cannot
+	# use an outside path as an exclusion; no in-tree record needs protecting.
+	;;
+esac
 target="$record"
 scratch=""
 if [ -n "$dirty" ]; then

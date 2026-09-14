@@ -381,8 +381,8 @@ through D-IDP-INSTALL-25).
 
 ## Validation matrix
 
-The repo-local close gate is `make verify`. Its recipe in `Makefile` is the
-source of truth; in order, it runs:
+The repo-local close gate is `make verify`. Its `VERIFY_PLAN` definition in
+`Makefile` is the source of truth for the exact order; its checks include:
 
 1. `repo-green` (gofmt, build, vet, and the untagged Go test suite).
 2. The tracked-binary, credential-transparency and workflow-yaml checks (every
@@ -416,6 +416,32 @@ is unchanged; dirty work is evaluated without replacing the gate record.
 ```bash
 make verify
 ```
+
+The three authoritative argument vectors are `VERIFY_PLAN`, `CI_VERIFY_PLAN`
+and `VERIFY_INTEGRATION_PLAN`, each defined once in `Makefile`. Their existing
+recipes select the recorder, label, record path and failure behavior. `verify`
+attempts all independent targets; `ci-verify` and `verify-integration` retain
+the recorder's fail-fast behavior. Their records remain `GATE-RUN.txt`,
+`GATE-RUN.ci.txt` and `GATE-RUN.integration.txt`, respectively; the latter two
+are gitignored.
+
+For a non-minting check, use `make verify-check`, `make ci-verify-check`, or
+`make verify-integration-check`. These run the existing plans in this checkout
+with the same recorder and verdict rules, writing the diagnostic record to a
+temporary path outside the working tree. Tracked files must remain byte-identical;
+ignored build caches may change just as under the minting driver. A check does
+not replace a required minting run. Integration still needs its live services.
+
+The external output is diagnostic, not a witness: the shared recorder's Git
+exclusions cannot bind an outside record path to the tree. Its target verdict
+still applies; do not use that output's tree-binding metadata as evidence.
+The driver copies no checkout or credentials and needs no sandbox. Linked
+worktrees use the same Git-based path discovery as ordinary checkouts.
+
+Run the standalone transport proofs with `bash scripts/verify-check-test.sh`.
+
+A foreign consumer can invoke `make -C /path/to/identuum-idp-oss verify-check`.
+No consumer wiring is part of this change.
 
 The short command list previously printed here as "equivalent" was not
 equivalent: it omitted the architecture boundary check and most repo-specific

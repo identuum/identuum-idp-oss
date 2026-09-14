@@ -663,7 +663,7 @@ verify:
 	# graph reports stale imports. Red-proved: internal/crypto importing
 	# internal/api fails with [boundary_violation]. Local-only like the other
 	# gograph lines; ci-verify documents the omission.
-	+@bash scripts/verify-all.sh GATE-RUN.txt "identuum-idp-oss make verify" \
+	+@$(GATE_RECORD_DRIVER) bash scripts/verify-all.sh GATE-RUN.txt "identuum-idp-oss make verify" \
 		--requires gograph-boundaries:gograph-build -- \
 		$(VERIFY_PLAN)
 
@@ -832,7 +832,7 @@ ci-verify:
 	# (via repo-green, local-only since THE-CI-SHAPE); in CI this instrumented
 	# superset is the test floor.
 	+@GATE_WITNESS_CITES='the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' \
-	bash scripts/gate-witness.sh run GATE-RUN.ci.txt "identuum-idp-oss make ci-verify" \
+	$(GATE_RECORD_DRIVER) bash scripts/gate-witness.sh run GATE-RUN.ci.txt "identuum-idp-oss make ci-verify" \
 		$(CI_VERIFY_PLAN)
 
 # One authoritative argument vector; drivers enter through the target above.
@@ -1992,7 +1992,7 @@ rulefloor-integration:
 ## would collapse CANNOT-EVALUATE into an ordinary failure and lose exactly the
 ## distinction this gate promises.
 verify-integration: bin/integration-witness
-	+@bash scripts/gate-witness.sh run GATE-RUN.integration.txt "identuum-idp-oss make verify-integration" \
+	+@$(GATE_RECORD_DRIVER) bash scripts/gate-witness.sh run GATE-RUN.integration.txt "identuum-idp-oss make verify-integration" \
 		$(VERIFY_INTEGRATION_PLAN)
 
 # One authoritative argument vector; drivers enter through the target above.
@@ -2002,6 +2002,12 @@ define VERIFY_INTEGRATION_PLAN
 		'integration-profile=./bin/integration-witness' \
 		'rulefloor-integration=$(MAKE) --no-print-directory rulefloor-integration'
 endef
+
+.PHONY: verify-check ci-verify-check verify-integration-check
+# Re-enter the SAME recipes, changing only where their record is written.
+# No target vector, ordering, dependency or failure mode is repeated here.
+verify-check ci-verify-check verify-integration-check:
+	+@$(MAKE) --no-print-directory $(patsubst %-check,%,$@) GATE_RECORD_DRIVER='bash scripts/verify-check.sh'
 
 .PHONY: verify-parallel
 ## verify-parallel: the two idp-oss witness legs CONCURRENTLY (THE-PARALLEL-RITUAL).
