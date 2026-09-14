@@ -663,8 +663,12 @@ verify:
 	# graph reports stale imports. Red-proved: internal/crypto importing
 	# internal/api fails with [boundary_violation]. Local-only like the other
 	# gograph lines; ci-verify documents the omission.
-	@bash scripts/verify-all.sh GATE-RUN.txt "identuum-idp-oss make verify" \
+	+@bash scripts/verify-all.sh GATE-RUN.txt "identuum-idp-oss make verify" \
 		--requires gograph-boundaries:gograph-build -- \
+		$(VERIFY_PLAN)
+
+# One authoritative argument vector; drivers enter through the target above.
+define VERIFY_PLAN
 		'tool-versions=$(MAKE) --no-print-directory tool-versions' \
 		'toolchain-parity=$(MAKE) --no-print-directory toolchain-parity' \
 		'ci-witness=$(MAKE) --no-print-directory ci-witness' \
@@ -697,6 +701,7 @@ verify:
 		'govulncheck=govulncheck ./...' \
 		'grype-scan=$(MAKE) grype-scan' \
 		'wiki-fresh=$(MAKE) --no-print-directory wiki-fresh'
+endef
 
 ## ci-verify: CI mirror of `make verify` MINUS the two gograph lines, MINUS
 ## govulncheck, and MINUS wiki-fresh. THREE omissions, all deliberate and all
@@ -826,8 +831,12 @@ ci-verify:
 	# instrumented run is 2-10x slower. The plain 120s run lives in `verify`
 	# (via repo-green, local-only since THE-CI-SHAPE); in CI this instrumented
 	# superset is the test floor.
-	@GATE_WITNESS_CITES='the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' \
+	+@GATE_WITNESS_CITES='the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' \
 	bash scripts/gate-witness.sh run GATE-RUN.ci.txt "identuum-idp-oss make ci-verify" \
+		$(CI_VERIFY_PLAN)
+
+# One authoritative argument vector; drivers enter through the target above.
+define CI_VERIFY_PLAN
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
 		'workflow-yaml=$(MAKE) --no-print-directory workflow-yaml' \
@@ -853,6 +862,7 @@ ci-verify:
 		'go-test-race=go test ./... -count=1 -race -timeout=300s' \
 		'staticcheck=staticcheck ./...' \
 		'grype-scan=$(MAKE) grype-scan'
+endef
 
 ## fmt-check: HARD gofmt gate (CE-GATES-3). Fails on drifted files AND on a
 ## non-zero gofmt exit status — gofmt walks files `go build` never compiles
@@ -1982,11 +1992,16 @@ rulefloor-integration:
 ## would collapse CANNOT-EVALUATE into an ordinary failure and lose exactly the
 ## distinction this gate promises.
 verify-integration: bin/integration-witness
-	@bash scripts/gate-witness.sh run GATE-RUN.integration.txt "identuum-idp-oss make verify-integration" \
+	+@bash scripts/gate-witness.sh run GATE-RUN.integration.txt "identuum-idp-oss make verify-integration" \
+		$(VERIFY_INTEGRATION_PLAN)
+
+# One authoritative argument vector; drivers enter through the target above.
+define VERIFY_INTEGRATION_PLAN
 		'integration-preflight=./bin/integration-witness -preflight' \
 		'integration-db=$(MAKE) --no-print-directory test-db' \
 		'integration-profile=./bin/integration-witness' \
 		'rulefloor-integration=$(MAKE) --no-print-directory rulefloor-integration'
+endef
 
 .PHONY: verify-parallel
 ## verify-parallel: the two idp-oss witness legs CONCURRENTLY (THE-PARALLEL-RITUAL).
