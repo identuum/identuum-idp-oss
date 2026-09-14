@@ -1,16 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "8becb8924f7c1358dd0e67681b21180894363df4",
-  "changes": [
-    {
-      "rule_id": "TOTP-SINGLE-USE-1",
-      "change_class": "rule_added",
-      "reason": "THE-CODE-THAT-WORKS-TWICE (2026-09-13): a TOTP code accepted for a user is never accepted again — every TOTP proof (login, step-up, enrolment complete, pending-login verify, recovery-code regenerate, self-disable) claims its matched step once in totp_used_steps (migration 0040), a replay is refused with the same sentinel as a wrong code, and an unavailable store refuses rather than admits. Pinned by the hermetic single-use rule test, red-proved by three mutations."
-    },
-    {
-      "rule_id": "SESSION-COOKIE-TRANSPORT-SEC-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-CODE-THAT-WORKS-TWICE (2026-09-13): the rule's test function constructs the MFA verifier, whose constructor now requires the TOTP single-use guard; the one added argument (Replay: testReplayGuardForHandlers()) changed the extracted span, reviewed and rehashed 162baa39d418 -> e71a68767542. The assertion — the session cookie's Secure flag follows the transport — is untouched."
-    }
-  ]
+  "base_commit": "c5dd4a77ea4ca46ff84a323876c1e2f4205b3179",
+  "changes": []
 }

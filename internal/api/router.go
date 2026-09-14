@@ -65,6 +65,10 @@ type OSSRouterDeps struct {
 	// (unknown version)".
 	Version string
 
+	// BruteForceProtectionDisabled reports the runtime's captured test-hatch
+	// state on health probes. Observation only; no control consults this field.
+	BruteForceProtectionDisabled bool
+
 	// DiscoveryConfig drives /.well-known/openid-configuration.
 	// Empty fields fall back to the localhost placeholders defined
 	// by server.ResolveDiscoveryConfig.
@@ -1624,6 +1628,10 @@ func componentHandler(deps OSSRouterDeps) gin.HandlerFunc {
 func healthHandler(deps OSSRouterDeps) gin.HandlerFunc {
 	report := deps.StartupReport
 	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		if deps.BruteForceProtectionDisabled {
+			c.Header("X-Identuum-Brute-Force-Protection", "disabled")
+		}
 		// P-018 readiness contract. The probe never depends on the
 		// faulted components — it reads only the StartupReport — so it
 		// stays answerable in NOT-SERVING mode. report is nil-safe:

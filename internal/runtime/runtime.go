@@ -1354,7 +1354,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		// password-reset). Sourced from the runtime's own env path (NOT the
 		// inert appconfig package), with safe defaults, so the shipped IdP
 		// actually rate-limits instead of shipping a zero-value no-op.
-		RateLimitConfig: resolveRateLimitConfig(r.cfg.Getenv),
+		RateLimitConfig:              resolveRateLimitConfig(r.cfg.Getenv),
+		BruteForceProtectionDisabled: insecureDevMode,
 	}
 
 	// Appliance first-run setup foundation. The service is wired
