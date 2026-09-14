@@ -126,10 +126,12 @@ func TestE2E_OSS_MFAAtRestRealCipher(t *testing.T) {
 	}
 
 	const issuer = "http://localhost:7113"
+	// Match runtime.buildDeps: share the durable guard across both MFA services.
+	replay := service.NewTOTPReplayGuard(nil, repos.TOTPUsedStep, service.TOTPReplayGuardOptions{})
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})
 
 	// Real EncryptedTOTPSecretResolver — decrypts at-rest ciphertext before TOTP verify.
-	mfa := service.NewMFAVerifierService(nil, service.EncryptedTOTPSecretResolver{Cipher: cs}, service.MFAVerifierOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.EncryptedTOTPSecretResolver{Cipher: cs}, service.MFAVerifierOptions{Replay: replay})
 	login := service.NewLocalLoginService(nil, repos.User, sessions, mfa)
 	userToken := service.NewUserTokenService(nil, keySvc, service.UserTokenServiceOptions{Issuer: issuer})
 	verifier := auth.NewRepositoryVerifier(nil, repos.Key, auth.VerifierOptions{ExpectedIssuer: issuer})
@@ -140,6 +142,7 @@ func TestE2E_OSS_MFAAtRestRealCipher(t *testing.T) {
 		Users:   repos.User,
 		Issuer:  "Identuum",
 		Cipher:  cs,
+		Replay:  replay,
 	}, service.MFAEnrollmentServiceOptions{})
 
 	gin.SetMode(gin.ReleaseMode)
@@ -252,13 +255,23 @@ func TestE2E_OSS_MFAAtRestRealCipher(t *testing.T) {
 
 	// ── Step 3: /enroll/complete ───────────────────────────────────────────────
 
-	enrollCode := computeTOTPCodeForTest(t, rawSeed, uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds))
+	enrollStep := uint64(time.Now().Unix()) / uint64(service.TOTPPeriodSeconds)
+	enrollCode := computeTOTPCodeForTest(t, rawSeed, enrollStep)
 	completeBody := fmt.Sprintf(`{"session_id":%q,"code":%q}`, pendingEnrollIDStr, enrollCode)
 	completeReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa/enroll/complete", strings.NewReader(completeBody))
 	completeReq.Header.Set("Content-Type", "application/json")
 	completeReq.Host = "localhost:7113"
 	completeW := httptest.NewRecorder()
 	r.ServeHTTP(completeW, completeReq)
+	t.Run("totp_step_single_use", func(t *testing.T) {
+		replayed, freshPending := replayEnrolledTOTP(r, loginBody, pendingEnrollIDStr, enrollCode)
+		if completeW.Code != http.StatusOK || !freshPending || replayed.Code != http.StatusUnauthorized {
+			t.Errorf("same-step first-use/replay: got %d/%d, fresh verify handle=%t; want 200/401 and a fresh verify handle", completeW.Code, replayed.Code, freshPending)
+		}
+		if len(replayed.Result().Cookies()) != 0 {
+			t.Error("TOTP step replay must not issue cookies")
+		}
+	})
 	if completeW.Code != http.StatusOK {
 		t.Fatalf("step 3: enroll/complete: want 200, got %d (shape: %s)",
 			completeW.Code, classifyLoginBody(completeW.Body.String()))
@@ -328,6 +341,8 @@ func TestE2E_OSS_MFAAtRestRealCipher(t *testing.T) {
 	}
 
 	t.Run("b_totp_verify_real_decrypt_succeeds", func(t *testing.T) {
+		// Keep a current-code success case, using the next unused real step.
+		waitForNextTOTPStep(enrollStep)
 		verifyCode := computeTOTPCodeForTest(t, rawSeed, uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds))
 		verifyBody := fmt.Sprintf(`{"session_id":%q,"code":%q}`, pendingVerifyIDStr, verifyCode)
 		verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa", strings.NewReader(verifyBody))

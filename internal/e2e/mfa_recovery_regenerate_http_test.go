@@ -122,11 +122,14 @@ func newRegenerateE2EFixture(t *testing.T) *regenerateE2EFixture {
 		t.Fatalf("seed enrolment Update: %v", err)
 	}
 
+	// Match runtime.buildDeps: use the real, migrated PostgreSQL replay store.
+	replay := service.NewTOTPReplayGuard(nil, repos.TOTPUsedStep, service.TOTPReplayGuardOptions{})
 	enrollment := service.NewMFAEnrollmentService(nil, service.MFAEnrollmentRepoOptions{
 		Pending: repos.MFAPendingLoginSession,
 		Users:   repos.User,
 		Issuer:  "Identuum",
 		Cipher:  e2eMFAIdentityCipher{},
+		Replay:  replay,
 	}, service.MFAEnrollmentServiceOptions{})
 
 	gin.SetMode(gin.ReleaseMode)
@@ -238,7 +241,17 @@ func TestE2E_OSS_MFARecoveryRegenerate_RecoveryCodeIsRefused(t *testing.T) {
 // seeded ones, the row replaced, MFA still enabled with the same secret.
 func TestE2E_OSS_MFARecoveryRegenerate_TOTPCodeAccepted(t *testing.T) {
 	f := newRegenerateE2EFixture(t)
-	status, body := f.post(t, "/api/v1/me/mfa/recovery-codes/regenerate", map[string]string{"code": f.currentTOTP(t)})
+	code := f.currentTOTP(t)
+	status, body := f.post(t, "/api/v1/me/mfa/recovery-codes/regenerate", map[string]string{"code": code})
+	t.Run("totp_step_single_use", func(t *testing.T) {
+		replayStatus, replayBody := f.post(t, "/api/v1/me/mfa/recovery-codes/regenerate", map[string]string{"code": code})
+		if status != http.StatusOK || replayStatus != http.StatusUnauthorized {
+			t.Errorf("same-step first-use/replay: got %d/%d; want 200/401", status, replayStatus)
+		}
+		if !strings.Contains(replayBody, `"invalid_code"`) || strings.Contains(replayBody, `"recovery_codes"`) {
+			t.Error("TOTP step replay must return invalid_code without recovery codes")
+		}
+	})
 	if status != http.StatusOK {
 		t.Fatalf("regenerate with a current TOTP code = %d %s, want 200", status, redactCodes(body))
 	}

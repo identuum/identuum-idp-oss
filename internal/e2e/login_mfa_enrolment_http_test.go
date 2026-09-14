@@ -110,8 +110,10 @@ func TestE2E_OSS_MFAEnrolment_FullRoundTrip(t *testing.T) {
 	}
 
 	const issuer = "http://localhost:7113"
+	// Match runtime.buildDeps: one guard over the real, migrated PostgreSQL store.
+	replay := service.NewTOTPReplayGuard(nil, repos.TOTPUsedStep, service.TOTPReplayGuardOptions{})
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})
-	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: replay})
 	login := service.NewLocalLoginService(nil, repos.User, sessions, mfa)
 	userToken := service.NewUserTokenService(nil, keySvc, service.UserTokenServiceOptions{Issuer: issuer})
 	verifier := auth.NewRepositoryVerifier(nil, repos.Key, auth.VerifierOptions{ExpectedIssuer: issuer})
@@ -119,6 +121,7 @@ func TestE2E_OSS_MFAEnrolment_FullRoundTrip(t *testing.T) {
 		Pending: repos.MFAPendingLoginSession,
 		Users:   repos.User,
 		Issuer:  "Identuum",
+		Replay:  replay,
 		// Identity cipher for the e2e roundtrip: the at-rest seed is
 		// stored unchanged so the PlaintextTOTPSecretResolver above still
 		// resolves it; real AES-256-GCM encryption is unit-proven in
@@ -221,6 +224,16 @@ func TestE2E_OSS_MFAEnrolment_FullRoundTrip(t *testing.T) {
 	completeW := httptest.NewRecorder()
 	r.ServeHTTP(completeW, completeReq)
 
+	t.Run("totp_step_single_use", func(t *testing.T) {
+		replayed, freshPending := replayEnrolledTOTP(r, loginBody, pendingID, code)
+		if completeW.Code != http.StatusOK || !freshPending || replayed.Code != http.StatusUnauthorized {
+			t.Errorf("same-step first-use/replay: got %d/%d, fresh verify handle=%t; want 200/401 and a fresh verify handle", completeW.Code, replayed.Code, freshPending)
+		}
+		if len(replayed.Result().Cookies()) != 0 {
+			t.Error("TOTP step replay must not issue cookies")
+		}
+	})
+
 	if completeW.Code != http.StatusOK {
 		t.Fatalf("step 3: want 200, got %d (body shape: %s)", completeW.Code, classifyLoginBody(completeW.Body.String()))
 	}
@@ -297,6 +310,8 @@ func TestE2E_OSS_MFAEnrolment_FullRoundTrip(t *testing.T) {
 
 	// ---------- Step 6: /login/mfa with correct code completes login ----------
 
+	// Enrollment consumed counter; this successful login needs an unused step.
+	waitForNextTOTPStep(counter)
 	verifyCode := computeTOTPCodeForTest(t, *persisted.MFASecret, uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds))
 	verifyBody := `{"session_id":"` + verifyPendingID + `","code":"` + verifyCode + `"}`
 	verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa", strings.NewReader(verifyBody))
@@ -322,6 +337,38 @@ func TestE2E_OSS_MFAEnrolment_FullRoundTrip(t *testing.T) {
 	if validateW.Code != http.StatusOK {
 		t.Fatalf("step 7: validate after MFA verify: want 200, got %d", validateW.Code)
 	}
+}
+
+// replayEnrolledTOTP repeats the accepted enrollment code through a new login
+// handle. Reusing the consumed enrollment handle would test handle consumption,
+// not the durable TOTP step guard. The caller checks first acceptance AND replay
+// refusal together, so a missing, fail-closed guard cannot satisfy the proof.
+func replayEnrolledTOTP(r http.Handler, loginBody, consumedHandle, code string) (*httptest.ResponseRecorder, bool) {
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginReq.Host = "localhost:7113"
+	loginW := httptest.NewRecorder()
+	r.ServeHTTP(loginW, loginReq)
+	var pending struct {
+		Error     string `json:"error"`
+		SessionID string `json:"session_id"`
+	}
+	err := json.Unmarshal(loginW.Body.Bytes(), &pending)
+	freshPending := err == nil && loginW.Code == http.StatusUnauthorized && pending.Error == "mfa_required" && pending.SessionID != "" && pending.SessionID != consumedHandle
+	body := `{"session_id":"` + pending.SessionID + `","code":"` + code + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Host = "localhost:7113"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w, freshPending
+}
+
+// The production enrollment service has no exported clock seam. Wait at most
+// one real period instead of asking it to accept the enrollment step twice.
+func waitForNextTOTPStep(used uint64) {
+	next := time.Unix(int64(used+1)*int64(service.TOTPPeriodSeconds), 0)
+	time.Sleep(time.Until(next))
 }
 
 // computeTOTPCodeForTest mirrors the service-internal computeHOTP
