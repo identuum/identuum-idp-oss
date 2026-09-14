@@ -78,7 +78,7 @@ type Ancestry struct {
 // Judge decides. The summary is the one line gate-witness records; the
 // `check OK:` prefix is the evidence pattern, so the absent case must earn
 // it honestly — by stating that nothing is claimed.
-func Judge(r Record, a Ancestry) (summary string, ok bool) {
+func Judge(r Record, a Ancestry, expectedGate string, expectedPlan []string) (summary string, ok bool) {
 	// NO CLAIM. Absent, or present-but-untracked: either way nothing here
 	// asserts a CI run, and the honest answer is to say so.
 	//
@@ -97,6 +97,20 @@ func Judge(r Record, a Ancestry) (summary string, ok bool) {
 	}
 
 	var problems []string
+	if strings.TrimSpace(expectedGate) == "" {
+		problems = append(problems, "the caller did not declare an expected gate")
+	} else if r.Label != expectedGate {
+		problems = append(problems, fmt.Sprintf("gate identity mismatch: expected gate %q, found %q", expectedGate, orLabel(r.Label, "<absent>")))
+	}
+	if len(expectedPlan) == 0 {
+		problems = append(problems, "the caller did not declare its current expected plan")
+	}
+	// Compare ordered target names, but judge success against the record's
+	// own plan below. A historical plan is different, not retroactively red.
+	drift := ""
+	if r.Label == expectedGate && len(expectedPlan) > 0 && strings.Join(r.Plan, " ") != strings.Join(expectedPlan, " ") {
+		drift = fmt.Sprintf("; PLAN DRIFT (report only): expected [%s], recorded [%s]", strings.Join(expectedPlan, " "), strings.Join(r.Plan, " "))
+	}
 	// Provenance first: a committed record that cannot say which run produced
 	// it is a claim nobody can check, and a local run can forge everything
 	// else in the file.
@@ -143,7 +157,7 @@ func Judge(r Record, a Ancestry) (summary string, ok bool) {
 	}
 
 	if len(problems) > 0 {
-		return "check FAILED: ci-witness — " + strings.Join(problems, "; "), false
+		return "check FAILED: ci-witness — " + strings.Join(problems, "; ") + drift, false
 	}
 
 	// Behind is reported, never failed: CI runs on push, local work moves on.
@@ -152,7 +166,7 @@ func Judge(r Record, a Ancestry) (summary string, ok bool) {
 		where = fmt.Sprintf("%d commit(s) behind HEAD — the CI claim covers that tree, not this one", a.Behind)
 	}
 	return fmt.Sprintf("check OK: ci-witness %s green, %d planned target(s) all exit=0, ties commit %s, %s, run %s",
-		orNone(r.Label), len(r.Plan), short(r.CommitTie), where, r.RunRef), true
+		orNone(r.Label), len(r.Plan), short(r.CommitTie), where, r.RunRef) + drift, true
 }
 
 func short(sha string) string {

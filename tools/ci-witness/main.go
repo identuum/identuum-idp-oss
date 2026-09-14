@@ -24,6 +24,8 @@ func main() {
 	// stays ignored and disposable; CI-WITNESS.txt is the fetched, committed
 	// evidence that a named CI run was green.
 	record := flag.String("record", "CI-WITNESS.txt", "the COMMITTED CI record (fetched by `make ci-fetch RUN=<id>`), not the local GATE-RUN.ci.txt")
+	expectedGate := flag.String("expect-gate", "", "gate identity declared by the caller; required for a tracked claim")
+	expectedPlan := flag.String("expect-plan", "", "space-separated current target names declared by the caller; differences are reported, not refused")
 	flag.Parse()
 
 	raw, err := os.ReadFile(filepath.Join(*repo, *record))
@@ -31,7 +33,6 @@ func main() {
 	switch {
 	case err == nil:
 		r = ParseRecord(raw)
-		r.Label = orLabel(r.Label, *record)
 		// Committed, or it is not a claim.
 		r.Tracked = git(*repo, "ls-files", "--error-unmatch", *record) == nil
 	case os.IsNotExist(err):
@@ -41,7 +42,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	summary, ok := Judge(r, ancestry(*repo, r.CommitTie))
+	summary, ok := Judge(r, ancestry(*repo, r.CommitTie), *expectedGate, strings.Fields(*expectedPlan))
 	if !ok {
 		fmt.Fprintln(os.Stderr, summary)
 		os.Exit(1)

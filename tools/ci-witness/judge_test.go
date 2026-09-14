@@ -39,7 +39,7 @@ func ciRecord() string {
 func judged(raw string, a Ancestry) (string, bool) {
 	r := ParseRecord([]byte(raw))
 	r.Tracked = true
-	return Judge(r, a)
+	return Judge(r, a, "identuum-idp-oss make ci-verify", strings.Fields("tool-versions repo-green rulefloor-check"))
 }
 
 func onAncestry() Ancestry { return Ancestry{Known: true, IsAncestor: true, Behind: 0} }
@@ -47,7 +47,7 @@ func onAncestry() Ancestry { return Ancestry{Known: true, IsAncestor: true, Behi
 // RULE: CI-RECORD-HONEST-1
 func TestRuleCIRecordHonest1_AbsenceSaysSo_UntrackedIsNoClaim_PresentMustBeProvenanced(t *testing.T) {
 	t.Run("ABSENT: passes, and the line says nothing is evidenced", func(t *testing.T) {
-		summary, ok := Judge(Record{Present: false}, Ancestry{})
+		summary, ok := Judge(Record{Present: false}, Ancestry{}, "identuum-idp-oss make ci-verify", strings.Fields("tool-versions repo-green rulefloor-check"))
 		if !ok {
 			t.Fatalf("absence must not fail the build: %s", summary)
 		}
@@ -65,7 +65,7 @@ func TestRuleCIRecordHonest1_AbsenceSaysSo_UntrackedIsNoClaim_PresentMustBeProve
 		// The live regression: green, commit-tied, and meaningless.
 		r := ParseRecord([]byte(ciRecord()))
 		r.Tracked = false
-		summary, ok := Judge(r, Ancestry{Known: true, IsAncestor: true, Behind: 138})
+		summary, ok := Judge(r, Ancestry{Known: true, IsAncestor: true, Behind: 138}, "identuum-idp-oss make ci-verify", strings.Fields("tool-versions repo-green rulefloor-check"))
 		if !ok {
 			t.Fatalf("an untracked record must not fail the build, only fail to claim: %s", summary)
 		}

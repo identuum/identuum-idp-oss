@@ -549,8 +549,12 @@ toolchain-parity:
 ## the same gate label; one from 2026-08-28, green and commit-tied and 138
 ## commits stale, was in this working tree, and the FIRST version of this
 ## gate accepted it as CI evidence. Rule CI-RECORD-HONEST-1.
+# The caller owns this gate identity, shared with its producer below. Read
+# target names from the unexpanded plan: inspection must not execute its commands.
+CI_VERIFY_GATE := identuum-idp-oss make ci-verify
 ci-witness:
-	@go run ./tools/ci-witness --repo .
+	@plan=$$(printf '%s\n' $(value CI_VERIFY_PLAN) | cut -d= -f1 | paste -sd ' ' -); \
+	go run ./tools/ci-witness --repo . --expect-gate "$(CI_VERIFY_GATE)" --expect-plan "$$plan"
 
 ## ci-fetch (THE-GREEN-CI-BASELINE, 2026-09-04): the OPERATOR STEP that
 ## downloads a CI run's record so ci-witness has something to judge.
@@ -579,7 +583,7 @@ ci-fetch:
 	gh run download $(RUN) -n gate-run-ci-verify -D .ci-fetch
 	@cp .ci-fetch/GATE-RUN.ci.txt CI-WITNESS.txt && rm -rf .ci-fetch
 	@echo "ci-fetch: wrote CI-WITNESS.txt from run $(RUN) — READ IT, then commit it."
-	@go run ./tools/ci-witness --repo . || true
+	@$(MAKE) --no-print-directory ci-witness || true
 
 ## mint-check (THE-UNMINTED-DIFF, 2026-09-04): does the diff since the last
 ## MINTED witness reach the running appliance? OWNER RULING: a slice whose
@@ -845,7 +849,7 @@ ci-verify:
 	# (via repo-green, local-only since THE-CI-SHAPE); in CI this instrumented
 	# superset is the test floor.
 	+@GATE_WITNESS_CITES='the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' \
-	$(GATE_RECORD_DRIVER) bash scripts/gate-witness.sh run GATE-RUN.ci.txt "identuum-idp-oss make ci-verify" \
+	$(GATE_RECORD_DRIVER) bash scripts/gate-witness.sh run GATE-RUN.ci.txt "$(CI_VERIFY_GATE)" \
 		$(CI_VERIFY_PLAN)
 
 # One authoritative argument vector; drivers enter through the target above.
