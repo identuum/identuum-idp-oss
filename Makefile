@@ -623,6 +623,15 @@ mint-decide:
 	echo "mint-decide: tool exit $$rc (0 SKIPPABLE, 10 MINT REQUIRED, 1 undecidable); make itself exits 0 only for SKIPPABLE and 2 otherwise — read this line, not the exit status"; \
 	exit $$rc
 
+.PHONY: mint-decide mint-report
+
+## Verify records the classifier's verdict without treating mint debt as a
+## code failure. Keep mint-decide's fail-closed caller contract unchanged.
+mint-report:
+	@out=$$($(MAKE) --no-print-directory mint-decide 2>&1); rc=$$?; \
+	printf '%s\n' "$$out"; \
+	echo "check OK: mint-decide report recorded (make exit $$rc); only SKIPPABLE permits a witness"
+
 .PHONY: witness witness-parity
 
 ## witness-check (THE-UNEARNED-WITNESS, 2026-09-04): has this tree earned a
@@ -672,6 +681,7 @@ define VERIFY_PLAN
 		'tool-versions=$(MAKE) --no-print-directory tool-versions' \
 		'toolchain-parity=$(MAKE) --no-print-directory toolchain-parity' \
 		'ci-witness=$(MAKE) --no-print-directory ci-witness' \
+		'mint-decide=$(MAKE) --no-print-directory mint-report' \
 		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
@@ -713,6 +723,9 @@ endef
 ## gograph stays a LOCAL-ONLY developer tool by decision (owner-distributed
 ## via the brew cask; CI does not install it), so its `capabilities` +
 ## `build` steps do not run here.
+## The recorded mint-decide report is also local-only: it reads the sibling's
+## e2e record and both checkout histories, which this single-repository CI
+## job does not have. The local witness prerequisite owns that decision.
 ##
 ## govulncheck is omitted for a different reason: CI runs it as its own JOB.
 ## A vulnerability database moves under a tree that has not moved, so a red scan
@@ -1287,6 +1300,19 @@ witness-parity:
 		exit 1; \
 	fi; \
 	echo "check OK: witness-parity witness block md5 $$got matches the shared pin"
+
+## OSS-only prerequisite, outside the shared witness recipe and its pin.
+## Phony: every attempt re-reads both trees and the mint record, even after
+## a previous refusal. No stored approval or bypass controls this decision.
+.PHONY: witness-mint-check
+witness: witness-mint-check
+witness-mint-check:
+	@if $(MAKE) --no-print-directory mint-decide; then \
+		echo "witness: mint prerequisite satisfied; proceeding with the shared witness recipe"; \
+	else \
+		echo "witness: REFUSED — the e2e mint is owed or cannot be established as satisfied; mint-decide's reason is above. Re-running witness cannot pay this debt."; \
+		exit 1; \
+	fi
 
 ## image-policy-restate-check: IMG-NONALPINE is stated in ONE place — the
 ## canonical text beside image-base-check above. THE-IMAGE-POLICY-TRUTH

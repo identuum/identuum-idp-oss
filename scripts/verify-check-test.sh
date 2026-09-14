@@ -14,7 +14,7 @@ git add work.txt GATE-RUN.txt .gitignore
 git -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm fixture
 printf 'prior record\n' > "$scratch/prior"
 
-for declaration in VERIFY_PLAN:32 CI_VERIFY_PLAN:25 VERIFY_INTEGRATION_PLAN:4; do
+for declaration in VERIFY_PLAN:33 CI_VERIFY_PLAN:25 VERIFY_INTEGRATION_PLAN:4; do
 	variable=${declaration%:*}; count=${declaration#*:}
 	measured=$(awk -v variable="$variable" '
 		$0 == "define " variable { definitions++; inside=1; next }
@@ -67,4 +67,4 @@ grep -qx 'result: green' "$scratch/linked.log"
 cmp -s "$scratch/prior" GATE-RUN.txt
 [ -z "$(git status --porcelain)" ] || exit 1
 echo 'PASS: linked worktree — green, record and status unchanged'
-echo 'SELFTEST OK: one definition per plan (32/25/4); external records preserve all-target and fail-fast verdicts'
+echo 'SELFTEST OK: one definition per plan (33/25/4); external records preserve all-target and fail-fast verdicts'
