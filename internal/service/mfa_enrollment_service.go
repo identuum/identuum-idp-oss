@@ -137,12 +137,12 @@ var (
 
 	// ErrMFANotEnrolled — the authenticated user has not enrolled
 	// MFA yet (MFAEnabled=false). Returned by RegenerateRecoveryCodes
-	// and DisableSelf so the wire layer can map this to a distinct
+	// and DisableSelfWithProof so the wire layer can map this to a distinct
 	// 400 mfa_not_enrolled response rather than collapsing it onto
 	// the opaque pending-MFA sentinel set.
 	ErrMFANotEnrolled = errors.New("service: mfa not enrolled")
 
-	// ErrMFADisableForbiddenByPolicy — DisableSelf is refused because
+	// ErrMFADisableForbiddenByPolicy — DisableSelfWithProof is refused because
 	// the user's role or organization policy requires MFA
 	// (site_admin / org_admin / mfa_policy="required"). The wire
 	// layer maps this to a distinct 403 mfa_required_by_policy so a
@@ -169,7 +169,7 @@ var (
 )
 
 // MFADisableReauthMethod identifies which leg of the re-auth chain
-// succeeded on a DisableSelf call. The HTTP layer surfaces it as a
+// succeeded on a DisableSelfWithProof call. The HTTP layer surfaces it as a
 // safe audit-metadata field; it is NEVER a wire response field on
 // the success path (the success path returns 204).
 type MFADisableReauthMethod string
@@ -691,14 +691,6 @@ func (s *MFAEnrollmentService) RegenerateRecoveryCodes(ctx context.Context, user
 	return codes, nil
 }
 
-// DisableSelf disables MFA for the supplied user after verifying a
-// fresh TOTP code OR one valid recovery code. It is the compatibility
-// wrapper for the original code-only contract; callers that also
-// accept a current password should call DisableSelfWithProof.
-func (s *MFAEnrollmentService) DisableSelf(ctx context.Context, userID uuid.UUID, code string) (MFADisableReauthMethod, error) {
-	return s.DisableSelfWithProof(ctx, userID, MFADisableSelfInput{Code: code})
-}
-
 // DisableSelfWithProof disables MFA for the supplied user after
 // verifying a fresh TOTP code, one valid recovery code, OR the
 // authenticated local user's current password. The HTTP handler MUST
@@ -816,22 +808,6 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 		return "", ErrMFAEnrollmentInvalid
 	}
 	return reauth, nil
-}
-
-func (s *MFAEnrollmentService) verifyCurrentPasswordForStepUp(ctx context.Context, user *domain.User, password string) error {
-	if user == nil || strings.TrimSpace(password) == "" {
-		return ErrMFADisableInvalidCode
-	}
-	if user.AuthSource != "" && user.AuthSource != domain.AuthSourceLocal {
-		return ErrMFADisableInvalidCode
-	}
-	if strings.TrimSpace(user.PasswordHash) == "" {
-		return ErrMFADisableInvalidCode
-	}
-	if err := s.users.VerifyPassword(ctx, password, user.PasswordHash); err != nil {
-		return ErrMFADisableInvalidCode
-	}
-	return nil
 }
 
 // MFAStatus is the safe self-service projection returned by

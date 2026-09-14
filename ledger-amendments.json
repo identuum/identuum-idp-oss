@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "c5dd4a77ea4ca46ff84a323876c1e2f4205b3179",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "MFA-STEPUP-PASSWORD-1",
+      "change_class": "rule_removed",
+      "reason": "Retire the unreachable password helper and its dedicated test after d2ba656 committed mutation-proven coverage of surviving disarm state and error identities. The live disarm path refuses password-only proofs and never calls this helper."
+    }
+  ]
 }
