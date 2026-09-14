@@ -22,14 +22,21 @@ import (
 
 func TestTOTPUsedStep_ClaimIsSingleUseAndSweepKeepsLiveRows(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	// Keep the pool open until the row, user and organization cleanups finish.
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxTOTPUsedStepRepository(pool)
 
 	orgID := seedScratchOrg(t, pool)
 	userID := seedSessionUser(t, ctx, pool, orgID)
+	other := uuid.New()
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM totp_used_steps WHERE user_id = $1`, userID)
+		if _, err := pool.Exec(context.Background(), `DELETE FROM totp_used_steps WHERE user_id IN ($1, $2)`, userID, other); err != nil {
+			t.Errorf("clean up owned TOTP steps: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), `DELETE FROM users WHERE id = $1`, userID); err != nil {
+			t.Errorf("clean up seeded user: %v", err)
+		}
 	})
 
 	now := time.Now().UTC()
@@ -48,25 +55,51 @@ func TestTOTPUsedStep_ClaimIsSingleUseAndSweepKeepsLiveRows(t *testing.T) {
 	if err != nil || !next {
 		t.Fatalf("Claim(next step) = (%v, %v), want (true, nil)", next, err)
 	}
-	other := uuid.New()
 	if ok, err := repo.Claim(ctx, other, step, expires); err != nil || !ok {
 		t.Fatalf("Claim(another user, same step) = (%v, %v), want (true, nil)", ok, err)
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM totp_used_steps WHERE user_id = $1`, other)
-	})
 
-	// A sweep before the expiry keeps every row; one after it removes them.
-	if n, err := repo.DeleteExpiredBefore(ctx, now); err != nil || n != 0 {
-		t.Fatalf("DeleteExpiredBefore(now) = (%d, %v), want (0, nil): live rows were swept", n, err)
+	assertOwnedRows := func(phase string, want int) {
+		t.Helper()
+		var count int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM totp_used_steps WHERE user_id IN ($1, $2)`, userID, other).Scan(&count); err != nil {
+			t.Fatalf("%s: count owned TOTP steps: %v", phase, err)
+		}
+		if count != want {
+			t.Fatalf("%s: owned TOTP steps = %d, want %d", phase, count, want)
+		}
 	}
+	otherClaims := []struct {
+		userID uuid.UUID
+		step   int64
+	}{{userID, step + 1}, {other, step}}
+
+	// The sweep is global, but this test owns only these three rows. Other
+	// fixtures' expired rows may legitimately contribute to its delete count.
+	assertOwnedRows("before sweep", 3)
+	if _, err := repo.DeleteExpiredBefore(ctx, now); err != nil {
+		t.Fatalf("DeleteExpiredBefore(now): %v", err)
+	}
+	assertOwnedRows("before expiry", 3)
 	if again, err := repo.Claim(ctx, userID, step, expires); err != nil || again {
 		t.Fatalf("after an early sweep the used step was resurrected: (%v, %v)", again, err)
 	}
-	if n, err := repo.DeleteExpiredBefore(ctx, expires.Add(time.Second)); err != nil || n != 3 {
-		t.Fatalf("DeleteExpiredBefore(past expiry) = (%d, %v), want (3, nil)", n, err)
+	for _, claim := range otherClaims {
+		if again, err := repo.Claim(ctx, claim.userID, claim.step, expires); err != nil || again {
+			t.Fatalf("after an early sweep another owned step was resurrected: (%v, %v)", again, err)
+		}
 	}
+	if _, err := repo.DeleteExpiredBefore(ctx, expires.Add(time.Second)); err != nil {
+		t.Fatalf("DeleteExpiredBefore(past expiry): %v", err)
+	}
+	assertOwnedRows("after expiry", 0)
 	if first, err := repo.Claim(ctx, userID, step, expires); err != nil || !first {
 		t.Fatalf("after its expiry a step is claimable again (the code itself can no longer match): (%v, %v)", first, err)
 	}
+	for _, claim := range otherClaims {
+		if first, err := repo.Claim(ctx, claim.userID, claim.step, expires); err != nil || !first {
+			t.Fatalf("after expiry another owned step is not claimable again: (%v, %v)", first, err)
+		}
+	}
+	assertOwnedRows("after reclaim", 3)
 }
