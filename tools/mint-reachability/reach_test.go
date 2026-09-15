@@ -131,6 +131,55 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 		}
 	})
 
+	t.Run("the Legattus policy does not ship: no-reach in THIS repository, proved from the image and the module", func(t *testing.T) {
+		// THE-LEGATTUS-THAT-LEAVES-THE-TREE-ALONE (2026-09-16). Legattus v0.1.4
+		// writes ONE file into the consumer's tree, the committed
+		// .legattus-policy.json, read by Legattus at its own stages and by
+		// nothing the appliance builds or serves. Declared no-reach with the
+		// same two proofs as scripts/**, re-measured here: the runtime stage of
+		// deployment/Dockerfile.local copies only --from= artifacts, and the
+		// toolchain's embed patterns name no such file. ThisRepoOnly: the
+		// proof is about this module's image; a sibling's policy stays reaching
+		// until it proves its own.
+		if d := Decide([]string{".legattus-policy.json"}, NoReachSet); d.Required {
+			t.Errorf(".legattus-policy.json classified as reaching: Legattus's policy is read by Legattus, never built or served (reaching=%v unknown=%v)", d.Reaching, d.Unknown)
+		}
+		for _, p := range []string{"internal/.legattus-policy.json", ".legattus-policy.json.bak", "identuum-ui/.legattus-policy.json"} {
+			if !Decide([]string{p}, NoReachSet).Required {
+				t.Errorf("%s rode in under the root policy entry", p)
+			}
+		}
+		dockerfile, err := os.ReadFile("../../deployment/Dockerfile.local")
+		if err != nil {
+			t.Fatalf("read the image recipe: %v", err)
+		}
+		var runtimeStage bool
+		for _, line := range strings.Split(string(dockerfile), "\n") {
+			l := strings.TrimSpace(line)
+			if strings.HasPrefix(l, "#") || l == "" {
+				continue
+			}
+			if strings.HasPrefix(l, "FROM ") {
+				runtimeStage = strings.HasSuffix(l, " AS runtime")
+			}
+			if strings.Contains(l, "legattus") {
+				t.Errorf("the image recipe names Legattus: %q", l)
+			}
+			if runtimeStage && (strings.HasPrefix(l, "COPY ") || strings.HasPrefix(l, "ADD ")) && !strings.Contains(l, "--from=") {
+				t.Errorf("the runtime stage copies from the build context, so the policy could ship: %q", l)
+			}
+		}
+		embeds, err := embedPatterns("../..")
+		if err != nil {
+			t.Fatalf("go list embed patterns: %v", err)
+		}
+		for _, e := range embeds {
+			if strings.Contains(e, "legattus") || strings.Contains(e, "*.json") {
+				t.Errorf("a package embeds %q — the policy could be compiled into the binary", e)
+			}
+		}
+	})
+
 	t.Run("the sibling's Makefile does not ship: no-reach for identuum-ui ONLY, proved from its image and its scripts", func(t *testing.T) {
 		// THE-EIGHT-QUICK-ONES, OSS 3 (2026-09-16). identuum-ui/Makefile is
 		// the ui's gate and harness entry point (`make verify`, `make

@@ -1,0 +1,13 @@
+{
+  "schema_version": "legattus.project-policy.v1",
+  "validation": [
+    {
+      "id": "repository.verify",
+      "argv": ["make", "verify-check"],
+      "directory": ".",
+      "timeout_ms": 300000,
+      "required": true,
+      "execute": true
+    }
+  ]
+}

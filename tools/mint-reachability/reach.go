@@ -72,6 +72,13 @@
 //	                      reach_test.go on every run (THE-SIX-SMALL-ONES,
 //	                      2026-09-16).
 //
+//	.legattus-policy.json THIS REPOSITORY ONLY: Legattus v0.1.4's one in-tree
+//	                      file, the committed policy, read by Legattus and by
+//	                      nothing the appliance builds or serves — proved the
+//	                      way scripts/** is (runtime stage copies only --from=
+//	                      artifacts; no embed pattern names it), re-measured
+//	                      by reach_test.go (THE-LEGATTUS-THAT-LEAVES-THE-TREE-
+//	                      ALONE, 2026-09-16).
 //	identuum-ui/Makefile  THE SIBLING'S Makefile ONLY (SiblingOnly): its
 //	                      recipes never reach the ui image — the Dockerfile
 //	                      RUNs npm/pnpm and never make, the runner stage
@@ -202,6 +209,16 @@ var baseNoReachSet = []NoReachEntry{
 	// run where the sibling checkout exists. SiblingOnly: THIS module's
 	// Makefile builds the appliance image and stays reaching.
 	{Pattern: SiblingMakefileEntry, Why: "the sibling's Makefile: its recipes never reach identuum-ui's image — the Dockerfile RUNs no make, its runner stage copies only --from= artifacts, package.json scripts invoke no make — proved by ProveSiblingMakefileUnreachable at every reliant decision and by reach_test.go", SiblingOnly: true},
+	// THE-LEGATTUS-THAT-LEAVES-THE-TREE-ALONE (2026-09-16): Legattus v0.1.4
+	// writes ONE file into the consumer's tree, the committed policy, read by
+	// Legattus at its own stages and by nothing the appliance builds or
+	// serves. Proved like scripts/** and re-measured by reach_test.go on every
+	// run: the runtime stage of deployment/Dockerfile.local copies only
+	// --from= artifacts and names no Legattus path, and `go list -f
+	// {{.EmbedPatterns}}` embeds no such file. ThisRepoOnly: the proof is about
+	// this module's image; a sibling's policy stays reaching until it proves
+	// its own.
+	{Pattern: ".legattus-policy.json", Why: "Legattus's committed policy: read by Legattus, never copied into the runtime image (only --from= artifacts are), never embedded (go list EmbedPatterns names only migrations/*.sql) — proved by reach_test.go on every run", ThisRepoOnly: true},
 }
 
 // SiblingPrefixes are the namespaces main.go puts in front of a sibling
