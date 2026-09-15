@@ -64,6 +64,30 @@ func applianceClosure(repoDir string) (inside []string, total int, err error) {
 	return inside, total, nil
 }
 
+// embedPatterns asks the Go toolchain which files any package of the module
+// embeds (`go list -f {{.EmbedPatterns}} ./...`): the authoritative answer to
+// "is this non-Go path compiled into the binary?" — the proof behind the
+// scripts/** entry (THE-SIX-SMALL-ONES, 2026-09-16), re-measured by its test.
+func embedPatterns(repoDir string) ([]string, error) {
+	cmd := exec.Command("go", "list", "-f", "{{range .EmbedPatterns}}{{.}}\n{{end}}", "./...")
+	cmd.Dir = repoDir
+	out, err := cmd.Output()
+	if err != nil {
+		detail := ""
+		if ee, ok := err.(*exec.ExitError); ok {
+			detail = ": " + strings.TrimSpace(string(ee.Stderr))
+		}
+		return nil, fmt.Errorf("go list embed patterns in %s failed%s (%v)", repoDir, detail, err)
+	}
+	var patterns []string
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			patterns = append(patterns, line)
+		}
+	}
+	return patterns, nil
+}
+
 // reachableGatePrograms is the pure core of the proof: which declared program
 // directories appear in the closure, as the directory itself or beneath it.
 // An empty answer is the proof; a non-empty one names the unsound entries.

@@ -94,11 +94,15 @@ func TestRuleToolsNoReach1_GateProgramsAreDeclaredAndProvedUnreachable(t *testin
 		}
 	})
 
-	t.Run("a product file, a script, the Makefile, go.mod and the root tools helper package still DO", func(t *testing.T) {
+	t.Run("a product file, a deployment file, the Makefile, go.mod and the root tools helper package still DO", func(t *testing.T) {
+		// THE-SIX-SMALL-ONES (2026-09-16): this list named scripts/gate-witness.sh
+		// as its example of a reaching non-tool path; scripts/** is now declared
+		// no-reach with its own proof (reach_test.go), so the example is the
+		// compose file the appliance runs from instead.
 		for _, p := range []string{
 			"internal/service/local_login_service.go",
 			"cmd/identuum-idp/main.go",
-			"scripts/gate-witness.sh",
+			"deployment/docker-compose.dev.yml",
 			"Makefile",
 			"go.mod",
 			"tools/tools.go",

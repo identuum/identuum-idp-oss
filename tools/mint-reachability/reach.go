@@ -62,9 +62,19 @@
 // GATE-RUN*.txt and the literal ledger-amendments.json never matched a ui
 // record and every record-only ui commit read as REACHING.
 //
+//	scripts/**            The gate scripts (gate-witness.sh, ci-record.sh,
+//	                      verify-check.sh and their tests). THIS REPOSITORY
+//	                      ONLY, and proved rather than trusted: the image
+//	                      recipe never copies a scripts/ path into the
+//	                      runtime stage and never runs one, and no package
+//	                      embeds one (`go list -f {{.EmbedPatterns}}` names
+//	                      only migrations/*.sql) — re-measured by
+//	                      reach_test.go on every run (THE-SIX-SMALL-ONES,
+//	                      2026-09-16).
+//
 // Everything else — internal/**, cmd/**, auth/**, deployment/**, the
-// Makefile, scripts/**, the e2e specs and harness, go.mod, go.sum, the root
-// tools/tools.go — REQUIRES the mint.
+// Makefile, the e2e specs and harness (e2e-full/scripts/ included), go.mod,
+// go.sum, the root tools/tools.go — REQUIRES the mint.
 //
 // Rule MINT-REACHABILITY-1 binds to reach_test.go; rule TOOLS-NO-REACH-1
 // binds the gate-program entries and their proof to closure_test.go.
@@ -155,6 +165,19 @@ var baseNoReachSet = []NoReachEntry{
 	{Pattern: "**/*_test.go", Why: "the Go toolchain excludes *_test.go from every non-test build"},
 	{Pattern: "CI-WITNESS.txt", Why: "the committed CI claim: fetched from a CI artifact, judged by ci-witness at verify time, never compiled or served"},
 	{Pattern: "conformance/**", Why: "the OpenID harness and its floors; nothing under it ships: the runner, the plan fixtures and the expected-failure files drive a disposable appliance the harness builds and destroys itself, and none of it is compiled into the binary or served (owner decision, THE-HONEST-HARNESS-AND-THE-PUSH, 2026-09-07)"},
+	// THE-SIX-SMALL-ONES (2026-09-16): the gate scripts. PROVED, not
+	// trusted, and re-measured on every test run (reach_test.go): the image
+	// recipe deployment/Dockerfile.local copies the context into the BUILDER
+	// stage only (`COPY . .`, so embed.FS sources are present) and RUNs
+	// nothing under scripts/; its RUNTIME stage copies only `--from=`
+	// artifacts (the binary, certs, passwd/group, the data dir); and the Go
+	// toolchain's own answer, `go list -f {{.EmbedPatterns}} ./...`, names
+	// only migrations/*.sql — nothing under scripts/ is compiled into any
+	// package, and a .sh file cannot be one. Three scripts joined this week
+	// and each forced a full mint for a change no appliance could see.
+	// ThisRepoOnly: the proof is about THIS module's image; the sibling's
+	// scripts/ stays reaching until it proves its own.
+	{Pattern: "scripts/**", Why: "the gate scripts: never copied into the runtime image (only --from= artifacts are), never run by the image build, never embedded (go list EmbedPatterns names only migrations/*.sql) — proved by reach_test.go on every run", ThisRepoOnly: true},
 }
 
 // SiblingPrefixes are the namespaces main.go puts in front of a sibling

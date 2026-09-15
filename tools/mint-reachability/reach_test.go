@@ -64,6 +64,72 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 		}
 	})
 
+	t.Run("scripts/** does not ship: no-reach in THIS repository, proved from the image and the module", func(t *testing.T) {
+		// THE-SIX-SMALL-ONES (2026-09-16). scripts/ holds the gate scripts —
+		// gate-witness.sh, ci-record.sh, verify-check.sh and their tests — and
+		// three joined this week, each forcing a full e2e mint because
+		// scripts/** was undeclared. The entry is declared ONLY with the proof
+		// that nothing under scripts/ reaches the appliance image or binary:
+		//   1. deployment/Dockerfile.local copies the whole context into the
+		//      BUILDER stage (`COPY . .`, so embed.FS sources are present) and
+		//      no RUN there executes anything under scripts/; the RUNTIME stage
+		//      copies only `--from=` artifacts (the built binary, certs,
+		//      passwd/group, the data dir) — never a scripts/ path;
+		//   2. the Go toolchain's own answer, `go list -f {{.EmbedPatterns}}`,
+		//      names no pattern under scripts/ — nothing in scripts/ is
+		//      compiled into any package, and a .sh file cannot be a package.
+		// Both are re-measured here on every test run, so the entry is never
+		// trusted on its own; the sibling's scripts/ stays REACHING because the
+		// proof is about this module's image (ThisRepoOnly).
+		for _, p := range []string{"scripts/gate-witness.sh", "scripts/ci-record.sh", "scripts/verify-check-test.sh"} {
+			d := Decide([]string{p}, NoReachSet)
+			if d.Required {
+				t.Errorf("%s classified as reaching: it is a gate script the appliance never copies nor runs (reaching=%v unknown=%v)", p, d.Reaching, d.Unknown)
+			}
+		}
+		if !Decide([]string{"identuum-ui/scripts/gate-witness.sh"}, NoReachSet).Required {
+			t.Error("the sibling's scripts/ was excused by an entry whose proof is about THIS module's image")
+		}
+		if !Decide([]string{"e2e-full/scripts/full-run.sh"}, NoReachSet).Required {
+			t.Error("the e2e harness rode in under scripts/** — it is not under the root scripts/ directory")
+		}
+
+		dockerfile, err := os.ReadFile("../../deployment/Dockerfile.local")
+		if err != nil {
+			t.Fatalf("read the image recipe: %v", err)
+		}
+		var runtimeStage bool
+		for _, line := range strings.Split(string(dockerfile), "\n") {
+			l := strings.TrimSpace(line)
+			if strings.HasPrefix(l, "#") || l == "" {
+				continue
+			}
+			if strings.HasPrefix(l, "FROM ") {
+				runtimeStage = strings.HasSuffix(l, " AS runtime")
+			}
+			if strings.HasPrefix(l, "RUN ") && strings.Contains(l, "scripts/") {
+				t.Errorf("the image build RUNS something under scripts/ — scripts/** reaches the image: %q", l)
+			}
+			if runtimeStage && (strings.HasPrefix(l, "COPY ") || strings.HasPrefix(l, "ADD ")) {
+				if !strings.Contains(l, "--from=") {
+					t.Errorf("the runtime stage copies from the build context, so scripts/ could ship: %q", l)
+				}
+				if strings.Contains(l, "scripts/") {
+					t.Errorf("the runtime stage copies a scripts/ path: %q", l)
+				}
+			}
+		}
+		embeds, err := embedPatterns("../..")
+		if err != nil {
+			t.Fatalf("go list embed patterns: %v", err)
+		}
+		for _, e := range embeds {
+			if strings.Contains(e, "scripts/") || strings.HasPrefix(e, "scripts") {
+				t.Errorf("a package embeds %q — scripts/ is compiled into the binary", e)
+			}
+		}
+	})
+
 	t.Run("go.mod is NOT prose just because it sits beside prose", func(t *testing.T) {
 		d := Decide([]string{"docs/README.md", "go.mod"}, NoReachSet)
 		if !d.Required {
