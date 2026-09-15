@@ -311,7 +311,9 @@ func TestMFARecoveryCodesRegenerate_NotEnrolledReturns400(t *testing.T) {
 	uid := uuid.New()
 	eng := newRecoveryEngine(t, &domain.Principal{UserID: uid, Role: domain.RoleOrgUser})
 	seedRecoveryUser(eng, uid, false /* MFAEnabled */)
-	w := recoveryReq(t, eng)
+	// THE-EIGHT-QUICK-ONES, OSS 1: a code is PRESENT (wrong) so the request
+	// reaches the service — an absent code is now refused before it.
+	w := recoveryReqWithCode(t, eng, "000000")
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d; want 400", w.Code)
 	}
@@ -507,7 +509,8 @@ func TestMFARecoveryCodesRegenerate_BannedUserRejected(t *testing.T) {
 	u := seedRecoveryUser(eng, uid, true)
 	u.Banned = true
 	eng.userRepo.byID[uid] = u
-	w := recoveryReq(t, eng)
+	// A present (wrong) code: the collapse under test lives in the service.
+	w := recoveryReqWithCode(t, eng, "000000")
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d; want 401 (banned principal collapses to opaque)", w.Code)
 	}
@@ -521,7 +524,8 @@ func TestMFARecoveryCodesRegenerate_StalePrincipalRejected(t *testing.T) {
 	// service collapses this to ErrMFAEnrollmentInvalid and the
 	// handler maps it to 401.
 	eng := newRecoveryEngine(t, &domain.Principal{UserID: uuid.New(), Role: domain.RoleOrgUser})
-	w := recoveryReq(t, eng)
+	// A present (wrong) code: the collapse under test lives in the service.
+	w := recoveryReqWithCode(t, eng, "000000")
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d; want 401 (stale principal)", w.Code)
 	}
@@ -541,7 +545,12 @@ func TestMFARecoveryCodesRegenerate_NoTOTPIsOneRefusal(t *testing.T) {
 	eng := newRecoveryEngine(t, &domain.Principal{UserID: uid, Role: domain.RoleOrgUser})
 	seedRecoveryUser(eng, uid, true)
 	want := `{"error":"invalid_code"}`
-	cases := []struct {
+	// THE-EIGHT-QUICK-ONES, OSS 1 (2026-09-16): a code nobody sent — no
+	// body, an empty object, an empty code — is refused 400 code_required
+	// BEFORE the service is consulted, the disable's shape and CE's
+	// (8fbb6a0); consistency, NOT a lockout defence. Every PRESENT wrong
+	// proof keeps the one cause-neutral 401.
+	for _, c := range []struct {
 		label string
 		body  string // "" = no body at all
 		ct    bool
@@ -549,16 +558,32 @@ func TestMFARecoveryCodesRegenerate_NoTOTPIsOneRefusal(t *testing.T) {
 		{"no body", "", false},
 		{"empty object", "{}", true},
 		{"empty code", `{"code":""}`, true},
-		{"wrong code", `{"code":"000000"}`, true},
-		{"recovery code", `{"code":"OLD-CODE-A"}`, true},
-	}
-	for _, c := range cases {
+	} {
 		var req *http.Request
 		if c.body == "" {
 			req = httptest.NewRequest(http.MethodPost, "/api/v1/me/mfa/recovery-codes/regenerate", nil)
 		} else {
 			req = httptest.NewRequest(http.MethodPost, "/api/v1/me/mfa/recovery-codes/regenerate", strings.NewReader(c.body))
 		}
+		if c.ct {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		w := httptest.NewRecorder()
+		eng.r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest || w.Body.String() != `{"error":"code_required"}` {
+			t.Errorf("%s: status = %d body = %q; want 400 {\"error\":\"code_required\"} before any proof is consulted", c.label, w.Code, w.Body.String())
+		}
+	}
+	cases := []struct {
+		label string
+		body  string
+		ct    bool
+	}{
+		{"wrong code", `{"code":"000000"}`, true},
+		{"recovery code", `{"code":"OLD-CODE-A"}`, true},
+	}
+	for _, c := range cases {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/me/mfa/recovery-codes/regenerate", strings.NewReader(c.body))
 		if c.ct {
 			req.Header.Set("Content-Type", "application/json")
 		}

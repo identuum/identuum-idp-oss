@@ -40,6 +40,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -294,15 +295,28 @@ func HandleMFARecoveryCodesRegenerate(deps AuthSessionsHandlerDeps) gin.HandlerF
 		}
 		// THE-OSS-HALF-OF-THE-RULING (2026-09-10, owner ruling (b)): the
 		// body carries the proof — a current TOTP code, and ONLY a TOTP
-		// code. An absent body is an absent proof, refused by the service
-		// with the same cause-neutral 401 invalid_code as a wrong one;
-		// only a malformed body is a 400, the sibling disable's shape.
+		// code. A malformed body is a 400, the sibling disable's shape.
 		var req mfaRecoveryCodesRegenerateRequest
 		if c.Request.Body != nil && c.Request.ContentLength != 0 {
 			if err := c.ShouldBindJSON(&req); err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 				return
 			}
+		}
+		// THE-EIGHT-QUICK-ONES, OSS 1 (2026-09-16): a code nobody sent — no
+		// body, an empty object, an empty code — is refused HERE, before the
+		// service is consulted, the shape identuum-idp-ce closed in 8fbb6a0
+		// and the disable's. This is CONSISTENCY between the two routes and
+		// the two repositories, NOT a lockout defence: the owner's correction
+		// (log/0116) stands — a wrong non-empty code costs the caller's
+		// per-subject limiter budget exactly as before (ROUTE-RATELIMIT-2 sits
+		// in the router, ahead of this handler, and counts every request),
+		// so this stops no attacker. Every PRESENT code keeps the one
+		// cause-neutral 401 invalid_code below: wrong, recovery-code and
+		// replayed alike.
+		if strings.TrimSpace(req.Code) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "code_required"})
+			return
 		}
 		codes, err := deps.MFAEnrollment.RegenerateRecoveryCodes(c.Request.Context(), principal.UserID, req.Code)
 		if err != nil {
