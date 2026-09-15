@@ -15,8 +15,12 @@ import (
 // ruling). It prints ONE evidence line for the gate-witness record and exits
 // 0 pass / 1 fail / 2 cannot-evaluate.
 //
-//	grype-gate                      scan . and judge
-//	grype-gate -scan report.json    judge a scan already taken
+//	grype-gate                                      scan . and judge
+//	grype-gate -scan report.json -inventory bom.json judge a scan already taken,
+//	                                                with the CycloneDX inventory
+//	                                                grype wrote beside it
+//	grype-gate -coverage-only -inventory bom.json   judge only what the scanner
+//	                                                saw against the tree
 //
 // Exit 2 is reserved for "the scanner could not run" — a gate that cannot
 // evaluate must not be mistaken for one that passed, the same rule the
@@ -24,10 +28,16 @@ import (
 //
 // THE-JUDGE-AND-ITS-SUBJECT (2026-09-12): the judge names the SUBJECT it
 // judges (subject.go) and evaluates only the predicates that subject admits.
-// The applied-configuration predicate (a) and the exclude-coverage predicate
-// (b) are statements about a directory; for an image subject they are NOT
-// APPLICABLE and say so on the evidence line, and for a directory subject
-// they read the subject's own tree, never the caller's.
+// The applied-configuration predicate (a) and the coverage predicate (b) are
+// statements about a directory; for an image subject they are NOT APPLICABLE
+// and say so on the evidence line, and for a directory subject they read the
+// subject's own tree, never the caller's.
+//
+// THE-SCANNER-THAT-SAYS-WHAT-IT-SAW (2026-09-16): predicate (b) is over what
+// grype SAW. One scan writes two reports — the JSON report the verdict reads
+// and the CycloneDX inventory of every component it catalogued, with the path
+// of each — and no component may sit at a path git reports as ignored. A
+// directory scan judged without its inventory is CANNOT-EVALUATE.
 const defaultAllowlist = "grype-allowlist.json"
 
 func main() {
@@ -40,9 +50,10 @@ func run(args []string, out, errOut io.Writer) int {
 	fs := flag.NewFlagSet("grype-gate", flag.ContinueOnError)
 	fs.SetOutput(errOut)
 	scan := fs.String("scan", "", "judge an existing grype JSON report instead of running the scanner")
+	inventory := fs.String("inventory", "", "the CycloneDX-JSON inventory (`grype … -o cyclonedx-json`) taken with the -scan report: what the scanner SAW; a directory subject's coverage predicate is judged on it and is CANNOT-EVALUATE without it")
 	allowPath := fs.String("allowlist", defaultAllowlist, "path to the committed allowlist")
-	root := fs.String("root", ".", "scan root: the repository whose .grype.yaml and gitignored executables are judged (a DIRECTORY subject's own tree; refused when it is not the scan's subject)")
-	coverageOnly := fs.Bool("coverage-only", false, "run only the coverage predicate (b) — no scanner; used to red-prove a tree")
+	root := fs.String("root", ".", "scan root: the repository whose .grype.yaml and gitignored paths are judged (a DIRECTORY subject's own tree; refused when it is not the scan's subject)")
+	coverageOnly := fs.Bool("coverage-only", false, "run only the coverage predicate (b) over -inventory against -root's gitignored paths — no scanner; used to red-prove a tree")
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate: %v\n", err)
 		return 2
@@ -54,9 +65,50 @@ func run(args []string, out, errOut io.Writer) int {
 		}
 	})
 
+	// -coverage-only: the inventory against the tree, nothing else. It needs
+	// no scanner and no declaration — only what grype saw and what git ignores.
+	if *coverageOnly {
+		if *scan != "" {
+			raw, err := os.ReadFile(*scan)
+			if err != nil {
+				fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate cannot read the scan %s (%v)\n", *scan, err)
+				return 2
+			}
+			subject, err := ParseSubject(raw)
+			if err != nil {
+				fmt.Fprintf(out, "CANNOT-EVALUATE: %v\n", err)
+				return 2
+			}
+			if !subject.IsDirectory() {
+				fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate: -coverage-only judges a directory's tree; subject %s has none\n", subject.Label())
+				return 2
+			}
+		}
+		if *inventory == "" {
+			fmt.Fprintln(out, "CANNOT-EVALUATE: grype-gate: -coverage-only judges what the scanner saw, and no -inventory was given")
+			return 2
+		}
+		subjectDir, err := filepath.Abs(*root)
+		if err != nil {
+			fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate cannot resolve root %s (%v)\n", *root, err)
+			return 2
+		}
+		line, ok, code := judgeInventory(*inventory, nil, subjectDir)
+		if code != 0 {
+			fmt.Fprintln(out, line)
+			return code
+		}
+		if !ok {
+			fmt.Fprintln(out, line)
+			return 1
+		}
+		fmt.Fprintln(out, "check OK: grype-gate "+line)
+		return 0
+	}
+
 	// A scan already taken names its subject; a scan this gate takes is of
 	// the directory it runs in.
-	var raw []byte
+	var raw, invRaw []byte
 	var subject Subject
 	if *scan != "" {
 		var err error
@@ -76,18 +128,12 @@ func run(args []string, out, errOut io.Writer) int {
 			fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate: subject %s is neither a directory nor an image; the judge does not know which predicates it admits\n", subject.Label())
 			return 2
 		}
-		if *coverageOnly && !subject.IsDirectory() {
-			fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate: -coverage-only judges a directory's tree; subject %s has none\n", subject.Label())
-			return 2
-		}
 	}
 
-	// The directory predicates: (b) coverage first and without the scanner —
-	// a gitignored executable outside the exclude list would be judged as the
-	// tree, so the scan is not worth paying for until the list covers the
-	// repository — then, once the report exists, (a) applied configuration.
-	// An IMAGE subject admits neither: it has no declaration and no
-	// gitignored tree, and the line says so instead of passing quietly.
+	// The directory predicates read the subject's own tree: its declaration
+	// for (a), its gitignored paths for (b). An IMAGE subject admits neither:
+	// it has no declaration and no gitignored tree, and the line says so
+	// instead of passing quietly.
 	configLine := "config: not applicable (image subject: no directory declaration to compare)"
 	coverageLine := "coverage: not applicable (image subject: no gitignored tree to enumerate)"
 	var decl Declaration
@@ -119,36 +165,40 @@ func run(args []string, out, errOut io.Writer) int {
 			fmt.Fprintf(out, "CANNOT-EVALUATE: %v\n", err)
 			return 2
 		}
-		ignored, err := ListIgnoredExecutables(subjectDir)
-		if err != nil {
-			fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate coverage: %v\n", err)
-			return 2
-		}
-		var covered bool
-		_, coverageLine, covered = CoverageDecide(ignored, decl.Exclude)
-		if !covered {
-			fmt.Fprintln(out, coverageLine)
-			return 1
-		}
-		if *coverageOnly {
-			fmt.Fprintln(out, "check OK: grype-gate "+coverageLine)
-			return 0
-		}
 	}
 
 	if *scan == "" {
-		cmd := exec.Command("grype", "dir:.", "--output", "json")
+		// One scan, two reports: the JSON report for the verdict and the
+		// CycloneDX inventory for what the scanner saw. Both go to files
+		// grype writes itself, so neither can be mistaken for the other.
+		tmp, err := os.MkdirTemp("", "grype-gate")
+		if err != nil {
+			fmt.Fprintf(out, "CANNOT-EVALUATE: grype-gate cannot make a scratch directory (%v)\n", err)
+			return 2
+		}
+		defer os.RemoveAll(tmp)
+		reportPath := filepath.Join(tmp, "report.json")
+		inventoryPath := filepath.Join(tmp, "inventory.cdx.json")
+		cmd := exec.Command("grype", "dir:.", "--output", "json="+reportPath, "--output", "cyclonedx-json="+inventoryPath)
 		cmd.Dir = subjectDir
 		cmd.Stderr = errOut
-		var err error
-		raw, err = cmd.Output()
-		if err != nil {
+		if _, err := cmd.Output(); err != nil {
 			var ee *exec.ExitError
 			if errors.As(err, &ee) {
 				fmt.Fprintf(out, "CANNOT-EVALUATE: grype exited %d without a report; a scanner that cannot run is never a pass\n", ee.ExitCode())
 			} else {
 				fmt.Fprintf(out, "CANNOT-EVALUATE: grype could not run (%v); a scanner that cannot run is never a pass\n", err)
 			}
+			return 2
+		}
+		raw, err = os.ReadFile(reportPath)
+		if err != nil {
+			fmt.Fprintf(out, "CANNOT-EVALUATE: grype wrote no JSON report (%v); a scanner that cannot run is never a pass\n", err)
+			return 2
+		}
+		invRaw, err = os.ReadFile(inventoryPath)
+		if err != nil {
+			fmt.Fprintf(out, "CANNOT-EVALUATE: grype wrote no CycloneDX inventory (%v); what it saw cannot be judged\n", err)
 			return 2
 		}
 		got, err := ParseSubject(raw)
@@ -213,6 +263,25 @@ func run(args []string, out, errOut io.Writer) int {
 			return 1
 		}
 		configLine += "; " + recheckLine
+
+		// (b) COVERAGE, over what the scanner SAW: the inventory taken with
+		// this report (the scan's own, or the one named beside -scan). A
+		// directory judged without one is undecidable, never a pass.
+		if *scan != "" && *inventory == "" {
+			fmt.Fprintln(out, "CANNOT-EVALUATE: grype-gate coverage: a directory scan is judged on the CycloneDX inventory grype wrote beside it, and none was given (-inventory) — what the scanner saw cannot be judged")
+			return 2
+		}
+		var covered bool
+		var code int
+		coverageLine, covered, code = judgeInventory(*inventory, invRaw, subjectDir)
+		if code != 0 {
+			fmt.Fprintln(out, coverageLine)
+			return code
+		}
+		if !covered {
+			fmt.Fprintln(out, coverageLine)
+			return 1
+		}
 	}
 
 	_, summary, ok := Decide(doc, allow)
@@ -223,4 +292,28 @@ func run(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// judgeInventory reads the inventory (from the path when given, else the
+// bytes the scan wrote) and judges it against the subject's gitignored paths.
+// It returns the line, whether coverage held, and a non-zero code when the
+// inventory or the tree could not be read (CANNOT-EVALUATE, 2).
+func judgeInventory(path string, raw []byte, subjectDir string) (line string, ok bool, code int) {
+	if path != "" {
+		var err error
+		raw, err = os.ReadFile(path)
+		if err != nil {
+			return fmt.Sprintf("CANNOT-EVALUATE: grype-gate cannot read the inventory %s (%v)", path, err), false, 2
+		}
+	}
+	inv, err := ParseInventory(raw, subjectDir)
+	if err != nil {
+		return "CANNOT-EVALUATE: " + err.Error(), false, 2
+	}
+	ignored, err := ListIgnoredPaths(subjectDir)
+	if err != nil {
+		return "CANNOT-EVALUATE: grype-gate coverage: " + err.Error(), false, 2
+	}
+	_, line, ok = InventoryDecide(inv, ignored)
+	return line, ok, 0
 }

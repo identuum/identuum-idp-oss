@@ -27,11 +27,9 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -269,98 +267,130 @@ func CompareConfig(cfg ScanConfig, d Declaration, root string) (line string, ok 
 		len(d.Exclude), d.MaxAllowedBuiltAge, len(d.IgnoredVulnIDs)), true
 }
 
-// IgnoredEntry is one gitignored executable under the scan root, as a
-// slash-separated path relative to it.
-type IgnoredEntry struct {
-	Path string
+// THE-SCANNER-THAT-SAYS-WHAT-IT-SAW (2026-09-16). Predicate (b) no longer
+// PREDICTS what grype will scan — until this slice it listed gitignored files
+// with an execute bit or a *.test name and matched them against the exclude
+// patterns with OUR reading of the patterns, so a divergence between that
+// reading and grype's, or a non-executable manifest grype catalogues, passed
+// as covered while grype scanned anyway. It now reads what grype SAW: the
+// CycloneDX inventory of the same scan (`-o cyclonedx-json`), whose
+// components carry the path each was catalogued at, and it fails when any
+// such path is one git reports as ignored. The tool is asked about itself;
+// no second list of what the scanner sees survives beside the scanner's own.
+
+// Inventory is what grype saw: the components of its CycloneDX-JSON report
+// and the paths they were catalogued at, root-relative and slash-separated.
+type Inventory struct {
+	Components int
+	Locations  []string
 }
 
-// Excluded reports whether rel is matched by any of the declared patterns,
-// with the semantics the committed file relies on: `./dir/**` covers the
-// directory and everything below it; a bare `./name` covers exactly that
-// path; any other pattern is a path.Match glob against the whole path.
-func Excluded(rel string, patterns []string) bool {
-	rel = strings.TrimPrefix(filepath.ToSlash(rel), "./")
-	for _, p := range patterns {
-		p = strings.TrimPrefix(p, "./")
-		if dir, ok := strings.CutSuffix(p, "/**"); ok {
-			if rel == dir || strings.HasPrefix(rel, dir+"/") {
-				return true
+// ParseInventory reads a CycloneDX-JSON inventory as grype 0.118.0 writes it
+// (measured 2026-09-16): a library component carries one or more
+// `syft:location:N:path` properties whose values are root-relative with a
+// leading slash; a `file` component carries the absolute path in its name and
+// no location property. root is the absolute scan root the absolute names are
+// resolved against. An inventory that is not CycloneDX, or holds no
+// components, cannot be judged and is an error.
+func ParseInventory(raw []byte, root string) (Inventory, error) {
+	var doc struct {
+		BOMFormat  string `json:"bomFormat"`
+		Components []struct {
+			Type       string `json:"type"`
+			Name       string `json:"name"`
+			Properties []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"properties"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return Inventory{}, fmt.Errorf("grype inventory: invalid JSON: %w", err)
+	}
+	if doc.BOMFormat != "CycloneDX" {
+		return Inventory{}, fmt.Errorf("grype inventory: not a CycloneDX document (bomFormat %q) — the coverage predicate reads what grype saw and this is not that", doc.BOMFormat)
+	}
+	if len(doc.Components) == 0 {
+		return Inventory{}, errors.New("grype inventory: no components — an inventory that saw nothing cannot be judged")
+	}
+	inv := Inventory{Components: len(doc.Components)}
+	seen := map[string]bool{}
+	keep := func(p string) {
+		p = strings.TrimPrefix(filepath.ToSlash(p), "/")
+		if p == "" || seen[p] {
+			return
+		}
+		seen[p] = true
+		inv.Locations = append(inv.Locations, p)
+	}
+	for _, c := range doc.Components {
+		// A location property is root-relative by syft's convention: its
+		// leading slash is the scan root, not the filesystem root.
+		for _, prop := range c.Properties {
+			if strings.HasPrefix(prop.Name, "syft:location:") && strings.HasSuffix(prop.Name, ":path") {
+				keep(prop.Value)
 			}
-			continue
 		}
-		if rel == p {
-			return true
-		}
-		if m, err := path.Match(p, rel); err == nil && m {
-			return true
+		// A `file` component's name is the absolute path on this machine;
+		// one outside the root is not this subject's and is dropped.
+		if c.Type == "file" && c.Name != "" {
+			name := filepath.ToSlash(c.Name)
+			if filepath.IsAbs(name) {
+				rel, err := filepath.Rel(root, name)
+				if err != nil || rel == "." || strings.HasPrefix(rel, "../") {
+					continue
+				}
+				name = rel
+			}
+			keep(name)
 		}
 	}
-	return false
+	sort.Strings(inv.Locations)
+	return inv, nil
 }
 
-// CoverageDecide is predicate (b): every gitignored executable is excluded.
-func CoverageDecide(entries []IgnoredEntry, patterns []string) (uncovered []string, line string, ok bool) {
-	for _, e := range entries {
-		if !Excluded(e.Path, patterns) {
-			uncovered = append(uncovered, e.Path)
-		}
-	}
-	sort.Strings(uncovered)
-	if len(uncovered) > 0 {
-		return uncovered, fmt.Sprintf(
-			"check FAILED: grype-gate coverage: %d gitignored executable(s) outside .grype.yaml's exclude list — %s — the scanner would judge them as the tree; exclude them by name or remove them",
-			len(uncovered), strings.Join(uncovered, ", ")), false
-	}
-	return nil, fmt.Sprintf("coverage: %d gitignored executable(s), all excluded (%s)",
-		len(entries), strings.Join(patterns, ", ")), true
-}
-
-// ListIgnoredExecutables walks every path git reports as ignored under root
-// and returns the regular files that are executable or `*.test` binaries.
-func ListIgnoredExecutables(root string) ([]IgnoredEntry, error) {
+// ListIgnoredPaths is git's own answer to "what is ignored here":
+// `git status --ignored --porcelain`, the `!! ` entries, directories without
+// their trailing slash, slash-separated, sorted.
+func ListIgnoredPaths(root string) ([]string, error) {
 	cmd := exec.Command("git", "-C", root, "status", "--ignored", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("git status --ignored: %w", err)
 	}
-	var entries []IgnoredEntry
+	var paths []string
 	for l := range strings.SplitSeq(string(out), "\n") {
 		p, ok := strings.CutPrefix(l, "!! ")
 		if !ok {
 			continue
 		}
-		full := filepath.Join(root, p)
-		walkErr := filepath.WalkDir(full, func(fp string, de fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if de.IsDir() {
-				return nil
-			}
-			info, err := de.Info()
-			if err != nil {
-				return err
-			}
-			if !info.Mode().IsRegular() {
-				return nil
-			}
-			if info.Mode().Perm()&0o111 != 0 || strings.HasSuffix(fp, ".test") {
-				rel, err := filepath.Rel(root, fp)
-				if err != nil {
-					return err
-				}
-				entries = append(entries, IgnoredEntry{Path: filepath.ToSlash(rel)})
-			}
-			return nil
-		})
-		if walkErr != nil {
-			if os.IsNotExist(walkErr) {
-				continue
-			}
-			return nil, fmt.Errorf("walk %s: %w", p, walkErr)
+		p = strings.TrimSuffix(filepath.ToSlash(strings.TrimSpace(p)), "/")
+		if p != "" {
+			paths = append(paths, p)
 		}
 	}
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Path < entries[j].Path })
-	return entries, nil
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// InventoryDecide is predicate (b): no component grype catalogued sits at a
+// path git ignores — the path itself or anything below it. seen names the
+// offending locations, sorted.
+func InventoryDecide(inv Inventory, ignored []string) (seen []string, line string, ok bool) {
+	for _, loc := range inv.Locations {
+		for _, ig := range ignored {
+			if loc == ig || strings.HasPrefix(loc, ig+"/") {
+				seen = append(seen, loc)
+				break
+			}
+		}
+	}
+	sort.Strings(seen)
+	if len(seen) > 0 {
+		return seen, fmt.Sprintf(
+			"check FAILED: grype-gate coverage: %d of %d component location(s) grype catalogued lie under a gitignored path — %s — the scanner saw what the exclude list was to keep out of the tree; exclude them by name in .grype.yaml or remove them",
+			len(seen), len(inv.Locations), strings.Join(seen, ", ")), false
+	}
+	return nil, fmt.Sprintf("coverage: inventory %d component(s) at %d location(s), none under an ignored path (%d ignored path(s) read from git)",
+		inv.Components, len(inv.Locations), len(ignored)), true
 }

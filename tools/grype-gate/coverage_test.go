@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -157,51 +160,100 @@ func TestCoverage_LapsedSuppressionIsAFinding(t *testing.T) {
 	}
 }
 
-func TestCoverage_IgnoredExecutablesMustBeExcluded(t *testing.T) {
-	d, err := ReadDeclaration([]byte(declaration))
+// inventoryDoc builds a CycloneDX-JSON inventory in the shape grype 0.118.0
+// writes for `-o cyclonedx-json` (measured 2026-09-16 on this tree: 78
+// components, 75 of them libraries carrying `syft:location:N:path`
+// properties whose values are root-relative with a leading slash, 3 of them
+// `file` components whose NAME is the absolute path and which carry no
+// location property).
+func inventoryDoc(locations []string, fileNames []string) string {
+	var comps []string
+	for i, l := range locations {
+		comps = append(comps, fmt.Sprintf(`{"bom-ref":"c%d","type":"library","name":"lib%d","version":"1.0.0","properties":[{"name":"syft:package:type","value":"go-module"},{"name":"syft:location:0:path","value":%q}]}`, i, i, l))
+	}
+	for i, n := range fileNames {
+		comps = append(comps, fmt.Sprintf(`{"bom-ref":"f%d","type":"file","name":%q}`, i, n))
+	}
+	return `{"$schema":"http://cyclonedx.org/schema/bom-1.7.schema.json","bomFormat":"CycloneDX","specVersion":"1.7","version":1,"metadata":{"component":{"bom-ref":"root","type":"file","name":"."}},"components":[` + strings.Join(comps, ",") + `]}`
+}
+
+// TestCoverage_InventoryIsWhatGrypeSaw — THE-SCANNER-THAT-SAYS-WHAT-IT-SAW
+// (2026-09-16). The coverage predicate no longer predicts what grype will
+// scan (gitignored files with an execute bit, matched by OUR reading of the
+// exclude patterns); it reads what grype SAW — the CycloneDX inventory — and
+// fails when any component was catalogued at a path git reports as ignored.
+// RED FIRST: none of ParseInventory, ListIgnoredPaths or InventoryDecide
+// existed when this test was written.
+func TestCoverage_InventoryIsWhatGrypeSaw(t *testing.T) {
+	root := "/repo"
+	// A component catalogued under an ignored path is a RED finding naming it.
+	inv, err := ParseInventory([]byte(inventoryDoc([]string{"/go.mod", "/bin/tool/go.mod"}, nil)), root)
 	if err != nil {
-		t.Fatalf("declaration: %v", err)
+		t.Fatalf("parse: %v", err)
 	}
-	// THE CE MISS, verbatim: three gitignored executables on identuum-idp-ce on
-	// 2026-09-12. bin/identuum-idp is covered by ./bin/**; the other two are not.
-	ce := []IgnoredEntry{
-		{Path: ".dev-bin/identuum-idp"},
-		{Path: "bin/identuum-idp"},
-		{Path: "identuum-idp.test"},
+	if inv.Components != 2 || len(inv.Locations) != 2 {
+		t.Fatalf("inventory = %+v, want 2 components at 2 locations", inv)
 	}
-	uncovered, line, ok := CoverageDecide(ce, d.Exclude)
-	if ok {
-		t.Fatalf("CE's tree must FAIL coverage; got pass %q", line)
+	seen, line, ok := InventoryDecide(inv, []string{"bin", "identuum-idp"})
+	if ok || len(seen) != 1 || seen[0] != "bin/tool/go.mod" || !strings.HasPrefix(line, "check FAILED: grype-gate coverage:") || !strings.Contains(line, "bin/tool/go.mod") {
+		t.Fatalf("a location under an ignored path must fail and be named; got ok=%v seen=%v %q", ok, seen, line)
 	}
-	if got := strings.Join(uncovered, " "); got != ".dev-bin/identuum-idp identuum-idp.test" {
-		t.Fatalf("the uncovered set must be exactly the two CE artifacts; got %q", got)
+	// A `file` component names its path absolutely; under an ignored path it
+	// fails the same way, as the path relative to the root.
+	inv, _ = ParseInventory([]byte(inventoryDoc(nil, []string{root + "/identuum-idp", root + "/go.mod"})), root)
+	if inv.Components != 2 || len(inv.Locations) != 2 {
+		t.Fatalf("file components must count and locate; got %+v", inv)
 	}
-	for _, want := range []string{".dev-bin/identuum-idp", "identuum-idp.test", "check FAILED"} {
-		if !strings.Contains(line, want) {
-			t.Fatalf("the failure line must carry %q; got %q", want, line)
+	if seen, line, ok := InventoryDecide(inv, []string{"identuum-idp"}); ok || len(seen) != 1 || seen[0] != "identuum-idp" || !strings.Contains(line, "identuum-idp") {
+		t.Fatalf("an ignored file component must fail; got ok=%v seen=%v %q", ok, seen, line)
+	}
+	// A clean inventory passes, and the line says what was judged.
+	inv, _ = ParseInventory([]byte(inventoryDoc([]string{"/go.mod", "/.github/workflows/ci.yml"}, []string{root + "/go.mod"})), root)
+	seen, line, ok = InventoryDecide(inv, []string{"bin", "identuum-idp", ".gograph"})
+	if !ok || len(seen) != 0 || !strings.Contains(line, "3 component(s)") || !strings.Contains(line, "none under") {
+		t.Fatalf("a clean inventory must pass and say so; got ok=%v seen=%v %q", ok, seen, line)
+	}
+	// An ignored path matches itself and what lies below it, never a sibling
+	// that merely shares its prefix.
+	inv, _ = ParseInventory([]byte(inventoryDoc([]string{"/binary/go.mod", "/bin"}, nil)), root)
+	if seen, _, ok := InventoryDecide(inv, []string{"bin"}); ok || len(seen) != 1 || seen[0] != "bin" {
+		t.Fatalf("prefix semantics: want exactly [bin] seen; got ok=%v %v", ok, seen)
+	}
+	// No components is not a pass: the inventory cannot be judged.
+	if _, err := ParseInventory([]byte(inventoryDoc(nil, nil)), root); err == nil || !strings.Contains(err.Error(), "no components") {
+		t.Fatalf("an empty inventory must be refused; got %v", err)
+	}
+	// Not a CycloneDX document is not an inventory.
+	if _, err := ParseInventory([]byte(`{"matches":[]}`), root); err == nil {
+		t.Fatal("a grype JSON report is not a CycloneDX inventory and must be refused")
+	}
+}
+
+// TestCoverage_IgnoredPathsAreGitsAnswer: the ignored set is what git reports
+// (`git status --ignored --porcelain`), directories without their trailing
+// slash, never a guess from execute bits.
+func TestCoverage_IgnoredPathsAreGitsAnswer(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "-C", root, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v (%s)", err, out)
+	}
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
 		}
 	}
-	// identuum-idp-oss on 2026-09-12: five gitignored executables, all covered.
-	oss := []IgnoredEntry{
-		{Path: "bin/identuum-idp"}, {Path: "bin/grype-gate"}, {Path: "bin/api-docgen"},
-		{Path: "bin/integration-witness"}, {Path: "identuum-idp"},
+	must(os.WriteFile(filepath.Join(root, ".gitignore"), []byte("bin/\nstray\n*.test\n"), 0o600))
+	must(os.MkdirAll(filepath.Join(root, "bin"), 0o755))
+	must(os.WriteFile(filepath.Join(root, "bin", "tool"), []byte("#!/bin/sh\n"), 0o755))
+	must(os.WriteFile(filepath.Join(root, "stray"), []byte("x"), 0o600))
+	must(os.WriteFile(filepath.Join(root, "unit.test"), []byte("x"), 0o600))
+	must(os.WriteFile(filepath.Join(root, "kept.txt"), []byte("x"), 0o600))
+	got, err := ListIgnoredPaths(root)
+	if err != nil {
+		t.Fatalf("ListIgnoredPaths: %v", err)
 	}
-	if _, line, ok := CoverageDecide(oss, d.Exclude); !ok || !strings.Contains(line, "all excluded") {
-		t.Fatalf("OSS's tree must pass coverage; got ok=%v %q", ok, line)
-	}
-	// Pattern semantics pinned: a `/**` pattern covers the directory itself and
-	// everything below it; a bare name covers only that path.
-	for rel, want := range map[string]bool{
-		"bin":                   true,
-		"bin/x/y":               true,
-		"identuum-idp":          true,
-		"identuum-idp.test":     false,
-		"identuum-idp/inner":    false,
-		".gograph/graph.json":   true,
-		".dev-bin/identuum-idp": false,
-	} {
-		if got := Excluded(rel, d.Exclude); got != want {
-			t.Errorf("Excluded(%q) = %v, want %v", rel, got, want)
-		}
+	if want := "bin stray unit.test"; strings.Join(got, " ") != want {
+		t.Fatalf("ignored = %v, want %q", got, want)
 	}
 }
