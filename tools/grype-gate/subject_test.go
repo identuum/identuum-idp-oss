@@ -66,7 +66,10 @@ func subjectRepo(t *testing.T, withStray bool) string {
 			t.Fatal(err)
 		}
 	}
-	must(os.WriteFile(filepath.Join(root, ".grype.yaml"), []byte("exclude:\n  - ./bin/**\ndb:\n  validate-age: true\n  max-allowed-built-age: 120h\nignore:\n  - vulnerability: GO-2026-5932\n"), 0o600))
+	// The ignore entry carries a re-check date, as the committed file's rule
+	// requires (THE-EIGHT-QUICK-ONES, OSS 2: an undated or lapsed entry is a
+	// finding); far ahead, so this fixture stays a covered, applied subject.
+	must(os.WriteFile(filepath.Join(root, ".grype.yaml"), []byte("exclude:\n  - ./bin/**\ndb:\n  validate-age: true\n  max-allowed-built-age: 120h\nignore:\n  # Re-check 2099-01-01.\n  - vulnerability: GO-2026-5932\n"), 0o600))
 	must(os.WriteFile(filepath.Join(root, ".gitignore"), []byte("bin/\nstray\n"), 0o600))
 	must(os.MkdirAll(filepath.Join(root, "bin"), 0o755))
 	must(os.WriteFile(filepath.Join(root, "bin", "tool"), []byte("#!/bin/sh\n"), 0o755))

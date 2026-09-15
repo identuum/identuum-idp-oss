@@ -1,8 +1,10 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // THE-GRYPE-SUBJECT (2026-09-12): the judge scans `dir:.` and relies on the
@@ -91,6 +93,67 @@ func TestCoverage_ConfigApplied(t *testing.T) {
 	// A report without descriptor.configuration is not a pass: present=false.
 	if _, present, err := ParseScanConfig([]byte(`{"matches":[]}`)); present || err != nil {
 		t.Fatalf("no descriptor.configuration must read absent; got present=%v err=%v", present, err)
+	}
+}
+
+// TestCoverage_LapsedSuppressionIsAFinding — THE-EIGHT-QUICK-ONES, OSS 2
+// (2026-09-16). The committed file's own rule says an ignore entry past its
+// re-check date is a finding about the file; nothing enforced it. A
+// past-dated entry is RED and names the entry and the date; an entry with no
+// date at all is RED; the section-level RE-CHECK covers an entry without its
+// own; a future date is green; the real .grype.yaml is green today.
+func TestCoverage_LapsedSuppressionIsAFinding(t *testing.T) {
+	today := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
+	fixture := func(comment string) string {
+		return "exclude:\n  - ./bin/**\ndb:\n  validate-age: true\n  max-allowed-built-age: 120h\n" +
+			"# RE-CHECK 2027-01-01 (quarterly).\nignore:\n" + comment + "  - vulnerability: GO-2026-5932\n"
+	}
+	d, err := ReadDeclaration([]byte(fixture("  # NO FIX AVAILABLE. Re-check 2026-09-01, or sooner.\n")))
+	if err != nil {
+		t.Fatalf("declaration: %v", err)
+	}
+	if d.RecheckDates["GO-2026-5932"] != "2026-09-01" || d.RecheckDefault != "2027-01-01" {
+		t.Fatalf("dates not read: entry=%q default=%q", d.RecheckDates["GO-2026-5932"], d.RecheckDefault)
+	}
+	line, ok := LapsedSuppressions(d, today)
+	if ok || !strings.Contains(line, "GO-2026-5932") || !strings.Contains(line, "2026-09-01") || !strings.HasPrefix(line, "check FAILED:") {
+		t.Fatalf("a lapsed re-check date must be a RED finding naming the entry and the date; got ok=%v %q", ok, line)
+	}
+	// A future date on the entry is green.
+	d, _ = ReadDeclaration([]byte(fixture("  # Re-check 2026-12-31.\n")))
+	if line, ok := LapsedSuppressions(d, today); !ok {
+		t.Fatalf("a future re-check date must pass; got %q", line)
+	}
+	// No date of its own: the section's RE-CHECK covers it (future → green).
+	d, _ = ReadDeclaration([]byte(fixture("  # NO FIX AVAILABLE.\n")))
+	if line, ok := LapsedSuppressions(d, today); !ok {
+		t.Fatalf("the section date must cover an entry without its own; got %q", line)
+	}
+	// No date anywhere is a finding too: the file's rule requires one.
+	undated := strings.Replace(fixture("  # NO FIX AVAILABLE.\n"), "# RE-CHECK 2027-01-01 (quarterly).\n", "", 1)
+	d, _ = ReadDeclaration([]byte(undated))
+	if line, ok := LapsedSuppressions(d, today); ok || !strings.Contains(line, "GO-2026-5932") || !strings.Contains(line, "no re-check date") {
+		t.Fatalf("an undated suppression must be a RED finding; got ok=%v %q", ok, line)
+	}
+	// The section date lapsed and the entry has none: red, naming both.
+	d, _ = ReadDeclaration([]byte(strings.Replace(fixture("  # NO FIX AVAILABLE.\n"), "2027-01-01", "2026-01-01", 1)))
+	if line, ok := LapsedSuppressions(d, today); ok || !strings.Contains(line, "2026-01-01") {
+		t.Fatalf("a lapsed section date must fail an entry without its own; got ok=%v %q", ok, line)
+	}
+	// The committed file, today.
+	raw, err := os.ReadFile("../../.grype.yaml")
+	if err != nil {
+		t.Fatalf("read .grype.yaml: %v", err)
+	}
+	real, err := ReadDeclaration(raw)
+	if err != nil {
+		t.Fatalf("committed declaration: %v", err)
+	}
+	if line, ok := LapsedSuppressions(real, time.Now().UTC()); !ok {
+		t.Fatalf("the committed .grype.yaml is lapsed today: %q", line)
+	}
+	if len(real.RecheckDates) == 0 && real.RecheckDefault == "" {
+		t.Fatal("the committed .grype.yaml carries no re-check date the gate can read")
 	}
 }
 

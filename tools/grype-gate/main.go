@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 // grype-gate runs the scanner and judges its output (see decide.go for the
@@ -203,6 +204,15 @@ func run(args []string, out, errOut io.Writer) int {
 			fmt.Fprintln(out, configLine)
 			return 1
 		}
+		// THE-EIGHT-QUICK-ONES, OSS 2 (2026-09-16): the declaration's own
+		// re-check dates are a predicate too. A suppression past its date is
+		// a RED finding about .grype.yaml, naming the entry and the date.
+		recheckLine, current := LapsedSuppressions(decl, time.Now().UTC())
+		if !current {
+			fmt.Fprintln(out, recheckLine)
+			return 1
+		}
+		configLine += "; " + recheckLine
 	}
 
 	_, summary, ok := Decide(doc, allow)

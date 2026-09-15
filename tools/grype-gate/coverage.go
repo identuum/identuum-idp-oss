@@ -33,6 +33,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -46,6 +47,45 @@ type Declaration struct {
 	ValidateAge        bool
 	MaxAllowedBuiltAge string
 	IgnoredVulnIDs     []string
+	// RecheckDates maps an ignored vulnerability id to the re-check date its
+	// own comment carries ("Re-check YYYY-MM-DD"); RecheckDefault is the
+	// ignore section's "RE-CHECK YYYY-MM-DD" that covers an entry without
+	// one. THE-EIGHT-QUICK-ONES, OSS 2 (2026-09-16): the file's own rule —
+	// "an entry past its date is a finding about this file" — was enforced
+	// by nothing, so a suppression could outlive its review forever.
+	RecheckDates   map[string]string
+	RecheckDefault string
+}
+
+// recheckDateRe finds a re-check date in a comment line, in either spelling
+// the committed file uses ("Re-check 2026-11-04", "RE-CHECK 2026-11-04").
+var recheckDateRe = regexp.MustCompile(`(?i)\bre-check\s+(\d{4}-\d{2}-\d{2})`)
+
+// LapsedSuppressions is the date half of the config predicate: every ignored
+// vulnerability must carry a re-check date (its own, or the section's), and a
+// date before today is a RED finding naming the entry and the date. The
+// suppression itself is never touched; renewing or deleting it is a human's
+// review, which this makes overdue rather than invisible.
+func LapsedSuppressions(d Declaration, today time.Time) (line string, ok bool) {
+	day := today.UTC().Format("2006-01-02")
+	var problems []string
+	for _, id := range d.IgnoredVulnIDs {
+		date, source := d.RecheckDates[id], "its own"
+		if date == "" {
+			date, source = d.RecheckDefault, "the section's"
+		}
+		switch {
+		case date == "":
+			problems = append(problems, "suppression "+id+" carries no re-check date (neither its own nor the ignore section's)")
+		case date < day:
+			problems = append(problems, fmt.Sprintf("suppression %s re-check date %s (%s) has lapsed, today is %s", id, date, source, day))
+		}
+	}
+	if len(problems) > 0 {
+		return "check FAILED: grype-gate config: " + strings.Join(problems, "; ") +
+			" — renew or delete the entry; a lapsed suppression is a finding about .grype.yaml", false
+	}
+	return fmt.Sprintf("re-check: %d declared ignore(s), none lapsed on %s", len(d.IgnoredVulnIDs), day), true
 }
 
 // ReadDeclaration reads the three blocks the gate pins from the committed
@@ -54,12 +94,27 @@ type Declaration struct {
 // it does not understand is an error, never a silent empty declaration.
 func ReadDeclaration(raw []byte) (Declaration, error) {
 	var d Declaration
+	d.RecheckDates = map[string]string{}
 	section := ""
+	// pendingDate is the last "Re-check YYYY-MM-DD" seen in the comment
+	// run that precedes the next ignore entry; a top-level "RE-CHECK" comment
+	// is the section default.
+	pendingDate := ""
 	sc := bufio.NewScanner(bytes.NewReader(raw))
 	for sc.Scan() {
 		line := sc.Text()
 		trim := strings.TrimSpace(line)
-		if trim == "" || strings.HasPrefix(trim, "#") {
+		if trim == "" {
+			continue
+		}
+		if strings.HasPrefix(trim, "#") {
+			if m := recheckDateRe.FindStringSubmatch(trim); m != nil {
+				if strings.HasPrefix(line, "#") {
+					d.RecheckDefault = m[1]
+				} else {
+					pendingDate = m[1]
+				}
+			}
 			continue
 		}
 		if !strings.HasPrefix(line, " ") {
@@ -95,7 +150,12 @@ func ReadDeclaration(raw []byte) (Declaration, error) {
 			}
 			key, val, _ := strings.Cut(item, ":")
 			if strings.TrimSpace(key) == "vulnerability" {
-				d.IgnoredVulnIDs = append(d.IgnoredVulnIDs, strings.TrimSpace(val))
+				id := strings.TrimSpace(val)
+				d.IgnoredVulnIDs = append(d.IgnoredVulnIDs, id)
+				if pendingDate != "" {
+					d.RecheckDates[id] = pendingDate
+				}
+				pendingDate = ""
 			}
 		}
 	}
