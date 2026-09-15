@@ -2,13 +2,8 @@ package handlers
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha1" //nolint:gosec // SHA-1 mandated by RFC 6238 §1.
-	"encoding/base32"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -24,6 +19,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
+	"github.com/identuum/identuum-idp-oss/internal/service/totptest"
 )
 
 // recoveryStubUserRepo is the minimal UserRepository the
@@ -240,10 +236,11 @@ const recoveryTestSeed = "JBSWY3DPEHPK3PXP"
 
 // recoveryTOTPNow mints the current TOTP code for recoveryTestSeed at the
 // wall clock the service reads (the engine's service has no pinned Now);
-// the verifier's ±1-step window covers a boundary straddle. The RFC 6238
-// step is inlined, as internal/e2e's computeHOTPForTest inlines it:
-// boundaries.json keeps pkg/totp out of the internal_handlers layer,
-// tests included (measured by the gograph-boundaries gate).
+// the verifier's ±1-step window covers a boundary straddle. The code comes
+// from internal/service/totptest, the ONE test-only generator (THE-EIGHT-
+// QUICK-ONES, OSS 4): boundaries.json keeps pkg/totp out of the
+// internal_handlers layer, tests included, but internal/service/** is
+// importable here, and totptest wraps the production primitive.
 func recoveryTOTPNow(t *testing.T) string {
 	t.Helper()
 	return recoveryTOTPAtOffset(t, 0)
@@ -255,18 +252,11 @@ func recoveryTOTPNow(t *testing.T) string {
 // THE-CODE-THAT-WORKS-TWICE the current step's code is single-use.
 func recoveryTOTPAtOffset(t *testing.T, stepOffset int64) string {
 	t.Helper()
-	key, err := base32.StdEncoding.DecodeString(recoveryTestSeed)
+	code, err := totptest.CodeAt(recoveryTestSeed, time.Now(), stepOffset)
 	if err != nil {
-		t.Fatalf("decode test seed: %v", err)
+		t.Fatalf("mint test code: %v", err)
 	}
-	var counter [8]byte
-	binary.BigEndian.PutUint64(counter[:], uint64(int64(time.Now().Unix()/int64(service.TOTPPeriodSeconds))+stepOffset))
-	mac := hmac.New(sha1.New, key) //nolint:gosec // SHA-1 mandated by RFC 6238 §1.
-	_, _ = mac.Write(counter[:])
-	sum := mac.Sum(nil)
-	offset := sum[len(sum)-1] & 0x0f
-	bin := (uint32(sum[offset])&0x7f)<<24 | uint32(sum[offset+1])<<16 | uint32(sum[offset+2])<<8 | uint32(sum[offset+3])
-	return fmt.Sprintf("%06d", bin%1000000)
+	return code
 }
 
 // recoveryReqWithCode posts {code} to the regenerate route.

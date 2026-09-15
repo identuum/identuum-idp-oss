@@ -29,12 +29,7 @@ package e2e
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha1" //nolint:gosec // SHA-1 mandated by RFC 6238 §1.
-	"encoding/base32"
-	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -50,6 +45,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/handlers"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	"github.com/identuum/identuum-idp-oss/internal/service"
+	"github.com/identuum/identuum-idp-oss/internal/service/totptest"
 )
 
 func TestE2E_OSS_MFAEnrolment_FullRoundTrip(t *testing.T) {
@@ -392,35 +388,12 @@ func computeTOTPCodeForTest(t *testing.T, secret string, counter uint64) string 
 	return code
 }
 
-// computeHOTPForTest mirrors internal/service/mfa_verifier.go::computeHOTP.
-// Kept in sync (SHA-1 / 6-digit / base32 NoPad-tolerant) so the test
-// produces the same code the production verifier expects.
+// computeHOTPForTest is internal/service/totptest.HOTP, the ONE test-only
+// generator built on the production primitive (THE-EIGHT-QUICK-ONES, OSS 4):
+// the hand-written RFC 4226 step this once "kept in sync" with
+// internal/service/mfa_verifier.go is gone.
 func computeHOTPForTest(secret string, counter uint64) (string, error) {
-	normalised := strings.ToUpper(strings.TrimSpace(secret))
-	normalised = strings.ReplaceAll(normalised, " ", "")
-	if pad := len(normalised) % 8; pad != 0 {
-		normalised += strings.Repeat("=", 8-pad)
-	}
-	key, err := base32.StdEncoding.DecodeString(normalised)
-	if err != nil {
-		return "", err
-	}
-	buf := make([]byte, 8)
-	binary.BigEndian.PutUint64(buf, counter)
-	mac := hmac.New(sha1.New, key)
-	_, _ = mac.Write(buf)
-	sum := mac.Sum(nil)
-	offset := int(sum[len(sum)-1] & 0x0f)
-	bin := int(sum[offset]&0x7f)<<24 |
-		int(sum[offset+1])<<16 |
-		int(sum[offset+2])<<8 |
-		int(sum[offset+3])
-	const digits = 6
-	mod := 1
-	for range digits {
-		mod *= 10
-	}
-	return fmt.Sprintf("%0*d", digits, bin%mod), nil
+	return totptest.HOTP(secret, counter)
 }
 
 // e2eMFAIdentityCipher round-trips the TOTP seed unchanged so the enrollment
