@@ -21,6 +21,11 @@
       "rule_id": "TOOLS-NO-REACH-1",
       "change_class": "test_fingerprint_changed",
       "reason": "THE-SIX-SMALL-ONES, OSS 1 (2026-09-16): closure_test.go's list of paths that must still mint used scripts/gate-witness.sh as its example of a reaching non-tool path; scripts/** is now declared no-reach with proof, so the example is deployment/docker-compose.dev.yml. The assertion — an undeclared file still mints, the gate-program entries excuse only the listed programs — is unchanged. Rehashed ddc3cfcf004a -> f1486e3f3761."
+    },
+    {
+      "rule_id": "LEDGER-REBASE-DERIVES-BASE-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "THE-SIX-SMALL-ONES, OSS 2 (2026-09-16): rebase_test.go gained the subtest that a declaration the witness consumed is NAMED by the re-base with the refusal the next verify will make, while nothing is removed and every declaration still survives byte-for-byte. The sentence is unchanged and still true: only base_commit is written, an invalid manifest is refused, the derived base is re-measured at verify, and verify never re-bases. Rehashed 10f4bf006b94 -> faaf599948eb."
     }
   ]
 }

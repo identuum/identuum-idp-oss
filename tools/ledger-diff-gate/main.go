@@ -33,7 +33,7 @@ func main() {
 	// gate cannot write and the writer cannot judge, so a re-base can never
 	// happen inside the run that is about to check the result.
 	if *rebase {
-		if err := rebaseManifest(*manifestPath, *repo); err != nil {
+		if err := rebaseManifest(*manifestPath, *repo, *rulefloorBin); err != nil {
 			fmt.Fprintln(os.Stderr, "ledger-rebase: FAIL —", err)
 			os.Exit(1)
 		}
@@ -46,8 +46,14 @@ func main() {
 }
 
 // rebaseManifest derives base_commit from the SAME measurement the gate
-// checks against — previousAcceptedWitness — and writes nothing else.
-func rebaseManifest(manifestPath, repo string) error {
+// checks against — previousAcceptedWitness — and writes nothing else. It
+// then NAMES every declaration the diff against the new base no longer
+// shows (THE-SIX-SMALL-ONES, 2026-09-16): those were consumed by the
+// witness, the re-base preserves them by design, and the next verify will
+// refuse them — so the person re-basing is told now, by the first step
+// after a witness, instead of by the red. Naming only; nothing is removed,
+// and a diff that cannot run only means nothing can be named.
+func rebaseManifest(manifestPath, repo, rulefloorBin string) error {
 	raw, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return fmt.Errorf("manifest %s: %w", manifestPath, err)
@@ -71,6 +77,26 @@ func rebaseManifest(manifestPath, repo string) error {
 		return fmt.Errorf("write %s: %w", manifestPath, err)
 	}
 	fmt.Println(RebaseSummary(before.BaseCommit, base, len(before.Changes)))
+	if len(before.Changes) == 0 {
+		return nil
+	}
+	doc, code, err := runLedgerDiff(rulefloorBin, repo, base)
+	if err != nil || code == 2 {
+		fmt.Printf("ledger-rebase: could not measure which declarations the witness consumed (rulefloor ledger-diff against %s did not run: %s) — the next verify will judge them\n", base, strings.TrimSpace(firstLine(doc)))
+		return nil
+	}
+	d, err := ParseDiff(doc)
+	if err != nil {
+		fmt.Printf("ledger-rebase: could not measure which declarations the witness consumed (%v) — the next verify will judge them\n", err)
+		return nil
+	}
+	consumed := ConsumedDeclarations(before, d)
+	for _, c := range consumed {
+		fmt.Println(ConsumedLine(c, base))
+	}
+	if len(consumed) == 0 {
+		fmt.Printf("ledger-rebase: every declared change is still in the ledger diff against %s; none consumed\n", base)
+	}
 	return nil
 }
 

@@ -285,6 +285,57 @@ func TestRuleLedgerRebaseDerivesBase1_OnlyBaseWritten_InvalidRefused_DerivedBase
 		}
 	})
 
+	t.Run("a CONSUMED declaration is NAMED with the refusal to come, and nothing is removed", func(t *testing.T) {
+		// THE-SIX-SMALL-ONES (2026-09-16). After a witness the declarations
+		// it absorbed stay in the manifest, the re-base preserves them, and
+		// the next verify refuses them. The re-base now says so, by name,
+		// using the gate's own (rule_id, change_class) key: the fingerprint
+		// declaration is still in the diff, the added rule is not.
+		m, err := ParseManifest(manifestJSON(rebaseBase, declAdded+","+declFingerprint))
+		if err != nil {
+			t.Fatalf("fixture: %v", err)
+		}
+		d, err := ParseDiff(differentDoc(fingerprintRow, false))
+		if err != nil {
+			t.Fatalf("fixture diff: %v", err)
+		}
+		consumed := ConsumedDeclarations(m, d)
+		if len(consumed) != 1 || consumed[0].RuleID != "NEW-1" || consumed[0].ChangeClass != "rule_added" {
+			t.Fatalf("consumed = %+v, want exactly the absorbed NEW-1 rule_added", consumed)
+		}
+		line := ConsumedLine(consumed[0], rebaseNewBase)
+		for _, needle := range []string{"CONSUMED", "NEW-1", "rule_added", rebaseNewBase, "next verify", "REFUSE", "unless the declaration is removed", "Nothing was removed"} {
+			if !strings.Contains(line, needle) {
+				t.Errorf("the consumed line does not say %q: %s", needle, line)
+			}
+		}
+		if strings.HasPrefix(line, "check ") {
+			t.Errorf("the consumed line reads like a gate: %s", line)
+		}
+		// A declaration the diff still shows is not consumed; an empty
+		// manifest consumes nothing; and the re-base itself still preserves
+		// every declaration byte-for-byte — the naming removes nothing.
+		both, err := ParseDiff(differentDoc(addedRow+","+fingerprintRow, false))
+		if err != nil {
+			t.Fatalf("fixture diff: %v", err)
+		}
+		if got := ConsumedDeclarations(m, both); len(got) != 0 {
+			t.Errorf("declarations still in the diff were named consumed: %+v", got)
+		}
+		empty, _ := ParseManifest(manifestJSON(rebaseBase, ""))
+		if got := ConsumedDeclarations(empty, d); len(got) != 0 {
+			t.Errorf("an empty manifest consumed %+v", got)
+		}
+		out, err := RebaseManifest(manifestJSON(rebaseBase, declAdded+","+declFingerprint), rebaseNewBase)
+		if err != nil {
+			t.Fatalf("re-base: %v", err)
+		}
+		after, _ := ParseManifest(out)
+		if len(after.Changes) != 2 {
+			t.Fatalf("the re-base removed a consumed declaration: %d left, want 2", len(after.Changes))
+		}
+	})
+
 	t.Run("make verify never re-bases the manifest it is about to judge", func(t *testing.T) {
 		src, err := os.ReadFile("../../Makefile")
 		if err != nil {

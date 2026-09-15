@@ -60,6 +60,43 @@ func RebaseManifest(raw []byte, base string) ([]byte, error) {
 	return append(out, '\n'), nil
 }
 
+// ConsumedDeclarations names the manifest's declarations the diff against
+// the NEW base no longer shows — declarations the witness at that base
+// absorbed. THE-SIX-SMALL-ONES (2026-09-16): after a witness a manifest's
+// declarations are consumed, the re-base preserves them by design (point 3
+// above), and the next verify found them as a red — "DECLARED but not in the
+// diff" — with nothing in between to say so. The owner decided where the
+// reminder lives: here, in the re-base output, the first step after a
+// witness. This NAMES; it never removes. Matching is the gate's own key,
+// (rule_id, change_class), so what is named here is exactly what Reconcile
+// would refuse.
+func ConsumedDeclarations(m *Manifest, d *DiffDoc) []Change {
+	if m == nil || d == nil {
+		return nil
+	}
+	type key struct{ rule, class string }
+	inDiff := map[key]struct{}{}
+	for _, r := range d.Rules {
+		for _, c := range r.Changes {
+			inDiff[key{r.RuleID, c}] = struct{}{}
+		}
+	}
+	var consumed []Change
+	for _, c := range m.Changes {
+		if _, still := inDiff[key{c.RuleID, c.ChangeClass}]; !still {
+			consumed = append(consumed, c)
+		}
+	}
+	return consumed
+}
+
+// ConsumedLine is the one line printed per consumed declaration. It does not
+// start with `check`: a re-base is not a gate.
+func ConsumedLine(c Change, base string) string {
+	return fmt.Sprintf("ledger-rebase: CONSUMED declaration %s %s — the ledger diff against the new base %s no longer shows it (the witness absorbed it); the next verify's ledger-diff-gate will REFUSE this manifest unless the declaration is removed by hand. Nothing was removed.",
+		c.RuleID, c.ChangeClass, base)
+}
+
 // RebaseSummary is the one line -rebase prints. It deliberately does NOT
 // start with `check OK:` — the gate-witness evidence pattern — because a
 // re-base is not a gate and must never read like one in a record.
