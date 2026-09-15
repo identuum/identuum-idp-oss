@@ -72,9 +72,17 @@
 //	                      reach_test.go on every run (THE-SIX-SMALL-ONES,
 //	                      2026-09-16).
 //
-// Everything else — internal/**, cmd/**, auth/**, deployment/**, the
-// Makefile, the e2e specs and harness (e2e-full/scripts/ included), go.mod,
-// go.sum, the root tools/tools.go — REQUIRES the mint.
+//	identuum-ui/Makefile  THE SIBLING'S Makefile ONLY (SiblingOnly): its
+//	                      recipes never reach the ui image — the Dockerfile
+//	                      RUNs npm/pnpm and never make, the runner stage
+//	                      copies only --from= artifacts, package.json scripts
+//	                      invoke no make — re-proved from the sibling's own
+//	                      files at every reliant decision and by
+//	                      reach_test.go (THE-EIGHT-QUICK-ONES, 2026-09-16).
+//
+// Everything else — internal/**, cmd/**, auth/**, deployment/**, THIS
+// module's Makefile, the e2e specs and harness (e2e-full/scripts/ included),
+// go.mod, go.sum, the root tools/tools.go — REQUIRES the mint.
 //
 // Rule MINT-REACHABILITY-1 binds to reach_test.go; rule TOOLS-NO-REACH-1
 // binds the gate-program entries and their proof to closure_test.go.
@@ -97,6 +105,11 @@ type NoReachEntry struct {
 	// paths, never against a sibling's namespaced ones: a proof about THIS
 	// module's build closure says nothing about a sibling's tree.
 	ThisRepoOnly bool
+	// SiblingOnly entries are the mirror: matched only against a sibling's
+	// namespaced paths, never this repository's own — a proof about the
+	// sibling's image says nothing about this module (THE-EIGHT-QUICK-ONES,
+	// 2026-09-16: the ui's Makefile is no-reach, this module's is not).
+	SiblingOnly bool
 }
 
 // GateProgramDirs names the gate programs under tools/: each is its own
@@ -178,6 +191,17 @@ var baseNoReachSet = []NoReachEntry{
 	// ThisRepoOnly: the proof is about THIS module's image; the sibling's
 	// scripts/ stays reaching until it proves its own.
 	{Pattern: "scripts/**", Why: "the gate scripts: never copied into the runtime image (only --from= artifacts are), never run by the image build, never embedded (go list EmbedPatterns names only migrations/*.sql) — proved by reach_test.go on every run", ThisRepoOnly: true},
+	// THE-EIGHT-QUICK-ONES, OSS 3 (2026-09-16): the SIBLING's Makefile. Its
+	// recipes run on a developer's machine and in CI; the ui image is built by
+	// identuum-ui/Dockerfile, whose RUNs are npm/pnpm and never make, whose
+	// runner stage copies only `--from=` artifacts, and whose package.json
+	// scripts never invoke make — so no recipe reaches the image the appliance
+	// serves. PROVED, not trusted: ProveSiblingMakefileUnreachable re-reads the
+	// sibling's Dockerfile and package.json whenever a decision relies on this
+	// entry (fails closed if the sibling is absent), and reach_test.go on every
+	// run where the sibling checkout exists. SiblingOnly: THIS module's
+	// Makefile builds the appliance image and stays reaching.
+	{Pattern: SiblingMakefileEntry, Why: "the sibling's Makefile: its recipes never reach identuum-ui's image — the Dockerfile RUNs no make, its runner stage copies only --from= artifacts, package.json scripts invoke no make — proved by ProveSiblingMakefileUnreachable at every reliant decision and by reach_test.go", SiblingOnly: true},
 }
 
 // SiblingPrefixes are the namespaces main.go puts in front of a sibling
@@ -224,6 +248,11 @@ func Decide(changed []string, set []NoReachEntry) Decision {
 			if e.ThisRepoOnly && local != p {
 				// A namespaced sibling path: this entry is about THIS
 				// repository's build closure and says nothing about the sibling.
+				continue
+			}
+			if e.SiblingOnly && local == p {
+				// This repository's own path: the entry is about the sibling's
+				// image and says nothing about this module.
 				continue
 			}
 			if matchPath(e.Pattern, local) {

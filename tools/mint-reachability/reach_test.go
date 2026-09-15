@@ -11,6 +11,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -130,6 +131,83 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 		}
 	})
 
+	t.Run("the sibling's Makefile does not ship: no-reach for identuum-ui ONLY, proved from its image and its scripts", func(t *testing.T) {
+		// THE-EIGHT-QUICK-ONES, OSS 3 (2026-09-16). identuum-ui/Makefile is
+		// the ui's gate and harness entry point (`make verify`, `make
+		// e2e-full`); a recipe edit there cost a full e2e mint
+		// (THE-UI-AUDIT-IN-CI paid one for a NODE default). The entry is
+		// declared ONLY with the proof that no ui recipe reaches the
+		// appliance image or binary, re-measured here whenever the sibling
+		// checkout is present and at decision time by main.go:
+		//   1. identuum-ui/Dockerfile — the only ui image recipe — copies the
+		//      context into its BUILDER stage (`COPY . .`) and RUNs pnpm, never
+		//      make; its RUNNER stage copies only `--from=builder` artifacts;
+		//   2. identuum-ui/package.json's scripts — what `pnpm build` and
+		//      `next dev` run — never invoke make.
+		// The OSS Makefile is NOT declared: it builds the appliance (oss-build).
+		if Decide([]string{"identuum-ui/Makefile"}, NoReachSet).Required {
+			t.Error("identuum-ui/Makefile classified as reaching: the ui's gate recipes never enter the ui image nor the appliance")
+		}
+		if !Decide([]string{"Makefile"}, NoReachSet).Required {
+			t.Error("this module's Makefile was excused by the sibling-only entry — it builds the appliance and must mint")
+		}
+		if !Decide([]string{"identuum-ui/Dockerfile"}, NoReachSet).Required {
+			t.Error("the sibling's Dockerfile rode in under the Makefile entry")
+		}
+		d := Decide([]string{"identuum-ui/Makefile", "identuum-ui/src/app/login/page.tsx"}, NoReachSet)
+		if !d.Required || len(d.Reaching) != 1 || d.Reaching[0] != "identuum-ui/src/app/login/page.tsx" {
+			t.Fatalf("reaching set = %v, want exactly the ui source file", d.Reaching)
+		}
+		// The proof itself, on fixtures shaped like the ui's recipe: it PASSES
+		// on a build that never runs make and whose runner copies only
+		// --from= artifacts, and FAILS — naming the line — on each way the
+		// Makefile could ship: a RUN that invokes make, a runner-stage COPY
+		// from the context, a package.json script that calls make.
+		cleanDockerfile := "FROM node AS builder\nWORKDIR /app\nCOPY . .\nRUN pnpm install --frozen-lockfile\nRUN pnpm build\n\nFROM node AS runner\nCOPY --from=builder /app/.next/standalone ./\nCMD [\"node\", \"server.js\"]\n"
+		cleanPackage := `{"scripts":{"build":"next build","dev":"next dev","verify":"pnpm typecheck && pnpm build"}}`
+		fixture := func(t *testing.T, dockerfile, pkg string) string {
+			t.Helper()
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(dockerfile), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			return dir
+		}
+		if line, err := ProveSiblingMakefileUnreachable(fixture(t, cleanDockerfile, cleanPackage)); err != nil {
+			t.Fatalf("the proof must hold on a recipe that never runs make: %v", err)
+		} else if !strings.Contains(line, "identuum-ui/Makefile") {
+			t.Fatalf("the proof line does not name what it proved: %q", line)
+		}
+		for _, bad := range []struct{ name, dockerfile, pkg, want string }{
+			{"a RUN that invokes make", strings.Replace(cleanDockerfile, "RUN pnpm build", "RUN make build", 1), cleanPackage, "RUNs make"},
+			{"a RUN that invokes make -C", strings.Replace(cleanDockerfile, "RUN pnpm build", "RUN make -C . build", 1), cleanPackage, "RUNs make"},
+			{"a runner-stage COPY from the context", strings.Replace(cleanDockerfile, "COPY --from=builder /app/.next/standalone ./", "COPY . .", 1), cleanPackage, "copies from the build context"},
+			{"a package.json script that calls make", cleanDockerfile, `{"scripts":{"build":"make build"}}`, "invokes make"},
+		} {
+			_, err := ProveSiblingMakefileUnreachable(fixture(t, bad.dockerfile, bad.pkg))
+			if err == nil || !strings.Contains(err.Error(), bad.want) {
+				t.Errorf("%s: the proof must FAIL naming it; got %v", bad.name, err)
+			}
+		}
+		if _, err := ProveSiblingMakefileUnreachable(t.TempDir()); err == nil {
+			t.Error("an absent recipe is not a proof — the check must fail closed")
+		}
+		// The real sibling, wherever its checkout is present (a CI runner of
+		// this repository has none; the mint decision re-reads it in main.go).
+		if _, err := os.Stat("../../../identuum-ui/Dockerfile"); err == nil {
+			if line, err := ProveSiblingMakefileUnreachable("../../../identuum-ui"); err != nil {
+				t.Fatalf("the sibling Makefile proof does not hold on the real identuum-ui checkout: %v", err)
+			} else {
+				t.Log(line)
+			}
+		} else {
+			t.Log("identuum-ui checkout absent beside this repository; the real recipe is proved at every mint decision instead")
+		}
+	})
+
 	t.Run("go.mod is NOT prose just because it sits beside prose", func(t *testing.T) {
 		d := Decide([]string{"docs/README.md", "go.mod"}, NoReachSet)
 		if !d.Required {
@@ -234,7 +312,10 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 		for _, p := range []string{
 			"identuum-ui/src/app/login/page.tsx",
 			"identuum-ui/e2e-full/scripts/full-run.sh",
-			"identuum-ui/Makefile",
+			// identuum-ui/Makefile was in this list until THE-EIGHT-QUICK-ONES
+			// (2026-09-16): it is now the SiblingOnly entry, proved in its own
+			// subtest below; the ui's Dockerfile keeps the image reaching.
+			"identuum-ui/Dockerfile",
 			"identuum-ui/package.json",
 			"identuum-ui/something/nobody/declared.bin",
 		} {

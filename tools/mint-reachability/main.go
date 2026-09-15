@@ -153,6 +153,13 @@ func decideFromRecord(recordPath, repoDir, uiDir string) (string, int) {
 			return fmt.Sprintf("check FAILED: mint-reachability — %v", err), ExitUndecidable
 		}
 	}
+	// The same obligation for the sibling's Makefile entry: the proof is read
+	// from the sibling's own Dockerfile and package.json on THIS tree.
+	if reliesOnSiblingMakefile(d) {
+		if _, err := ProveSiblingMakefileUnreachable(uiDir); err != nil {
+			return fmt.Sprintf("check FAILED: mint-reachability — %v", err), ExitUndecidable
+		}
+	}
 	return fmt.Sprintf("check OK: mint-reachability MINT SATISFIED by %s (identuum-ui %s, identuum-idp-oss %s) — %s",
 		name, heads.UI, heads.Sibling, d.Summary()), ExitSkippable
 }
@@ -260,6 +267,14 @@ func judgeE2ERecord(recordPath, repoDir, uiDir string) int {
 	// a gate-program entry stands only while the entry is provably sound.
 	if reliesOnGateProgram(d) {
 		line, err := ProveGateProgramsUnreachable(repoDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %v\n", err)
+			return ExitUndecidable
+		}
+		fmt.Println(line)
+	}
+	if reliesOnSiblingMakefile(d) {
+		line, err := ProveSiblingMakefileUnreachable(uiDir)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %v\n", err)
 			return ExitUndecidable

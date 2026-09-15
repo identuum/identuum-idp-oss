@@ -16,9 +16,12 @@ package main
 // treats as MINT REQUIRED.
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -86,6 +89,76 @@ func embedPatterns(repoDir string) ([]string, error) {
 		}
 	}
 	return patterns, nil
+}
+
+// SiblingMakefileEntry is the one sibling-only declaration: identuum-ui's
+// Makefile (THE-EIGHT-QUICK-ONES, OSS 3, 2026-09-16). The ui's Makefile is
+// its gate and harness entry point (`make verify`, `make e2e-full`) and is
+// never read by `next`, never copied into the ui image's runner stage and
+// never run by the image build. Like the gate-program entries it is proved
+// rather than trusted: ProveSiblingMakefileUnreachable re-reads the sibling's
+// Dockerfile and package.json whenever a decision relies on it, and
+// reach_test.go re-measures it wherever the sibling checkout is present.
+const SiblingMakefileEntry = "Makefile"
+
+// ProveSiblingMakefileUnreachable proves, from the sibling checkout at uiDir,
+// that its Makefile cannot reach the appliance image or binary: the ui image
+// recipe (Dockerfile) never RUNs make and its runner stage copies only
+// `--from=` artifacts, and package.json's scripts — what `pnpm build` and
+// `next dev` execute — never invoke make. It fails CLOSED: an unreadable
+// recipe is not a proof, and the harness treats undecidable as MINT REQUIRED.
+func ProveSiblingMakefileUnreachable(uiDir string) (string, error) {
+	dockerfile, err := os.ReadFile(filepath.Join(uiDir, "Dockerfile"))
+	if err != nil {
+		return "", fmt.Errorf("sibling Makefile proof: cannot read the ui image recipe: %v", err)
+	}
+	var runtimeStage bool
+	for _, line := range strings.Split(string(dockerfile), "\n") {
+		l := strings.TrimSpace(line)
+		if l == "" || strings.HasPrefix(l, "#") {
+			continue
+		}
+		if strings.HasPrefix(l, "FROM ") {
+			runtimeStage = strings.HasSuffix(l, " AS runner")
+		}
+		if strings.HasPrefix(l, "RUN ") && makeInvocation.MatchString(l) {
+			return "", fmt.Errorf("sibling Makefile proof: the ui image build RUNs make — identuum-ui/Makefile reaches the image: %q", l)
+		}
+		if runtimeStage && (strings.HasPrefix(l, "COPY ") || strings.HasPrefix(l, "ADD ")) && !strings.Contains(l, "--from=") {
+			return "", fmt.Errorf("sibling Makefile proof: the ui runner stage copies from the build context, so the Makefile could ship: %q", l)
+		}
+	}
+	pkg, err := os.ReadFile(filepath.Join(uiDir, "package.json"))
+	if err != nil {
+		return "", fmt.Errorf("sibling Makefile proof: cannot read the ui package manifest: %v", err)
+	}
+	var manifest struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(pkg, &manifest); err != nil {
+		return "", fmt.Errorf("sibling Makefile proof: the ui package manifest is not JSON: %v", err)
+	}
+	for name, cmd := range manifest.Scripts {
+		if makeInvocation.MatchString(cmd) {
+			return "", fmt.Errorf("sibling Makefile proof: package.json script %q invokes make — identuum-ui/Makefile reaches what the app runs: %q", name, cmd)
+		}
+	}
+	return "identuum-ui/Makefile does not ship: the ui image build never runs make, its runner stage copies only --from= artifacts, and no package.json script invokes make", nil
+}
+
+// makeInvocation matches a shell command that runs make (`make`, `make -C`,
+// `gmake`), as a whole word, anywhere in the line.
+var makeInvocation = regexp.MustCompile(`(^|[\s;&|(])g?make(\s|$)`)
+
+// reliesOnSiblingMakefile reports whether the decision excused a path through
+// the sibling-only Makefile entry, so its proof must be re-run first.
+func reliesOnSiblingMakefile(d Decision) bool {
+	for _, pattern := range d.NoReach {
+		if pattern == SiblingMakefileEntry {
+			return true
+		}
+	}
+	return false
 }
 
 // reachableGatePrograms is the pure core of the proof: which declared program
