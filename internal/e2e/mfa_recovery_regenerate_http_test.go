@@ -15,10 +15,13 @@
 // with the principal the bearer middleware would set — installed through
 // mw.InjectPrincipalForTest, the exported seam the handler tests use.
 // The refusal is the route family's existing `invalid_code` 401 and is
-// cause-neutral — absent, empty, wrong and a valid RECOVERY code all read
-// the same — and a refused recovery code is NOT burned, so it still
-// disarms through the disable (the route the ruling leaves open to a
-// user without the authenticator).
+// cause-neutral — a wrong code and a valid RECOVERY code read the same —
+// and a refused recovery code is NOT burned, so it still disarms through
+// the disable (the route the ruling leaves open to a user without the
+// authenticator). Since f44d551 (2026-09-15) a code nobody sent — an
+// absent body or an empty code — is refused BEFORE the service is
+// consulted, 400 code_required, the CE shape; that half of this test
+// moved with it after CI run 35397039694 caught it still expecting 401.
 //
 // Test discipline mirrors the other e2e tests: randomized email, the
 // TOTP secret is the RFC 6238 test vector, no secret or code is ever
@@ -185,8 +188,9 @@ func (f *regenerateE2EFixture) currentTOTP(t *testing.T) string {
 
 // TestE2E_OSS_MFARecoveryRegenerate_RecoveryCodeIsRefused is the ruling
 // itself: a VALID recovery code does not regenerate — 401 invalid_code —
-// it is not burned, absent / empty / wrong proofs read byte-identically,
-// and the same recovery code still disarms through the disable.
+// it is not burned, wrong proofs read byte-identically to it, a code
+// nobody sent is 400 code_required (f44d551), and the same recovery code
+// still disarms through the disable.
 func TestE2E_OSS_MFARecoveryRegenerate_RecoveryCodeIsRefused(t *testing.T) {
 	f := newRegenerateE2EFixture(t)
 	before := f.storedCodes(t)
@@ -199,16 +203,32 @@ func TestE2E_OSS_MFARecoveryRegenerate_RecoveryCodeIsRefused(t *testing.T) {
 		t.Fatalf("regenerate with a VALID recovery code = %d %s, want 401 invalid_code — a recovery code must not buy recovery codes", status, redactCodes(body))
 	}
 	want := body
-	cases := []struct {
+	// f44d551: a code nobody sent is refused before the service is
+	// consulted — 400 code_required — so the absent body and the empty
+	// code read one way, and every WRONG code still reads the
+	// cause-neutral 401, byte-identical to the valid recovery code's.
+	const wantMissing = `{"error":"code_required"}`
+	missing := []struct {
 		label string
 		body  map[string]string
 	}{
 		{"absent body", nil},
 		{"empty code", map[string]string{"code": ""}},
+	}
+	for _, c := range missing {
+		status, body := f.post(t, "/api/v1/me/mfa/recovery-codes/regenerate", c.body)
+		if status != http.StatusBadRequest || body != wantMissing {
+			t.Errorf("%s: regenerate = %d %q, want 400 %q (a code nobody sent is refused before the service is consulted)", c.label, status, redactCodes(body), wantMissing)
+		}
+	}
+	wrong := []struct {
+		label string
+		body  map[string]string
+	}{
 		{"wrong six-character code", map[string]string{"code": "abcdef"}},
 		{"wrong-length code", map[string]string{"code": "12345"}},
 	}
-	for _, c := range cases {
+	for _, c := range wrong {
 		status, body := f.post(t, "/api/v1/me/mfa/recovery-codes/regenerate", c.body)
 		if status != http.StatusUnauthorized || body != want {
 			t.Errorf("%s: regenerate = %d %q, want 401 %q (one cause-neutral refusal)", c.label, status, redactCodes(body), want)
