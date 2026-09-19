@@ -7,14 +7,15 @@ scratch=$(mktemp -d /tmp/witness-mint-test.XXXXXX)
 trap 'rm -rf "$scratch"' EXIT
 oss="$scratch/identuum-idp-oss"
 ui="$scratch/identuum-ui"
-mkdir -p "$oss/tools/mint-reachability" "$oss/scripts" "$ui" "$scratch/wiki/tools"
+mkdir -p "$oss/tools/mint-reachability" "$oss/scripts" "$ui"
 cp "$root"/tools/mint-reachability/*.go "$oss/tools/mint-reachability/"
 cp "$root/scripts/gate-witness.sh" "$root/scripts/verify-all.sh" "$oss/scripts/"
 go_version=$(awk '$1 == "go" { print $2 }' "$root/go.mod")
 printf 'module fixture\n\ngo %s\n' "$go_version" > "$oss/go.mod"
-# Only the unrelated parts-policy boundary is a fixture. The mint judge and
-# witness body are unchanged; this permits a synthetic witness commit.
-printf '#!/usr/bin/env bash\nexit 0\n' > "$scratch/wiki/tools/parts-commit-gate.sh"
+# The mint judge and witness body are the real ones, unchanged; nothing
+# outside these two synthetic repositories is consulted (the wiki's parts
+# commit gate the recipe once ran first was retired 2026-09-18, and this
+# fixture no longer fabricates it).
 python3 - "$root/Makefile" "$oss/Makefile" <<'PY'
 from pathlib import Path
 import re

@@ -1242,35 +1242,24 @@ image-base-parity:
 ## the output caught it, not a gate. The witness is the one claim this
 ## workspace trusts, so it is made HERE, by a recipe that REFUSES unless every
 ## one of these holds, in this order:
-##   1. the parts gate ran FIRST (../wiki/tools/parts-commit-gate.sh, fed a
-##      PreToolUse payload naming this commit; IDENTUUM_TRANSCRIPT names the
-##      harness transcript it reads, and without one it denies). A refusal
-##      commits only under IDENTUUM_PARTS_BYPASS, and then the body quotes the
-##      refusal and `achta parts verify`'s fact line — the bypass is on the
-##      record, never silent;
-##   2. GATE-RUN.txt exists and says `result: green`;
-##   3. its `repo-head:` is a prefix of `git rev-parse HEAD` — a green record
+##   1. GATE-RUN.txt exists and says `result: green`;
+##   2. its `repo-head:` is a prefix of `git rev-parse HEAD` — a green record
 ##      for another head witnesses that head, not this one;
-##   4. `scripts/gate-witness.sh check` accepts it: complete, no non-zero
+##   3. `scripts/gate-witness.sh check` accepts it: complete, no non-zero
 ##      exit, and its `tree:` digest equals the tree NOW (the record excluded);
-##   5. nothing but GATE-RUN.txt is modified — a witness is record-only.
+##   4. nothing but GATE-RUN.txt is modified — a witness is record-only.
 ## Only then: `git add GATE-RUN.txt` and ONE commit with the canonical subject
 ## `Witness: make verify green at <short HEAD>`. Nothing else is staged, ever;
 ## the message is written by this recipe, never typed.
 ## The recipe exits 1 for a refusal the record explains and 2 when it cannot
-## evaluate (no gate, no record). This block is byte-identical in
-## identuum-idp-oss and identuum-ui and pinned by `witness-parity` below.
+## evaluate (no record). Until 2026-09-18 a step ran FIRST: the wiki's parts
+## commit gate, with an IDENTUUM_PARTS_BYPASS escape quoted in the body; wiki
+## 46d6bf3 (THE-ONE-BOOK) retired that gate and its file, and the step went
+## with it (THE-WITNESS-THAT-WAITED-FOR-A-RETIRED-GATE, 2026-09-19) — no
+## bypass exists. This block is byte-identical in identuum-idp-oss and
+## identuum-ui and pinned by `witness-parity` below.
 witness:
-	@set -u; rec=GATE-RUN.txt; gate=../wiki/tools/parts-commit-gate.sh; \
-	test -f "$$gate" || { echo "witness: REFUSED — $$gate is absent; the parts gate runs first or nothing commits"; exit 2; }; \
-	payload=$$(printf '{"session_id":"make-witness","transcript_path":"%s","cwd":"%s","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit -F witness-message","description":"make witness"}}' "$${IDENTUUM_TRANSCRIPT:-}" "$$PWD"); \
-	verdict=$$(printf '%s' "$$payload" | bash "$$gate" 2>&1); grc=$$?; bypass=""; \
-	if [ "$$grc" -ne 0 ]; then \
-		why=$$(printf '%s\n' "$$verdict" | grep -m1 -E 'banner is at|attest|transcript|parts' || printf '%s\n' "$$verdict" | head -1); \
-		if [ -z "$${IDENTUUM_PARTS_BYPASS:-}" ]; then echo "witness: REFUSED — the parts gate refused and no IDENTUUM_PARTS_BYPASS is declared:"; printf '%s\n' "$$verdict"; exit 2; fi; \
-		wiki=$$(cd ../wiki && pwd -P); fact=$$(achta --wiki-dir "$$wiki" parts verify --dir "$$wiki/prompt/parts" --lock "$$wiki/prompt/parts.lock" 2>&1) || { echo "witness: REFUSED — achta parts verify failed: $$fact"; exit 2; }; \
-		bypass=$$(printf 'BYPASS USED: IDENTUUM_PARTS_BYPASS (%s), the gate run first by make witness. What the gate refused: %s. The fact half: %s.' "$$IDENTUUM_PARTS_BYPASS" "$$why" "$$fact"); \
-	fi; \
+	@set -u; rec=GATE-RUN.txt; \
 	test -f "$$rec" || { echo "witness: REFUSED — $$rec is absent; run make verify first"; exit 2; }; \
 	res=$$(sed -n 's/^result: //p' "$$rec" | head -1); \
 	[ "$$res" = green ] || { echo "witness: REFUSED — $$rec says result: $${res:-<absent>}, not green"; exit 1; }; \
@@ -1282,7 +1271,7 @@ witness:
 	[ -z "$$other" ] || { echo "witness: REFUSED — a witness is record-only, and the tree carries more than $$rec:"; printf '%s\n' "$$other"; exit 1; }; \
 	subject="Witness: make verify green at $$(git rev-parse --short HEAD)"; \
 	n=$$(grep -c '^target: .* exit=0$$' "$$rec" || true); msg=$$(mktemp "$${TMPDIR:-/tmp}/witness.XXXXXX"); \
-	{ printf '%s\n\n' "$$subject"; printf 'Record-only commit made by make witness: %s as make verify wrote it at the clean HEAD %s, %s planned target(s) at exit=0, tree digest verified by gate-witness check. A witness made any other way is a defect.\n' "$$rec" "$$full" "$$n"; [ -z "$$bypass" ] || printf '\n%s\n' "$$bypass"; } > "$$msg"; \
+	{ printf '%s\n\n' "$$subject"; printf 'Record-only commit made by make witness: %s as make verify wrote it at the clean HEAD %s, %s planned target(s) at exit=0, tree digest verified by gate-witness check. A witness made any other way is a defect.\n' "$$rec" "$$full" "$$n"; } > "$$msg"; \
 	if git add "$$rec" && git commit -q -F "$$msg"; then rm -f "$$msg"; echo "witness: $$subject -> $$(git rev-parse --short HEAD)"; \
 	else rm -f "$$msg"; echo "witness: REFUSED — git commit did not land"; exit 1; \
 	fi
@@ -1294,7 +1283,7 @@ witness:
 ## turns its repo red with no sibling checkout required. CHANGING IT ON
 ## PURPOSE: edit one copy, run `make witness-parity`, read the digest from the
 ## failure, update WITNESS_MD5 in both and copy the block to both.
-WITNESS_MD5 ?= 179ce4a5e5c1111f2c5c51ebb1ea2236
+WITNESS_MD5 ?= 2e107f86a44d0fff59fc01659f1f2535
 
 witness-parity:
 	@blk="$$(awk '/^witness:/{f=1} f{print; if(f&&/^\tfi$$/){getline; print; exit}}' Makefile)"; \
