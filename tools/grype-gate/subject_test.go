@@ -150,10 +150,16 @@ func TestRule_GRYPE_SUBJECT_1(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("PREMISE: a covered, applied directory subject must pass; exit %d: %s", code, line)
 		}
-		for _, want := range []string{"subject directory:" + root, "config applied (1 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s))", "coverage: inventory 1 component(s) at 1 location(s), none under an ignored path"} {
+		for _, want := range []string{"subject directory:" + filepath.Base(root), "config applied (1 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s))", "coverage: inventory 1 component(s) at 1 location(s), none under an ignored path"} {
 			if !strings.Contains(line, want) {
 				t.Errorf("evidence line must carry %q; got %q", want, line)
 			}
+		}
+		// THE-THREE-SMALL-ONES-OSS (2026-09-19): the line lands in a tracked
+		// record of a public repository, so the operator's absolute path must
+		// not be on it — the subject is named by its directory's base name.
+		if strings.Contains(line, root) {
+			t.Errorf("evidence line must not carry the subject's absolute path %q; got %q", root, line)
 		}
 		// (b) red: grype catalogued a component at a path git ignores — the
 		// exclude list did not keep it out of the scan, whatever the
@@ -189,8 +195,8 @@ func TestRule_GRYPE_SUBJECT_1(t *testing.T) {
 	t.Run("directory: a relative target is the caller's root", func(t *testing.T) {
 		root := subjectRepo(t, false)
 		scan := writeScan(t, report(dirSource("."), appliedConfig(root)))
-		if code, line := judge(t, "-scan", scan, "-inventory", writeInventory(t, "/go.mod"), "-allowlist", noAllowlist, "-root", root); code != 0 || !strings.Contains(line, "subject directory:"+root) {
-			t.Fatalf("`dir:.` records \".\", which is the caller's root; exit %d: %s", code, line)
+		if code, line := judge(t, "-scan", scan, "-inventory", writeInventory(t, "/go.mod"), "-allowlist", noAllowlist, "-root", root); code != 0 || !strings.Contains(line, "subject directory:"+filepath.Base(root)) || strings.Contains(line, root) {
+			t.Fatalf("`dir:.` records \".\", which is the caller's root, named on the line by its base name and never its absolute path; exit %d: %s", code, line)
 		}
 	})
 	t.Run("directory: -coverage-only judges an inventory against the tree, no scanner", func(t *testing.T) {

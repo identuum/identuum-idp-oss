@@ -79,11 +79,26 @@ func (s Subject) IsDirectory() bool { return s.Kind == "directory" }
 // IsImage reports whether the predicates are not applicable.
 func (s Subject) IsImage() bool { return s.Kind == "image" }
 
-// Label names the subject on the evidence line: "directory:/abs/path" or
+// Label names the subject on the evidence line: "directory:<name>" or
 // "image:name:tag".
+//
+// THE-THREE-SMALL-ONES-OSS (2026-09-19): a directory subject is named by the
+// BASE NAME of its resolved directory, never the operator's absolute path.
+// The evidence line is copied by gate-witness into GATE-RUN.txt, a tracked
+// record of a public repository, and it carried
+// `directory:/Users/<operator>/…/identuum-idp-oss` — and, since the siblings
+// run this judge from this checkout, the same machine path in their records.
+// The name and not "." because the name says WHICH tree was judged
+// (identuum-ui drives this judge with `go run -C ../identuum-idp-oss`, so a
+// "." would read the same for two different subjects — the confusion this
+// file exists for). Only the label changes: ResolveDir still compares the
+// absolute values, and an image subject's label is what it was.
 func (s Subject) Label() string {
 	if s.Target == "" {
 		return s.Kind
+	}
+	if s.IsDirectory() {
+		return s.Kind + ":" + filepath.Base(filepath.Clean(s.Target))
 	}
 	return s.Kind + ":" + s.Target
 }

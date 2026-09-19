@@ -121,17 +121,15 @@ TEST-spec.MD
 # the teardown. A green run keeps nothing.
 /conformance/.evidence/
 
-# Legattus project state (THE-LAST-PASSWORD-DISARM, 2026-09-10): LOCAL, the
-# way the tool treats its own repository — legattus tracks only
-# .legattus.example.json and gitignores /.legattus/ entirely. .legattus.json
-# is per-checkout provider configuration (executables, timeouts) and
-# .legattus/ is per-run lifecycle state and evidence; neither describes this
-# repository's product, and both are re-created by `legattus init`, which is
-# idempotent and leaves an existing config byte-identical.
-# Ignored ALSO because they must not dirty the tree: untracked-unignored paths
-# make gate-witness `run` refuse to mint, so an initialised checkout would
-# otherwise be unmintable until someone committed tool state.
-# A tuned timeout worth keeping belongs in a committed .legattus.example.json,
-# not in the ignored live file.
+# Legattus LEGACY files (THE-THREE-SMALL-ONES-OSS, 2026-09-19). These two
+# entries guard files Legattus <= v0.1.3 wrote into a checkout: .legattus.json
+# (per-checkout provider configuration) and .legattus/ (per-run lifecycle
+# state and evidence). Since v0.1.4 (a59b24d) Legattus writes NEITHER — its
+# state lives under $HOME/.local/state/legattus — and the ONE in-tree Legattus
+# file is the committed .legattus-policy.json. The entries stay so a checkout
+# that still carries the legacy files cannot dirty the tree: untracked-
+# unignored paths make gate-witness `run` refuse to mint (THE-LAST-PASSWORD-
+# DISARM, 2026-09-10, which added them when `legattus init` still created
+# both). Nothing here is re-created by the current tool.
 /.legattus.json
 /.legattus/

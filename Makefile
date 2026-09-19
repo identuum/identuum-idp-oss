@@ -627,7 +627,7 @@ mint-decide:
 	echo "mint-decide: tool exit $$rc (0 SKIPPABLE, 10 MINT REQUIRED, 1 undecidable); make itself exits 0 only for SKIPPABLE and 2 otherwise — read this line, not the exit status"; \
 	exit $$rc
 
-.PHONY: mint-decide mint-report
+.PHONY: mint-decide mint-report witness-mint-test
 
 ## Verify records the classifier's verdict without treating mint debt as a
 ## code failure. Keep mint-decide's fail-closed caller contract unchanged.
@@ -635,6 +635,21 @@ mint-report:
 	@out=$$($(MAKE) --no-print-directory mint-decide 2>&1); rc=$$?; \
 	printf '%s\n' "$$out"; \
 	echo "check OK: mint-decide report recorded (make exit $$rc); only SKIPPABLE permits a witness"
+
+## witness-mint-test: the proof that mint debt is RECORDED without failing
+## verify and REFUSES every witness attempt — scripts/witness-mint-test.sh,
+## 14 assertions over two synthetic repositories built from the real
+## classifier, recorder and witness recipe (nothing outside them is read).
+## THE-THREE-SMALL-ONES-OSS (2026-09-19): until then nothing in the tree ran
+## it (`git grep -l witness-mint-test` found only itself), so the proof held
+## only when someone ran it by hand. It sits in the verify plan beside
+## mint-decide, whose contract it proves; its `SELFTEST OK` line is the
+## evidence. About 6 s. NOT in ci-verify: the machinery it proves —
+## mint-decide, witness, witness-mint-check — is local-only and subtracted
+## from that plan, and a proof of a local-only recipe runs where the recipe
+## runs; adding it there would also widen the documented ci-verify set.
+witness-mint-test:
+	@bash scripts/witness-mint-test.sh
 
 .PHONY: witness witness-parity
 
@@ -686,6 +701,7 @@ define VERIFY_PLAN
 		'toolchain-parity=$(MAKE) --no-print-directory toolchain-parity' \
 		'ci-witness=$(MAKE) --no-print-directory ci-witness' \
 		'mint-decide=$(MAKE) --no-print-directory mint-report' \
+		'witness-mint-test=$(MAKE) --no-print-directory witness-mint-test' \
 		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
@@ -730,6 +746,10 @@ endef
 ## The recorded mint-decide report is also local-only: it reads the sibling's
 ## e2e record and both checkout histories, which this single-repository CI
 ## job does not have. The local witness prerequisite owns that decision.
+## witness-mint-test (THE-THREE-SMALL-ONES-OSS, 2026-09-19) is local-only for
+## the same reason one step further: it proves that local-only machinery —
+## mint-decide, witness, witness-mint-check — and a proof of a recipe runs
+## where the recipe runs.
 ##
 ## govulncheck is omitted for a different reason: CI runs it as its own JOB.
 ## A vulnerability database moves under a tree that has not moved, so a red scan
