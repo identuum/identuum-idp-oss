@@ -25,8 +25,8 @@ env:
   STATICCHECK_VERSION: v0.8.1
   GRYPE_VERSION: v0.118.0
   GOVULNCHECK_VERSION: v1.7.0
-  LICTOR_VERSION: v0.4.0
-  LICTOR_SHA256: 85e275003f2947b74ff3858a9dfc07d3cc1fe36dac89ab32cb7aaf4672b9a1f0
+  LICTOR_VERSION: v0.4.1
+  LICTOR_SHA256: 61f13b580e30a05a5a028b75f152347f3d1612a9267cd945237ae669b1fcd92b
   GATE_WITNESS_SHA256: "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e"
 
 jobs:
@@ -120,8 +120,8 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 			"STATICCHECK_VERSION": "v0.8.1",
 			"GRYPE_VERSION":       "v0.118.0",
 			"GOVULNCHECK_VERSION": "v1.7.0",
-			"LICTOR_VERSION":      "v0.4.0",
-			"LICTOR_SHA256":       "85e275003f2947b74ff3858a9dfc07d3cc1fe36dac89ab32cb7aaf4672b9a1f0",
+			"LICTOR_VERSION":      "v0.4.1",
+			"LICTOR_SHA256":       "61f13b580e30a05a5a028b75f152347f3d1612a9267cd945237ae669b1fcd92b",
 			"GATE_WITNESS_SHA256": "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e",
 		} {
 			if env[k] != want {
@@ -176,7 +176,7 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 			"STATICCHECK_VERSION": "0.8.1",
 			"GRYPE_VERSION":       "0.118.0",
 			"GOVULNCHECK_VERSION": "1.7.0",
-			"LICTOR_VERSION":      "0.4.0",
+			"LICTOR_VERSION":      "0.4.1",
 		} {
 			if got := Normalize(KindPin, env[key]); got != want {
 				t.Errorf("Normalize(KindPin, %s=%q) = %q, want %q — a present pin must never read as missing",
