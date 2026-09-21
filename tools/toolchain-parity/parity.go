@@ -21,6 +21,7 @@
 //	GRYPE_VERSION          ↔ grype --version
 //	GOVULNCHECK_VERSION    ↔ govulncheck -version
 //	YQ_VERSION             ↔ yq --version   (THE-CI-PARSES-ITS-OWN-WORKFLOWS)
+//	LICTOR_VERSION         ↔ lictor version --json   (THE-LAST-BORROWER)
 //	go.mod `go` directive  ↔ go version
 //	GATE_WITNESS_SHA256    ↔ sha256(scripts/gate-witness.sh)
 //	RULEFLOOR_GATE_SHA256  ↔ sha256(scripts/rulefloor-install-gate.sh)
@@ -138,7 +139,8 @@ var (
 	govulncheckRe = regexp.MustCompile(`govulncheck@v?([0-9]+\.[0-9]+\.[0-9]+)`)
 	// `grype 0.118.0` or a bare version.
 	semverRe = regexp.MustCompile(`([0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.\-+]*)`)
-	// rulefloor version --json
+	// rulefloor version --json and lictor version --json: the same
+	// `{"version":"vX.Y.Z"}` shape (rulefloor.version.v1 / lictor.version.v1).
 	rulefloorRe = regexp.MustCompile(`"version"\s*:\s*"v?([0-9]+\.[0-9]+\.[0-9]+)"`)
 	// go.mod: `go 1.27.1`; go version: `go version go1.27.1 darwin/arm64`.
 	goVersionRe = regexp.MustCompile(`go ?([0-9]+\.[0-9]+(?:\.[0-9]+)?)`)
@@ -167,7 +169,7 @@ func Normalize(kind, s string) string {
 		re = staticcheckRe
 	case "govulncheck":
 		re = govulncheckRe
-	case "rulefloor":
+	case "rulefloor", "lictor":
 		re = rulefloorRe
 	case "go":
 		re = goVersionRe

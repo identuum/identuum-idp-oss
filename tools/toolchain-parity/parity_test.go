@@ -25,6 +25,8 @@ env:
   STATICCHECK_VERSION: v0.8.1
   GRYPE_VERSION: v0.118.0
   GOVULNCHECK_VERSION: v1.7.0
+  LICTOR_VERSION: v0.1.0
+  LICTOR_SHA256: c051b5fa995211de4b4910395dc10b46d7b7c05be32c6af87e65345bd4eca739
   GATE_WITNESS_SHA256: "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e"
 
 jobs:
@@ -118,6 +120,8 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 			"STATICCHECK_VERSION": "v0.8.1",
 			"GRYPE_VERSION":       "v0.118.0",
 			"GOVULNCHECK_VERSION": "v1.7.0",
+			"LICTOR_VERSION":      "v0.1.0",
+			"LICTOR_SHA256":       "c051b5fa995211de4b4910395dc10b46d7b7c05be32c6af87e65345bd4eca739",
 			"GATE_WITNESS_SHA256": "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e",
 		} {
 			if env[k] != want {
@@ -136,6 +140,9 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 			{"grype", "grype 0.118.0", "0.118.0"},
 			{"govulncheck", "Go: go1.27.1\nScanner: govulncheck@v1.7.0\n", "1.7.0"},
 			{"rulefloor", `{"schema_version":"rulefloor.version.v1","version":"v0.9.0"}`, "0.9.0"},
+			// THE-LAST-BORROWER: lictor prints the same shape (lictor.version.v1).
+			{"lictor", `{"schema_version":"lictor.version.v1","version":"v0.1.0"}`, "0.1.0"},
+			{"lictor", "command not found", ""},
 			{"go", "go version go1.27.1 darwin/arm64", "1.27.1"},
 			{"go", "go 1.27.1", "1.27.1"},
 			{"grype", "v0.118.0", "0.118.0"},
@@ -169,6 +176,7 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 			"STATICCHECK_VERSION": "0.8.1",
 			"GRYPE_VERSION":       "0.118.0",
 			"GOVULNCHECK_VERSION": "1.7.0",
+			"LICTOR_VERSION":      "0.1.0",
 		} {
 			if got := Normalize(KindPin, env[key]); got != want {
 				t.Errorf("Normalize(KindPin, %s=%q) = %q, want %q — a present pin must never read as missing",

@@ -129,13 +129,15 @@ type NoReachEntry struct {
 // nothing, and equally outside the closure) that is not a gate program and is
 // not declared here. Adding a directory to this list is a declaration that
 // closure.go will re-prove, so an entry that is ever imported by the product
-// fails the decision rather than excusing it.
+// fails the decision rather than excusing it. THE-LAST-BORROWER (2026-09-21):
+// "grype-gate" left this list with the program — tools/grype-gate was retired
+// when this repository, its last consumer, switched to lictor (the port); the
+// closure proof was re-run on the ten that remain.
 var GateProgramDirs = []string{
 	"api-docgen",
 	"ci-witness",
 	"clockfuse",
 	"devseed",
-	"grype-gate",
 	"integration-witness",
 	"ledger-diff-gate",
 	"mint-reachability",

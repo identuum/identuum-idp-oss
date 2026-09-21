@@ -115,6 +115,15 @@ env:
   STATICCHECK_VERSION: v0.8.1
   GRYPE_VERSION: v0.119.0
   GOVULNCHECK_VERSION: v1.7.0
+  # THE-LAST-BORROWER (2026-09-21): lictor is the judge `make grype-scan`
+  # runs (`lictor grype --repo …`, the port of this repository's retired
+  # tools/grype-gate; github.com/ozgurcd/lictor). Pinned the rulefloor way —
+  # ONE version here, the release-archive URL derived from it, the archive
+  # verified against LICTOR_SHA256 (the linux_amd64 line of the release's
+  # checksums.txt), the version printed and asserted — and held to the
+  # locally installed lictor by `make toolchain-parity`. Bump both together.
+  LICTOR_VERSION: v0.1.0
+  LICTOR_SHA256: c051b5fa995211de4b4910395dc10b46d7b7c05be32c6af87e65345bd4eca739
   # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): yq for the workflow-yaml
   # gate, which parses every file under .github/workflows the way GitHub
   # will. Pinned the rulefloor way — an immutable release artifact plus its
@@ -312,6 +321,29 @@ jobs:
           curl -sSfL "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" | sh -s -- -b "$(go env GOPATH)/bin" "${GRYPE_VERSION}"
           grype --version
           grype --version | grep -F "grype ${GRYPE_VERSION#v}"
+
+      - name: Install lictor (release archive)
+        # THE-LAST-BORROWER (2026-09-21): the judge behind `make grype-scan`.
+        # Pinned the rulefloor way: LICTOR_VERSION is declared ONCE at the
+        # workflow env — the URL tag, the archive name and the assert step
+        # derive from it — and the archive is verified against LICTOR_SHA256
+        # before anything is unpacked. An immutable release artifact, never
+        # `go install` (module proxy, no version stamp) and never brew (a
+        # floating formula on a runner).
+        run: |
+          curl -sSfL -o lictor.tar.gz "https://github.com/ozgurcd/lictor/releases/download/${LICTOR_VERSION}/lictor_${LICTOR_VERSION#v}_linux_amd64.tar.gz"
+          echo "${LICTOR_SHA256}  lictor.tar.gz" | sha256sum -c -
+          tar -xzf lictor.tar.gz lictor
+          install -m 0755 lictor "$(go env GOPATH)/bin/lictor"
+          rm -f lictor.tar.gz lictor
+
+      - name: Prove the lictor version
+        # A version nobody prints is a version nobody can check: the assert
+        # derives from the SAME workflow-env string the URL did, so what it
+        # proves is that the binary on PATH is the pinned release.
+        run: |
+          lictor version --json
+          lictor version --json | grep -F "\"version\":\"${LICTOR_VERSION}\""
 
       - name: Install yq (and prove its version)
         # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): the gate that refuses

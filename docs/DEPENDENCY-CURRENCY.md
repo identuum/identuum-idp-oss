@@ -46,8 +46,10 @@ Current at latest stable and needing no note: `github.com/google/uuid` v1.6.0,
 does not call the vulnerable symbol (govulncheck's symbol analysis reports
 zero affecting vulnerabilities). It is therefore reported, not actioned, and
 the scan gate is built to match: a finding with an available fix FAILS, a
-finding with none does not (see `tools/grype-gate` and rule
-`GRYPE-FIXABLE-FAILS-1`). If a fix is published, the gate turns red on the
+finding with none does not (see lictor's `grype` judge — the port of this
+repository's `tools/grype-gate`, retired when the last consumer switched
+(THE-LAST-BORROWER, 2026-09-21) — and its rule `GRYPE-FIXABLE-FAILS-1`, now in
+lictor's floor). If a fix is published, the gate turns red on the
 next run — which is the point.
 
 ## The npm side

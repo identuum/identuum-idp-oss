@@ -21,9 +21,11 @@ import (
 )
 
 // fixtureModule writes a minimal Go module: cmd/app that either imports the
-// library under tools/grype-gate (importsGate) or does not. It returns the
+// library under tools/ci-witness (importsGate) or does not. It returns the
 // module root. The library is a real importable package so the import is a
-// real reach, not a sentinel.
+// real reach, not a sentinel. (The fixture was named tools/grype-gate until
+// THE-LAST-BORROWER, 2026-09-21, retired that program and its entry; a
+// fixture must name a program that is still declared.)
 func fixtureModule(t *testing.T, importsGate bool) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -38,10 +40,10 @@ func fixtureModule(t *testing.T, importsGate bool) string {
 		}
 	}
 	write("go.mod", "module example.test/fixture\n\ngo 1.24\n")
-	write("tools/grype-gate/gate.go", "package gate\n\n// Verdict is what a product must never depend on.\nfunc Verdict() string { return \"green\" }\n")
+	write("tools/ci-witness/gate.go", "package gate\n\n// Verdict is what a product must never depend on.\nfunc Verdict() string { return \"green\" }\n")
 	write("internal/product/product.go", "package product\n\n// Serve is the appliance.\nfunc Serve() string { return \"serving\" }\n")
 	if importsGate {
-		write("cmd/app/main.go", "package main\n\nimport (\n\t\"example.test/fixture/internal/product\"\n\t\"example.test/fixture/tools/grype-gate\"\n)\n\nfunc main() { println(product.Serve(), gate.Verdict()) }\n")
+		write("cmd/app/main.go", "package main\n\nimport (\n\t\"example.test/fixture/internal/product\"\n\tgate \"example.test/fixture/tools/ci-witness\"\n)\n\nfunc main() { println(product.Serve(), gate.Verdict()) }\n")
 	} else {
 		write("cmd/app/main.go", "package main\n\nimport \"example.test/fixture/internal/product\"\n\nfunc main() { println(product.Serve()) }\n")
 	}
@@ -79,7 +81,7 @@ func TestRuleToolsNoReach1_GateProgramsAreDeclaredAndProvedUnreachable(t *testin
 		for _, prog := range GateProgramDirs {
 			changed = append(changed, "tools/"+prog+"/main.go")
 		}
-		changed = append(changed, "tools/grype-gate/subject.go", "tools/api-docgen/testdata/endpoints.golden.yaml")
+		changed = append(changed, "tools/ci-witness/subject.go", "tools/api-docgen/testdata/endpoints.golden.yaml")
 		d := Decide(changed, NoReachSet)
 		if d.Required {
 			t.Fatalf("a gate-program change demanded a mint: %v", d.Reaching)
@@ -107,7 +109,10 @@ func TestRuleToolsNoReach1_GateProgramsAreDeclaredAndProvedUnreachable(t *testin
 			"go.mod",
 			"tools/tools.go",
 			"tools/README.md.go",
-			"toolsy/grype-gate/main.go",
+			"toolsy/ci-witness/main.go",
+			// THE-LAST-BORROWER: the retired program's path is no longer
+			// declared, so a change there reaches like any undeclared path.
+			"tools/grype-gate/main.go",
 		} {
 			d := Decide([]string{p}, NoReachSet)
 			if !d.Required {
@@ -116,14 +121,14 @@ func TestRuleToolsNoReach1_GateProgramsAreDeclaredAndProvedUnreachable(t *testin
 		}
 		// The entry must not become a doorway: source changed beside a gate
 		// program still reaches, and is named alone.
-		d := Decide([]string{"tools/grype-gate/main.go", "internal/service/local_login_service.go"}, NoReachSet)
+		d := Decide([]string{"tools/ci-witness/main.go", "internal/service/local_login_service.go"}, NoReachSet)
 		if !d.Required || len(d.Reaching) != 1 || d.Reaching[0] != "internal/service/local_login_service.go" {
 			t.Fatalf("reaching set = %v, want exactly the source file", d.Reaching)
 		}
 	})
 
 	t.Run("a gate-program entry is about THIS module's closure and excuses nothing under the sibling's namespace", func(t *testing.T) {
-		for _, p := range []string{"identuum-ui/tools/notrun/x.ts", "identuum-ui/tools/grype-gate/main.go"} {
+		for _, p := range []string{"identuum-ui/tools/notrun/x.ts", "identuum-ui/tools/ci-witness/main.go"} {
 			if !Decide([]string{p}, NoReachSet).Required {
 				t.Errorf("%s was excused by an entry proved only for identuum-idp-oss's build closure", p)
 			}
@@ -131,12 +136,12 @@ func TestRuleToolsNoReach1_GateProgramsAreDeclaredAndProvedUnreachable(t *testin
 	})
 
 	t.Run("the proof's core names a declared program the closure contains, and nothing when it does not", func(t *testing.T) {
-		closure := []string{"cmd/identuum-idp", "internal/api", "internal/service", "tools/grype-gate", "tools/grype-gate/sub"}
+		closure := []string{"cmd/identuum-idp", "internal/api", "internal/service", "tools/ci-witness", "tools/ci-witness/sub"}
 		hit := reachableGatePrograms(closure, GateProgramDirs)
-		if len(hit) != 1 || !strings.HasPrefix(hit[0], "tools/grype-gate (built as tools/grype-gate)") {
-			t.Fatalf("reachable = %v, want exactly tools/grype-gate named once", hit)
+		if len(hit) != 1 || !strings.HasPrefix(hit[0], "tools/ci-witness (built as tools/ci-witness)") {
+			t.Fatalf("reachable = %v, want exactly tools/ci-witness named once", hit)
 		}
-		if hit := reachableGatePrograms([]string{"cmd/identuum-idp", "internal/api", "tools/grype-gatekeeper"}, GateProgramDirs); len(hit) != 0 {
+		if hit := reachableGatePrograms([]string{"cmd/identuum-idp", "internal/api", "tools/ci-witnessed"}, GateProgramDirs); len(hit) != 0 {
 			t.Fatalf("a directory that merely starts with a program's name was reported reachable: %v", hit)
 		}
 	})
@@ -144,8 +149,8 @@ func TestRuleToolsNoReach1_GateProgramsAreDeclaredAndProvedUnreachable(t *testin
 	t.Run("the proof FAILS on a module whose appliance imports a declared program, and PASSES on one that does not", func(t *testing.T) {
 		bad := fixtureModule(t, true)
 		if line, err := ProveGateProgramsUnreachable(bad); err == nil {
-			t.Fatalf("the proof passed on a module whose cmd/ imports tools/grype-gate: %s", line)
-		} else if !strings.Contains(err.Error(), "tools/grype-gate") || !strings.Contains(err.Error(), "no-reach proof FAILED") {
+			t.Fatalf("the proof passed on a module whose cmd/ imports tools/ci-witness: %s", line)
+		} else if !strings.Contains(err.Error(), "tools/ci-witness") || !strings.Contains(err.Error(), "no-reach proof FAILED") {
 			t.Fatalf("the failure does not name the reachable program: %v", err)
 		}
 		good := fixtureModule(t, false)
@@ -161,15 +166,15 @@ func TestRuleToolsNoReach1_GateProgramsAreDeclaredAndProvedUnreachable(t *testin
 	t.Run("the mint decision relies on the entry only while the proof holds — an unsound tree is UNDECIDABLE, never satisfied", func(t *testing.T) {
 		ui, uiHead := newTree(t)
 		good, goodHead := moduleTree(t, false)
-		commitGateSource(t, good, "tools/grype-gate/subject.go")
+		commitGateSource(t, good, "tools/ci-witness/subject.go")
 		line, code := decideFromRecord(writeRecord(t, "green", uiHead, goodHead), good, ui)
-		if code != ExitSkippable || !strings.Contains(line, "MINT SATISFIED") || !strings.Contains(line, "tools/grype-gate/subject.go [tools/grype-gate/**]") {
+		if code != ExitSkippable || !strings.Contains(line, "MINT SATISFIED") || !strings.Contains(line, "tools/ci-witness/subject.go [tools/ci-witness/**]") {
 			t.Fatalf("a gate-program change on a sound tree must be satisfied by the record; exit %d: %s", code, line)
 		}
 		bad, badHead := moduleTree(t, true)
-		commitGateSource(t, bad, "tools/grype-gate/subject.go")
+		commitGateSource(t, bad, "tools/ci-witness/subject.go")
 		line, code = decideFromRecord(writeRecord(t, "green", uiHead, badHead), bad, ui)
-		if code != ExitUndecidable || !strings.Contains(line, "no-reach proof FAILED") || !strings.Contains(line, "tools/grype-gate (built as tools/grype-gate)") {
+		if code != ExitUndecidable || !strings.Contains(line, "no-reach proof FAILED") || !strings.Contains(line, "tools/ci-witness (built as tools/ci-witness)") {
 			t.Fatalf("a gate-program change on an UNSOUND tree must be undecidable BY THE PROOF and name the program; exit %d: %s", code, line)
 		}
 		if strings.Contains(line, "SATISFIED") {

@@ -1394,10 +1394,24 @@ distroless-exec-check:
 		exit 1; \
 	fi
 
-## grype-scan: Anchore Grype filesystem scan, judged by tools/grype-gate.
-## Requires grype to be installed (https://github.com/anchore/grype).
+## grype-scan: Anchore Grype filesystem scan, judged by lictor (`lictor grype
+## --repo $(CURDIR)`), the INSTALLED, PINNED judge — the byte-faithful port of
+## this repository's tools/grype-gate at 1cbe9f6 (github.com/ozgurcd/lictor,
+## `brew install ozgurcd/tap/lictor`). THE-LAST-BORROWER (2026-09-21): CE
+## (128dc78) and ui (fe07c3b) had switched to lictor; this repository, the
+## judge's home, was the last consumer, so the switch RETIRES tools/grype-gate
+## (seven files, 1659 lines; its 77 assertions are lictor's now) and the
+## `bin/grype-gate` build target with it. The rule it enforced,
+## GRYPE-FIXABLE-FAILS-1, and GRYPE-SUBJECT-1 live in lictor's floor; the
+## evidence line is unchanged. The pin: ci.yml env LICTOR_VERSION and
+## LICTOR_SHA256, read here the way GRYPE_VERSION is read and asserted against
+## `lictor version --json` before the judge runs (missing lictor: exit 2 by
+## name with the brew line; another version: refused by name, recipe exit 1);
+## tools/toolchain-parity holds the same pin. Requires grype to be installed
+## (https://github.com/anchore/grype) — lictor runs it.
 ## Runs both locally (via `verify`) AND in CI (via `ci-verify`) — CI installs a
-## tag-pinned grype in .github/workflows/ci.yml before invoking this target.
+## tag-pinned grype AND the sha256-pinned lictor release archive in
+## .github/workflows/ci.yml before invoking this target.
 ##
 ## WHY IT IS NO LONGER `grype dir:. --fail-on high` (THE-STALE-DEPENDENCY,
 ## owner ruling P-042): that flag exits 0 on a finding whose severity the
@@ -1413,18 +1427,30 @@ distroless-exec-check:
 ## so this is strictly stronger than the flag it replaces. The only way past a
 ## fixable finding is a named entry in grype-allowlist.json carrying a reason
 ## AND a ruling; an entry missing either fails the gate rather than excusing
-## anything. Rule GRYPE-FIXABLE-FAILS-1.
-grype-scan: bin/grype-gate
-	./bin/grype-gate
-
-## THE-JUDGE-AND-ITS-SUBJECT (2026-09-12): the binary is rebuilt whenever a
-## source of the judge is newer than it. Without the prerequisite this was a
-## bare file target, so a bin/grype-gate built at e12bd79 kept judging every
-## later verify — a verify at 65374fc recorded the OLD judge's evidence line
-## for a tool that had changed in that very commit. A gate must run the judge
-## the tree commits, not the one that happened to be lying in bin/.
-bin/grype-gate: $(wildcard tools/grype-gate/*.go)
-	go build -o bin/grype-gate ./tools/grype-gate
+## anything. Rule GRYPE-FIXABLE-FAILS-1 (lictor's floor since THE-LAST-BORROWER).
+## (THE-JUDGE-AND-ITS-SUBJECT, 2026-09-12, had `bin/grype-gate` rebuilt
+## whenever a judge source was newer than it, so a verify never ran a stale
+## judge; a pinned, installed lictor makes that prerequisite moot — the judge
+## a verify runs is the declared version, asserted below.)
+## LICTOR names the judge binary; overridable so the refusals can be
+## exercised (`make grype-scan LICTOR=/nonexistent/lictor` → exit 2 by name).
+LICTOR ?= lictor
+grype-scan:
+	@ci=.github/workflows/ci.yml; \
+	li_want="$$(sed -nE 's/^  LICTOR_VERSION:[[:space:]]*(v[0-9][0-9.]*).*/\1/p' $$ci | head -1)"; \
+	[ -n "$$li_want" ] || { echo "grype-scan: LICTOR_VERSION is not declared in $$ci env — the judge has no pin; refusing to pass silently" >&2; exit 1; }; \
+	command -v "$(LICTOR)" >/dev/null 2>&1 || { \
+		echo "grype-scan: lictor is not installed ($(LICTOR)) — the judge is lictor $$li_want (ci.yml LICTOR_VERSION); refusing to pass silently. Install it:" >&2; \
+		echo "  brew install ozgurcd/tap/lictor" >&2; \
+		exit 2; \
+	}; \
+	li_have="$$("$(LICTOR)" version --json 2>/dev/null | head -1)"; \
+	printf '%s' "$$li_have" | grep -qF "\"version\":\"$$li_want\"" || { \
+		echo "grype-scan: installed lictor reports '$$li_have', declared $$li_want (ci.yml LICTOR_VERSION) — install the declared version:" >&2; \
+		echo "  brew install ozgurcd/tap/lictor" >&2; \
+		exit 1; \
+	}; \
+	"$(LICTOR)" grype --repo "$(CURDIR)"
 
 ## fast-up: start the local development Postgres container.
 ## fast-up: start local dev Postgres with EVERY external call under a bound.

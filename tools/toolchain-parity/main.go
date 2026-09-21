@@ -56,6 +56,13 @@ var toolSpecs = []toolSpec{
 	// `yq (https://github.com/mikefarah/yq/) version v4.53.6` — bare semver
 	// normalization reads the version out of it.
 	{"yq", "YQ_VERSION", "yq", []string{"yq", "--version"}},
+	// THE-LAST-BORROWER (2026-09-21): lictor is the judge behind grype-scan
+	// (the port of the retired tools/grype-gate); CI installs it from a
+	// sha256-pinned release archive at LICTOR_VERSION and asserts
+	// `lictor version --json`, so this pin holds that declaration to the
+	// lictor installed here. It prints lictor.version.v1 JSON, the same
+	// `{"version":"vX.Y.Z"}` shape rulefloor prints.
+	{"lictor", "LICTOR_VERSION", "lictor", []string{"lictor", "version", "--json"}},
 }
 
 // digestSpec is one file CI verifies by digest. A stale pin here means CI
