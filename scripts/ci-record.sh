@@ -15,13 +15,51 @@ context="ci-context: $identity job=$GITHUB_JOB"
 case "${1:-}" in
 produce)
 	shift
-	[ "$#" -ge 6 ] && [ "$1" = bash ] || refuse 'expected a Bash recorder run or init invocation'
+	# TWO recorder forms, one per driver that reaches here. The BASH form is
+	# unchanged: scripts/ci-integration-record.sh drives init/step/finalize
+	# through it. The JUDGE form arrived with THE-RUN-HALF, when ci-verify
+	# moved to `lictor witness run`. The judge reads NO environment by its own
+	# ruling (lictor PROJECT_DESC.md §3, no hidden inputs), so where the Bash
+	# form is handed its provenance through GATE_WITNESS_CITES and
+	# GATE_WITNESS_TIE, this driver composes the same two facts into the argv.
+	# Nothing is relaxed: every refusal below is made for both forms.
+	[ "$#" -ge 6 ] || refuse 'expected a Bash recorder or judge run or init invocation'
+	if [ "$1" = bash ]; then
+		case "$3" in run|init) ;; *) refuse 'expected recorder run or init mode';; esac
+		# CI starts clean. Never let an old record stand in for a producer that
+		# refuses to mint; leave such a file untouched and fail the job explicitly.
+		[ ! -e "$4" ] && [ ! -L "$4" ] || refuse "record already exists before this invocation: $4"
+		export GATE_WITNESS_CITES="${GATE_WITNESS_CITES:-CI gate invocation}; $context"
+		exec "$@"
+	fi
+	[ "$2" = witness ] || refuse 'expected a Bash recorder or judge run or init invocation'
 	case "$3" in run|init) ;; *) refuse 'expected recorder run or init mode';; esac
-	# CI starts clean. Never let an old record stand in for a producer that
-	# refuses to mint; leave such a file untouched and fail the job explicitly.
-	[ ! -e "$4" ] && [ ! -L "$4" ] || refuse "record already exists before this invocation: $4"
-	export GATE_WITNESS_CITES="${GATE_WITNESS_CITES:-CI gate invocation}; $context"
-	exec "$@"
+	# The record is named by a FLAG here, not by position, so the guard above
+	# follows --record. An unnamed record is refused rather than guessed.
+	argv=(); plan=(); record=""; cited=0; tied=0
+	while [ "$#" -gt 0 ]; do
+		case "$1" in
+		--record|-record)
+			[ "$#" -ge 2 ] || refuse 'the record flag needs a value'
+			record=$2; argv+=("$1" "$2"); shift 2 ;;
+		--cites|-cites)
+			[ "$#" -ge 2 ] || refuse 'the cites flag needs a value'
+			cited=1; argv+=("$1" "$2; $context"); shift 2 ;;
+		--tie|-tie)
+			[ "$#" -ge 2 ] || refuse 'the tie flag needs a value'
+			tied=1; argv+=("$1" "$2"); shift 2 ;;
+		--)
+			shift; plan=("$@"); break ;;
+		*)
+			argv+=("$1"); shift ;;
+		esac
+	done
+	[ -n "$record" ] || refuse 'invocation names no record'
+	[ "$cited" -eq 1 ] || argv+=(--cites "CI gate invocation; $context")
+	[ "$tied" -eq 1 ] || argv+=(--tie "${GATE_WITNESS_TIE:-commit}")
+	[ ! -e "$record" ] && [ ! -L "$record" ] || refuse "record already exists before this invocation: $record"
+	if [ "${#plan[@]}" -gt 0 ]; then exec "${argv[@]}" -- "${plan[@]}"; fi
+	exec "${argv[@]}"
 	;;
 check)
 	[ "$#" -eq 2 ] || refuse 'expected check <record>'

@@ -85,6 +85,54 @@ if [ -z "$legacy" ]; then
 	else echo 'FAIL existing-record-producer'; failures=$((failures + 1)); fi
 	if [ "$before" = "$(git hash-object GATE-RUN.ci.txt)" ]; then echo 'PASS refused-record-unchanged';
 	else echo 'FAIL refused-record-unchanged'; failures=$((failures + 1)); fi
+	# THE-RUN-HALF: the JUDGE form ci-verify now drives. Every case above is a
+	# Bash-form case and stays one; these add the second form the same driver
+	# must compose for, because the judge reads no environment — the citation
+	# context and the commit tie become argv here or they do not exist. A plan
+	# entry is an argv, so an exact exit code needs a program, and the fixture
+	# declares no LICTOR_VERSION, which is what --unpinned permits.
+	printf '#!/usr/bin/env bash\nexit "${1:-0}"\n' > exit-with
+	chmod +x exit-with
+	git add -- exit-with
+	git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm 'judge fixture helper'
+	export GITHUB_SHA=$(git rev-parse HEAD)
+	judge=("${LICTOR:-lictor}" witness run --repo "$scratch" --record GATE-RUN.ci.txt --label fixture --unpinned --cites 'declared plan')
+	for result in 0 7; do
+		rm -f GATE-RUN.ci.txt
+		actual=0
+		expected=0
+		if [ "$result" -ne 0 ]; then expected=1; fi
+		bash "$checker" produce "${judge[@]}" -- "one=./exit-with $result" > output.txt 2>&1 || actual=$?
+		if [ "$actual" -eq "$expected" ]; then echo "PASS judge-target-$result: recorder exit=$actual";
+		else echo "FAIL judge-target-$result: recorder exit=$actual"; failures=$((failures + 1)); fi
+		if grep -qx "target: one exit=$result" GATE-RUN.ci.txt; then echo "PASS judge-recorded-target-$result";
+		else echo "FAIL judge-recorded-target-$result"; failures=$((failures + 1)); fi
+		check_case "judge-record-$result" pass
+		# finalize_into writes a tie ONLY when every planned target is green
+		# (gate-witness.sh finalize_into), so the tie is asserted on the green
+		# record and its ABSENCE on the red one — ci-witness reads a red
+		# record as evidencing no tree at all, and that rule is not this
+		# driver's to change.
+		if [ "$result" -eq 0 ]; then
+			if grep -q '^tree: commit=' GATE-RUN.ci.txt; then echo 'PASS judge-commit-tie';
+			else echo 'FAIL judge-commit-tie'; failures=$((failures + 1)); fi
+		else
+			if grep -q '^tree: ' GATE-RUN.ci.txt; then echo 'FAIL judge-red-record-has-no-tie'; failures=$((failures + 1));
+			else echo 'PASS judge-red-record-has-no-tie'; fi
+		fi
+	done
+	actual=0
+	before=$(git hash-object GATE-RUN.ci.txt)
+	bash "$checker" produce "${judge[@]}" -- 'one=/usr/bin/true' > output.txt 2>&1 || actual=$?
+	if [ "$actual" -ne 0 ]; then echo "PASS judge-existing-record-producer: exit=$actual";
+	else echo 'FAIL judge-existing-record-producer'; failures=$((failures + 1)); fi
+	if [ "$before" = "$(git hash-object GATE-RUN.ci.txt)" ]; then echo 'PASS judge-refused-record-unchanged';
+	else echo 'FAIL judge-refused-record-unchanged'; failures=$((failures + 1)); fi
+	actual=0
+	rm -f GATE-RUN.ci.txt
+	bash "$checker" produce "${LICTOR:-lictor}" witness run --repo "$scratch" --label fixture --unpinned -- 'one=/usr/bin/true' > output.txt 2>&1 || actual=$?
+	if [ "$actual" -ne 0 ] && grep -q 'names no record' output.txt; then echo "PASS judge-unnamed-record: exit=$actual";
+	else echo 'FAIL judge-unnamed-record'; failures=$((failures + 1)); fi
 fi
 [ "$failures" -eq 0 ] || { echo "ci-record tests: $failures failure(s)"; exit 1; }
 echo 'check OK: ci-record contract tests'
