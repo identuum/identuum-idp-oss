@@ -10,11 +10,18 @@ git init -q
 printf 'fixture\n' > work.txt
 printf 'prior record\n' > GATE-RUN.txt
 printf '.gograph/\n' > .gitignore
-git add work.txt GATE-RUN.txt .gitignore
+# THE-RUN-HALF: a plan entry is an argv, never a shell line, so the two
+# synthetic steps below are programs the fixture ships and commits — one that
+# exits with a chosen code, one that writes the ignored cache the non-minting
+# proofs read. Neither is a repository plan.
+printf '#!/usr/bin/env bash\nexit "${1:-0}"\n' > exit-with
+printf '#!/usr/bin/env bash\nmkdir -p .gograph\nprintf %%s "$1" > .gograph/cache\n' > gen
+chmod +x exit-with gen
+git add work.txt GATE-RUN.txt .gitignore exit-with gen
 git -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm fixture
 printf 'prior record\n' > "$scratch/prior"
 
-for declaration in VERIFY_PLAN:33 CI_VERIFY_PLAN:25 VERIFY_INTEGRATION_PLAN:4; do
+for declaration in VERIFY_PLAN:34 CI_VERIFY_PLAN:25 VERIFY_INTEGRATION_PLAN:4; do
 	variable=${declaration%:*}; count=${declaration#*:}
 	measured=$(awk -v variable="$variable" '
 		$0 == "define " variable { definitions++; inside=1; next }
@@ -26,21 +33,24 @@ for declaration in VERIFY_PLAN:33 CI_VERIFY_PLAN:25 VERIFY_INTEGRATION_PLAN:4; d
 	[ "$(grep -Fc "\$($variable)" "$root/Makefile")" = 1 ] || { echo "FAIL: $variable must have one recipe consumer"; exit 1; }
 done
 
+# Both recorder forms the wrapper accepts are proved here, because both are
+# driven by a recipe: `verify` still drives the Bash complete-run recorder,
+# and ci-verify and verify-integration drive the pinned judge. The fixture
+# carries no workflow, so the judge's version pin is ABSENT here and never
+# mismatched: --unpinned permits exactly that. Consumer recipes stay pinned.
 for mode in all fail-fast; do
 	if [ "$mode" = all ]; then
-		driver=(bash "$root/scripts/verify-all.sh")
-		separator=(--)
+		driver=(bash "$root/scripts/verify-all.sh" GATE-RUN.txt fixture --)
 	else
-		driver=(bash "$root/scripts/gate-witness.sh" run)
-		separator=()
+		driver=("${LICTOR:-lictor}" witness run --record GATE-RUN.txt --label fixture --unpinned --)
 	fi
 	for outcome in green red; do
-		command=true; expected=0; attempted=2
+		command=./exit-with; expected=0; attempted=2
 		if [ "$outcome" = red ]; then
-			command='exit 7'; expected=1
+			command='./exit-with 7'; expected=1
 			[ "$mode" = all ] || attempted=1
 		fi
-		args=(GATE-RUN.txt fixture "${separator[@]}" "first=$command" 'last=mkdir -p .gograph; printf generated > .gograph/cache')
+		args=("first=$command" 'last=./gen generated')
 		normal=0
 		"${driver[@]}" "${args[@]}" > "$scratch/normal.log" 2>&1 || normal=$?
 		[ "$normal" = "$expected" ] || { cat "$scratch/normal.log"; exit 1; }
@@ -67,4 +77,4 @@ grep -qx 'result: green' "$scratch/linked.log"
 cmp -s "$scratch/prior" GATE-RUN.txt
 [ -z "$(git status --porcelain)" ] || exit 1
 echo 'PASS: linked worktree — green, record and status unchanged'
-echo 'SELFTEST OK: one definition per plan (33/25/4); external records preserve all-target and fail-fast verdicts'
+echo 'SELFTEST OK: one definition per plan (34/25/4); external records preserve all-target and fail-fast verdicts'

@@ -885,8 +885,10 @@ ci-verify:
 	# (via repo-green, local-only by choice since THE-CI-SHAPE and run by the
 	# installed lictor since THE-GREEN-CONSUMERS); in CI this instrumented
 	# superset is the test floor.
-	+@GATE_WITNESS_CITES='the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' \
-	$(GATE_RECORD_DRIVER) bash scripts/gate-witness.sh run GATE-RUN.ci.txt "$(CI_VERIFY_GATE)" \
+	+@$(call LICTOR_ASSERT,ci-verify); \
+	$(GATE_RECORD_DRIVER) "$(LICTOR)" witness run --repo "$(CURDIR)" \
+		--record GATE-RUN.ci.txt --label "$(CI_VERIFY_GATE)" \
+		--cites 'the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' -- \
 		$(CI_VERIFY_PLAN)
 
 # One authoritative argument vector; drivers enter through the target above.
@@ -2091,7 +2093,10 @@ rulefloor-integration:
 ## would collapse CANNOT-EVALUATE into an ordinary failure and lose exactly the
 ## distinction this gate promises.
 verify-integration: bin/integration-witness
-	+@$(GATE_RECORD_DRIVER) bash scripts/gate-witness.sh run GATE-RUN.integration.txt "identuum-idp-oss make verify-integration" \
+	+@$(call LICTOR_ASSERT,verify-integration); \
+	$(GATE_RECORD_DRIVER) "$(LICTOR)" witness run --repo "$(CURDIR)" \
+		--record GATE-RUN.integration.txt \
+		--label "identuum-idp-oss make verify-integration" -- \
 		$(VERIFY_INTEGRATION_PLAN)
 
 # One authoritative argument vector; drivers enter through the target above.
