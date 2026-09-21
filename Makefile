@@ -1097,9 +1097,19 @@ clock-fuse:
 ## absent, so edits above a finding do not turn it "new"). Removals pass
 ## silently: DEFECT-30b proved the raw count REWARDS deleting seams, so the raw
 ## count is exactly what this does not gate. Snapshot regeneration is a
-## deliberate act: wiki/tools/clockfuse-gate.sh --snapshot . — never by hand.
+## deliberate act: `lictor clockfuse --repo . -snapshot` — never by hand, and
+## never by this target, which writes nothing.
+##
+## THE-JUDGE-OWNS-ITS-PIN (2026-09-21): the judge is the INSTALLED, PINNED
+## lictor (`lictor clockfuse --repo "$(CURDIR)"`, lictor migration row 3,
+## v0.3.0 onward), in place of `bash "$(WIKI_TOOLS)/clockfuse-gate.sh"
+## --check .` — the last sibling-script read in this repository's verify plan
+## but one, so a materialized commit tree no longer fails here for a path it
+## does not own. The evidence line is unchanged, byte for byte. `clock-fuse`
+## (the analyzer itself) and `clock-fuse-report` are untouched.
 clock-fuse-gate:
-	@bash "$(WIKI_TOOLS)/clockfuse-gate.sh" --check .
+	@$(call LICTOR_ASSERT,clock-fuse-gate); \
+	"$(LICTOR)" clockfuse --repo "$(CURDIR)"
 
 ## clock-fuse-report: what `verify` and the CI aggregate call. REPORT-ONLY for
 ## findings, HARD FAIL for a tool error AND for the DEADLINE gate (exit 3).
@@ -1452,25 +1462,24 @@ distroless-exec-check:
 ## LICTOR names the judge binary; overridable so the refusals can be
 ## exercised (`make grype-scan LICTOR=/nonexistent/lictor` → exit 2 by name).
 LICTOR ?= lictor
-## LICTOR_ASSERT is the ONE pin assertion every lictor-run target makes
-## (grype-scan, repo-green — THE-GREEN-CONSUMERS, 2026-09-21): read
-## LICTOR_VERSION from ci.yml's env, refuse a missing lictor (exit 2, by name,
-## with the install line) or one whose `version --json` is not the pin
-## (exit 1, by name). $(1) is the target's name for the message.
+## LICTOR_ASSERT is the ONE thing a recipe can say that lictor cannot: that
+## lictor is ABSENT. $(1) is the target's name for the message.
+##
+## THE-JUDGE-OWNS-ITS-PIN (2026-09-21): the version half is DELETED. Since
+## lictor v0.3.0 the judge reads the consumer's pin ITSELF — every `--repo`
+## command parses this repository's .github/workflows/ci.yml for
+## `LICTOR_VERSION`, refuses a mismatch or an absent declaration with exit 2
+## and one stderr line naming both versions, and `--unpinned` permits only an
+## absent declaration, never a mismatch. A recipe that re-read the pin and
+## re-judged it would be a second implementation of the judge's own
+## judgement, drifting the moment lictor's rule changes — the shared-by-copy
+## class lictor exists to end. So the assertion that remains is the one lictor
+## cannot make from inside a binary that is not there.
 define LICTOR_ASSERT
-ci=.github/workflows/ci.yml; \
-	li_want="$$(sed -nE 's/^  LICTOR_VERSION:[[:space:]]*(v[0-9][0-9.]*).*/\1/p' $$ci | head -1)"; \
-	[ -n "$$li_want" ] || { echo "$(1): LICTOR_VERSION is not declared in $$ci env — the judge has no pin; refusing to pass silently" >&2; exit 1; }; \
-	command -v "$(LICTOR)" >/dev/null 2>&1 || { \
-		echo "$(1): lictor is not installed ($(LICTOR)) — the judge is lictor $$li_want (ci.yml LICTOR_VERSION); refusing to pass silently. Install it:" >&2; \
+command -v "$(LICTOR)" >/dev/null 2>&1 || { \
+		echo "$(1): lictor is not installed ($(LICTOR)) — refusing to pass silently. Install it:" >&2; \
 		echo "  brew install ozgurcd/tap/lictor" >&2; \
 		exit 2; \
-	}; \
-	li_have="$$("$(LICTOR)" version --json 2>/dev/null | head -1)"; \
-	printf '%s' "$$li_have" | grep -qF "\"version\":\"$$li_want\"" || { \
-		echo "$(1): installed lictor reports '$$li_have', declared $$li_want (ci.yml LICTOR_VERSION) — install the declared version:" >&2; \
-		echo "  brew install ozgurcd/tap/lictor" >&2; \
-		exit 1; \
 	}
 endef
 grype-scan:

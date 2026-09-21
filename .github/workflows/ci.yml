@@ -126,8 +126,8 @@ env:
   # verified against LICTOR_SHA256 (the linux_amd64 line of the release's
   # checksums.txt), the version printed and asserted — and held to the
   # locally installed lictor by `make toolchain-parity`. Bump both together.
-  LICTOR_VERSION: v0.2.0
-  LICTOR_SHA256: d30e294ee962596d36eb8f9c86e1e84db46495059aa2d1c6ec19f529b8cdbf00
+  LICTOR_VERSION: v0.4.0
+  LICTOR_SHA256: 85e275003f2947b74ff3858a9dfc07d3cc1fe36dac89ab32cb7aaf4672b9a1f0
   # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): yq for the workflow-yaml
   # gate, which parses every file under .github/workflows the way GitHub
   # will. Pinned the rulefloor way — an immutable release artifact plus its
