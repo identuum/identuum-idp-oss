@@ -194,12 +194,16 @@ convenience only. They are not the customer install path; see the
 
 > **`make verify` does NOT run from a fresh clone, and that is by design.**
 > Measured 2026-09-04 by cloning this repository into an empty directory and
-> following this section verbatim: it fails at the `repo-green` target with
+> following this section verbatim: it failed at the `repo-green` target with
 > `bash: ../wiki/tools/repo-green-gate.sh: No such file or directory`, because
 > several of its gates live in the maintainers' wiki repository, which is
-> private and is not a sibling of your clone. `make verify` is the MAINTAINER
-> gate set, not a newcomer's first command. Everything else in this section
-> works from a clean clone — that was measured in the same run.
+> private and is not a sibling of your clone. (Since THE-GREEN-CONSUMERS,
+> 2026-09-21, `repo-green` runs the installed `lictor` instead of that script
+> and needs no sibling; the next wiki-coupled gate in the plan,
+> `clock-fuse-gate`, still does — not re-measured from a fresh clone.)
+> `make verify` is the MAINTAINER gate set, not a newcomer's first command.
+> Everything else in this section works from a clean clone — that was
+> measured in the same run.
 >
 > From a fresh clone, start with `make fast-up` and `make integration-test`
 > below, or with the "Running locally" section further down, which was measured

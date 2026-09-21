@@ -305,11 +305,24 @@ ledger-rebase:
 ## broken tree fails fast and the wasted repeat never happens.
 ##
 ## THREE OUTCOMES, and the third is why this is not just `go build && go test`:
-##   0 GREEN   1 NOT-GREEN   3 CANNOT-EVALUATE (no toolchain / not a module)
+##   0 GREEN   1 NOT-GREEN   2 CANNOT-EVALUATE (no toolchain / not a module)
 ## CANNOT-EVALUATE is FATAL here too — a gate that could not measure must never
 ## be mistaken for one that measured and approved.
+##
+## THE-GREEN-CONSUMERS (2026-09-21): the floor is `lictor green --repo
+## $(CURDIR)` (gofmt, build, vet, test; stop at first red; GREEN-FLOOR-1), the
+## installed, pinned port of wiki/tools/repo-green-gate.sh, which this recipe
+## ran as `bash "$(WIKI_TOOLS)/repo-green-gate.sh" --check .` until then. No
+## sibling checkout is consulted any more (`make repo-green
+## WIKI_TOOLS=/nonexistent` is green); the lictor pin is asserted first, the
+## way grype-scan asserts it. The evidence line is the judge's own
+## (`GREEN: builds, vets and tests clean — subject <repo>; go version …`);
+## the record keeps only `target: repo-green exit=N` for it, as before.
+## STILL LOCAL-ONLY, BY CHOICE: it is not in ci-verify because its four
+## floors run there as explicit steps already — not because it cannot run.
 repo-green:
-	@bash "$(WIKI_TOOLS)/repo-green-gate.sh" --check .
+	@$(call LICTOR_ASSERT,repo-green); \
+	"$(LICTOR)" green --repo "$(CURDIR)"
 
 ## tracked-binary-check: no compiled binary and no oversized blob may be
 ## TRACKED (THE-STRAY-BINARY, 2026-08-07). A 3.8 MB Mach-O named `notrun` —
@@ -831,9 +844,12 @@ endef
 ##   make[1]: *** [Makefile:112: repo-green] Error 127
 ##
 ## So the wiki-coupled gates live in `verify` (where the sibling checkout is
-## real) and are EXCLUDED here, enumerated: repo-green, clock-fuse-gate,
-## wiki-fresh. Nothing repo-green measures is lost in CI — its four floors
-## (fmt, build, test, vet) are already explicit steps of this recipe.
+## real) and are EXCLUDED here, enumerated: clock-fuse-gate, wiki-fresh —
+## and repo-green, which since THE-GREEN-CONSUMERS (2026-09-21) runs the
+## installed lictor and COULD run here, but stays out BY CHOICE: nothing it
+## measures is lost in CI — its four floors (fmt, build, test, vet) are
+## already explicit steps of this recipe, and a floor run twice on one
+## runner proves nothing the once did not.
 ## clock-fuse-gate's snapshot comparison IS lost in CI (recorded residue,
 ## ledger row REL-CI-WIKI-COUPLING); clock-fuse-report — self-contained, and
 ## hard-failing on tool error and the deadline arm — stays.
@@ -866,7 +882,8 @@ ci-verify:
 	# weaker than verify" was wrong twice: nothing had the race detector at all.
 	# The timeout rises 120s -> 300s FOR go-test-race ONLY because an
 	# instrumented run is 2-10x slower. The plain 120s run lives in `verify`
-	# (via repo-green, local-only since THE-CI-SHAPE); in CI this instrumented
+	# (via repo-green, local-only by choice since THE-CI-SHAPE and run by the
+	# installed lictor since THE-GREEN-CONSUMERS); in CI this instrumented
 	# superset is the test floor.
 	+@GATE_WITNESS_CITES='the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' \
 	$(GATE_RECORD_DRIVER) bash scripts/gate-witness.sh run GATE-RUN.ci.txt "$(CI_VERIFY_GATE)" \
@@ -1435,21 +1452,29 @@ distroless-exec-check:
 ## LICTOR names the judge binary; overridable so the refusals can be
 ## exercised (`make grype-scan LICTOR=/nonexistent/lictor` → exit 2 by name).
 LICTOR ?= lictor
-grype-scan:
-	@ci=.github/workflows/ci.yml; \
+## LICTOR_ASSERT is the ONE pin assertion every lictor-run target makes
+## (grype-scan, repo-green — THE-GREEN-CONSUMERS, 2026-09-21): read
+## LICTOR_VERSION from ci.yml's env, refuse a missing lictor (exit 2, by name,
+## with the install line) or one whose `version --json` is not the pin
+## (exit 1, by name). $(1) is the target's name for the message.
+define LICTOR_ASSERT
+ci=.github/workflows/ci.yml; \
 	li_want="$$(sed -nE 's/^  LICTOR_VERSION:[[:space:]]*(v[0-9][0-9.]*).*/\1/p' $$ci | head -1)"; \
-	[ -n "$$li_want" ] || { echo "grype-scan: LICTOR_VERSION is not declared in $$ci env — the judge has no pin; refusing to pass silently" >&2; exit 1; }; \
+	[ -n "$$li_want" ] || { echo "$(1): LICTOR_VERSION is not declared in $$ci env — the judge has no pin; refusing to pass silently" >&2; exit 1; }; \
 	command -v "$(LICTOR)" >/dev/null 2>&1 || { \
-		echo "grype-scan: lictor is not installed ($(LICTOR)) — the judge is lictor $$li_want (ci.yml LICTOR_VERSION); refusing to pass silently. Install it:" >&2; \
+		echo "$(1): lictor is not installed ($(LICTOR)) — the judge is lictor $$li_want (ci.yml LICTOR_VERSION); refusing to pass silently. Install it:" >&2; \
 		echo "  brew install ozgurcd/tap/lictor" >&2; \
 		exit 2; \
 	}; \
 	li_have="$$("$(LICTOR)" version --json 2>/dev/null | head -1)"; \
 	printf '%s' "$$li_have" | grep -qF "\"version\":\"$$li_want\"" || { \
-		echo "grype-scan: installed lictor reports '$$li_have', declared $$li_want (ci.yml LICTOR_VERSION) — install the declared version:" >&2; \
+		echo "$(1): installed lictor reports '$$li_have', declared $$li_want (ci.yml LICTOR_VERSION) — install the declared version:" >&2; \
 		echo "  brew install ozgurcd/tap/lictor" >&2; \
 		exit 1; \
-	}; \
+	}
+endef
+grype-scan:
+	@$(call LICTOR_ASSERT,grype-scan); \
 	"$(LICTOR)" grype --repo "$(CURDIR)"
 
 ## fast-up: start the local development Postgres container.

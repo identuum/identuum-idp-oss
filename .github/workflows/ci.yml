@@ -6,15 +6,19 @@
 #
 #   1. verify       — `make ci-verify` (= `make verify` minus the two
 #                     LOCAL-ONLY gograph lines, minus govulncheck which has
-#                     its own job, and minus the THREE wiki-coupled targets
-#                     that cannot fire here because CI checks out one repo
-#                     and the ../wiki sibling is absent — enumerated, and
-#                     this list must stay equal to what the Makefile
-#                     subtracts:
-#                       - repo-green      ($(WIKI_TOOLS)/repo-green-gate.sh;
-#                                          its four floors — fmt, build,
-#                                          test, vet — are explicit ci-verify
-#                                          steps, so CI loses nothing)
+#                     its own job, and minus THREE local-only targets — two
+#                     wiki-coupled ones that cannot fire here because CI
+#                     checks out one repo and the ../wiki sibling is absent,
+#                     and one kept out BY CHOICE — enumerated, and this list
+#                     must stay equal to what the Makefile subtracts:
+#                       - repo-green      (`lictor green --repo .` since
+#                                          THE-GREEN-CONSUMERS, 2026-09-21 —
+#                                          it COULD run here now; it does not
+#                                          because its four floors — fmt,
+#                                          build, test, vet — are explicit
+#                                          ci-verify steps already, so CI
+#                                          loses nothing and runs nothing
+#                                          twice)
 #                       - clock-fuse-gate ($(WIKI_TOOLS)/clockfuse-gate.sh;
 #                                          the snapshot comparison is
 #                                          local-only — recorded residue,
@@ -122,8 +126,8 @@ env:
   # verified against LICTOR_SHA256 (the linux_amd64 line of the release's
   # checksums.txt), the version printed and asserted — and held to the
   # locally installed lictor by `make toolchain-parity`. Bump both together.
-  LICTOR_VERSION: v0.1.0
-  LICTOR_SHA256: c051b5fa995211de4b4910395dc10b46d7b7c05be32c6af87e65345bd4eca739
+  LICTOR_VERSION: v0.2.0
+  LICTOR_SHA256: d30e294ee962596d36eb8f9c86e1e84db46495059aa2d1c6ec19f529b8cdbf00
   # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): yq for the workflow-yaml
   # gate, which parses every file under .github/workflows the way GitHub
   # will. Pinned the rulefloor way — an immutable release artifact plus its
@@ -367,7 +371,7 @@ jobs:
       # api-surface (P-061: pkg/ is exactly the six public seams), tidy-diff,
       # build, unit tests, staticcheck, grype-scan. The steps of
       # `verify` omitted by design are enumerated ONCE, in this file's header
-      # (gograph, govulncheck, and the three wiki-coupled targets) — this
+      # (gograph, govulncheck, and the three local-only targets) — this
       # comment used to carry its own shorter list, which drifted the moment
       # the header's grew. One list, one place.
       - name: Migrate the ci-verify database
