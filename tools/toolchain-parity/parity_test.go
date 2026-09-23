@@ -24,9 +24,9 @@ env:
   RULEFLOOR_VERSION: v0.9.0
   STATICCHECK_VERSION: v0.8.1
   GRYPE_VERSION: v0.118.0
-  GOVULNCHECK_VERSION: v1.7.0
-  LICTOR_VERSION: v0.4.1
-  LICTOR_SHA256: 61f13b580e30a05a5a028b75f152347f3d1612a9267cd945237ae669b1fcd92b
+  GOVULNCHECK_VERSION: v1.8.0
+  LICTOR_VERSION: v0.4.2
+  LICTOR_SHA256: 0757b9d1842c0ef0fc1446a6b94fc1128a16fb465ab6fb221f3923a74bdc54c6
   GATE_WITNESS_SHA256: "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e"
 
 jobs:
@@ -119,9 +119,9 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 			"RULEFLOOR_VERSION":   "v0.9.0",
 			"STATICCHECK_VERSION": "v0.8.1",
 			"GRYPE_VERSION":       "v0.118.0",
-			"GOVULNCHECK_VERSION": "v1.7.0",
-			"LICTOR_VERSION":      "v0.4.1",
-			"LICTOR_SHA256":       "61f13b580e30a05a5a028b75f152347f3d1612a9267cd945237ae669b1fcd92b",
+			"GOVULNCHECK_VERSION": "v1.8.0",
+			"LICTOR_VERSION":      "v0.4.2",
+			"LICTOR_SHA256":       "0757b9d1842c0ef0fc1446a6b94fc1128a16fb465ab6fb221f3923a74bdc54c6",
 			"GATE_WITNESS_SHA256": "1377b103674b75f97d171fa41fed1651863ca9c0244ee51972b125c266d9ed5e",
 		} {
 			if env[k] != want {
@@ -138,7 +138,7 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 		cases := []struct{ kind, raw, want string }{
 			{"staticcheck", "2026.2.1 (0.8.1)", "0.8.1"},
 			{"grype", "grype 0.118.0", "0.118.0"},
-			{"govulncheck", "Go: go1.27.1\nScanner: govulncheck@v1.7.0\n", "1.7.0"},
+			{"govulncheck", "Go: go1.27.1\nScanner: govulncheck@v1.8.0\n", "1.8.0"},
 			{"rulefloor", `{"schema_version":"rulefloor.version.v1","version":"v0.9.0"}`, "0.9.0"},
 			// THE-LAST-BORROWER: lictor prints the same shape (lictor.version.v1).
 			{"lictor", `{"schema_version":"lictor.version.v1","version":"v0.1.0"}`, "0.1.0"},
@@ -175,8 +175,8 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 			"RULEFLOOR_VERSION":   "0.9.0",
 			"STATICCHECK_VERSION": "0.8.1",
 			"GRYPE_VERSION":       "0.118.0",
-			"GOVULNCHECK_VERSION": "1.7.0",
-			"LICTOR_VERSION":      "0.4.1",
+			"GOVULNCHECK_VERSION": "1.8.0",
+			"LICTOR_VERSION":      "0.4.2",
 		} {
 			if got := Normalize(KindPin, env[key]); got != want {
 				t.Errorf("Normalize(KindPin, %s=%q) = %q, want %q — a present pin must never read as missing",

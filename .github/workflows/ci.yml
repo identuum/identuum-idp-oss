@@ -118,7 +118,7 @@ env:
   # re-declared). Latest-stable owner rule applies to all of them.
   STATICCHECK_VERSION: v0.8.1
   GRYPE_VERSION: v0.119.0
-  GOVULNCHECK_VERSION: v1.7.0
+  GOVULNCHECK_VERSION: v1.8.0
   # THE-LAST-BORROWER (2026-09-21): lictor is the judge `make grype-scan`
   # runs (`lictor grype --repo …`, the port of this repository's retired
   # tools/grype-gate; github.com/ozgurcd/lictor). Pinned the rulefloor way —
@@ -126,8 +126,8 @@ env:
   # verified against LICTOR_SHA256 (the linux_amd64 line of the release's
   # checksums.txt), the version printed and asserted — and held to the
   # locally installed lictor by `make toolchain-parity`. Bump both together.
-  LICTOR_VERSION: v0.4.1
-  LICTOR_SHA256: 61f13b580e30a05a5a028b75f152347f3d1612a9267cd945237ae669b1fcd92b
+  LICTOR_VERSION: v0.4.2
+  LICTOR_SHA256: 0757b9d1842c0ef0fc1446a6b94fc1128a16fb465ab6fb221f3923a74bdc54c6
   # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): yq for the workflow-yaml
   # gate, which parses every file under .github/workflows the way GitHub
   # will. Pinned the rulefloor way — an immutable release artifact plus its
