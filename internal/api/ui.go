@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -111,7 +112,7 @@ func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
 		}
 		return
 	}
-	engine.NoRoute(uiStaticHandler(fsys))
+	engine.NoRoute(uiStaticHandler(fsys, uiRouteSegments(engine)))
 	// ONE catch-all: gin refuses a static sibling beside a `*target`
 	// wildcard, so the boundary's own logout is dispatched inside it.
 	engine.Any(uiBFFPrefix+"/*target", uiBFFHandler(engine, resolved))
@@ -235,6 +236,48 @@ func uiReserved(p string) bool {
 	return false
 }
 
+// uiRouteSegments returns, computed once on first use (every route is
+// registered by then, including any added after mountUI), whether a request
+// path's first segment is the first segment of a route the engine carries.
+// Such a path belongs to the API or operational surface: a wrong method or
+// an unknown sibling there is the engine's plain 404, never the app shell.
+// Parameter and wildcard first segments reserve nothing.
+func uiRouteSegments(engine *gin.Engine) func(string) bool {
+	var once sync.Once
+	var segments map[string]struct{}
+	first := func(p string) string {
+		s, _, _ := strings.Cut(strings.TrimPrefix(p, "/"), "/")
+		return s
+	}
+	return func(p string) bool {
+		once.Do(func() {
+			segments = map[string]struct{}{}
+			for _, r := range engine.Routes() {
+				if s := first(r.Path); s != "" && !strings.HasPrefix(s, ":") && !strings.HasPrefix(s, "*") {
+					segments[s] = struct{}{}
+				}
+			}
+		})
+		s := first(p)
+		if s == "" {
+			return false
+		}
+		_, ok := segments[s]
+		return ok
+	}
+}
+
+// uiCanonicalTarget reports whether a boundary target is exactly its own
+// cleaned form under /api/v1/ — no dot segments, no doubled or trailing
+// slash, no escape or backslash — so the boundary forwards only to the API
+// path it names and never lets the engine's own resolution decide.
+func uiCanonicalTarget(target string) bool {
+	if !strings.HasPrefix(target, uiBFFPermittedPrefix) || strings.ContainsAny(target, "%\\") {
+		return false
+	}
+	return path.Clean(target) == target
+}
+
 // uiHasDotSegment refuses hidden files and any traversal-looking segment
 // before the path is ever cleaned or opened.
 func uiHasDotSegment(p string) bool {
@@ -246,14 +289,14 @@ func uiHasDotSegment(p string) bool {
 	return false
 }
 
-func uiStaticHandler(fsys fs.FS) gin.HandlerFunc {
+func uiStaticHandler(fsys fs.FS, routeSegment func(string) bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		reqPath := c.Request.URL.Path
 		if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead {
 			c.String(http.StatusNotFound, uiGinNotFoundBody)
 			return
 		}
-		if uiReserved(reqPath) || uiHasDotSegment(reqPath) {
+		if uiReserved(reqPath) || routeSegment(reqPath) || uiHasDotSegment(reqPath) {
 			c.String(http.StatusNotFound, uiGinNotFoundBody)
 			return
 		}
@@ -340,7 +383,7 @@ func uiBFFHandler(engine *gin.Engine, resolved OSSRouterDeps) gin.HandlerFunc {
 			uiBFFLogout(c, engine, resolved)
 			return
 		}
-		if !strings.HasPrefix(target, uiBFFPermittedPrefix) {
+		if !uiCanonicalTarget(target) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "bff_destination_refused"})
 			return
 		}
