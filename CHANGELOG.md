@@ -68,6 +68,17 @@ are verification machinery, tests and documentation (the CHANGELOG commit
   `IDENTUUM_IDP_RATE_LIMIT_MFA_RECOVERY_CODES_REGENERATE_REQUESTS` and
   `…_WINDOW`; past the limit the router answers `429`.
 
+### Fixed
+
+- **A disabled user can be read and enabled again** (`1ea42c1`). The
+  admin-management reads (`GET`/`PUT /api/v1/users/:id`, approve, reset MFA,
+  delete, role assignment) went through a lookup that hides banned users, so
+  a user disabled with `PUT {"active": false}` answered `404` and could never
+  be re-enabled, and a pending self-registration could never be approved.
+  They now see a disabled user; a deleted user stays not found, and login,
+  refresh, session validation and every other authentication path still
+  refuse a disabled user exactly as before.
+
 ### Added
 
 - **`pkg/webauthn.ErrCredentialNotYours`** (`954b89f`) — a new public
