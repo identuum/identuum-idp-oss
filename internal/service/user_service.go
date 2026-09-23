@@ -223,7 +223,7 @@ func (s *UserService) ResetMFAForActor(ctx context.Context, actor *domain.Princi
 	if err := s.guardActorBaseline(actor); err != nil {
 		return nil, err
 	}
-	target, err := s.repo.GetByID(ctx, targetUserID)
+	target, err := lookupManagedUser(ctx, s.repo, targetUserID)
 	if err != nil {
 		// GetByID surfaces domain.ErrUserNotFound for a truly-absent id (via
 		// scanUser's pgx.ErrNoRows branch); the handler switch matches the
@@ -401,7 +401,7 @@ func (s *UserService) GetUserForActor(ctx context.Context, actor *domain.Princip
 	if err := s.guardActorBaseline(actor); err != nil {
 		return nil, err
 	}
-	u, err := s.repo.GetByID(ctx, targetUserID)
+	u, err := lookupManagedUser(ctx, s.repo, targetUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -545,7 +545,7 @@ func (s *UserService) UpdateUserForActor(ctx context.Context, actor *domain.Prin
 	if err := s.guardActorBaseline(actor); err != nil {
 		return nil, err
 	}
-	target, err := s.repo.GetByID(ctx, targetUserID)
+	target, err := lookupManagedUser(ctx, s.repo, targetUserID)
 	if err != nil {
 		// GetByID surfaces domain.ErrUserNotFound for a truly-absent id (via
 		// scanUser's pgx.ErrNoRows branch); the handler switch matches the
@@ -607,7 +607,7 @@ func (s *UserService) ApproveRegistrationForActor(ctx context.Context, actor *do
 	if err := s.guardActorBaseline(actor); err != nil {
 		return nil, err
 	}
-	target, err := s.repo.GetByID(ctx, targetUserID)
+	target, err := lookupManagedUser(ctx, s.repo, targetUserID)
 	if err != nil {
 		// GetByID surfaces domain.ErrUserNotFound for a truly-absent id (via
 		// scanUser's pgx.ErrNoRows branch); the handler switch matches the
@@ -660,7 +660,7 @@ func (s *UserService) DeleteUserForActor(ctx context.Context, actor *domain.Prin
 	if err := s.guardActorBaseline(actor); err != nil {
 		return err
 	}
-	target, err := s.repo.GetByID(ctx, targetUserID)
+	target, err := lookupManagedUser(ctx, s.repo, targetUserID)
 	if err != nil {
 		return err
 	}

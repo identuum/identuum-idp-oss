@@ -309,7 +309,9 @@ func (s *OrgRoleService) AssignRoleToUserForActor(ctx context.Context, actor *do
 	if s.userRepo == nil {
 		return ErrUserRepositoryUnavailable
 	}
-	target, err := s.userRepo.GetByID(ctx, userID)
+	// Admin management: a disabled (banned) user can still be given a role;
+	// a deleted one stays not found (lookupManagedUser).
+	target, err := lookupManagedUser(ctx, s.userRepo, userID)
 	if err != nil {
 		return err
 	}
