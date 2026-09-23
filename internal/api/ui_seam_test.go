@@ -51,7 +51,7 @@ func TestUISeam_BFFForwardsOnlyCanonicalAPIPaths(t *testing.T) {
 		}
 	}
 	// The canonical path still works.
-	if rec := uiGet(e, "/bff/api/v1/probe", withCookie("good")); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"who":"alice@example.test"`) {
+	if rec := uiGet(e, "/bff/api/v1/probe", withCookie("good"), bffProof); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"who":"alice@example.test"`) {
 		t.Fatalf("canonical path: %d %q", rec.Code, rec.Body.String())
 	}
 }

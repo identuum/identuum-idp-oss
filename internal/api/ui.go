@@ -153,12 +153,7 @@ func uiBFFLogout(c *gin.Context, engine *gin.Engine, resolved OSSRouterDeps) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "bff_destination_refused"})
 		return
 	}
-	if c.GetHeader(uiBFFRequiredHeader) != uiBFFRequiredHeaderValue {
-		c.JSON(http.StatusForbidden, gin.H{"error": "csrf_failed", "reason": "missing_request_header"})
-		return
-	}
-	if origin := c.GetHeader("Origin"); origin != "" && !uiOriginPermitted(c.Request, origin, resolved.CORSAllowedOrigins) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "csrf_failed", "reason": "origin_not_permitted"})
+	if uiRefuseWithoutBrowserProof(c, resolved.CORSAllowedOrigins) {
 		return
 	}
 	bearer := c.GetHeader("Authorization")
@@ -359,9 +354,9 @@ func uiBFFHandler(engine *gin.Engine, resolved OSSRouterDeps) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "bff_destination_refused"})
 				return
 			}
-			if c.GetHeader(uiBFFRequiredHeader) != uiBFFRequiredHeaderValue ||
-				(c.GetHeader("Origin") != "" && !uiOriginPermitted(c.Request, c.GetHeader("Origin"), nil)) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "csrf_failed"})
+			// Same-origin only: the refresh answers with nothing but cookies,
+			// so no allowlisted cross-origin page has a use for it.
+			if uiRefuseWithoutBrowserProof(c, nil) {
 				return
 			}
 			if c.GetHeader("Authorization") != "" {
@@ -387,15 +382,9 @@ func uiBFFHandler(engine *gin.Engine, resolved OSSRouterDeps) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "bff_destination_refused"})
 			return
 		}
-		if uiUnsafeMethod(c.Request.Method) {
-			if c.GetHeader(uiBFFRequiredHeader) != uiBFFRequiredHeaderValue {
-				c.JSON(http.StatusForbidden, gin.H{"error": "csrf_failed", "reason": "missing_request_header"})
-				return
-			}
-			if origin := c.GetHeader("Origin"); origin != "" && !uiOriginPermitted(c.Request, origin, resolved.CORSAllowedOrigins) {
-				c.JSON(http.StatusForbidden, gin.H{"error": "csrf_failed", "reason": "origin_not_permitted"})
-				return
-			}
+		// Owner decision D1: every method, safe ones included.
+		if uiRefuseWithoutBrowserProof(c, resolved.CORSAllowedOrigins) {
+			return
 		}
 		body, err := io.ReadAll(c.Request.Body)
 		if err != nil {
@@ -479,6 +468,41 @@ func uiRedactBodyTokens(rec *httptest.ResponseRecorder) {
 	rec.Body.Write(out)
 	rec.Header().Set("Content-Length", "")
 	rec.Header().Del("Content-Length")
+}
+
+// uiRefuseWithoutBrowserProof is the boundary's CSRF proof, required on EVERY
+// /bff request, safe methods included (owner decision D1, 2026-09-23): a
+// cross-site top-level GET would otherwise carry the Lax access cookie and
+// the boundary would lift it. The proof is three checks, all before any
+// credential is lifted: the X-Requested-With header (no form, link or
+// navigation can set it, and a non-allowlisted origin cannot send it through
+// CORS); an Origin, when present, that is this host or an exact allowlist
+// entry; and Fetch Metadata, when present, that says same-origin — or, for a
+// cross-origin request, carries an allowlisted Origin. It writes 403
+// csrf_failed and reports true when it refused.
+func uiRefuseWithoutBrowserProof(c *gin.Context, allowed []string) bool {
+	refuse := func(reason string) bool {
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusForbidden, gin.H{"error": "csrf_failed", "reason": reason})
+		return true
+	}
+	if c.GetHeader(uiBFFRequiredHeader) != uiBFFRequiredHeaderValue {
+		return refuse("missing_request_header")
+	}
+	origin := c.GetHeader("Origin")
+	if origin != "" && !uiOriginPermitted(c.Request, origin, allowed) {
+		return refuse("origin_not_permitted")
+	}
+	switch site := c.GetHeader("Sec-Fetch-Site"); site {
+	case "", "same-origin":
+	default:
+		// same-site, cross-site, none: only an explicitly permitted Origin
+		// (checked above) may make a request that is not same-origin.
+		if origin == "" {
+			return refuse("fetch_site_not_permitted")
+		}
+	}
+	return false
 }
 
 func uiUnsafeMethod(method string) bool {

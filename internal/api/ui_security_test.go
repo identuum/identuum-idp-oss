@@ -95,7 +95,7 @@ func TestUI_Security_RealUserRouteAuthoritySurvivesBoundary(t *testing.T) {
 			for _, prefix := range []string{"", "/bff"} {
 				var wCode int
 				if prefix == "/bff" {
-					wCode = uiGet(e, prefix+"/api/v1/users/"+target.ID.String(), withCookie(tc.credential)).Code
+					wCode = uiGet(e, prefix+"/api/v1/users/"+target.ID.String(), withCookie(tc.credential), bffProof).Code
 				} else if tc.credential != "" {
 					wCode = uiGet(e, "/api/v1/users/"+target.ID.String(), withHeader("Authorization", "Bearer "+tc.credential)).Code
 				} else {

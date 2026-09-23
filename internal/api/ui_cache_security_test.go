@@ -19,7 +19,7 @@ func TestUI_BFF_AuthenticatedResponsesCannotBeCached(t *testing.T) {
 			})
 			rec := uiGet(e, "/bff/api/v1/cache-probe", func(req *http.Request) {
 				req.AddCookie(&http.Cookie{Name: "access_token", Value: "good"})
-			})
+			}, bffProof)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("BFF response status = %d, want 200", rec.Code)
 			}

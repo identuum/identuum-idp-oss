@@ -281,7 +281,7 @@ func TestUI_StaticRefusesTraversalDotfilesAndUnsafeMethods(t *testing.T) {
 
 func TestUI_BFF_LiftsCookieAndNeverForwardsIt(t *testing.T) {
 	e := uiEngine(t, uiExportDir(t))
-	rec := uiGet(e, "/bff/api/v1/probe?x=1", withCookie("good"))
+	rec := uiGet(e, "/bff/api/v1/probe?x=1", withCookie("good"), bffProof)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("lifted GET: %d %q", rec.Code, rec.Body.String())
 	}
@@ -297,13 +297,13 @@ func TestUI_BFF_ExplicitBearerBeatsCookie(t *testing.T) {
 	// Conflicting identities: cookie says alice, the Authorization header says
 	// bob. The header wins and the cookie is never consulted.
 	e := uiEngine(t, uiExportDir(t))
-	rec := uiGet(e, "/bff/api/v1/probe", withCookie("good"), withHeader("Authorization", "Bearer other"))
+	rec := uiGet(e, "/bff/api/v1/probe", withCookie("good"), withHeader("Authorization", "Bearer other"), bffProof)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"who":"bob@example.test"`) {
 		t.Fatalf("precedence: %d %q, want bob", rec.Code, rec.Body.String())
 	}
 	// A bad explicit Bearer beside a good cookie is refused, not rescued by
 	// the cookie: the middleware's verdict on the header stands.
-	rec = uiGet(e, "/bff/api/v1/probe", withCookie("good"), withHeader("Authorization", "Bearer bogus"))
+	rec = uiGet(e, "/bff/api/v1/probe", withCookie("good"), withHeader("Authorization", "Bearer bogus"), bffProof)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("bad header beside good cookie: %d %q, want 401", rec.Code, rec.Body.String())
 	}
@@ -311,11 +311,11 @@ func TestUI_BFF_ExplicitBearerBeatsCookie(t *testing.T) {
 
 func TestUI_BFF_NoCredentialIsAnonymous(t *testing.T) {
 	e := uiEngine(t, uiExportDir(t))
-	rec := uiGet(e, "/bff/api/v1/probe")
+	rec := uiGet(e, "/bff/api/v1/probe", bffProof)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"who":"anonymous"`) {
 		t.Fatalf("no credential: %d %q", rec.Code, rec.Body.String())
 	}
-	rec = uiGet(e, "/bff/api/v1/guarded")
+	rec = uiGet(e, "/bff/api/v1/guarded", bffProof)
 	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"reason":"no_credential"`) {
 		t.Fatalf("guarded without credential: %d %q, want 401 no_credential", rec.Code, rec.Body.String())
 	}
@@ -333,12 +333,12 @@ func TestUI_BFF_StaleCookieRetriesOnceAnonymously(t *testing.T) {
 	}
 	// Through the BFF a stale COOKIE is retried anonymously, so a public
 	// endpoint still answers (THE-STALE-COOKIE)...
-	rec = uiGet(e, "/bff/api/v1/probe", withCookie("stale"))
+	rec = uiGet(e, "/bff/api/v1/probe", withCookie("stale"), bffProof)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"who":"anonymous"`) {
 		t.Fatalf("stale cookie on a public route: %d %q, want 200 anonymous", rec.Code, rec.Body.String())
 	}
 	// ...and a guarded endpoint refuses with no_credential, not token_invalid.
-	rec = uiGet(e, "/bff/api/v1/guarded", withCookie("stale"))
+	rec = uiGet(e, "/bff/api/v1/guarded", withCookie("stale"), bffProof)
 	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"reason":"no_credential"`) {
 		t.Fatalf("stale cookie on a guarded route: %d %q, want 401 no_credential", rec.Code, rec.Body.String())
 	}
@@ -346,7 +346,7 @@ func TestUI_BFF_StaleCookieRetriesOnceAnonymously(t *testing.T) {
 
 func TestUI_BFF_HandlerRefusalIsNeverRetried(t *testing.T) {
 	e := uiEngine(t, uiExportDir(t))
-	rec := uiGet(e, "/bff/api/v1/handler401", withCookie("good"))
+	rec := uiGet(e, "/bff/api/v1/handler401", withCookie("good"), bffProof)
 	if rec.Code != http.StatusUnauthorized || !strings.Contains(rec.Body.String(), `"reason":"handler_says_so"`) || !strings.Contains(rec.Body.String(), `"who":"alice@example.test"`) {
 		t.Fatalf("handler 401 with a good cookie: %d %q — must pass through unchanged, with the principal the handler saw", rec.Code, rec.Body.String())
 	}
@@ -366,9 +366,10 @@ func TestUI_BFF_UnsafeMethodRequiresRequestHeader_WithCredentials(t *testing.T) 
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"who":"alice@example.test"`) || !strings.Contains(rec.Body.String(), `"method":"POST"`) {
 		t.Fatalf("POST with the request header: %d %q, want 200 as alice", rec.Code, rec.Body.String())
 	}
-	// A safe method needs no header.
-	if rec := uiGet(e, "/bff/api/v1/probe", withCookie("good")); rec.Code != http.StatusOK {
-		t.Fatalf("GET without the header: %d", rec.Code)
+	// Owner decision D1 (2026-09-23) reverses the old "a safe method needs no
+	// header": a GET without it is refused too, with the cookie attached.
+	if rec := uiGet(e, "/bff/api/v1/probe", withCookie("good")); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"missing_request_header"`) {
+		t.Fatalf("GET without the header: %d %q, want 403 csrf_failed", rec.Code, rec.Body.String())
 	}
 }
 
