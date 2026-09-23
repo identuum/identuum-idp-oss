@@ -92,6 +92,20 @@ The Compose stack starts three services:
 | `identuum-idp` | `7113` | OAuth 2.1 / OIDC Authorization Server |
 | `postgres` | _internal only_ | PostgreSQL 18 on the Compose network |
 
+The two published ports bind the host address named by
+`IDENTUUM_IDP_BIND_ADDRESS` (7113) and `IDENTUUM_UI_BIND_ADDRESS` (7104),
+both defaulting to `0.0.0.0` (IPv4, every interface). For a loopback-only
+install:
+
+```bash
+IDENTUUM_IDP_BIND_ADDRESS=127.0.0.1 IDENTUUM_UI_BIND_ADDRESS=127.0.0.1 \
+  docker compose up -d
+```
+
+Do not run `docker compose down -v` against a live install: the compose
+file pins its container and volume names, so `-v` deletes the install's
+database and data under any project name.
+
 Open `http://localhost:7104` in a browser — the UI detects the
 first-run state, redirects to `/setup`, and runs the wizard. The
 wizard prompts for the setup code, then for the initial organization

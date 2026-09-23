@@ -94,6 +94,23 @@ are verification machinery, tests and documentation (the CHANGELOG commit
   step can no longer be accepted. Applied on start like every migration;
   `Down` drops the index and the table.
 
+### Deployment
+
+- **The appliance's host listening address is configurable**
+  (`deployment/docker-compose.yml`): `IDENTUUM_IDP_BIND_ADDRESS` (port
+  7113) and `IDENTUUM_UI_BIND_ADDRESS` (port 7104), each defaulting to
+  `0.0.0.0`. Set both to `127.0.0.1` for a loopback-only install. Only the
+  host side of the mapping changes; the listeners inside the containers
+  stay on `0.0.0.0`. Measured with the default: `docker port` shows
+  `0.0.0.0:7113` and `0.0.0.0:7104` only, and `curl -6
+  http://localhost:7113/health` no longer connects — the bare `7113:7113`
+  mapping of earlier releases also published `[::]`; the explicit `0.0.0.0`
+  publishes IPv4 only.
+- **Warning — fixed container and volume names.** The compose file pins
+  `container_name:` and volume `name:` values, so every install of it on
+  one host shares them, and `docker compose down -v` under ANY project name
+  deletes the install's database and data volumes.
+
 ### Verification machinery (repository-visible, not in the binary)
 
 - **CI runs three jobs** — Verify (`ci-verify` + integration lint),

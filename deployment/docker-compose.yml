@@ -24,6 +24,28 @@
 #   identuum-idp    OSS IDP Authorization Server on http://localhost:7113
 #   identuum-ui     Next.js setup-wizard / operator UI on http://localhost:7104
 #
+# Host listening address (v0.5.0). The two published ports bind the host
+# address named by an environment variable, default 0.0.0.0 (every IPv4
+# interface):
+#
+#   IDENTUUM_IDP_BIND_ADDRESS   host address for 7113 (default 0.0.0.0)
+#   IDENTUUM_UI_BIND_ADDRESS    host address for 7104 (default 0.0.0.0)
+#
+# Loopback only, reachable from this host and nowhere else:
+#
+#   IDENTUUM_IDP_BIND_ADDRESS=127.0.0.1 IDENTUUM_UI_BIND_ADDRESS=127.0.0.1 \
+#     docker compose up -d
+#
+# Only the HOST side of the mapping changes; inside the containers the
+# listeners stay on 0.0.0.0. The default publishes on IPv4 only: an explicit
+# 0.0.0.0 no longer publishes the [::] (IPv6) listener a bare "7113:7113"
+# mapping did.
+#
+# WARNING: the containers and volumes below carry fixed names
+# (container_name:, volume name:). Every install of this file on one host
+# shares them, and `docker compose down -v` under ANY project name deletes
+# this install's database and data volumes.
+#
 # ─────────────────────────────────────────────────────────────────────────
 # Image-based customer path
 # ─────────────────────────────────────────────────────────────────────────
@@ -118,8 +140,9 @@ services:
       # 7113 is the canonical OSS IDP loopback port across the workspace.
       # Compose's default 0.0.0.0 bind lets the customer reach the
       # browser-facing surface from `http://localhost:7113` and matches
-      # the issuer URL advertised in OIDC discovery.
-      - "7113:7113"
+      # the issuer URL advertised in OIDC discovery. The host address is
+      # IDENTUUM_IDP_BIND_ADDRESS (default 0.0.0.0; see the header).
+      - "${IDENTUUM_IDP_BIND_ADDRESS:-0.0.0.0}:7113:7113"
     environment:
       # ── Existing entrypoint contract (deployment/entrypoint.sh) ────────
       # These three are read by entrypoint.sh: the DB URL is passed to
@@ -184,8 +207,9 @@ services:
         condition: service_started
     ports:
       # 7104 is the canonical UI port across the workspace; D-IDP-INSTALL-06
-      # pins it as the customer-facing entry URL.
-      - "7104:7104"
+      # pins it as the customer-facing entry URL. The host address is
+      # IDENTUUM_UI_BIND_ADDRESS (default 0.0.0.0; see the header).
+      - "${IDENTUUM_UI_BIND_ADDRESS:-0.0.0.0}:7104:7104"
     configs:
       # Ship the OSS runtime config inline (see the top-level `configs:`
       # block below). Mounting it at /app/config/ui-runtime.json matches
