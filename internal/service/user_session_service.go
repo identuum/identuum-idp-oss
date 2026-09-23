@@ -258,6 +258,10 @@ var (
 	// /auth/refresh handler maps this to 401.
 	ErrUserSessionInvalidGrant = errors.New("service: user session invalid_grant")
 
+	// ErrUserSessionUnavailable means authoritative session or account state
+	// could not be consulted. It is not an authentication verdict.
+	ErrUserSessionUnavailable = errors.New("service: user session state unavailable")
+
 	// ErrUserSessionReuse is returned when the supplied refresh
 	// token parses BUT the stored validator hash does not match.
 	// This is reuse-after-rotation evidence; callers MUST revoke
@@ -372,7 +376,10 @@ func (s *UserSessionService) RotateRefreshToken(ctx context.Context, rawRefreshT
 		return nil, ErrUserSessionInvalidGrant
 	}
 	session, err := s.repo.GetByTokenSelector(ctx, secure.Selector)
-	if err != nil || session == nil {
+	if err != nil && !errors.Is(err, domain.ErrSessionNotFound) {
+		return nil, ErrUserSessionUnavailable
+	}
+	if session == nil || err != nil {
 		return nil, ErrUserSessionInvalidGrant
 	}
 	now := s.now().UTC()
@@ -404,6 +411,9 @@ func (s *UserSessionService) RotateRefreshToken(ctx context.Context, rawRefreshT
 		if constantTimeHashEqualSession(session.PrevValidatorHash, presentedHash) &&
 			session.PrevRotatedAt != nil &&
 			now.Sub(*session.PrevRotatedAt) < sessionRotationGraceWindow {
+			if err := s.validateRefreshSubject(ctx, session); err != nil {
+				return nil, err
+			}
 			// BENIGN RACER: presented hash is the immediate predecessor,
 			// superseded within the grace window — a double-click or
 			// retry, not theft. Accept without rotating again or
@@ -433,10 +443,13 @@ func (s *UserSessionService) RotateRefreshToken(ctx context.Context, rawRefreshT
 		// §4.13.2). Revoke the ENTIRE session family for this user AND
 		// emit the breach signal (ERROR log + token_reuse metric) so the
 		// operator is alerted.
-		_ = s.repo.RevokeByUserID(ctx, session.UserID, "security_breach_token_reuse")
-		logger.ErrorContext(ctx, "SECURITY ALERT: refresh-token reuse detected on session rotation — revoking session family",
+		revokeErr := s.repo.RevokeByUserID(ctx, session.UserID, "security_breach_token_reuse")
+		alert := "SECURITY ALERT: refresh-token reuse detected on session rotation — revoking session family"
+		if revokeErr != nil {
+			alert = "SECURITY ALERT: refresh-token reuse detected on session rotation — session family revocation unconfirmed"
+		}
+		logger.ErrorContext(ctx, alert,
 			zap.Stringer("user_id", session.UserID),
-			zap.Stringer("session_id", session.ID),
 		)
 		// Metric label rule: NEVER a user UUID (or any unbounded,
 		// attacker-drivable value) as a label — an attacker replaying
@@ -445,21 +458,18 @@ func (s *UserSessionService) RotateRefreshToken(ctx context.Context, rawRefreshT
 		// carry the organization, so org_id is emitted as the bounded
 		// empty value; per-user attribution lives in the ERROR log above.
 		metrics.AuthPolicyViolation.WithLabelValues("token_reuse", "").Inc()
+		if revokeErr != nil {
+			// Keep both facts: reuse was detected, but its protective write
+			// was not confirmed. Never expose the store's diagnostic here.
+			return nil, errors.Join(ErrUserSessionReuse, ErrUserSessionUnavailable)
+		}
 		return nil, ErrUserSessionReuse
 	}
 
-	// Rotation-time user/org revalidation (R1-secondary, defense in
-	// depth). Reuses the existing combined status lookup: if the user was
-	// banned/deleted or the org deactivated AFTER login, refuse the
-	// rotation and revoke the now-illegitimate session. A lookup error
-	// leaves rotation to proceed (the lifecycle cascade is the primary
-	// enforcement — revoked sessions are already non-rotatable); a
-	// definitive inactive status fails closed.
-	if info, statusErr := s.repo.GetSessionWithUserAndOrgStatus(ctx, session.ID); statusErr == nil && info != nil {
-		if info.UserDeleted || !info.UserActive || info.OrgDeleted || !info.OrgActive {
-			_ = s.repo.Revoke(ctx, session.ID, uuid.Nil, "user_or_org_inactive")
-			return nil, ErrUserSessionInvalidGrant
-		}
+	// Every accepted refresh, including a predecessor within grace, requires
+	// confirmed active account state. An unavailable lookup never rotates.
+	if err := s.validateRefreshSubject(ctx, session); err != nil {
+		return nil, err
 	}
 
 	// Generate the successor VALIDATOR. The SELECTOR is kept STABLE across
@@ -510,6 +520,24 @@ func (s *UserSessionService) RotateRefreshToken(ctx context.Context, rawRefreshT
 	}, nil
 }
 
+func (s *UserSessionService) validateRefreshSubject(ctx context.Context, session *domain.Session) error {
+	info, err := s.repo.GetSessionWithUserAndOrgStatus(ctx, session.ID)
+	if errors.Is(err, domain.ErrSessionNotFound) {
+		return ErrUserSessionInvalidGrant
+	}
+	if err != nil || info == nil || info.Session == nil {
+		return ErrUserSessionUnavailable
+	}
+	if info.Session.ID != session.ID || !sessionRotatable(info.Session, s.now().UTC()) {
+		return ErrUserSessionInvalidGrant
+	}
+	if info.UserDeleted || !info.UserActive || info.OrgDeleted || !info.OrgActive {
+		_ = s.repo.Revoke(ctx, session.ID, uuid.Nil, "user_or_org_inactive")
+		return ErrUserSessionInvalidGrant
+	}
+	return nil
+}
+
 // RevokeSession marks a single session revoked. Idempotent.
 func (s *UserSessionService) RevokeSession(ctx context.Context, sessionID uuid.UUID, reason string) error {
 	if sessionID == uuid.Nil {
@@ -522,6 +550,37 @@ func (s *UserSessionService) RevokeSession(ctx context.Context, sessionID uuid.U
 	// the OSS path passes uuid.Nil to mean "any org" so a single
 	// session ID is sufficient at the service layer.
 	return s.repo.Revoke(ctx, sessionID, uuid.Nil, reason)
+}
+
+// RevokeRefreshTokenSession ends a session without rotating its credential.
+// Invalid or already-ended sessions are idempotent; storage errors are returned
+// so callers cannot claim a revocation which the store did not confirm.
+func (s *UserSessionService) RevokeRefreshTokenSession(ctx context.Context, raw string) error {
+	secure, err := domain.ParseSecureRefreshToken(raw)
+	if err != nil {
+		return nil
+	}
+	session, err := s.repo.GetByTokenSelector(ctx, secure.Selector)
+	if errors.Is(err, domain.ErrSessionNotFound) {
+		return nil
+	}
+	if err != nil {
+		return domain.AuthStoreUnavailable("logout-refresh-lookup", err)
+	}
+	if session == nil || session.RevokedAt != nil || !session.IsValid {
+		return nil
+	}
+	presented := hashSessionValidator(secure.Validator)
+	current := constantTimeHashEqualSession(session.TokenValidatorHash, presented)
+	previous := constantTimeHashEqualSession(session.PrevValidatorHash, presented) &&
+		session.PrevRotatedAt != nil && s.now().UTC().Sub(*session.PrevRotatedAt) < sessionRotationGraceWindow
+	if !current && !previous {
+		return nil
+	}
+	if err := s.RevokeSession(ctx, session.ID, "logout"); err != nil {
+		return domain.AuthStoreUnavailable("logout-refresh-revoke", err)
+	}
+	return nil
 }
 
 // RevokeUserSessions satisfies the existing service.SessionRevoker

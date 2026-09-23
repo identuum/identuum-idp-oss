@@ -28,8 +28,8 @@ type inMemoryUserSessionRepo struct {
 	updateErr      error
 	deleteReturned []*domain.Session
 	// statusInfo, when set, is returned by GetSessionWithUserAndOrgStatus
-	// so a test can drive the rotation-time revalidation branch. Nil
-	// (default) ⇒ (nil, nil) ⇒ revalidation skipped (happy path).
+	// so a test can drive the rotation-time revalidation branch. The
+	// constructor supplies active status; nil explicitly means unavailable.
 	statusInfo *domain.SessionValidationInfo
 }
 
@@ -37,6 +37,7 @@ func newSessionRepo() *inMemoryUserSessionRepo {
 	return &inMemoryUserSessionRepo{
 		byID:       map[uuid.UUID]*domain.Session{},
 		bySelector: map[uuid.UUID]*domain.Session{},
+		statusInfo: &domain.SessionValidationInfo{UserActive: true, OrgActive: true},
 	}
 }
 
@@ -211,10 +212,18 @@ func (r *inMemoryUserSessionRepo) DeleteExpiredReturning(_ context.Context, _ ti
 	return out, nil
 }
 
-func (r *inMemoryUserSessionRepo) GetSessionWithUserAndOrgStatus(_ context.Context, _ uuid.UUID) (*domain.SessionValidationInfo, error) {
+func (r *inMemoryUserSessionRepo) GetSessionWithUserAndOrgStatus(_ context.Context, id uuid.UUID) (*domain.SessionValidationInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.statusInfo, nil
+	if r.statusInfo == nil {
+		return nil, nil
+	}
+	info := *r.statusInfo
+	if session := r.byID[id]; session != nil {
+		cp := *session
+		info.Session = &cp
+	}
+	return &info, nil
 }
 
 func (r *inMemoryUserSessionRepo) GetStats(context.Context) (map[string]int, error) {

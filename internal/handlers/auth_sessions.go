@@ -533,18 +533,22 @@ type sessionRefreshResponse struct {
 // HandleSessionRefresh rotates the supplied refresh token via
 // UserSessionService.RotateRefreshToken. Wire mappings:
 //
-//   - 200 + sessionRefreshResponse on success (NEW refresh_token
-//     shown EXACTLY ONCE; the supplied one is no longer valid).
+//   - 200 + sessionRefreshResponse on rotation, or acceptance of the
+//     immediate predecessor within the existing grace window. Grace
+//     acceptance echoes the supplied token; it creates no successor.
+//   - 400 {"error":"invalid_request"} for invalid JSON input.
 //   - 401 {"error":"invalid_grant"} for unknown / expired /
 //     revoked / malformed tokens.
 //   - 401 {"error":"refresh_reuse_detected"} when the supplied
-//     token's selector matches a stored row but the validator
-//     does NOT — classic reuse-after-rotation evidence. The
-//     service has already revoked every session for the
-//     affected user; the wire response is intentionally a
-//     distinct sentinel so monitoring can alarm.
+//     token is classified as reuse outside grace and family revocation
+//     succeeded. The distinct sentinel lets monitoring alarm.
+//   - 503 {"error":"refresh_unavailable"} when reuse was detected
+//     but family revocation could not be confirmed. The replay is
+//     refused; no successful protective write is claimed.
+//   - 500 {"error":"internal_error"} for other service failures.
 func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
 		var req sessionRefreshRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
@@ -552,14 +556,11 @@ func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		}
 		issued, err := deps.UserSession.RotateRefreshToken(c.Request.Context(), req.RefreshToken)
 		if err != nil {
+			recordSessionRefreshReuse(c, deps.Audit, err)
 			switch {
+			case errors.Is(err, service.ErrUserSessionReuse) && errors.Is(err, service.ErrUserSessionUnavailable):
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "refresh_unavailable"})
 			case errors.Is(err, service.ErrUserSessionReuse):
-				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-					Action:    "user_session.refresh.reuse_detected",
-					Outcome:   "denied",
-					IPAddress: c.ClientIP(),
-					UserAgent: c.Request.UserAgent(),
-				})
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh_reuse_detected"})
 			case errors.Is(err, service.ErrUserSessionInvalidGrant):
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_grant"})
@@ -573,9 +574,6 @@ func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			Outcome:   "success",
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
-			Metadata: map[string]any{
-				"session_id": issued.Session.ID.String(),
-			},
 		})
 		resp := sessionRefreshResponse{
 			SessionID:    issued.Session.ID.String(),
@@ -600,6 +598,20 @@ func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+func recordSessionRefreshReuse(c *gin.Context, sink audit.Service, err error) {
+	if sink == nil || !errors.Is(err, service.ErrUserSessionReuse) {
+		return
+	}
+	event := audit.Event{
+		Action: "user_session.refresh.reuse_detected", Outcome: "denied",
+		IPAddress: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+	}
+	if errors.Is(err, service.ErrUserSessionUnavailable) {
+		event.Metadata = map[string]any{"revocation": "unconfirmed"}
+	}
+	_ = sink.Record(c.Request.Context(), event)
 }
 
 // ---------- Logout ----------
@@ -629,43 +641,71 @@ type logoutRequest struct {
 // cookies are always cleared, and the response is always 204.
 func HandleLogout(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Ambient cookies cannot authorize a cross-site form submission. The
+		// custom header requires a browser preflight governed by our CORS policy.
+		_, accessCookieErr := c.Cookie("access_token")
+		_, refreshCookieErr := c.Cookie("refresh_token")
+		if (accessCookieErr == nil || refreshCookieErr == nil) && c.GetHeader("X-Requested-With") != "identuum-ui" {
+			c.JSON(http.StatusForbidden, gin.H{"error": "csrf_failed"})
+			return
+		}
 		ctx := c.Request.Context()
+		unconfirmed := false
+		refuse := func(where string, err error) {
+			unconfirmed = true
+			noteLogoutRevocationUnconfirmed(c, deps.Audit, "json", where, err)
+		}
 
-		// 1. Unconditionally revoke the cookie/bearer-derived current session.
-		//    This is the load-bearing change: server-side invalidation no
-		//    longer depends on a refresh_token being present in the body.
-		if deps.TokenVerifier != nil && deps.UserSession != nil {
-			if tok := extractValidateToken(c); tok != "" {
-				if principal, err := deps.TokenVerifier.VerifyBearerToken(ctx, tok); err == nil &&
-					principal != nil && principal.SessionID != (uuid.UUID{}) {
-					_ = deps.UserSession.RevokeSession(ctx, principal.SessionID, "logout")
-					_ = deps.Audit.Record(ctx, audit.Event{
-						Action:    "user_session.logout",
-						Outcome:   "success",
-						IPAddress: c.ClientIP(),
-						UserAgent: c.Request.UserAgent(),
-						Metadata: map[string]any{
-							"session_id": principal.SessionID.String(),
-						},
-					})
+		tok := extractValidateToken(c)
+		if authorization := c.GetHeader("Authorization"); authorization != "" {
+			tok = ""
+			if strings.HasPrefix(strings.ToLower(authorization), "bearer ") {
+				tok = strings.TrimSpace(authorization[len("bearer "):])
+			}
+		}
+		if tok != "" {
+			if deps.TokenVerifier == nil || deps.UserSession == nil {
+				refuse("dependencies", errors.New("logout verification or revocation unavailable"))
+			} else {
+				principal, err := deps.TokenVerifier.VerifyBearerToken(ctx, tok)
+				if domain.IsAuthStoreUnavailable(err) {
+					refuse("verify", err)
+				} else if err == nil && principal != nil && principal.SessionID != uuid.Nil {
+					if err := deps.UserSession.RevokeSession(ctx, principal.SessionID, "logout"); err != nil {
+						refuse("revoke-session", err)
+					} else if deps.Audit != nil {
+						_ = deps.Audit.Record(ctx, audit.Event{
+							Action:    "user_session.logout",
+							Outcome:   "success",
+							IPAddress: c.ClientIP(),
+							UserAgent: c.Request.UserAgent(),
+						})
+					}
 				}
 			}
 		}
 
-		// 2. Optional refresh-token teardown: when the caller still supplies a
-		//    refresh_token in the body, rotate-then-revoke its session too so
-		//    the refresh-token family is also torn down. NON-GATING — a missing
-		//    or invalid body never blocks the cookie-derived revocation above.
-		if deps.UserSession != nil {
-			var req logoutRequest
-			if err := c.ShouldBindJSON(&req); err == nil && req.RefreshToken != "" {
-				if issued, rerr := deps.UserSession.RotateRefreshToken(ctx, req.RefreshToken); rerr == nil {
-					_ = deps.UserSession.RevokeSession(ctx, issued.Session.ID, "logout")
-				}
+		// Revocation must not mint a replacement refresh credential, and a
+		// failed lookup must remain distinguishable from an invalid credential.
+		var req logoutRequest
+		_ = c.ShouldBindJSON(&req)
+		if req.RefreshToken == "" && c.GetHeader("Authorization") == "" {
+			req.RefreshToken, _ = c.Cookie("refresh_token")
+		}
+		if req.RefreshToken != "" {
+			if deps.UserSession == nil {
+				refuse("dependencies", errors.New("logout revocation unavailable"))
+			} else if err := deps.UserSession.RevokeRefreshTokenSession(ctx, req.RefreshToken); err != nil {
+				refuse("refresh-session", err)
 			}
 		}
 
 		clearAuthCookies(c)
+		c.Header("Cache-Control", "no-store")
+		if unconfirmed {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "revocation_unconfirmed"})
+			return
+		}
 		c.Status(http.StatusNoContent)
 	}
 }

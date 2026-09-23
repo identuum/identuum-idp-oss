@@ -189,8 +189,12 @@ func (r *inMemorySessionRepoForHandlers) CountActiveByUserID(context.Context, uu
 func (r *inMemorySessionRepoForHandlers) DeleteExpiredReturning(context.Context, time.Duration, int) ([]*domain.Session, error) {
 	return nil, nil
 }
-func (r *inMemorySessionRepoForHandlers) GetSessionWithUserAndOrgStatus(context.Context, uuid.UUID) (*domain.SessionValidationInfo, error) {
-	return nil, nil
+func (r *inMemorySessionRepoForHandlers) GetSessionWithUserAndOrgStatus(ctx context.Context, id uuid.UUID) (*domain.SessionValidationInfo, error) {
+	session, err := r.GetByID(ctx, id)
+	if err != nil || session == nil {
+		return nil, err
+	}
+	return &domain.SessionValidationInfo{Session: session, UserActive: true, OrgActive: true}, nil
 }
 func (r *inMemorySessionRepoForHandlers) GetStats(context.Context) (map[string]int, error) {
 	return nil, nil
