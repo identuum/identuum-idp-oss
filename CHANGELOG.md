@@ -15,7 +15,8 @@ follows [Semantic Versioning](https://semver.org/).
   says that the UI refuses state changes from any origin other than
   `ui_origin`, so it is opened at exactly `http://localhost:7104`, and that
   the developer stack shares this file's project and container names, so
-  the two cannot run on one host at the same time.
+  the two cannot run on one host at the same time; and the comments above
+  the two image lines name the pinned releases and their publish runs.
 
 ## `v0.5.0`
 

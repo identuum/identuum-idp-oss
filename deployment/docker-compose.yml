@@ -130,8 +130,7 @@ services:
   identuum-idp:
     # Customer-facing image. Pulled from the official registry by
     # `docker compose up -d`. The image tag matches the current published
-    # release (v0.3.6, publish run 32499690496 — self-service change-password
-    # + R2 other-session revocation, on the Go 1.27.0 toolchain), PINNED BY
+    # release (v0.5.0, publish run 35910927760), PINNED BY
     # DIGEST so the tag cannot be silently retargeted. Maintainers who need
     # to rebuild from local source use deployment/docker-compose.build.yml
     # as an overlay. (v0.3.4 was tagged but its image never published —
@@ -200,8 +199,8 @@ services:
 
   identuum-ui:
     # Customer-facing image. Pulled from the official registry by
-    # `docker compose up -d`. v0.2.0 (publish run 32411357514, built from
-    # identuum-ui@5c81897) is PINNED BY DIGEST so the tag cannot be silently
+    # `docker compose up -d`. v0.2.3 (publish run 35902647812, built from
+    # identuum-ui@5133be4) is PINNED BY DIGEST so the tag cannot be silently
     # retargeted. The UI versions on its own train (not the IDP's).
     # Maintainers who need to rebuild from local source use
     # deployment/docker-compose.build.yml as an overlay.
