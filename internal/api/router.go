@@ -529,6 +529,14 @@ type OSSRouterDeps struct {
 	// populates it from IDENTUUM_IDP_TRUSTED_PROXIES. Operators fronting the
 	// app with a proxy MUST set this or client IPs will be the proxy's.
 	TrustedProxies []string
+
+	// UIStaticDir, when non-empty, is a directory holding a static UI export
+	// (an index.html shell plus its assets). The engine then serves it as a
+	// NoRoute fallback and mounts the narrow browser boundary under /bff/
+	// (see ui.go). Empty (the default) mounts nothing: the binary behaves
+	// exactly as it did before the UI could live inside it. The CLI
+	// entrypoint populates it from IDENTUUM_IDP_UI_DIR.
+	UIStaticDir string
 }
 
 const (
@@ -683,6 +691,11 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	mountFrontchannelLogout(router, resolved)
 	mountBackchannelDeliveries(router, resolved)
 	mountEndSession(router, resolved)
+	// THE-UI-THAT-GO-CAN-SERVE (Plan B): LAST, because the static export is
+	// a NoRoute fallback — every route above keeps precedence, and the BFF
+	// under /bff/ dispatches back into this same engine. Mounts nothing
+	// unless UIStaticDir is set (see ui.go).
+	mountUI(router, resolved)
 }
 
 // notServingAllowlist is the set of paths that remain reachable while

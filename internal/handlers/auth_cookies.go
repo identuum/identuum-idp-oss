@@ -124,6 +124,14 @@ func refuseCrossSiteCredentialPost(c *gin.Context) bool {
 // on logout so that HttpOnly cookies (which JS cannot delete) are
 // removed immediately rather than waiting for their natural MaxAge to
 // elapse.
+// ClearAuthCookies expires both auth cookies on the response. It exists for
+// the browser boundary in internal/api (THE-UI-THAT-GO-CAN-SERVE): when the
+// logout it proxies fails upstream, the boundary still clears the browser's
+// cookies and says so — the local-only logout the Next proxy used to
+// perform — and every cookie write stays in this file, as the containment
+// test requires.
+func ClearAuthCookies(c *gin.Context) { clearAuthCookies(c) }
+
 func clearAuthCookies(c *gin.Context) {
 	secure := cookieSecureForRequest(c.Request)
 	http.SetCookie(c.Writer, &http.Cookie{

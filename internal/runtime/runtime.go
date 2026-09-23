@@ -144,6 +144,13 @@ type Config struct {
 	// hint. Empty falls back to Issuer.
 	UIPublicBaseURL string
 
+	// UIStaticDir, when set, is the directory holding a static UI export the
+	// binary serves itself (THE-UI-THAT-GO-CAN-SERVE, Plan B): an index.html
+	// shell and its assets. Empty (the default) serves no UI and mounts no
+	// browser boundary, so an unconfigured binary behaves exactly as before.
+	// Read from IDENTUUM_IDP_UI_DIR.
+	UIStaticDir string
+
 	// MetricsAddr is the TCP listener bind address for the
 	// Prometheus /metrics endpoint, served on its OWN listener —
 	// separate from Addr (the public API surface). This closes the
@@ -289,6 +296,11 @@ func New(cfg Config) (*Runtime, error) {
 	if cfg.UIPublicBaseURL == "" {
 		if env := cfg.Getenv("IDENTUUM_IDP_UI_PUBLIC_BASE_URL"); env != "" {
 			cfg.UIPublicBaseURL = env
+		}
+	}
+	if cfg.UIStaticDir == "" {
+		if env := cfg.Getenv("IDENTUUM_IDP_UI_DIR"); env != "" {
+			cfg.UIStaticDir = env
 		}
 	}
 	return &Runtime{
@@ -1281,6 +1293,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		// page, so an issuer-based activation link would 404; when this is
 		// unset the handlers say so instead of guessing.
 		UIPublicBaseURL:                        r.cfg.UIPublicBaseURL,
+		UIStaticDir:                            r.cfg.UIStaticDir,
 		JWKSProvider:                           jwksProvider,
 		KeyService:                             keyService,
 		TokenVerifier:                          tokenVerifier,
