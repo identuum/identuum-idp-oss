@@ -7,6 +7,29 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Security
+
+- **Login CSRF closed on the four routes that set the browser's auth
+  cookies** (`d8d4459`) — `POST /api/v1/auth/login`, the MFA verify and
+  enroll-complete steps of that login, and the passkey login finish. The
+  CORS middleware withholds only its Allow-* headers from a disallowed
+  origin, so a cross-site SIMPLE request still reached these handlers, and
+  a `text/plain` body carrying JSON was decoded: a cross-site form could
+  log the victim's browser into the attacker's account (measured: 200 with
+  `Set-Cookie`). A request that carries `Origin` must now carry
+  `Content-Type: application/json`, or it is refused `403
+  {"error":"csrf_failed"}` before its body is read. Non-browser clients,
+  which send no `Origin` (curl, server-to-server callers, the UI's
+  server-side proxy), are unchanged.
+
+### Verification machinery (repository-visible, not in the binary)
+
+- **Tool pins follow the installed tools** (`24b9d7d`):
+  `GOVULNCHECK_VERSION` v1.7.0 → v1.8.0 and `LICTOR_VERSION` v0.4.1 →
+  v0.4.2 with `LICTOR_SHA256` the linux_amd64 line of v0.4.2's published
+  checksums. `toolchain-parity`'s synthetic fixture follows the pins and
+  `CI-LOCAL-PARITY-1` is rehashed and declared.
+
 ## `v0.4.0`
 
 The public API is frozen: `pkg/` holds exactly the six packages the
