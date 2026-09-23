@@ -7,6 +7,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Deployment
+
+- **The compose file pins identuum-idp-oss `v0.5.0` and identuum-ui
+  `v0.2.3` by index digest** (`deployment/docker-compose.yml`; `v0.5.0`
+  cannot carry its own digest, so the pin follows the tag). Its header now
+  says that the UI refuses state changes from any origin other than
+  `ui_origin`, so it is opened at exactly `http://localhost:7104`, and that
+  the developer stack shares this file's project and container names, so
+  the two cannot run on one host at the same time.
+
 ## `v0.5.0`
 
 A second factor that behaves like one. A TOTP code is accepted once; the

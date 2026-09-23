@@ -10,6 +10,11 @@
 #   docker compose up -d
 #   open http://localhost:7104
 #
+# The UI (v0.2.3) refuses state changes from any origin other than its
+# ui_origin, so open it at exactly http://localhost:7104; serving another
+# address means changing ui_origin, IDENTUUM_IDP_OSS_ISSUER and
+# IDENTUUM_IDP_UI_PUBLIC_BASE_URL together.
+#
 # That is all. No `.env.example`, no `openssl`, no `Makefile`, no manual
 # database URL, no manual issuer URL, no manual signing-key generation, no
 # manual bootstrap (D-IDP-INSTALL-16). The IDP binary owns first-run
@@ -86,10 +91,11 @@
 #   - backup automation (Phase 10)
 #   - OSS-to-CE upgrade overlay (Phase 6 / 8 / 9)
 #
-# Compose project name. Distinct from the developer stack (which has no
-# `name:` field and defaults to "deployment") so customer and dev can
-# co-exist on the same host without clobbering each other's containers
-# or volumes.
+# Compose project name. The developer stack
+# (deployment/docker-compose.dev.yml) defaults to this same project name and
+# to the same container names (identuum-idp-oss-postgres, identuum-idp-oss),
+# so the two cannot run on one host at the same time; see the WARNING above
+# about the fixed names and `docker compose down -v`.
 name: identuum-idp-oss
 
 services:
@@ -130,7 +136,7 @@ services:
     # to rebuild from local source use deployment/docker-compose.build.yml
     # as an overlay. (v0.3.4 was tagged but its image never published —
     # stopped by the publish workflow's Trivy gate.)
-    image: ghcr.io/identuum/identuum-idp-oss:v0.3.6@sha256:0f4cb75beed46a470bdc3d0534c3eaebf90a3530de707a6483cea345bd11217b
+    image: ghcr.io/identuum/identuum-idp-oss:v0.5.0@sha256:6d7579bcd05f961273e5b2f42c51666f89b55edce03297dfaf710bd73410cc44
     container_name: identuum-idp-oss
     restart: unless-stopped
     depends_on:
@@ -199,7 +205,7 @@ services:
     # retargeted. The UI versions on its own train (not the IDP's).
     # Maintainers who need to rebuild from local source use
     # deployment/docker-compose.build.yml as an overlay.
-    image: ghcr.io/identuum/identuum-ui:v0.2.0@sha256:f2af0d34f57ff83d49d77ae81b50aa7100b158025dc34bfb181e8bef4d861b22
+    image: ghcr.io/identuum/identuum-ui:v0.2.3@sha256:9d4c29c514f7c7660d6c5ebaa6067e867f535e073ce8584c197cecf64dbf88d6
     container_name: identuum-idp-oss-ui
     restart: unless-stopped
     depends_on:
