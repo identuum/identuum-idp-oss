@@ -545,6 +545,8 @@ type sessionRefreshResponse struct {
 //   - 503 {"error":"refresh_unavailable"} when reuse was detected
 //     but family revocation could not be confirmed. The replay is
 //     refused; no successful protective write is claimed.
+//   - 503 {"error":"refresh_unavailable"} when the session store could not
+//     be consulted (ErrUserSessionUnavailable); nothing is rotated.
 //   - 500 {"error":"internal_error"} for other service failures.
 func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -562,6 +564,11 @@ func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "refresh_unavailable"})
 			case errors.Is(err, service.ErrUserSessionReuse):
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "refresh_reuse_detected"})
+			case errors.Is(err, service.ErrUserSessionUnavailable):
+				// Owner decision D2: an outage is not an authentication
+				// verdict and not an internal bug; answer it as the browser
+				// refresh does. Nothing was rotated.
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "refresh_unavailable"})
 			case errors.Is(err, service.ErrUserSessionInvalidGrant):
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_grant"})
 			default:

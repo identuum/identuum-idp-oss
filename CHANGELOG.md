@@ -55,6 +55,15 @@ count 144).
   organization by id, which this server answers with 404 for a deleted
   organization (ORG-RESTORE-1), and always showed "not found".
 
+### Changed
+
+- **`POST /api/v1/auth/session/refresh` answers a session-store outage with
+  `503 {"error":"refresh_unavailable"}`**, not the generic `500
+  internal_error`, and rotates nothing — the same answer the browser
+  refresh gives. A client should retry later, not discard its refresh
+  token. Reuse, invalid and expired refresh tokens keep their existing
+  `401` answers.
+
 ## `v0.5.0`
 
 A second factor that behaves like one. A TOTP code is accepted once; the
