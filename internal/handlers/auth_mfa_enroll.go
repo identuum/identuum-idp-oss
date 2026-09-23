@@ -178,6 +178,9 @@ type mfaEnrollCompleteRequest struct {
 // NO cookies set on the failure paths.
 func HandleMFAEnrollComplete(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if refuseCrossSiteCredentialPost(c) {
+			return
+		}
 		var req mfaEnrollCompleteRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
@@ -217,6 +220,9 @@ type mfaVerifyRequest struct {
 // Wire mappings mirror HandleMFAEnrollComplete.
 func HandleMFAVerifyLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if refuseCrossSiteCredentialPost(c) {
+			return
+		}
 		var req mfaVerifyRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})

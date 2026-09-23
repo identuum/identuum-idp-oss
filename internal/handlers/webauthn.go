@@ -505,6 +505,9 @@ type webAuthnLoginFinishResponse struct {
 // cookie is a session cookie (MaxAge=0).
 func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if refuseCrossSiteCredentialPost(c) {
+			return
+		}
 		sessionID := c.Query("session_id")
 		if sessionID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})

@@ -36,6 +36,7 @@ package handlers
 // from the issued tokens; this file never logs them.
 
 import (
+	"mime"
 	"net/http"
 	"strings"
 
@@ -93,6 +94,30 @@ func setAuthCookies(c *gin.Context, accessToken, refreshToken string, rememberMe
 			SameSite: http.SameSiteLaxMode,
 		})
 	}
+}
+
+// refuseCrossSiteCredentialPost is the login-CSRF guard of every route that
+// MINTS the browser's auth cookies (THE-BROWSER-BOUNDARY-IN-GO-2). The global
+// CORS middleware withholds only the Allow-* headers from a disallowed
+// origin: a SIMPLE cross-site request still reaches the handler, and
+// ShouldBindJSON decodes a text/plain body, so a cross-site form could log
+// the victim's browser into the attacker's account. A browser sends Origin
+// on every such POST, and a cross-origin application/json request needs a
+// preflight that only an allowlisted origin passes; so a request that
+// carries Origin must carry application/json. Non-browser clients send no
+// Origin and are unaffected. It writes 403 csrf_failed and reports true
+// when it refused.
+func refuseCrossSiteCredentialPost(c *gin.Context) bool {
+	if c.GetHeader("Origin") == "" {
+		return false
+	}
+	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if err == nil && strings.EqualFold(mediaType, "application/json") {
+		return false
+	}
+	c.Header("Cache-Control", "no-store")
+	c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "csrf_failed", "reason": "credential_post_requires_json"})
+	return true
 }
 
 // clearAuthCookies expires both cookies in the browser. Must be called

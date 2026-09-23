@@ -381,6 +381,9 @@ type localLoginResponse struct {
 // any extra fields).
 func HandleLocalLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if refuseCrossSiteCredentialPost(c) {
+			return
+		}
 		var req localLoginRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
