@@ -505,14 +505,6 @@ func uiRefuseWithoutBrowserProof(c *gin.Context, allowed []string) bool {
 	return false
 }
 
-func uiUnsafeMethod(method string) bool {
-	switch method {
-	case http.MethodGet, http.MethodHead, http.MethodOptions:
-		return false
-	}
-	return true
-}
-
 // uiOriginPermitted: same host as the request, or an exact CORS allowlist
 // entry. Anything else — including a subdomain — is refused.
 func uiOriginPermitted(request *http.Request, origin string, allowed []string) bool {
