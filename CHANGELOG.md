@@ -18,13 +18,13 @@ count `go run ./tools/api-docgen --dry-run | grep -c '^  - id:'` = 144 at
 this release), no dependency moved, Go 1.27.1 unchanged.
 
 Measured delta `v0.4.0..v0.5.0` (`git rev-list --count v0.4.0..HEAD` and
-`git diff --shortstat v0.4.0..HEAD` at `acd65be`, before this notes commit):
-122 commits, 101 files changed, +6106/−1415. By subject line — 27 witness
+`git diff --shortstat v0.4.0..HEAD` at `e9e06d1`, before this notes commit):
+126 commits, 108 files changed, +6767/−1430. By subject line — 27 witness
 records (`Witness: `), 27 manifest re-bases (subject contains "rebase"), 4
-CI records (`ci: record run `), 64 others; of the others, 9 change what an
-operator or integrator meets and are listed one by one below, the other 55
-are verification machinery, tests and documentation (the CHANGELOG commit
-`acd65be` among them), grouped at the end.
+CI records (`ci: record run `), 68 others; of the others, 11 change what an
+operator or integrator meets and are listed one by one below, the other 57
+are verification machinery, tests and documentation (the notes commits
+`acd65be`, `5be0e45` and `e9e06d1` among them), grouped at the end.
 
 ### Security
 
