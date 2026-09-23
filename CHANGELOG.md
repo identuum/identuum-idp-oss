@@ -7,6 +7,25 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.5.0`
+
+A second factor that behaves like one. A TOTP code is accepted once; the
+account password no longer disarms MFA; recovery codes cannot buy more
+recovery codes; the recovery-code route is rate-limited; and the routes that
+set the browser's auth cookies refuse a cross-site form. One migration
+(`0040`), one new public symbol, no endpoint added or removed (canonical
+count `go run ./tools/api-docgen --dry-run | grep -c '^  - id:'` = 144 at
+this release), no dependency moved, Go 1.27.1 unchanged.
+
+Measured delta `v0.4.0..v0.5.0` (`git rev-list --count v0.4.0..HEAD` and
+`git diff --shortstat v0.4.0..HEAD` at `acd65be`, before this notes commit):
+122 commits, 101 files changed, +6106/−1415. By subject line — 27 witness
+records (`Witness: `), 27 manifest re-bases (subject contains "rebase"), 4
+CI records (`ci: record run `), 64 others; of the others, 9 change what an
+operator or integrator meets and are listed one by one below, the other 55
+are verification machinery, tests and documentation (the CHANGELOG commit
+`acd65be` among them), grouped at the end.
+
 ### Security
 
 - **Login CSRF closed on the four routes that set the browser's auth
@@ -21,14 +40,96 @@ follows [Semantic Versioning](https://semver.org/).
   {"error":"csrf_failed"}` before its body is read. Non-browser clients,
   which send no `Origin` (curl, server-to-server callers, the UI's
   server-side proxy), are unchanged.
+- **A TOTP code is accepted once** (`0429ce0`, migration `0040`). A code
+  used to be matched inside its ±1-step window and nothing else, so a
+  captured code was accepted again while the window lasted. Every TOTP
+  proof — password+TOTP login, the pending-login MFA step, step-up,
+  enrolment completion, recovery-code regenerate, self-disable — now claims
+  its `(user, step)` in `totp_used_steps`; a second claim is refused exactly
+  like a wrong code (same status, body and audit row). A store that cannot
+  be consulted refuses rather than accepting.
+- **The password no longer disarms MFA** (`52b5d0e`). `POST
+  /api/v1/me/mfa/disable` accepted the current password as a proof; it now
+  accepts a current TOTP code or a recovery code only. The `password` key
+  is still read off the wire and ignored; a password-only request gets the
+  route's existing `401 invalid_code`.
+- **Regenerating recovery codes requires a TOTP code** (`22e1c06`). `POST
+  /api/v1/me/mfa/recovery-codes/regenerate` took the session as its only
+  proof. It now requires `{"code": "<current TOTP>"}`; a recovery code is
+  not accepted. A wrong code or a recovery code answers `401
+  invalid_code`, a malformed body `400 invalid_request`.
+- **An absent code on that route is `400 code_required`** (`f44d551`),
+  answered before the service is consulted — the shape the disable route
+  and identuum-idp-ce already use. A present wrong code is still `401
+  invalid_code`.
+- **The recovery-code regenerate route is rate-limited per authenticated
+  subject** (`3bd83c0`): default 5 requests per 15 minutes, keyed on the
+  user, configurable through
+  `IDENTUUM_IDP_RATE_LIMIT_MFA_RECOVERY_CODES_REGENERATE_REQUESTS` and
+  `…_WINDOW`; past the limit the router answers `429`.
+
+### Added
+
+- **`pkg/webauthn.ErrCredentialNotYours`** (`954b89f`) — a new public
+  symbol: the refusal `Service.DeleteCredential` returns for an unknown or
+  another user's credential id (deliberately indistinguishable). It aliases
+  the internal not-found sentinel, so behaviour is unchanged; a caller that
+  imports only the seam can now `errors.Is` the refusal instead of seeing a
+  500.
+- **Every 401 verdict is logged with its reason** (`048ace0`): one WARN line
+  on the security logger (`event_type auth_refused`, reason, method, path,
+  client IP, request id when set). No header or credential is logged;
+  status and body are unchanged.
+- **`GET /health` says when brute-force protection is off** (`3fdce76`): the
+  response carries `X-Identuum-Brute-Force-Protection: disabled` while the
+  test-only `IDENTUUM_IDP_INSECURE_DEV_MODE` hatch is active, and the probe
+  answers `Cache-Control: no-store`.
+
+### Database
+
+- **Migration `0040_totp_used_steps`** (`0429ce0`) — creates
+  `totp_used_steps (user_id, step, expires_at, created_at)`, primary key
+  `(user_id, step)`, a `step >= 0` check and an index on `expires_at`. Only
+  the step number is stored, never a code or a seed; rows are swept once the
+  step can no longer be accepted. Applied on start like every migration;
+  `Down` drops the index and the table.
 
 ### Verification machinery (repository-visible, not in the binary)
 
+- **CI runs three jobs** — Verify (`ci-verify` + integration lint),
+  Govulncheck and Integration Tests. The separate race job was dropped
+  (`74cb995`): `ci-verify`'s recorded `go-test-race` already runs the same
+  packages under `-race`. Compiling jobs cache GOCACHE, GOMODCACHE and
+  staticcheck's cache (`d9d5a6c`).
+- **The gate judges are the installed, pinned lictor**: `grype-scan`
+  (`63ee215`, `tools/grype-gate` retired), `repo-green` (`e642f92`),
+  `clock-fuse-gate` (`39b2122`), and `ci-verify` / `verify-integration`
+  driven through `lictor witness run` (`7fa3941`, `a3cbe8c`, `cd79b68`).
 - **Tool pins follow the installed tools** (`24b9d7d`):
   `GOVULNCHECK_VERSION` v1.7.0 → v1.8.0 and `LICTOR_VERSION` v0.4.1 →
   v0.4.2 with `LICTOR_SHA256` the linux_amd64 line of v0.4.2's published
   checksums. `toolchain-parity`'s synthetic fixture follows the pins and
-  `CI-LOCAL-PARITY-1` is rehashed and declared.
+  `CI-LOCAL-PARITY-1` is rehashed and declared. Earlier moves in this
+  range: grype v0.119.0 (`903f294`), lictor v0.4.0 and v0.4.1 (`39b2122`,
+  `dc74ede`).
+- Witness, mint and CI-record machinery: records refused on a dirty tree
+  (`99ac0ca`), mint debt refused until paid (`6da6a07`), CI gate identity
+  declared and required (`e437b0c`, `bfd0c84`), the CI integration job's own
+  record (`341fc31`), a non-minting `verify-check` (`20261ef`), declared
+  no-reach sets for the mint (`8f50063`, `6a92d3f`, `3187862`), and a
+  suppression past its re-check date is a red finding (`fa40090`).
+- Removed an unreachable MFA disarm wrapper and password helper
+  (`d8e1c49`); tests share one HOTP helper (`0cc4d10`).
+
+### Documentation
+
+- **OIDC config certification posture decided** (`3835d71`, P-062 (b)):
+  discovery keeps `id_token_signing_alg_values_supported` `[EdDSA, ES256]`;
+  RS256 stays registrable per client and mintable on explicit operator
+  request, never advertised. The conformance condition requiring RS256 in
+  discovery is a recorded expected failure: conformant against the
+  committed floor, not certifiable on that condition. `a450cdc` corrected
+  the earlier "passes clean" claim at its site.
 
 ## `v0.4.0`
 

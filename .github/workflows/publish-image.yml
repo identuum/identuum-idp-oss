@@ -15,9 +15,10 @@
 #   docker compose up -d
 #   open http://localhost:7104
 #
-# The customer-facing deployment/docker-compose.yml references
-# `ghcr.io/identuum/identuum-idp-oss:v0.2.0`. This workflow publishes the image
-# that the customer command flow expects.
+# The customer-facing deployment/docker-compose.yml pins an image this
+# workflow published, `ghcr.io/identuum/identuum-idp-oss:<tag>@sha256:<digest>`
+# (tag AND digest; the pin there names which release). This workflow publishes
+# the image that the customer command flow expects.
 #
 # P2-3 hardening (this job has packages:write, so it is privileged):
 #   - the user-supplied version_tag is consumed ONLY via an env var, never

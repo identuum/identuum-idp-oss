@@ -23,11 +23,11 @@ provider. `identuum-idp-oss` ships the Starter-tier OAuth 2.1 /
 OpenID Connect surface as a self-contained Go module that you can run
 on your own infrastructure.
 
-> **Status:** first public release, `v0.3.3` — see Project Status above for
+> **Status:** current release `v0.5.0` — see Project Status above for
 > the current license. The binary's version is STAMPED at build time from
 > the release tag (`-ldflags -X main.buildVersion=…`; un-stamped builds
 > report `dev` and can never pass the publish gate). Latest release notes:
-> `docs/releases/v0.3.3.md`; the tag is cut by the owner, not by CI. The
+> `docs/releases/v0.5.0.md`; the tag is cut by the owner, not by CI. The
 > codebase passes the full validation matrix described below.
 
 ---
