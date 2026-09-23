@@ -17,6 +17,12 @@ follows [Semantic Versioning](https://semver.org/).
   the developer stack shares this file's project and container names, so
   the two cannot run on one host at the same time; and the comments above
   the two image lines name the pinned releases and their publish runs.
+- **The compose file pins identuum-ui `v0.2.4` by index digest**
+  (`deployment/docker-compose.yml`, `sha256:06c7d2ed…`, publish run
+  35933342230), in place of `v0.2.3`. Site administrators can now restore a
+  deleted organization from the UI; before, the restore page read the
+  organization by id, which this server answers with 404 for a deleted
+  organization (ORG-RESTORE-1), and always showed "not found".
 
 ## `v0.5.0`
 

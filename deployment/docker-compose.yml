@@ -199,12 +199,12 @@ services:
 
   identuum-ui:
     # Customer-facing image. Pulled from the official registry by
-    # `docker compose up -d`. v0.2.3 (publish run 35902647812, built from
-    # identuum-ui@5133be4) is PINNED BY DIGEST so the tag cannot be silently
+    # `docker compose up -d`. v0.2.4 (publish run 35933342230, built from
+    # identuum-ui@9a07ccf) is PINNED BY DIGEST so the tag cannot be silently
     # retargeted. The UI versions on its own train (not the IDP's).
     # Maintainers who need to rebuild from local source use
     # deployment/docker-compose.build.yml as an overlay.
-    image: ghcr.io/identuum/identuum-ui:v0.2.3@sha256:9d4c29c514f7c7660d6c5ebaa6067e867f535e073ce8584c197cecf64dbf88d6
+    image: ghcr.io/identuum/identuum-ui:v0.2.4@sha256:06c7d2ed2eee703311e4c1d96efb2baed2a84cb1df760288bb555c7b2d4ff83e
     container_name: identuum-idp-oss-ui
     restart: unless-stopped
     depends_on:
