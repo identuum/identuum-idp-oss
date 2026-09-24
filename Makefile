@@ -331,12 +331,16 @@ repo-green:
 ##   make ui-vendor UI_DIR=<ui checkout> UI_SHA=<commit>
 ## It refuses a ui checkout that is not AT that commit, or that is dirty (a
 ## tracked or untracked change), because the vendored bytes must be the
-## commit's and nothing else. It builds in a clean copy of the commit
-## (`git archive`) under a gitignored ./.ui-vendor.* directory in this repo,
-## installs from the committed lockfile OFFLINE (the local pnpm store; no
-## network at build time) and writes the files and a manifest carrying the
-## ui commit, the lockfile's sha256, the node and pnpm versions, every file's
-## sha256 and the tree digest (internal/uidigest). The copy is removed after.
+## commit's and nothing else. It builds in a clean clone of the commit under
+## a gitignored ./.ui-vendor.* directory in this repo — a git checkout, as
+## identuum-ui's publish-ui-export workflow builds in, because Tailwind's
+## source detection honours .gitignore only inside a repository (a
+## `git archive` copy scans node_modules and emits a different stylesheet;
+## measured PLAN-F-1) — installs from the committed lockfile OFFLINE (the
+## local pnpm store; no network at build time) and writes the files and a
+## manifest carrying the ui commit, the lockfile's sha256, the node and pnpm
+## versions, every file's sha256 and the tree digest (pkg/uiserve), the same
+## digest the workflow's artifact carries. The clone is removed after.
 UI_VENDOR_DIR := internal/uiexport
 ui-vendor:
 	@test -n "$(UI_DIR)" && test -n "$(UI_SHA)" || { echo "usage: make ui-vendor UI_DIR=<ui checkout> UI_SHA=<commit>"; exit 2; }
@@ -347,7 +351,7 @@ ui-vendor:
 	dirty=$$(git -C "$(UI_DIR)" status --porcelain --untracked-files=normal); \
 	[ -z "$$dirty" ] || { echo "ui-vendor: REFUSING — $(UI_DIR) is dirty:"; echo "$$dirty"; exit 1; }; \
 	tmp=$$(mktemp -d "$(CURDIR)/.ui-vendor.XXXXXX"); trap 'rm -rf "$$tmp"' EXIT; \
-	git -C "$(UI_DIR)" archive "$$full" | tar -x -C "$$tmp"; \
+	git clone -q --no-checkout "$(UI_DIR)" "$$tmp"; git -C "$$tmp" checkout -q --detach "$$full"; \
 	( cd "$$tmp" && pnpm install --frozen-lockfile --offline >"$$tmp.install.log" 2>&1 && pnpm build:export >"$$tmp.build.log" 2>&1 ) || { echo "ui-vendor: the export build failed:"; tail -20 "$$tmp.install.log" "$$tmp.build.log" 2>/dev/null; rm -f "$$tmp.install.log" "$$tmp.build.log"; exit 1; }; \
 	rm -f "$$tmp.install.log" "$$tmp.build.log"; \
 	rm -rf $(UI_VENDOR_DIR)/dist; mkdir -p $(UI_VENDOR_DIR)/dist; cp -R "$$tmp/out/." $(UI_VENDOR_DIR)/dist/; \
@@ -358,7 +362,7 @@ ui-vendor:
 ## ui-vendor-check: the vendored export the binary embeds is exactly the one
 ## its manifest records — every file's sha256 and the tree digest recomputed
 ## from the embedded bytes (internal/uiexport TestVendoredTreeMatchesManifest,
-## internal/uidigest.Check). In make verify.
+## pkg/uiserve.Check). In make verify.
 ui-vendor-check:
 	@go test ./internal/uiexport -run '^TestVendoredTreeMatchesManifest$$' -count=1
 	@echo "check OK: ui-vendor-check the embedded export matches its manifest ($$(sed -n 's/.*"tree_digest": "\([0-9a-f]*\)".*/\1/p' $(UI_VENDOR_DIR)/manifest.json))"
