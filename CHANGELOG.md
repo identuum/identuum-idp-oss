@@ -5,14 +5,78 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.6.0`
+
+One binary serves the UI and the API. The identuum-ui static export
+(identuum-ui `v0.3.0`, `e5df81c`, tree digest `0683e5a3…`) is embedded in
+the binary and served on the issuer's own origin, `:7113`, behind a narrow
+`/bff` browser boundary; the separate identuum-ui container and its `:7104`
+port are gone from the compose file. Delta `v0.5.1..` (`git log`/`git diff
+--shortstat`, measured before this release commit): 25 commits, 61 files,
++4789/−192. No migration (`0001`–`0040`, as in `v0.5.1`), no dependency
+moved (`go.mod`/`go.sum` unchanged), Go 1.27.1; the canonical endpoint count
+stays 144 (`go run ./tools/api-docgen --dry-run | grep -c '^  - id:'`).
+Upgrading from `v0.5.x` changes the URL and signs users out: see
+`docs/releases/v0.6.0.md`, "Upgrading".
+
+### Added
+
+- **The binary serves the identuum-ui export** (`c5c968f`, `b0bbd5a`,
+  `4b8ce6f`, `6e14fe5`). The export is embedded from `internal/uiexport`
+  with its manifest and checked against its tree digest; `IDENTUUM_IDP_UI_DIR`
+  overrides it with a directory (developer use). Routes the engine carries
+  are never answered with the app shell (`a0bacf9`). The serving and the
+  boundary are the public, standard-library-only package `pkg/uiserve`
+  (`d2eb9c5`), mounted by the OSS engine through gin.
+- **The `/bff` browser boundary.** It lifts the HttpOnly access cookie into
+  a Bearer for `/api/v1/` only, never forwards the Cookie header, and
+  requires `X-Requested-With: identuum-ui` and a same-origin (or
+  allowlisted) `Origin` on every request, safe methods included (`1f73198`,
+  owner decision D1). `/bff/session/refresh` rotates the refresh cookie into
+  new HttpOnly cookies with no token body; `/bff/session/logout` revokes and
+  reports `local_only` when revocation was not confirmed.
+- **`GET /api/status`, `GET /api/runtime-config` and `/healthz`** answer
+  from the binary when the UI is mounted (`97a8cbe`, `c42b1e2`); `/healthz`
+  answers as `/health`.
+- **`identuum-idp healthcheck [base-url]`** (`32ef161`): exits 0 only when
+  the server's own `/healthz` answers 200, following the appliance's listen
+  address (`IDENTUUM_IDP_LISTEN`, then `IDENTUUM_IDP_OSS_LISTEN`, then
+  `0.0.0.0:7113`, a wildcard host probed on loopback). The distroless image
+  has no shell, so the compose healthcheck calls it.
+
+### Changed
+
+- **The `refresh_token` cookie is scoped to `Path=/bff/session/`** (`bf48190`,
+  owner decision D3): the browser sends it only to the boundary's refresh
+  and logout, never with every page or API request. Clearing it expires it
+  at `/bff/session/` and at the `/` of earlier releases. `access_token` stays
+  at `/`.
+- **`POST /api/v1/auth/session/refresh` answers a session-store outage with
+  `503 {"error":"refresh_unavailable"}`** (`0711265`, owner decision D2),
+  not the generic `500 internal_error`, and rotates nothing — the same answer
+  the browser refresh gives. A client should retry later, not discard its
+  refresh token. Reuse, invalid and expired refresh tokens keep their
+  existing `401` answers. (Listed under `v0.5.1` before this release in
+  error; `0711265` is not in `v0.5.1`.)
+- **Refresh and logout refuse honestly when the session store cannot
+  confirm** (`16aded8`): a refresh whose account or organization lookup
+  fails rotates nothing; reuse whose family revocation did not land answers
+  `503 refresh_unavailable`; logout reports `503 revocation_unconfirmed`
+  when it could not confirm, refuses a cookie-carrying request without
+  `X-Requested-With`, prefers an explicit Bearer over cookies, and ends the
+  session from the refresh cookie when the access cookie has expired.
 
 ### Deployment
 
-- **The compose file pins identuum-idp-oss `v0.5.1` by index digest**
-  (`deployment/docker-compose.yml`, `sha256:82a4dfa7…`, publish run
-  35984270749, built from `1b6f09b`), in place of `v0.5.0`: first-run setup
-  through the ui wizard completes with the organization domain left empty.
+- **One container serves the UI and the API on `:7113`** (`55db566`).
+  `deployment/docker-compose.yml` drops the `identuum-ui` service, its
+  `ui-runtime` config and `IDENTUUM_UI_BIND_ADDRESS`; the issuer, the UI's
+  public URL and the allowed origin are one origin, `http://localhost:7113`.
+  A Docker healthcheck runs `/app/identuum-idp healthcheck`.
+  `deployment/docker-compose.build.yml` builds the one image.
+- **The compose file pinned identuum-idp-oss `v0.5.1` by index digest**
+  (`bcbca2e`, `sha256:82a4dfa7…`, publish run 35984270749, built from
+  `1b6f09b`), in place of `v0.5.0`, until this release's pin.
 
 ## `v0.5.1`
 
@@ -54,15 +118,6 @@ count 144).
   deleted organization from the UI; before, the restore page read the
   organization by id, which this server answers with 404 for a deleted
   organization (ORG-RESTORE-1), and always showed "not found".
-
-### Changed
-
-- **`POST /api/v1/auth/session/refresh` answers a session-store outage with
-  `503 {"error":"refresh_unavailable"}`**, not the generic `500
-  internal_error`, and rotates nothing — the same answer the browser
-  refresh gives. A client should retry later, not discard its refresh
-  token. Reuse, invalid and expired refresh tokens keep their existing
-  `401` answers.
 
 ## `v0.5.0`
 

@@ -73,40 +73,40 @@ on your own infrastructure.
 ## Self-hosted install (single-node)
 
 The single-node self-hosted install is a real product install path,
-not an evaluation stub. It runs `identuum-idp` plus the
+not an evaluation stub. It runs `identuum-idp`, which also serves the
 [`identuum-ui`](https://github.com/identuum/identuum-ui) operator UI
-plus a dedicated PostgreSQL instance on one host, behind one Compose
-project.
+(embedded in the binary since `v0.6.0`), plus a dedicated PostgreSQL
+instance on one host, behind one Compose project.
 
 ```bash
 curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
 docker compose up -d
-open http://localhost:7104
+open http://localhost:7113
 ```
 
-The Compose stack starts three services:
+The Compose stack starts two services:
 
 | Service | Port (host) | Purpose |
 |---------|-------------|---------|
-| `identuum-ui` | `7104` | Browser entry point and first-run setup wizard |
-| `identuum-idp` | `7113` | OAuth 2.1 / OIDC Authorization Server |
+| `identuum-idp` | `7113` | OAuth 2.1 / OIDC Authorization Server, the operator UI and the first-run setup wizard, on one origin |
 | `postgres` | _internal only_ | PostgreSQL 18 on the Compose network |
 
-The two published ports bind the host address named by
-`IDENTUUM_IDP_BIND_ADDRESS` (7113) and `IDENTUUM_UI_BIND_ADDRESS` (7104),
-both defaulting to `0.0.0.0` (IPv4, every interface). For a loopback-only
-install:
+The published port binds the host address named by
+`IDENTUUM_IDP_BIND_ADDRESS`, defaulting to `0.0.0.0` (IPv4, every
+interface). For a loopback-only install:
 
 ```bash
-IDENTUUM_IDP_BIND_ADDRESS=127.0.0.1 IDENTUUM_UI_BIND_ADDRESS=127.0.0.1 \
-  docker compose up -d
+IDENTUUM_IDP_BIND_ADDRESS=127.0.0.1 docker compose up -d
 ```
+
+Upgrading from `v0.5.x`, where the UI was a second container on `:7104`:
+see [`docs/releases/v0.6.0.md`](docs/releases/v0.6.0.md), "Upgrading".
 
 Do not run `docker compose down -v` against a live install: the compose
 file pins its container and volume names, so `-v` deletes the install's
 database and data under any project name.
 
-Open `http://localhost:7104` in a browser — the UI detects the
+Open `http://localhost:7113` in a browser — the UI detects the
 first-run state, redirects to `/setup`, and runs the wizard. The
 wizard prompts for the setup code, then for the initial organization
 and site-administrator credentials. The setup code is printed to the
@@ -127,10 +127,8 @@ code is invalidated.
 The Compose file under
 [`deployment/docker-compose.yml`](deployment/docker-compose.yml) is
 the canonical source. It is image-only: `docker compose up -d` pulls
-`ghcr.io/identuum/identuum-idp-oss` and `ghcr.io/identuum/identuum-ui`
-from the official registry, and the customer never compiles anything
-locally. The customer command flow above becomes literal once those
-two tags are published — see
+`ghcr.io/identuum/identuum-idp-oss` from the official registry, and the
+customer never compiles anything locally. See
 [`deployment/README.md`](deployment/README.md) for the manual
 maintainer publish workflow.
 

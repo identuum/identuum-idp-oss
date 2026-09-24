@@ -4,8 +4,8 @@ Three Compose files live here. They serve different audiences.
 
 | File | Audience | Purpose |
 |------|----------|---------|
-| [`docker-compose.yml`](docker-compose.yml) | **Customer / community** | Single-node self-hosted install: `postgres` + `identuum-idp` + `identuum-ui`. Image-only — pulls `ghcr.io/identuum/identuum-idp-oss` and `ghcr.io/identuum/identuum-ui` from the official registry. The canonical OSS appliance flow. |
-| [`docker-compose.build.yml`](docker-compose.build.yml) | **Maintainer / developer** | Overlay that restores `build:` contexts so a sibling-tree checkout can rebuild the images from source. Layered on top of `docker-compose.yml`; never downloaded by a customer. |
+| [`docker-compose.yml`](docker-compose.yml) | **Customer / community** | Single-node self-hosted install: `postgres` + `identuum-idp`, which serves the API and the embedded `identuum-ui` export on one origin (`:7113`, since `v0.6.0`). Image-only — pulls `ghcr.io/identuum/identuum-idp-oss` from the official registry. The canonical OSS appliance flow. |
+| [`docker-compose.build.yml`](docker-compose.build.yml) | **Maintainer / developer** | Overlay that restores the `build:` context so a checkout can rebuild the image from source. Layered on top of `docker-compose.yml`; never downloaded by a customer. |
 | [`docker-compose.dev.yml`](docker-compose.dev.yml) | **Maintainer / developer** | Local Postgres-only stack used by `make fast-up` / `make integration-test`, plus the `app` profile used by `make oss-up`. Not the customer install path. |
 
 ## Customer-facing single-node install
@@ -13,11 +13,11 @@ Three Compose files live here. They serve different audiences.
 ```bash
 curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
 docker compose up -d
-open http://localhost:7104
+open http://localhost:7113
 ```
 
-`docker compose up -d` pulls the published images from
-`ghcr.io/identuum/identuum-idp-oss` and `ghcr.io/identuum/identuum-ui`.
+`docker compose up -d` pulls the published image from
+`ghcr.io/identuum/identuum-idp-oss`.
 The customer download is exactly one file — no sibling source checkout
 is needed, and the customer never compiles anything locally.
 
@@ -37,16 +37,17 @@ administrator password — that is created during the wizard.
 
 ### What ships in this slice
 
-- Image-only customer-facing Compose file with three services:
+- Image-only customer-facing Compose file with two services:
   - `postgres` on the internal Compose network (no published host
     port, single-node default credentials)
-  - `identuum-idp` on `localhost:7113`, named data volume at
-    `/app/data` for the appliance setup foundation, image pulled from
+  - `identuum-idp` on `localhost:7113`, serving the API and the
+    operator UI on one origin, named data volume at `/app/data` for the
+    appliance setup foundation, a Docker healthcheck through
+    `identuum-idp healthcheck`, image pulled from
     `ghcr.io/identuum/identuum-idp-oss` at the current release tag
-  - `identuum-ui` on `localhost:7104`, runtime config baked into the
-    Compose file via the top-level `configs:` block so the customer
-    download remains exactly one file, image pulled from
-    `ghcr.io/identuum/identuum-ui` at the current release tag
+- Until `v0.6.0` the UI was a third service, `identuum-ui` on
+  `localhost:7104`; upgrading is described in
+  [`../docs/releases/v0.6.0.md`](../docs/releases/v0.6.0.md), "Upgrading"
 - No `.env.example`, no `openssl`, no `Makefile`, no manual database
   URL, no manual issuer URL, no manual signing-key generation, no
   manual bootstrap, no source checkout
@@ -66,24 +67,17 @@ Each of these is its own follow-up slice tracked under
 
 ### Image availability
 
-The customer command flow above becomes literal once the current
-release tags of `ghcr.io/identuum/identuum-idp-oss` and
-`ghcr.io/identuum/identuum-ui` are published. The manual
-`workflow_dispatch` publish workflows live at:
-
-- `identuum-idp-oss/.github/workflows/publish-image.yml`
-- `identuum-ui/.github/workflows/publish-image.yml`
-
-Each accepts a `version_tag` input plus an opt-in `latest_tag` toggle;
-neither pushes `latest` automatically. The workflows are intentionally
+The customer command flow above pulls the current release tag of
+`ghcr.io/identuum/identuum-idp-oss`, pinned by digest in the compose
+file. The manual `workflow_dispatch` publish workflow lives at
+`identuum-idp-oss/.github/workflows/publish-image.yml`. It accepts a `version_tag` input plus an opt-in `latest_tag` toggle;
+it never pushes `latest` automatically. The workflow is intentionally
 manual so a release is always an explicit maintainer act.
 
 ## Maintainer / developer source build
 
-When you want to rebuild the images from a local sibling-tree
-checkout (i.e. you have both `identuum-idp-oss/` and `identuum-ui/`
-checked out side-by-side), layer the build overlay on top of the
-customer-facing file:
+When you want to rebuild the image from a local checkout, layer the
+build overlay on top of the customer-facing file:
 
 ```bash
 docker compose \
@@ -92,9 +86,9 @@ docker compose \
     up -d --build
 ```
 
-The overlay adds `build:` contexts pointing at `..` (this repo) and
-`../../identuum-ui` (the sibling UI repo). The base file's `image:`
-tags are preserved, so a subsequent `docker compose up -d` (without
+The overlay adds a `build:` context pointing at `..` (this repo); the
+UI is the export vendored under `internal/uiexport`, so no sibling UI
+checkout is needed. The base file's `image:` tag is preserved, so a subsequent `docker compose up -d` (without
 the overlay or without `--build`) will pull from the registry.
 
 This overlay is **maintainer convenience only** and is not part of any

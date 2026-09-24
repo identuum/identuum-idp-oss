@@ -139,9 +139,10 @@ activation_url_unavailable   no activation link can be built because
 ```
 
 Set `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` to the UI's browser-facing base URL
-(for example `http://localhost:7104`) and re-issue the activation. A link is
-never fabricated from the IdP's own address: the activation page is served by
-the UI, not by the IdP, so such a link would not load.
+(for example `http://localhost:7113`, the binary's own origin since `v0.6.0`;
+`http://localhost:7104` before) and re-issue the activation. A link is never
+fabricated from the IdP's issuer: a UI served from a separate origin would not
+load such a link.
 
 ### Re-issuing
 
