@@ -7,6 +7,13 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Deployment
+
+- **The compose file pins identuum-idp-oss `v0.5.1` by index digest**
+  (`deployment/docker-compose.yml`, `sha256:82a4dfa7…`, publish run
+  35984270749, built from `1b6f09b`), in place of `v0.5.0`: first-run setup
+  through the ui wizard completes with the organization domain left empty.
+
 ## `v0.5.1`
 
 First-run setup completes when the organization domain is left empty.
