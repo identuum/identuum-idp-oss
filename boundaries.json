@@ -64,6 +64,7 @@
         "internal/setup/**",
         "internal/uiexport/**",
         "mw/**",
+        "pkg/uiserve/**",
         "ratelimit/**"
       ]
     },
@@ -393,19 +394,12 @@
       ]
     },
     {
-      "name": "internal_uidigest",
-      "packages": [
-        "internal/uidigest/**"
-      ],
-      "may_import": []
-    },
-    {
       "name": "internal_uiexport",
       "packages": [
         "internal/uiexport/**"
       ],
       "may_import": [
-        "internal/uidigest/**"
+        "pkg/uiserve/**"
       ]
     },
     {
@@ -534,6 +528,15 @@
       "may_import": []
     },
     {
+      "name": "pkg_uiserve",
+      "packages": [
+        "pkg/uiserve/**"
+      ],
+      "may_import": [
+        "github.com/gin-gonic/**"
+      ]
+    },
+    {
       "name": "pkg_webauthn",
       "packages": [
         "pkg/webauthn/**"
@@ -561,7 +564,6 @@
         "github.com/stretchr/**",
         "gopkg.in/yaml.v3/**",
         "internal/domain/**",
-        "internal/uidigest/**",
         "internal/utils/**",
         "pkg/**"
       ]

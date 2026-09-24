@@ -16,7 +16,7 @@ import (
 //go:embed all:dist
 var dist embed.FS
 
-// Manifest is the vendored export's integrity record (internal/uidigest).
+// Manifest is the vendored export's integrity record (pkg/uiserve).
 //
 //go:embed manifest.json
 var Manifest []byte

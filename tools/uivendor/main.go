@@ -3,7 +3,7 @@
 // clean copy of a pinned ui commit. It prints the manifest JSON on stdout —
 // the ui commit, the sha256 of the ui lockfile the build installed from, the
 // node and pnpm versions that built it, every file's sha256 and the tree
-// digest (internal/uidigest) — and nothing else.
+// digest (pkg/uiserve)— and nothing else.
 //
 //	go run ./tools/uivendor -dir internal/uiexport/dist -ui-commit <sha> \
 //	  -lockfile <copy>/pnpm-lock.yaml -node <node --version> -pnpm <pnpm --version>
@@ -18,7 +18,7 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/identuum/identuum-idp-oss/internal/uidigest"
+	"github.com/identuum/identuum-idp-oss/pkg/uiserve"
 )
 
 var fullSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -51,21 +51,21 @@ func run(args []string) error {
 		return err
 	}
 	lockSum := sha256.Sum256(lock)
-	files, err := uidigest.Files(os.DirFS(*dir))
+	files, err := uiserve.Files(os.DirFS(*dir))
 	if err != nil {
 		return err
 	}
 	if len(files) == 0 {
 		return fmt.Errorf("%s holds no files", *dir)
 	}
-	m := uidigest.Manifest{
-		Schema:           uidigest.Schema,
+	m := uiserve.Manifest{
+		Schema:           uiserve.Schema,
 		UICommit:         *commit,
 		UILockfileSHA256: hex.EncodeToString(lockSum[:]),
 		NodeVersion:      *node,
 		PnpmVersion:      *pnpm,
 		Files:            files,
-		TreeDigest:       uidigest.TreeDigest(files),
+		TreeDigest:       uiserve.TreeDigest(files),
 	}
 	out, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {

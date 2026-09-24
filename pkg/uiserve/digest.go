@@ -1,12 +1,14 @@
-// Package uidigest is the one definition of the vendored UI's integrity
-// record (PLAN-E-1, vendored custody): the per-file sha256 of every file of
-// the built identuum-ui export and one tree digest over them, and the manifest
-// that pins them to the ui commit they were built from. `make ui-vendor`
-// writes the manifest with it (tools/uivendor); `make ui-vendor-check`
-// recomputes it from the files the binary embeds (internal/uiexport) and
-// compares. Deliberately free of go:embed, so the writer compiles before
-// anything is vendored.
-package uidigest
+package uiserve
+
+// The one definition of the vendored UI's integrity record (PLAN-E-1,
+// vendored custody): the per-file sha256 of every file of the built
+// identuum-ui export and one tree digest over them, and the manifest that
+// pins them to the ui commit they were built from. `make ui-vendor` writes
+// the manifest with it (tools/uivendor); `make ui-vendor-check` recomputes it
+// from the files the binary embeds (internal/uiexport) and compares; the ui
+// repository's publish-ui-export workflow computes the same digest.
+// Deliberately free of go:embed, so the writer compiles before anything is
+// vendored.
 
 import (
 	"crypto/sha256"
@@ -45,7 +47,7 @@ func Files(fsys fs.FS) (map[string]string, error) {
 			return nil
 		}
 		if !d.Type().IsRegular() {
-			return fmt.Errorf("uidigest: %s is not a regular file", p)
+			return fmt.Errorf("uiserve:%s is not a regular file", p)
 		}
 		f, err := fsys.Open(p)
 		if err != nil {
@@ -91,16 +93,16 @@ func TreeDigest(files map[string]string) string {
 func Parse(raw []byte) (*Manifest, error) {
 	var m Manifest
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil, fmt.Errorf("uidigest: manifest: %w", err)
+		return nil, fmt.Errorf("uiserve:manifest: %w", err)
 	}
 	if m.Schema != Schema {
-		return nil, fmt.Errorf("uidigest: manifest schema %q, want %q", m.Schema, Schema)
+		return nil, fmt.Errorf("uiserve:manifest schema %q, want %q", m.Schema, Schema)
 	}
 	if len(m.Files) == 0 {
-		return nil, fmt.Errorf("uidigest: manifest lists no files")
+		return nil, fmt.Errorf("uiserve:manifest lists no files")
 	}
 	if got := TreeDigest(m.Files); got != m.TreeDigest {
-		return nil, fmt.Errorf("uidigest: manifest tree_digest %s is not the digest of its own file list (%s)", m.TreeDigest, got)
+		return nil, fmt.Errorf("uiserve:manifest tree_digest %s is not the digest of its own file list (%s)", m.TreeDigest, got)
 	}
 	return &m, nil
 }
@@ -130,10 +132,10 @@ func Check(fsys fs.FS, m *Manifest) error {
 	}
 	if len(diffs) > 0 {
 		sort.Strings(diffs)
-		return fmt.Errorf("uidigest: the vendored tree does not match its manifest:\n  %s", strings.Join(diffs, "\n  "))
+		return fmt.Errorf("uiserve:the vendored tree does not match its manifest:\n  %s", strings.Join(diffs, "\n  "))
 	}
 	if d := TreeDigest(got); d != m.TreeDigest {
-		return fmt.Errorf("uidigest: tree digest %s, manifest %s", d, m.TreeDigest)
+		return fmt.Errorf("uiserve:tree digest %s, manifest %s", d, m.TreeDigest)
 	}
 	return nil
 }

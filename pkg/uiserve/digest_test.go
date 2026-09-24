@@ -1,4 +1,4 @@
-package uidigest
+package uiserve
 
 import (
 	"crypto/sha256"
