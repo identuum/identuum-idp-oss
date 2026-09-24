@@ -80,8 +80,10 @@ func TestSetAuthCookies_AccessAndRefresh_Localhost(t *testing.T) {
 	if refresh.MaxAge != refreshTokenCookieMaxAgeSec {
 		t.Fatalf("refresh_token MaxAge (rememberMe=true): want %d, got %d", refreshTokenCookieMaxAgeSec, refresh.MaxAge)
 	}
-	if !refresh.HttpOnly || refresh.SameSite != http.SameSiteLaxMode || refresh.Path != "/" || refresh.Secure {
-		t.Fatal("refresh_token attributes must match access_token posture on localhost")
+	// Path is the one attribute the refresh cookie does not share: owner
+	// decision D3 scopes it to the browser boundary's session routes.
+	if !refresh.HttpOnly || refresh.SameSite != http.SameSiteLaxMode || refresh.Path != refreshTokenCookiePath || refresh.Secure {
+		t.Fatal("refresh_token attributes must match access_token posture on localhost, at Path=/bff/session/ (D3)")
 	}
 }
 
@@ -165,7 +167,11 @@ func TestClearAuthCookies_ExpiresBoth(t *testing.T) {
 		if ck.Value != "" {
 			t.Fatalf("%s value after clear: want empty, got non-empty", name)
 		}
-		if !ck.HttpOnly || ck.SameSite != http.SameSiteLaxMode || ck.Path != "/" {
+		wantPath := "/"
+		if name == "refresh_token" {
+			wantPath = refreshTokenCookiePath // the first refresh clear mirrors the D3 set; the legacy "/" one follows
+		}
+		if !ck.HttpOnly || ck.SameSite != http.SameSiteLaxMode || ck.Path != wantPath {
 			t.Fatalf("%s clear attributes must mirror the set-cookie attribute set", name)
 		}
 	}

@@ -21,7 +21,10 @@ package handlers
 // expects these exact properties):
 //
 //   - Name:     access_token          / refresh_token
-//   - Path:     "/"
+//   - Path:     "/"                   / "/bff/session/" (owner decision D3,
+//                                      v0.6.0: the refresh token reaches only
+//                                      the browser boundary's refresh and
+//                                      logout, never every page or API call)
 //   - HttpOnly: true                  (browser JS cannot read the value)
 //   - SameSite: Lax                   (per ARCHITECTURAL_GUIDELINES §7 —
 //                                      same as monolith)
@@ -53,6 +56,16 @@ const accessTokenCookieMaxAgeSec = 900
 // cookie MaxAge when rememberMe is true. When rememberMe is false the
 // cookie becomes a session cookie (MaxAge=0 — discarded on browser close).
 const refreshTokenCookieMaxAgeSec = 604800
+
+// refreshTokenCookiePath scopes the refresh_token cookie to the browser
+// boundary's session routes (owner decision D3): /bff/session/refresh
+// rotates it and /bff/session/logout revokes it, and no other request
+// carries it. legacyRefreshTokenCookiePath is the Path=/ every release
+// before v0.6.0 set; clearing expires both.
+const (
+	refreshTokenCookiePath       = "/bff/session/"
+	legacyRefreshTokenCookiePath = "/"
+)
 
 // setAuthCookies writes the two browser cookies the UI consumes after a
 // successful login. accessToken is REQUIRED; refreshToken may be empty
@@ -88,7 +101,7 @@ func setAuthCookies(c *gin.Context, accessToken, refreshToken string, rememberMe
 			Name:     "refresh_token",
 			Value:    refreshToken,
 			MaxAge:   refreshMax,
-			Path:     "/",
+			Path:     refreshTokenCookiePath,
 			Secure:   secure,
 			HttpOnly: true,
 			SameSite: http.SameSiteLaxMode,
@@ -143,15 +156,20 @@ func clearAuthCookies(c *gin.Context) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
-	http.SetCookie(c.Writer, &http.Cookie{
-		Name:     "refresh_token",
-		Value:    "",
-		MaxAge:   -1,
-		Path:     "/",
-		Secure:   secure,
-		HttpOnly: true,
-		SameSite: http.SameSiteLaxMode,
-	})
+	// The refresh cookie is expired at its D3 path AND at the Path=/ every
+	// earlier release set: a browser that signed in before the upgrade
+	// still holds that one, and a clear at one path leaves the other.
+	for _, p := range []string{refreshTokenCookiePath, legacyRefreshTokenCookiePath} {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     "refresh_token",
+			Value:    "",
+			MaxAge:   -1,
+			Path:     p,
+			Secure:   secure,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
 }
 
 // cookieSecureForRequest resolves the Secure cookie flag from the REQUEST

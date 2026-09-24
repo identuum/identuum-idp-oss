@@ -462,7 +462,8 @@ func TestUI_BFF_LogoutRevokedPassesGoCookieClearThrough(t *testing.T) {
 			cleared++
 		}
 	}
-	if cleared != 2 {
+	// D3: access_token, and refresh_token at /bff/session/ and at the legacy /.
+	if cleared != 3 {
 		t.Fatalf("revoked logout must clear both cookies through the boundary; Set-Cookie = %v", rec.Header().Values("Set-Cookie"))
 	}
 }
@@ -484,7 +485,8 @@ func TestUI_BFF_LogoutDuringOutageIsLocalOnlyAndSaysSo(t *testing.T) {
 			cleared++
 		}
 	}
-	if cleared != 2 {
+	// D3: access_token, and refresh_token at /bff/session/ and at the legacy /.
+	if cleared != 3 {
 		t.Fatalf("local-only logout must still clear both cookies; Set-Cookie = %v", rec.Header().Values("Set-Cookie"))
 	}
 }
@@ -543,7 +545,8 @@ func TestUI_BFF_LogoutBoundsTheUpstreamAndReportsTimeoutAsLocalOnly(t *testing.T
 			cleared++
 		}
 	}
-	if cleared != 2 {
+	// D3: access_token, and refresh_token at /bff/session/ and at the legacy /.
+	if cleared != 3 {
 		t.Fatalf("local-only logout must still clear both cookies; Set-Cookie = %v", rec.Header().Values("Set-Cookie"))
 	}
 	select {

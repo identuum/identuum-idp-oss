@@ -263,7 +263,8 @@ func planCCleared(rec *httptest.ResponseRecorder) bool {
 			n++
 		}
 	}
-	return n == 2
+	// D3: access_token, and refresh_token at /bff/session/ and at the legacy /.
+	return n == 3
 }
 
 func TestE2E_PlanC_LogoutConfirmedVersusUnconfirmed(t *testing.T) {
