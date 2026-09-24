@@ -1207,11 +1207,13 @@ clock-fuse-report:
 		echo "Each needs triage as FUSE or BENIGN; gating before that triage would fail every repo today."; \
 	fi
 
-## api-surface: the public API of this module is EXACTLY the six pkg/
+## api-surface: the public API of this module is EXACTLY the seven pkg/
 ## packages CE imports — features, licenseprovider, oidc, pkce, totp,
-## webauthn — and nothing else under pkg/ (P-061, wiki/platform/decisions.md:
+## uiserve, webauthn — and nothing else under pkg/ (P-061, wiki/platform/decisions.md:
 ## "that table IS the public-API decision"; executed by THE-THREE-DIRS,
-## d1b9830, which moved migrations, runtime and server under internal/pkg/).
+## d1b9830, which moved migrations, runtime and server under internal/pkg/;
+## uiserve added by the owner decision of 2026-09-24, one public serving
+## package imported by CE, PLAN-F-1).
 ##
 ## WHY A GATE AND NOT A COMMENT: a directory under pkg/ is a contract for
 ## free — the moment it exists, a downstream module can import it, and
@@ -1219,7 +1221,7 @@ clock-fuse-report:
 ## reverse is not. So the set is enumerated HERE, in the recipe, and the
 ## gate is red on either drift: a directory MISSING (a public seam deleted
 ## or moved without this list changing) or a directory EXTRA (a new seam
-## published without a decision). Each offender is named. Listing the six
+## published without a decision). Each offender is named. Listing the seven
 ## twice — in P-061 and here — is deliberate: the wiki says why, this recipe
 ## makes the tree agree, and a change to one without the other is the red.
 ##
@@ -1227,7 +1229,7 @@ clock-fuse-report:
 ## as well as verify (THE ONE-REPO RULE above ci-verify). Untracked
 ## directories count — the tree is the API, not the index — which is also
 ## how it is red-proved (an untracked pkg/decoy/ names `decoy`).
-API_SURFACE := features licenseprovider oidc pkce totp webauthn
+API_SURFACE := features licenseprovider oidc pkce totp uiserve webauthn
 api-surface:
 	@want="$$(printf '%s\n' $(API_SURFACE) | sort | tr '\n' ' ' | sed 's/ $$//')"; \
 	have="$$(find pkg -mindepth 1 -maxdepth 1 -type d | sed 's#^pkg/##' | sort | tr '\n' ' ' | sed 's/ $$//')"; \
