@@ -133,12 +133,12 @@ services:
   identuum-idp:
     # Customer-facing image. Pulled from the official registry by
     # `docker compose up -d`. The image tag matches the current published
-    # release (v0.5.1, publish run 35984270749, built from 1b6f09b), PINNED BY
+    # release (v0.6.0, publish run 36061444727, built from db77482), PINNED BY
     # DIGEST so the tag cannot be silently retargeted. Maintainers who need
     # to rebuild from local source use deployment/docker-compose.build.yml
     # as an overlay. (v0.3.4 was tagged but its image never published —
     # stopped by the publish workflow's Trivy gate.)
-    image: ghcr.io/identuum/identuum-idp-oss:v0.5.1@sha256:82a4dfa7f59a283ae954d4fa58646a0debfea0edc00b213092a3422453e8e3d7
+    image: ghcr.io/identuum/identuum-idp-oss:v0.6.0@sha256:dd4db90f416926a83bea0e6ea74a2e923a651309bdf1186ad0117f3df3ea8148
     container_name: identuum-idp-oss
     restart: unless-stopped
     depends_on:

@@ -5,6 +5,15 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Deployment
+
+- **The compose file pins identuum-idp-oss `v0.6.0` by index digest**
+  (`deployment/docker-compose.yml`, `sha256:dd4db90f…`, publish run
+  36061444727, built from `db77482`), in place of `v0.5.1`: one container
+  serves the UI and the API on `:7113`.
+
 ## `v0.6.0`
 
 One binary serves the UI and the API. The identuum-ui static export
