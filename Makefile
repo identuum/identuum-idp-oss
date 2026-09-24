@@ -111,6 +111,7 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 
 .PHONY: verify-integration clock-fuse-gate repo-green fast-up fast-down fast-clean build build-binary test staticcheck integration-test validate clean api-docgen api-docgen-dry-run api-docs oss-up oss-down oss-logs oss-build oss-bootstrap oss-recover-site-admin image-base-parity fmt-check vet vet-integration integration-staticcheck doccomment-check integration-inventory tagged-vet clock-fuse-report tool-versions
 .PHONY: dev-up dev-rebuild dev-recreate-app dev-ps dev-logs dev-app-logs dev-pg-logs dev-down dev-smoke dev-health
+.PHONY: ui-vendor ui-vendor-check
 .PHONY: verify ci-verify tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity image-base-check api-surface clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
 ## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
@@ -323,6 +324,44 @@ ledger-rebase:
 repo-green:
 	@$(call LICTOR_ASSERT,repo-green); \
 	"$(LICTOR)" green --repo "$(CURDIR)"
+
+## ui-vendor (PLAN-E-1, vendored custody): refresh the identuum-ui static
+## export the binary embeds (internal/uiexport/dist) and its manifest
+## (internal/uiexport/manifest.json), from ONE pinned ui commit:
+##   make ui-vendor UI_DIR=<ui checkout> UI_SHA=<commit>
+## It refuses a ui checkout that is not AT that commit, or that is dirty (a
+## tracked or untracked change), because the vendored bytes must be the
+## commit's and nothing else. It builds in a clean copy of the commit
+## (`git archive`) under a gitignored ./.ui-vendor.* directory in this repo,
+## installs from the committed lockfile OFFLINE (the local pnpm store; no
+## network at build time) and writes the files and a manifest carrying the
+## ui commit, the lockfile's sha256, the node and pnpm versions, every file's
+## sha256 and the tree digest (internal/uidigest). The copy is removed after.
+UI_VENDOR_DIR := internal/uiexport
+ui-vendor:
+	@test -n "$(UI_DIR)" && test -n "$(UI_SHA)" || { echo "usage: make ui-vendor UI_DIR=<ui checkout> UI_SHA=<commit>"; exit 2; }
+	@set -e; \
+	full=$$(git -C "$(UI_DIR)" rev-parse --verify --quiet "$(UI_SHA)^{commit}") || { echo "ui-vendor: REFUSING — $(UI_SHA) is not a commit in $(UI_DIR)"; exit 1; }; \
+	head=$$(git -C "$(UI_DIR)" rev-parse HEAD); \
+	[ "$$head" = "$$full" ] || { echo "ui-vendor: REFUSING — $(UI_DIR) is at $$head, not $$full"; exit 1; }; \
+	dirty=$$(git -C "$(UI_DIR)" status --porcelain --untracked-files=normal); \
+	[ -z "$$dirty" ] || { echo "ui-vendor: REFUSING — $(UI_DIR) is dirty:"; echo "$$dirty"; exit 1; }; \
+	tmp=$$(mktemp -d "$(CURDIR)/.ui-vendor.XXXXXX"); trap 'rm -rf "$$tmp"' EXIT; \
+	git -C "$(UI_DIR)" archive "$$full" | tar -x -C "$$tmp"; \
+	( cd "$$tmp" && pnpm install --frozen-lockfile --offline >"$$tmp.install.log" 2>&1 && pnpm build:export >"$$tmp.build.log" 2>&1 ) || { echo "ui-vendor: the export build failed:"; tail -20 "$$tmp.install.log" "$$tmp.build.log" 2>/dev/null; rm -f "$$tmp.install.log" "$$tmp.build.log"; exit 1; }; \
+	rm -f "$$tmp.install.log" "$$tmp.build.log"; \
+	rm -rf $(UI_VENDOR_DIR)/dist; mkdir -p $(UI_VENDOR_DIR)/dist; cp -R "$$tmp/out/." $(UI_VENDOR_DIR)/dist/; \
+	go run ./tools/uivendor -dir $(UI_VENDOR_DIR)/dist -ui-commit "$$full" -lockfile "$$tmp/pnpm-lock.yaml" \
+		-node "$$(cd "$$tmp" && node --version)" -pnpm "$$(cd "$$tmp" && pnpm --version)" > $(UI_VENDOR_DIR)/manifest.json; \
+	echo "ui-vendor: vendored $$full — tree digest $$(sed -n 's/.*"tree_digest": "\([0-9a-f]*\)".*/\1/p' $(UI_VENDOR_DIR)/manifest.json)"
+
+## ui-vendor-check: the vendored export the binary embeds is exactly the one
+## its manifest records — every file's sha256 and the tree digest recomputed
+## from the embedded bytes (internal/uiexport TestVendoredTreeMatchesManifest,
+## internal/uidigest.Check). In make verify.
+ui-vendor-check:
+	@go test ./internal/uiexport -run '^TestVendoredTreeMatchesManifest$$' -count=1
+	@echo "check OK: ui-vendor-check the embedded export matches its manifest ($$(sed -n 's/.*"tree_digest": "\([0-9a-f]*\)".*/\1/p' $(UI_VENDOR_DIR)/manifest.json))"
 
 ## tracked-binary-check: no compiled binary and no oversized blob may be
 ## TRACKED (THE-STRAY-BINARY, 2026-08-07). A 3.8 MB Mach-O named `notrun` —
@@ -718,6 +757,7 @@ define VERIFY_PLAN
 		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
+		'ui-vendor-check=$(MAKE) --no-print-directory ui-vendor-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
 		'workflow-yaml=$(MAKE) --no-print-directory workflow-yaml' \
 		'workflow-yaml-parity=$(MAKE) --no-print-directory workflow-yaml-parity' \

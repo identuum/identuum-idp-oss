@@ -72,6 +72,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/server"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 	"github.com/identuum/identuum-idp-oss/internal/setup"
+	"github.com/identuum/identuum-idp-oss/internal/uiexport"
 	"github.com/identuum/identuum-idp-oss/logger"
 )
 
@@ -1292,8 +1293,11 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		// linkBaseURL, which falls back to the issuer. /activate is a UI
 		// page, so an issuer-based activation link would 404; when this is
 		// unset the handlers say so instead of guessing.
-		UIPublicBaseURL:                        r.cfg.UIPublicBaseURL,
-		UIStaticDir:                            r.cfg.UIStaticDir,
+		UIPublicBaseURL: r.cfg.UIPublicBaseURL,
+		UIStaticDir:     r.cfg.UIStaticDir,
+		// PLAN-E-1: the vendored export compiled into the binary, served
+		// when IDENTUUM_IDP_UI_DIR is not set (the directory wins when it is).
+		UIEmbedded:                             uiexport.FS(),
 		JWKSProvider:                           jwksProvider,
 		KeyService:                             keyService,
 		TokenVerifier:                          tokenVerifier,

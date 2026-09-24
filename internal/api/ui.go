@@ -95,20 +95,20 @@ var uiStaleCookieReasons = map[string]struct{}{
 // a composed sub-router records a fatal fault rather than silently serving
 // nothing, per P-018.
 func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
-	if resolved.UIStaticDir == "" {
+	fsys, source := uiSource(resolved)
+	if fsys == nil {
 		return
 	}
 	engine, ok := router.(*gin.Engine)
 	if !ok {
 		if resolved.StartupReport != nil {
-			resolved.StartupReport.Fatal("mountUI", "IDENTUUM_IDP_UI_DIR is set but the UI can only be mounted on the root engine")
+			resolved.StartupReport.Fatal("mountUI", source+" is set but the UI can only be mounted on the root engine")
 		}
 		return
 	}
-	fsys := uiExportFS(resolved.UIStaticDir)
 	if info, err := fs.Stat(fsys, uiShellFile); err != nil || info.IsDir() {
 		if resolved.StartupReport != nil {
-			resolved.StartupReport.Fatal("mountUI", "IDENTUUM_IDP_UI_DIR has no index.html; refusing to serve an empty UI")
+			resolved.StartupReport.Fatal("mountUI", source+" has no index.html; refusing to serve an empty UI")
 		}
 		return
 	}
@@ -165,6 +165,24 @@ func uiRuntimeConfigHandler(resolved OSSRouterDeps) gin.HandlerFunc {
 			"ag":         gin.H{"enabled": false, "public_base_url": ""},
 		})
 	}
+}
+
+// uiSource picks the UI the engine serves (PLAN-E-1). Precedence:
+//
+//  1. UIStaticDir set: that directory — the developer override, which wins
+//     over the embedded export;
+//  2. otherwise UIEmbedded, the export compiled into the binary;
+//  3. otherwise nothing is mounted.
+//
+// The second value names the source in a startup fault.
+func uiSource(resolved OSSRouterDeps) (fs.FS, string) {
+	if resolved.UIStaticDir != "" {
+		return uiExportFS(resolved.UIStaticDir), "IDENTUUM_IDP_UI_DIR"
+	}
+	if resolved.UIEmbedded != nil {
+		return resolved.UIEmbedded, "the embedded UI export"
+	}
+	return nil, ""
 }
 
 // uiExportFS confines every open, including symlink resolution, to the export.

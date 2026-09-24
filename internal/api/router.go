@@ -18,6 +18,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"time"
 
@@ -533,10 +534,16 @@ type OSSRouterDeps struct {
 	// UIStaticDir, when non-empty, is a directory holding a static UI export
 	// (an index.html shell plus its assets). The engine then serves it as a
 	// NoRoute fallback and mounts the narrow browser boundary under /bff/
-	// (see ui.go). Empty (the default) mounts nothing: the binary behaves
-	// exactly as it did before the UI could live inside it. The CLI
-	// entrypoint populates it from IDENTUUM_IDP_UI_DIR.
+	// (see ui.go). The CLI entrypoint populates it from IDENTUUM_IDP_UI_DIR.
+	// It is the developer override: when set it wins over UIEmbedded.
 	UIStaticDir string
+
+	// UIEmbedded is the static UI export compiled into the binary
+	// (internal/uiexport, PLAN-E-1), served exactly as UIStaticDir is when
+	// no directory is configured. The runtime sets it; nil with no
+	// UIStaticDir mounts nothing (an engine built without either behaves as
+	// before the UI could live inside the binary).
+	UIEmbedded fs.FS
 }
 
 const (
