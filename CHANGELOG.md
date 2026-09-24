@@ -16,7 +16,7 @@ port are gone from the compose file. Delta `v0.5.1..` (`git log`/`git diff
 +4789/−192. No migration (`0001`–`0040`, as in `v0.5.1`), no dependency
 moved (`go.mod`/`go.sum` unchanged), Go 1.27.1; the canonical endpoint count
 stays 144 (`go run ./tools/api-docgen --dry-run | grep -c '^  - id:'`).
-Upgrading from `v0.5.x` changes the URL and signs users out: see
+Upgrading from `v0.5.x` changes the URL, and a browser on another host name signs in again: see
 `docs/releases/v0.6.0.md`, "Upgrading".
 
 ### Added
