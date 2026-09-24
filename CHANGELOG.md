@@ -7,6 +7,30 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.5.1`
+
+First-run setup completes when the organization domain is left empty.
+Delta `v0.5.0..v0.5.1` (`git log`/`git diff --shortstat`, measured before
+this release commit): 5 commits, 10 files, +226/−22 — the fix below, the
+compose re-pins and the dev-compose image name listed under Deployment,
+and the `v0.5.0` release-notes commit; plus this release commit. No
+migration, no dependency moved, no endpoint added or removed (canonical
+count 144).
+
+### Fixed
+
+- **An empty organization domain defaults to `slug(name) + ".local"`**
+  (`6e0412a`). `POST /api/setup/complete` with `organization_domain` empty
+  used the raw organization name as the domain, so a name with a space
+  ("Acme Corp") failed organization validation and the request answered
+  `400 setup_complete_failed`: first-run setup through the ui wizard failed
+  whenever its optional domain field was left empty. The domain is now the
+  name's slug under `.local` ("acme-corp.local"), as the wizard documents.
+  An explicit domain is unchanged, and a resumed setup still reuses the
+  organization a partial run left. A name with no letter or digit ("!!!")
+  has no default and is refused as `400 organization_domain_required`
+  (previously the generic `setup_complete_failed`).
+
 ### Deployment
 
 - **The compose file pins identuum-idp-oss `v0.5.0` and identuum-ui
