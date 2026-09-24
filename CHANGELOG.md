@@ -58,6 +58,14 @@ Upgrading from `v0.5.x` changes the URL, and a browser on another host name sign
   refresh token. Reuse, invalid and expired refresh tokens keep their
   existing `401` answers. (Listed under `v0.5.1` before this release in
   error; `0711265` is not in `v0.5.1`.)
+- **`GET /api/v1/organizations/:id/identity-provider` answers `200
+  {"success":true,"identity_provider":null}` when the organization has no
+  provider configured**, not `404` (owner ruling for `v0.6.0`): no provider
+  is a state of the organization, and the org-admin settings page now reads
+  it without a failed browser request. Authorization, tenant scoping and
+  every other answer are unchanged; `PUT` and `DELETE` of an absent
+  provider still answer `404`. A client that treated the `404` as "none
+  configured" should read `identity_provider: null` instead.
 - **Refresh and logout refuse honestly when the session store cannot
   confirm** (`16aded8`): a refresh whose account or organization lookup
   fails rotates nothing; reuse whose family revocation did not land answers

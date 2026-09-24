@@ -251,6 +251,38 @@ func TestIDPConfig_OrgAdminMissingScope_Forbidden(t *testing.T) {
 	}
 }
 
+// OSS-V0.6.0 (owner ruling (a)): "no provider configured" is a state, not a
+// missing resource. The GET answers 200 with identity_provider null, so the
+// org-admin settings page reads it without a failed request (a browser logs
+// every 404). PUT and DELETE of a provider that does not exist stay 404.
+func TestIDPConfig_GetWithNoneConfigured_Is200Null(t *testing.T) {
+	org := uuid.New()
+	r, _, _ := newIDPConfigEngine(t, idpConfigOrgAdmin(org))
+
+	w := idpDo(t, r, http.MethodGet, idpPath(org), nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("get with none configured: status = %d, want 200; body=%q", w.Code, w.Body.String())
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body is not a JSON object: %v", err)
+	}
+	if got := string(body["success"]); got != "true" {
+		t.Errorf("success = %s, want true", got)
+	}
+	if got, ok := body["identity_provider"]; !ok || string(got) != "null" {
+		t.Errorf("identity_provider = %q (present %v), want present and null", got, ok)
+	}
+
+	upd := map[string]any{"name": "x", "config": map[string]any{"issuer_url": "https://accounts.google.com", "client_id": "cid"}}
+	if w := idpDo(t, r, http.MethodPut, idpPath(org), upd); w.Code != http.StatusNotFound {
+		t.Errorf("update with none configured: status = %d, want 404", w.Code)
+	}
+	if w := idpDo(t, r, http.MethodDelete, idpPath(org), nil); w.Code != http.StatusNotFound {
+		t.Errorf("delete with none configured: status = %d, want 404", w.Code)
+	}
+}
+
 // An org_user is refused (not org_admin).
 func TestIDPConfig_OrgUser_Forbidden(t *testing.T) {
 	org := uuid.New()

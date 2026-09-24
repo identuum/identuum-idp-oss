@@ -95,7 +95,7 @@ func RegisterOrganizationIdentityProviderRoutes(router gin.IRouter, deps Organiz
 	// docgen:tier=oss
 	// docgen:auth=org_admin
 	// docgen:response=oss.types.IdentityProviderResponse
-	// docgen:notes=org_admin OWN-ORG only with the idps:read scope; site_admin refused 403; cross-org 403. Returns 404 when the org has no oidc provider. The response omits client_secret entirely (write-only).
+	// docgen:notes=org_admin OWN-ORG only with the idps:read scope; site_admin refused 403; cross-org 403. Returns 200 {"success":true,"identity_provider":null} when the org has no oidc provider (v0.6.0; 404 before). The response omits client_secret entirely (write-only).
 	readGroup.GET("", HandleGetOrganizationIdentityProvider(deps))
 
 	updateGroup := g.Group("")
@@ -208,6 +208,13 @@ func HandleGetOrganizationIdentityProvider(deps OrganizationIdentityProviderHand
 			return
 		}
 		provider, err := deps.OIDCProviderConfigService.GetOIDCProvider(c.Request.Context(), orgID)
+		if errors.Is(err, service.ErrOIDCProviderNotFound()) {
+			// No provider configured is a state of the organization, not a
+			// missing resource: 200 with identity_provider null (v0.6.0). PUT
+			// and DELETE of an absent provider stay 404.
+			c.JSON(http.StatusOK, gin.H{"success": true, "identity_provider": nil})
+			return
+		}
 		if err != nil {
 			respondOIDCConfigError(c, err)
 			return

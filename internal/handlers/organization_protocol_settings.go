@@ -59,8 +59,8 @@ type OrganizationProtocolSettingsHandlerDeps struct {
 //
 // Routes:
 //
-//	GET /api/v1/organizations/:id/protocol-settings   (site_admin)
-//	PUT /api/v1/organizations/:id/protocol-settings   (site_admin)
+//	GET /api/v1/organizations/:id/protocol-settings   (same-org org_admin; site_admin refused)
+//	PUT /api/v1/organizations/:id/protocol-settings   (same-org org_admin; site_admin refused)
 //
 // Panics if required deps are missing — wiring this surface
 // without backing services is a bootstrap bug.
@@ -105,10 +105,10 @@ func RegisterOrganizationProtocolSettingsRoutes(router gin.IRouter, deps Organiz
 	// docgen:tier=oss
 	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.organizationProtocolSettingsResponse
-	// docgen:notes=site_admin sees any active org; org_admin requires the orgs:read scope AND must be reading its OWN organization (cross-org probes return 403 via the shared scope middleware, NOT 404 — matches the existing org-scoped admin route convention). Absent row resolves to {dcr=false, scim=false}.
+	// docgen:notes=site_admin is refused 403 (a tenant's own resource); org_admin requires the orgs:read scope AND must be reading its OWN organization (cross-org probes return 403 via the shared scope middleware, NOT 404 — matches the existing org-scoped admin route convention). Absent row resolves to {dcr=false, scim=false}.
 	readGroup.GET("", HandleGetOrganizationProtocolSettings(deps))
 
-	// PUT: site_admin OR same-org org_admin with orgs:settings:update.
+	// PUT: same-org org_admin with orgs:settings:update (site_admin refused above).
 	writeGroup := g.Group("")
 	writeGroup.Use(mw.RequireSiteAdminOrSameOrgAdminWithScopesAudit(deps.StartupReport, deps.Audit, "id", domain.ScopeOrgsSettingsUpdate))
 
@@ -120,7 +120,7 @@ func RegisterOrganizationProtocolSettingsRoutes(router gin.IRouter, deps Organiz
 	// docgen:tier=oss
 	// docgen:auth=org_admin
 	// docgen:response=oss.handlers.organizationProtocolSettingsResponse
-	// docgen:notes=site_admin can write any active org; org_admin requires the orgs:settings:update scope AND must be writing its OWN organization (cross-org rejected 403 with no DB write). Emits org.protocol_settings_changed audit event with target_organization_id + actor_organization_id + actor_kind + actor_role + old/new booleans; never includes secrets, tokens, IATs, or RATs.
+	// docgen:notes=site_admin is refused 403 (a tenant's own resource); org_admin requires the orgs:settings:update scope AND must be writing its OWN organization (cross-org rejected 403 with no DB write). Emits org.protocol_settings_changed audit event with target_organization_id + actor_organization_id + actor_kind + actor_role + old/new booleans; never includes secrets, tokens, IATs, or RATs.
 	writeGroup.PUT("", HandlePutOrganizationProtocolSettings(deps))
 }
 
