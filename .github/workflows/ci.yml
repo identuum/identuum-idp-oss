@@ -368,7 +368,7 @@ jobs:
           yq --version | grep -F "version ${YQ_VERSION}"
 
       # The whole verify matrix in one Makefile target: image-base-check,
-      # api-surface (P-061: pkg/ is exactly the six public seams), tidy-diff,
+      # api-surface (P-061: pkg/ is exactly the seven public seams), tidy-diff,
       # build, unit tests, staticcheck, grype-scan. The steps of
       # `verify` omitted by design are enumerated ONCE, in this file's header
       # (gograph, govulncheck, and the three local-only targets) — this
