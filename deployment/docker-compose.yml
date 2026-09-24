@@ -8,38 +8,41 @@
 #
 #   curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
 #   docker compose up -d
-#   open http://localhost:7104
+#   open http://localhost:7113
 #
-# The UI (v0.2.3) refuses state changes from any origin other than its
-# ui_origin, so open it at exactly http://localhost:7104; serving another
-# address means changing ui_origin, IDENTUUM_IDP_OSS_ISSUER and
-# IDENTUUM_IDP_UI_PUBLIC_BASE_URL together.
+# ONE ORIGIN (v0.6.0). The identuum-idp binary serves the UI and the API on
+# the same origin, http://localhost:7113: the UI is compiled into the binary
+# (the identuum-ui static export), so there is no UI container and no Node at
+# runtime. The issuer, the UI's public URL and the only origin the browser
+# boundary accepts are the same URL; serving another address means changing
+# IDENTUUM_IDP_OSS_ISSUER and IDENTUUM_IDP_UI_PUBLIC_BASE_URL together.
+#
+# MOVED from v0.5.x: the UI was a separate container on :7104. It is now on
+# :7113. Update bookmarks and any reverse proxy that pointed at :7104; users
+# sign in again after the upgrade (see the release notes, "Upgrading").
 #
 # That is all. No `.env.example`, no `openssl`, no `Makefile`, no manual
 # database URL, no manual issuer URL, no manual signing-key generation, no
 # manual bootstrap (D-IDP-INSTALL-16). The IDP binary owns first-run
 # secret generation, migrations, setup-token issuance, and the first
-# signing key (D-IDP-INSTALL-09); the UI owns the human wizard
+# signing key (D-IDP-INSTALL-09); the UI it serves owns the human wizard
 # (D-IDP-INSTALL-10) and detects setup_required dynamically via
 # GET /api/setup/status (D-IDP-INSTALL-18).
 #
 # Topology (single-node self-hosted):
 #
 #   postgres        internal-only Postgres 18 (no published host port)
-#   identuum-idp    OSS IDP Authorization Server on http://localhost:7113
-#   identuum-ui     Next.js setup-wizard / operator UI on http://localhost:7104
+#   identuum-idp    OSS IdP: UI + API + OAuth/OIDC on http://localhost:7113
 #
-# Host listening address (v0.5.0). The two published ports bind the host
+# Host listening address (v0.5.0). The published port binds the host
 # address named by an environment variable, default 0.0.0.0 (every IPv4
 # interface):
 #
 #   IDENTUUM_IDP_BIND_ADDRESS   host address for 7113 (default 0.0.0.0)
-#   IDENTUUM_UI_BIND_ADDRESS    host address for 7104 (default 0.0.0.0)
 #
 # Loopback only, reachable from this host and nowhere else:
 #
-#   IDENTUUM_IDP_BIND_ADDRESS=127.0.0.1 IDENTUUM_UI_BIND_ADDRESS=127.0.0.1 \
-#     docker compose up -d
+#   IDENTUUM_IDP_BIND_ADDRESS=127.0.0.1 docker compose up -d
 #
 # Only the HOST side of the mapping changes; inside the containers the
 # listeners stay on 0.0.0.0. The default publishes on IPv4 only: an explicit
@@ -67,8 +70,8 @@
 #     -f deployment/docker-compose.build.yml \
 #     up -d --build
 #
-# The overlay restores the build contexts for `identuum-idp` and
-# `identuum-ui`. The customer-facing file deliberately omits them.
+# The overlay restores the build context for `identuum-idp`. The
+# customer-facing file deliberately omits it.
 #
 # ─────────────────────────────────────────────────────────────────────────
 # Single-node defaults and follow-up hardening
@@ -87,7 +90,7 @@
 #
 #   - generated-on-first-boot DB credentials
 #   - external Postgres (HA / customer-managed)
-#   - reverse proxy with TLS in front of identuum-idp + identuum-ui
+#   - reverse proxy with TLS in front of identuum-idp
 #   - backup automation (Phase 10)
 #   - OSS-to-CE upgrade overlay (Phase 6 / 8 / 9)
 #
@@ -148,6 +151,14 @@ services:
       # the issuer URL advertised in OIDC discovery. The host address is
       # IDENTUUM_IDP_BIND_ADDRESS (default 0.0.0.0; see the header).
       - "${IDENTUUM_IDP_BIND_ADDRESS:-0.0.0.0}:7113:7113"
+    healthcheck:
+      # The runtime image is distroless (no shell, no curl): the binary asks
+      # its own GET /healthz and exits 0 only on 200.
+      test: ["CMD", "/app/identuum-idp", "healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       # ── Existing entrypoint contract (deployment/entrypoint.sh) ────────
       # These three are read by entrypoint.sh: the DB URL is passed to
@@ -166,10 +177,9 @@ services:
       IDENTUUM_IDP_DATA_DIR: "/app/data"
       # IDENTUUM_IDP_UI_PUBLIC_BASE_URL is the browser-facing UI base URL
       # the setup banner uses to render "open the wizard at <URL>" on
-      # every boot while status == setup_required. Falls back to the
-      # issuer when unset; setting it explicitly keeps the banner
-      # pointing at the UI port (7104) instead of the IDP port (7113).
-      IDENTUUM_IDP_UI_PUBLIC_BASE_URL: "http://localhost:7104"
+      # every boot while status == setup_required. The binary serves the
+      # UI itself, so it is the issuer's origin (v0.6.0; :7104 before).
+      IDENTUUM_IDP_UI_PUBLIC_BASE_URL: "http://localhost:7113"
       # IDENTUUM_IDP_DATABASE_URL is consumed by the show-setup-code
       # subcommand so the customer can re-display the setup code after the
       # boot log has scrolled, via:
@@ -196,64 +206,6 @@ services:
       IDENTUUM_IDP_ENCRYPTION_KEY: "${IDENTUUM_IDP_ENCRYPTION_KEY:-}"
     volumes:
       - identuum-idp-oss-data:/app/data
-
-  identuum-ui:
-    # Customer-facing image. Pulled from the official registry by
-    # `docker compose up -d`. v0.2.4 (publish run 35933342230, built from
-    # identuum-ui@9a07ccf) is PINNED BY DIGEST so the tag cannot be silently
-    # retargeted. The UI versions on its own train (not the IDP's).
-    # Maintainers who need to rebuild from local source use
-    # deployment/docker-compose.build.yml as an overlay.
-    image: ghcr.io/identuum/identuum-ui:v0.2.4@sha256:06c7d2ed2eee703311e4c1d96efb2baed2a84cb1df760288bb555c7b2d4ff83e
-    container_name: identuum-idp-oss-ui
-    restart: unless-stopped
-    depends_on:
-      identuum-idp:
-        condition: service_started
-    ports:
-      # 7104 is the canonical UI port across the workspace; D-IDP-INSTALL-06
-      # pins it as the customer-facing entry URL. The host address is
-      # IDENTUUM_UI_BIND_ADDRESS (default 0.0.0.0; see the header).
-      - "${IDENTUUM_UI_BIND_ADDRESS:-0.0.0.0}:7104:7104"
-    configs:
-      # Ship the OSS runtime config inline (see the top-level `configs:`
-      # block below). Mounting it at /app/config/ui-runtime.json matches
-      # the production default path inside the UI image
-      # (src/lib/runtime-config.ts:configFilePath under NODE_ENV=production).
-      # Read-only (0444) so the container cannot mutate the source of
-      # truth.
-      - source: ui-runtime
-        target: /app/config/ui-runtime.json
-        mode: 0444
-
-# ──────────────────────────────────────────────────────────────────────────
-# Inline UI runtime configuration. Keeping the JSON in the Compose file
-# keeps the customer download to exactly ONE file (D-IDP-INSTALL-17) — no
-# separate config file ships next to docker-compose.yml.
-#
-# `internal_base_url` is the in-network address the UI's server-side
-# fetches use (Docker service-name DNS, not host loopback); the browser
-# uses `public_base_url`. AG is disabled in OSS — the AG fields stay
-# present so the UI's runtime config validator does not collapse into
-# unconfigured state.
-# ──────────────────────────────────────────────────────────────────────────
-configs:
-  ui-runtime:
-    content: |
-      {
-        "configured": true,
-        "ui_origin": "http://localhost:7104",
-        "idp": {
-          "enabled": true,
-          "public_base_url": "http://localhost:7113",
-          "internal_base_url": "http://identuum-idp:7113"
-        },
-        "ag": {
-          "enabled": false,
-          "public_base_url": "",
-          "internal_base_url": ""
-        }
-      }
 
 volumes:
   identuum-idp-oss-postgres-data:

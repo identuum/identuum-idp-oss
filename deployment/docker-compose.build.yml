@@ -3,16 +3,17 @@
 # ★ MAINTAINER / DEVELOPER ONLY. NOT THE CUSTOMER PATH. ★
 #
 # The customer-facing default (deployment/docker-compose.yml) is image-only:
-# it pulls `ghcr.io/identuum/identuum-idp-oss` and `ghcr.io/identuum/identuum-ui`
-# from the official registry and never builds anything on the customer host.
-# A customer who downloads only that one file MUST NOT need a sibling source
-# checkout.
+# it pulls `ghcr.io/identuum/identuum-idp-oss` from the official registry and
+# never builds anything on the customer host. A customer who downloads only
+# that one file MUST NOT need a source checkout.
 #
-# This overlay restores the local `build:` contexts so a maintainer with a
-# sibling `identuum-ui/` checkout can rebuild the images from source for
-# local iteration. Compose's last-file-wins overlay rules apply: the `image:`
-# tag from the base file is preserved (so `docker compose up -d` after a
-# build uses the same tag), and the `build:` blocks added here drive
+# This overlay restores the local `build:` context so a maintainer can
+# rebuild the image from source for local iteration. The UI is not a
+# separate image since v0.6.0: the binary embeds the vendored identuum-ui
+# export (internal/uiexport, refreshed by `make ui-vendor`), so this repo
+# alone is the build context. Compose's last-file-wins overlay rules apply:
+# the `image:` tag from the base file is preserved (so `docker compose up -d`
+# after a build uses the same tag), and the `build:` block added here drives
 # `docker compose build` / `docker compose up -d --build`.
 #
 # Usage:
@@ -28,16 +29,6 @@
 #     -f deployment/docker-compose.yml \
 #     -f deployment/docker-compose.build.yml \
 #     build
-#
-# Sibling-tree layout assumed by this overlay:
-#
-#   identuum/
-#     identuum-idp-oss/   ← this repo (build context for identuum-idp)
-#     identuum-ui/        ← sibling (build context for identuum-ui)
-#
-# If `../../identuum-ui` is not present, the `identuum-ui` build target
-# fails fast — that is the right signal that this overlay is being used
-# outside its intended maintainer workspace.
 
 services:
 
@@ -46,10 +37,3 @@ services:
       # Build context is the module root (one level above this file).
       context: ..
       dockerfile: deployment/Dockerfile.local
-
-  identuum-ui:
-    build:
-      # Sibling identuum-ui repository, two levels up from this overlay file
-      # (deployment/ → identuum-idp-oss/ → identuum/).
-      context: ../../identuum-ui
-      dockerfile: Dockerfile
