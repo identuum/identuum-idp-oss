@@ -127,6 +127,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			// privileges, serve — in ONE process, because a distroless
 			// image has no shell to sequence it.
 			return runAppliance(context.Background(), rest, stdout, stderr)
+		case "healthcheck":
+			// The Docker HEALTHCHECK of the distroless image (no shell):
+			// exit 0 only when this process's own /healthz answers 200.
+			return runHealthcheck(rest, stdout, stderr)
 		case "version":
 			fmt.Fprintln(stdout, version+" (commit "+buildinfo.Commit+")")
 			return 0
@@ -287,6 +291,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "                                     print the setup code while setup_required")
 	fmt.Fprintln(w, "                                     (flags BEFORE the positional — Go's parser")
 	fmt.Fprintln(w, "                                     stops at the first non-flag argument)")
+	fmt.Fprintln(w, "  healthcheck [base-url]             exit 0 when this server's /healthz answers 200")
+	fmt.Fprintln(w, "                                     (the Docker HEALTHCHECK; default: the listen address)")
 	fmt.Fprintln(w, "  audit-preupgrade <database-url>    READ-ONLY pre-upgrade sweep for stored rows the")
 	fmt.Fprintln(w, "                                     current validation guards refuse; counts per shape")
 	fmt.Fprintln(w, "                                     with rule IDs; exit 0 clean, 1 findings, 2 error")
