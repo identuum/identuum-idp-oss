@@ -35,6 +35,12 @@ var (
 	// the data volume was wiped). The startup path treats this as
 	// "regenerate" — see Initialize's behaviour.
 	ErrTokenFileMissing = errors.New("setup: token file missing while hash present")
+
+	// ErrOrganizationDomainRequired is returned by Complete when the domain
+	// was left empty and the organization name yields no default domain
+	// (it has no letter or digit to slug). Handlers map it to 400
+	// organization_domain_required.
+	ErrOrganizationDomainRequired = errors.New("setup: organization domain required: the name yields no default domain")
 )
 
 // Repository is the narrow data interface the Service depends on.
@@ -405,11 +411,6 @@ func validateCompleteInput(in CompleteInput) error {
 // look up by domain (slug of name) rather than name so the OSS
 // uniqueness constraint is the source of truth.
 func (s *Service) ensureFirstOrganization(ctx context.Context, in CompleteInput) (uuid.UUID, string, error) {
-	desiredDomain := strings.ToLower(strings.TrimSpace(in.OrganizationDomain))
-	if desiredDomain == "" {
-		desiredDomain = strings.TrimSpace(in.OrganizationName)
-	}
-
 	systemOrgID, err := uuid.Parse(domain.SystemOrgID)
 	if err != nil {
 		return uuid.Nil, "", fmt.Errorf("setup complete: parse system org id: %w", err)
@@ -428,7 +429,16 @@ func (s *Service) ensureFirstOrganization(ctx context.Context, in CompleteInput)
 		return o.ID, o.Name, nil
 	}
 
-	// Fresh path: create.
+	// Fresh path: create. An empty domain defaults to slug(name) + ".local"
+	// (v0.5.1; v0.5.0 used the raw name, which fails validation for any name
+	// with a space). A name with nothing to slug has no default: refuse.
+	desiredDomain := strings.ToLower(strings.TrimSpace(in.OrganizationDomain))
+	if desiredDomain == "" {
+		desiredDomain = service.DefaultOrgDomain(in.OrganizationName)
+		if desiredDomain == "" {
+			return uuid.Nil, "", ErrOrganizationDomainRequired
+		}
+	}
 	created, err := s.deps.OrgService.Create(ctx, service.CreateOrganizationOptions{
 		Name:   in.OrganizationName,
 		Domain: desiredDomain,

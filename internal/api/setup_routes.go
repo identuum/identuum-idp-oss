@@ -146,6 +146,10 @@ func handleSetupComplete(deps SetupRoutesDeps) gin.HandlerFunc {
 			c.JSON(http.StatusGone, gin.H{"error": "setup_already_complete"})
 		case errors.Is(err, setup.ErrTokenInvalid):
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "setup_token_invalid"})
+		case errors.Is(err, setup.ErrOrganizationDomainRequired):
+			// The name yields no default domain and none was given: the
+			// operator must enter one (v0.5.1).
+			c.JSON(http.StatusBadRequest, gin.H{"error": "organization_domain_required"})
 		default:
 			// validation errors and downstream service failures both
 			// land here. We do not echo the underlying error message —

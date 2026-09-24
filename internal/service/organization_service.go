@@ -395,6 +395,19 @@ func (s *OrganizationService) List(ctx context.Context, filter repository.Organi
 	return s.repo.List(ctx, filter, pagination, sort)
 }
 
+// DefaultOrgDomain is the domain an organization gets when none was given:
+// its slug under the reserved ".local" suffix ("Acme Corp" →
+// "acme-corp.local"), the fallback first-run setup documents. It returns ""
+// when the name has no letter or digit to slug, so a caller can refuse
+// rather than invent a domain.
+func DefaultOrgDomain(name string) string {
+	slug := slugifyOrgName(name)
+	if slug == "" {
+		return ""
+	}
+	return slug + ".local"
+}
+
 // slugifyOrgName returns a lowercase, hyphen-separated slug for an
 // org name. Anything that isn't alphanum becomes a hyphen; multiple
 // hyphens collapse. Mirrors the monolith helper without importing it.
