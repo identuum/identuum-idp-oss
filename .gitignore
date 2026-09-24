@@ -133,3 +133,6 @@ TEST-spec.MD
 # both). Nothing here is re-created by the current tool.
 /.legattus.json
 /.legattus/
+
+# PLAN-E-1: make ui-vendor builds the ui export in a clean copy here, then removes it.
+/.ui-vendor.*
