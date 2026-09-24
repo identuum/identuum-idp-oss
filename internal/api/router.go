@@ -835,6 +835,14 @@ func mountPublicSurface(router gin.IRouter, resolved OSSRouterDeps) {
 	// belongs to a separate docs slice.)
 	router.GET("/livez", livezHandler())
 
+	// /healthz answers exactly as /health (same handler, status and body).
+	// identuum-ui probes the IdP at /healthz first (the Kubernetes spelling
+	// identuum-idp-ce serves) and its site-admin settings page probes ONLY
+	// /healthz, so without it an OSS IdP read as unreachable there. Not
+	// api-docgen-annotated, for the same reason as /livez: an operational
+	// probe, not a new API surface.
+	router.GET("/healthz", healthHandler(resolved))
+
 	// /metrics is INTENTIONALLY NOT mounted here. It is served on its
 	// own listener (internal/runtime.Runtime.startMetricsListener,
 	// gated by Config.MetricsAddr) — never on the public API surface.

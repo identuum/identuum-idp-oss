@@ -112,10 +112,59 @@ func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
 		}
 		return
 	}
+	// The two UI routes the shared site-admin overview reads, in the shapes
+	// identuum-ui's Next routes answer (src/app/api/status/route.ts,
+	// src/app/api/runtime-config/route.ts). Registered before the fallback
+	// computes its route segments, so /api stays reserved either way.
+	engine.GET("/api/status", uiStatusHandler(resolved))
+	engine.GET("/api/runtime-config", uiRuntimeConfigHandler(resolved))
 	engine.NoRoute(uiStaticHandler(fsys, uiRouteSegments(engine)))
 	// ONE catch-all: gin refuses a static sibling beside a `*target`
 	// wildcard, so the boundary's own logout is dispatched inside it.
 	engine.Any(uiBFFPrefix+"/*target", uiBFFHandler(engine, resolved))
+}
+
+// uiStatusHandler answers the UI's GET /api/status for the binary that IS the
+// IdP: the IdP is enabled and as healthy as its own /health says (serving
+// unless a fatal startup fault — P-018), its product label is what the UI
+// derives from /health's `mode: oss`, and AG is not part of this deployment.
+func uiStatusHandler(resolved OSSRouterDeps) gin.HandlerFunc {
+	report := resolved.StartupReport
+	return func(c *gin.Context) {
+		idp := gin.H{
+			"enabled": true,
+			"healthy": !report.HasFatal(),
+			"product": "identuum-idp-oss",
+		}
+		if resolved.BruteForceProtectionDisabled {
+			idp["brute_force_protection_disabled"] = true
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{
+			"idp": idp,
+			"ag":  gin.H{"enabled": false, "healthy": nil, "product": "identuum-ag"},
+		})
+	}
+}
+
+// uiRuntimeConfigHandler answers the UI's GET /api/runtime-config with the
+// public configuration only (never an internal base URL). The UI is served by
+// this binary, so its origin is the request's own — the value the export's
+// platform already uses (window.location.origin).
+func uiRuntimeConfigHandler(resolved OSSRouterDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		scheme := "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{
+			"configured": true,
+			"ui_origin":  scheme + "://" + c.Request.Host,
+			"idp":        gin.H{"enabled": true, "public_base_url": resolved.DiscoveryConfig.Issuer},
+			"ag":         gin.H{"enabled": false, "public_base_url": ""},
+		})
+	}
 }
 
 // uiExportFS confines every open, including symlink resolution, to the export.
