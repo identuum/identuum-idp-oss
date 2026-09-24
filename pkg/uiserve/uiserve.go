@@ -119,6 +119,10 @@ type Options struct {
 	UI fs.FS
 	// Source names the UI in errors (for example "the embedded UI export").
 	Source string
+	// Edition names the binary's edition ("oss", "ce"); /api/status and
+	// /api/runtime-config report it as "edition", so the one UI artifact
+	// both editions embed can read it at runtime.
+	Edition string
 	// API is the caller's API handler, into which the boundary dispatches
 	// every forwarded request in-process. Required.
 	API http.Handler
@@ -286,6 +290,8 @@ func cookie(r *http.Request, name string) string {
 	return v
 }
 
+// status answers the UI's /api/status: the edition, the IdP's own health
+// and product, and AG as not part of this deployment.
 func (h *handler) status(w http.ResponseWriter) {
 	s := h.o.Status
 	healthy := s.Healthy == nil || s.Healthy()
@@ -297,8 +303,9 @@ func (h *handler) status(w http.ResponseWriter) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
-		"idp": idp,
-		"ag":  map[string]any{"enabled": false, "healthy": nil, "product": "identuum-ag"},
+		"edition": h.o.Edition,
+		"idp":     idp,
+		"ag":      map[string]any{"enabled": false, "healthy": nil, "product": "identuum-ag"},
 	})
 }
 
@@ -313,6 +320,7 @@ func (h *handler) runtimeConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, map[string]any{
 		"configured": true,
+		"edition":    h.o.Edition,
 		"ui_origin":  scheme + "://" + r.Host,
 		"idp":        map[string]any{"enabled": true, "public_base_url": h.o.PublicBaseURL},
 		"ag":         map[string]any{"enabled": false, "public_base_url": ""},

@@ -50,7 +50,7 @@ func TestUIPlatformRoutes_Status(t *testing.T) {
 		if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != "no-store" {
 			t.Fatalf("GET /api/status: %d cache=%q", rec.Code, rec.Header().Get("Cache-Control"))
 		}
-		var got map[string]map[string]any
+		var got map[string]any
 		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 			t.Fatalf("body %q: %v", rec.Body.String(), err)
 		}
@@ -58,9 +58,12 @@ func TestUIPlatformRoutes_Status(t *testing.T) {
 		if disabled {
 			idp["brute_force_protection_disabled"] = true
 		}
-		want := map[string]map[string]any{
-			"idp": idp,
-			"ag":  {"enabled": false, "healthy": nil, "product": "identuum-ag"},
+		// PLAN-F-2: the binary names its edition, so the one UI artifact
+		// both editions embed can read it.
+		want := map[string]any{
+			"edition": "oss",
+			"idp":     idp,
+			"ag":      map[string]any{"enabled": false, "healthy": nil, "product": "identuum-ag"},
 		}
 		gotJSON, _ := json.Marshal(got)
 		wantJSON, _ := json.Marshal(want)
@@ -81,7 +84,7 @@ func TestUIPlatformRoutes_RuntimeConfig(t *testing.T) {
 	}
 	// The export's own platform answers ui_origin with window.location.origin:
 	// the UI is served by this binary, so its origin is the request's own.
-	want := `{"ag":{"enabled":false,"public_base_url":""},"configured":true,"idp":{"enabled":true,"public_base_url":"https://idp.example.test"},"ui_origin":"http://example.com"}`
+	want := `{"ag":{"enabled":false,"public_base_url":""},"configured":true,"edition":"oss","idp":{"enabled":true,"public_base_url":"https://idp.example.test"},"ui_origin":"http://example.com"}`
 	var v any
 	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
 		t.Fatalf("body %q: %v", rec.Body.String(), err)

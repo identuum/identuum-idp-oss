@@ -61,6 +61,7 @@ func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
 	h, err := uiserve.New(uiserve.Options{
 		UI:             fsys,
 		Source:         source,
+		Edition:        "oss",
 		API:            engine,
 		Reserved:       uiRouteSegments(engine),
 		AllowedOrigins: resolved.CORSAllowedOrigins,
