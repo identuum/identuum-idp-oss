@@ -62,6 +62,7 @@
         "internal/server/**",
         "internal/service/**",
         "internal/setup/**",
+        "internal/uiexport/**",
         "mw/**",
         "ratelimit/**"
       ]
@@ -311,6 +312,7 @@
         "internal/setup/**",
         "internal/startup/**",
         "internal/testsupport/**",
+        "internal/uiexport/**",
         "internal/utils/**",
         "logger/**",
         "ratelimit/**"
@@ -388,6 +390,22 @@
       "may_import": [
         "github.com/stretchr/**",
         "logger/**"
+      ]
+    },
+    {
+      "name": "internal_uidigest",
+      "packages": [
+        "internal/uidigest/**"
+      ],
+      "may_import": []
+    },
+    {
+      "name": "internal_uiexport",
+      "packages": [
+        "internal/uiexport/**"
+      ],
+      "may_import": [
+        "internal/uidigest/**"
       ]
     },
     {
@@ -543,6 +561,7 @@
         "github.com/stretchr/**",
         "gopkg.in/yaml.v3/**",
         "internal/domain/**",
+        "internal/uidigest/**",
         "internal/utils/**",
         "pkg/**"
       ]
