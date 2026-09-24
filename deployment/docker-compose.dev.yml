@@ -98,7 +98,10 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.local
-    image: identuum-idp-oss:local
+    # Derived from the project like the container names: a second project
+    # (the ui's e2e-full harness runs as identuum-e2e) building under a fixed
+    # tag would retag the default project's image. Default unchanged.
+    image: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}:local
     # THE-SHARED-VOLUME: same reasoning as the postgres container above.
     container_name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}
     restart: unless-stopped

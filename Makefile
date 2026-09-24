@@ -2187,7 +2187,7 @@ clean:
 	rm -f identuum-idp
 
 ## oss-build: build the local-demo OSS app image (Postgres + app profile).
-##   Image: identuum-idp-oss:local
+##   Image: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}:local (identuum-idp-oss:local by default).
 ##   Source: deployment/Dockerfile.local (multi-stage golang:1.26.5-bookworm builder + debian:bookworm-slim runtime).
 ##   DB URLs are never echoed (compose env handles the URL inside the container).
 oss-build:
@@ -2209,7 +2209,7 @@ oss-up: oss-build
 	@# the entrypoint still has to migrate before it serves — so this target
 	@# cannot claim 7113 is answering, and does not. The probes below are
 	@# commands to run ONCE it is serving, not a statement that they work now.
-	@echo "OSS app container STARTING on 127.0.0.1:7113 (Postgres on 127.0.0.1:5513)."
+	@echo "OSS app container STARTING on 127.0.0.1:7113 (Postgres on 127.0.0.1:$(DEV_PG_HOST_PORT))."
 	@echo "It is not serving yet — the entrypoint migrates first. Wait for health:"
 	@echo "  until curl -fsS --max-time 2 http://127.0.0.1:7113/health >/dev/null; do sleep 2; done"
 	@echo "Then smoke it:"
