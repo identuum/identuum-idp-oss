@@ -8,12 +8,12 @@ follows [Semantic Versioning](https://semver.org/).
 ## `v0.6.0`
 
 One binary serves the UI and the API. The identuum-ui static export
-(identuum-ui `v0.3.0`, `e5df81c`, tree digest `0683e5a3…`) is embedded in
+(identuum-ui `v0.3.0`, `e400398`, tree digest `cf25b025…`) is embedded in
 the binary and served on the issuer's own origin, `:7113`, behind a narrow
 `/bff` browser boundary; the separate identuum-ui container and its `:7104`
 port are gone from the compose file. Delta `v0.5.1..` (`git log`/`git diff
---shortstat`, measured before this release commit): 25 commits, 61 files,
-+4789/−192. No migration (`0001`–`0040`, as in `v0.5.1`), no dependency
+--shortstat`, measured at `6e8c608`, before this notes commit): 28 commits,
+65 files, +5048/−243. No migration (`0001`–`0040`, as in `v0.5.1`), no dependency
 moved (`go.mod`/`go.sum` unchanged), Go 1.27.1; the canonical endpoint count
 stays 144 (`go run ./tools/api-docgen --dry-run | grep -c '^  - id:'`).
 Upgrading from `v0.5.x` changes the URL, and a browser on another host name signs in again: see
