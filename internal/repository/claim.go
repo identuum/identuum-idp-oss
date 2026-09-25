@@ -28,3 +28,24 @@ type ClaimRepository interface {
 	// (e.g. it was deleted by a concurrent request).
 	IncrementAttemptCount(ctx context.Context, id uuid.UUID) (int, error)
 }
+
+// ClaimConsumeTx is one claim consume's view of the database. In production
+// it is bound to a single transaction (ClaimConsumeTransactor): the claim row
+// is locked by LockByTokenHash, and the attempt count, the burn and the new
+// org_admin commit or roll back together (OSS-SEC).
+type ClaimConsumeTx interface {
+	// LockByTokenHash reads the claim and holds its row until the
+	// transaction ends. domain.ErrClaimNotFound when there is none.
+	LockByTokenHash(ctx context.Context, hash string) (*domain.OrganizationClaim, error)
+	IncrementAttemptCount(ctx context.Context, id uuid.UUID) (int, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	FindUsersByEmail(ctx context.Context, email string) ([]*domain.User, error)
+	CreateUser(ctx context.Context, user *domain.User) (*domain.User, error)
+}
+
+// ClaimConsumeTransactor runs fn in one transaction: committed when fn
+// returns nil, rolled back when it returns an error. PgClaimRepository
+// implements it.
+type ClaimConsumeTransactor interface {
+	ConsumeInTx(ctx context.Context, fn func(ClaimConsumeTx) error) error
+}

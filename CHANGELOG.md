@@ -31,6 +31,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **A claim link is no longer lost when creating its org_admin fails.** A
+  user-create failure after the burn used to leave the claim link burned
+  with no user. The consume of `POST /api/v1/auth/claim` now runs in one
+  transaction with the claim row locked: the attempt count, the burn and the
+  new org_admin commit together, and a failure rolls the burn back, so the
+  link stays usable. The response bodies, the email binding, single use and
+  the three-attempt budget are unchanged. Concurrent consumes of one link
+  already created exactly one user (the burn reports its row count); a test
+  now guards that too.
 - **A wrong method on a registered path answers `405 Method Not Allowed`
   with an `Allow` header naming the path's methods** and the body
   `{"error":"method_not_allowed"}`, where it answered a plain 404 (for

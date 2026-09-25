@@ -19,7 +19,54 @@ func NewPgClaimRepository(db DBTX) *PgClaimRepository {
 }
 
 // Ensure interface compliance
-var _ repository.ClaimRepository = (*PgClaimRepository)(nil)
+var (
+	_ repository.ClaimRepository        = (*PgClaimRepository)(nil)
+	_ repository.ClaimConsumeTransactor = (*PgClaimRepository)(nil)
+)
+
+// ConsumeInTx runs one claim consume in ONE transaction (OSS-SEC). fn's
+// claim and user repositories are bound to it,
+// so the claim row it locks, the attempt count, the burn and the org_admin it
+// creates commit together when fn returns nil and are all rolled back when fn
+// returns an error. Before this, a user creation that failed after the burn
+// left the link burned and no user created.
+func (r *PgClaimRepository) ConsumeInTx(ctx context.Context, fn func(repository.ClaimConsumeTx) error) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := fn(&pgClaimConsumeTx{claims: &PgClaimRepository{db: tx}, users: NewPgxUserRepository(tx)}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// pgClaimConsumeTx is repository.ClaimConsumeTx over one transaction.
+type pgClaimConsumeTx struct {
+	claims *PgClaimRepository
+	users  *PgxUserRepository
+}
+
+func (t *pgClaimConsumeTx) LockByTokenHash(ctx context.Context, hash string) (*domain.OrganizationClaim, error) {
+	return t.claims.getByTokenHash(ctx, hash, true)
+}
+
+func (t *pgClaimConsumeTx) IncrementAttemptCount(ctx context.Context, id uuid.UUID) (int, error) {
+	return t.claims.IncrementAttemptCount(ctx, id)
+}
+
+func (t *pgClaimConsumeTx) Delete(ctx context.Context, id uuid.UUID) error {
+	return t.claims.Delete(ctx, id)
+}
+
+func (t *pgClaimConsumeTx) FindUsersByEmail(ctx context.Context, email string) ([]*domain.User, error) {
+	return t.users.FindUsersByEmail(ctx, email)
+}
+
+func (t *pgClaimConsumeTx) CreateUser(ctx context.Context, user *domain.User) (*domain.User, error) {
+	return t.users.Create(ctx, user)
+}
 
 func (r *PgClaimRepository) Create(ctx context.Context, claim *domain.OrganizationClaim) error {
 	query := `
@@ -39,6 +86,12 @@ func (r *PgClaimRepository) Create(ctx context.Context, claim *domain.Organizati
 }
 
 func (r *PgClaimRepository) GetByTokenHash(ctx context.Context, hash string) (*domain.OrganizationClaim, error) {
+	return r.getByTokenHash(ctx, hash, false)
+}
+
+// getByTokenHash reads a claim by its token hash; lock holds the row
+// (FOR UPDATE) until the caller's transaction ends.
+func (r *PgClaimRepository) getByTokenHash(ctx context.Context, hash string, lock bool) (*domain.OrganizationClaim, error) {
 	query := `
 		SELECT id, organization_id, token_hash, expires_at, created_at, attempt_count,
 		       COALESCE(target_email, '') AS target_email,
@@ -46,6 +99,9 @@ func (r *PgClaimRepository) GetByTokenHash(ctx context.Context, hash string) (*d
 		FROM organization_claims
 		WHERE token_hash = $1
 	`
+	if lock {
+		query += ` FOR UPDATE`
+	}
 	var claim domain.OrganizationClaim
 	err := r.db.QueryRow(ctx, query, hash).Scan(
 		&claim.ID,

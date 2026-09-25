@@ -136,6 +136,10 @@ type ClaimService struct {
 	ttl     time.Duration
 
 	minPasswordLength int
+
+	// consumeTx runs ConsumeClaim's reads and writes in one transaction
+	// (OSS-SEC). Set by NewClaimService.
+	consumeTx repository.ClaimConsumeTransactor
 }
 
 // ClaimServiceConfig holds the dependencies AND optional knobs the
@@ -189,7 +193,7 @@ func NewClaimService(cfg ClaimServiceConfig) *ClaimService {
 	if minLen <= 0 {
 		minLen = 12 // claim consume creates a new org_admin — stricter floor
 	}
-	return &ClaimService{
+	s := &ClaimService{
 		claims:            cfg.Claims,
 		orgs:              cfg.Orgs,
 		orgs2:             cfg.OrgsAdmin,
@@ -202,6 +206,47 @@ func NewClaimService(cfg ClaimServiceConfig) *ClaimService {
 		ttl:               ttl,
 		minPasswordLength: minLen,
 	}
+	// The consume runs in one transaction whenever the claim repository can
+	// open one (PgClaimRepository, the production wiring). A repository that
+	// cannot — the in-memory fakes of the unit tests — is driven through the
+	// same steps without a transaction.
+	if t, ok := cfg.Claims.(repository.ClaimConsumeTransactor); ok {
+		s.consumeTx = t
+	} else {
+		s.consumeTx = claimReposWithoutTx{s: s}
+	}
+	return s
+}
+
+// claimReposWithoutTx is repository.ClaimConsumeTransactor over the service's
+// own repositories, with no transaction: the unit tests' in-memory fakes.
+type claimReposWithoutTx struct{ s *ClaimService }
+
+func (r claimReposWithoutTx) ConsumeInTx(_ context.Context, fn func(repository.ClaimConsumeTx) error) error {
+	return fn(r)
+}
+
+func (r claimReposWithoutTx) LockByTokenHash(ctx context.Context, hash string) (*domain.OrganizationClaim, error) {
+	return r.s.claims.GetByTokenHash(ctx, hash)
+}
+
+func (r claimReposWithoutTx) IncrementAttemptCount(ctx context.Context, id uuid.UUID) (int, error) {
+	return r.s.claims.IncrementAttemptCount(ctx, id)
+}
+
+func (r claimReposWithoutTx) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.s.claims.Delete(ctx, id)
+}
+
+func (r claimReposWithoutTx) FindUsersByEmail(ctx context.Context, email string) ([]*domain.User, error) {
+	if r.s.exists == nil {
+		return nil, nil
+	}
+	return r.s.exists.FindUsersByEmail(ctx, email)
+}
+
+func (r claimReposWithoutTx) CreateUser(ctx context.Context, user *domain.User) (*domain.User, error) {
+	return r.s.users.Create(ctx, user)
 }
 
 // GenerateClaimToken mints a new claim token for the supplied org.
@@ -335,55 +380,90 @@ func (s *ClaimService) ConsumeClaim(ctx context.Context, in ConsumeClaimInput) (
 	if email == "" {
 		return &ConsumeClaimResult{Success: false}, nil
 	}
-	hash := hashToken(in.Token)
-	claim, err := s.claims.GetByTokenHash(ctx, hash)
-	if err != nil || claim == nil {
+	// OSS-SEC: every read and write below runs in
+	// ONE transaction with the claim row locked. The attempt count, the burn
+	// and the new org_admin commit together, and a failure after the burn
+	// rolls the burn back: a user creation that fails no longer leaves the
+	// link burned with no user.
+	var (
+		result  *ConsumeClaimResult
+		created *domain.User
+		claimID uuid.UUID
+	)
+	txErr := s.consumeTx.ConsumeInTx(ctx, func(st repository.ClaimConsumeTx) error {
+		var err error
+		result, created, claimID, err = s.consumeLocked(ctx, st, in, email)
+		return err
+	})
+	if txErr != nil || result == nil {
+		// Rolled back: the claim and its attempt count are as they were.
 		return &ConsumeClaimResult{Success: false}, nil
+	}
+	if result.Success && created != nil {
+		_ = s.audit.Record(ctx, audit.Event{
+			Action:         domain.AuditClaimConsumed,
+			Outcome:        "success",
+			SubjectID:      created.ID,
+			SubjectType:    "user",
+			OrganizationID: created.OrganizationID,
+			IPAddress:      in.IPAddress,
+			UserAgent:      in.UserAgent,
+			Metadata: map[string]any{
+				"claim_id":  claimID.String(),
+				"user_role": string(created.Role),
+			},
+		})
+	}
+	return result, nil
+}
+
+// errClaimUserCreate rolls a consume back when the org_admin cannot be
+// created after the claim was burned.
+var errClaimUserCreate = errors.New("claim: org_admin create failed")
+
+// consumeLocked is ConsumeClaim's body inside the transaction. It returns
+// the outcome and, on success, the user it created and the claim it burned.
+// A non-nil error rolls everything back; every refusal returns nil so its
+// attempt count or burn commits.
+func (s *ClaimService) consumeLocked(ctx context.Context, st repository.ClaimConsumeTx, in ConsumeClaimInput, email string) (*ConsumeClaimResult, *domain.User, uuid.UUID, error) {
+	claim, err := st.LockByTokenHash(ctx, hashToken(in.Token))
+	if err != nil || claim == nil {
+		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
 	if claim.IsExpired(s.now()) {
-		return &ConsumeClaimResult{Success: false}, nil
+		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
 	if claim.IsMaxAttemptsReached() {
-		// Burn the row idempotently — the next attempt also sees
-		// "max reached" because the row is gone after this
-		// branch. Mirror monolith semantics.
-		_ = s.claims.Delete(ctx, claim.ID)
-		return &ConsumeClaimResult{Success: false, AttemptsExhausted: true, Reason: "max_attempts_reached"}, nil
+		// Burn the row — the next attempt finds no claim. Mirror monolith
+		// semantics. The burn commits with the transaction.
+		_ = st.Delete(ctx, claim.ID)
+		return &ConsumeClaimResult{Success: false, AttemptsExhausted: true, Reason: "max_attempts_reached"}, nil, uuid.Nil, nil
 	}
 	// Email-binding guard. Mismatch counts as a failed attempt
 	// because a hostile claimant who guesses the URL must not be
 	// able to retry indefinitely with different emails.
 	if claim.EmailBound {
 		if !strings.EqualFold(strings.TrimSpace(claim.TargetEmail), email) {
-			s.incrementAttemptsOrBurn(ctx, claim)
-			return &ConsumeClaimResult{Success: false}, nil
+			incrementAttemptsOrBurn(ctx, st, claim)
+			return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 		}
 	}
 	// Cheap length floor — saves the DB roundtrip on obvious weak
 	// inputs. The full per-org complexity check runs AFTER the org
 	// load below so the policy is known.
 	if len(in.Password) < s.minPasswordLength {
-		newCount, _ := s.claims.IncrementAttemptCount(ctx, claim.ID)
-		remaining := domain.ClaimMaxPasswordAttempts - newCount
-		if remaining < 0 {
-			remaining = 0
-		}
-		return &ConsumeClaimResult{
-			Success:           false,
-			AttemptsRemaining: remaining,
-			Reason:            "weak_password",
-		}, nil
+		return weakPassword(ctx, st, claim), nil, uuid.Nil, nil
 	}
 	// Org must exist + be pre-active. Mirror monolith.
 	org, err := s.loadOrganization(ctx, claim.OrganizationID)
 	if err != nil || org == nil {
-		return &ConsumeClaimResult{Success: false}, nil
+		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
 	if org.Active {
 		// Org was activated through another path; the claim is now
 		// stale. Burn it.
-		_ = s.claims.Delete(ctx, claim.ID)
-		return &ConsumeClaimResult{Success: false}, nil
+		_ = st.Delete(ctx, claim.ID)
+		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
 	// Per-org PasswordComplexityEnabled enforcement (Decision D-015 §9,
 	// slice agent-a-20260715). The org the claim targets is the
@@ -391,41 +471,27 @@ func (s *ClaimService) ConsumeClaim(ctx context.Context, in ConsumeClaimInput) (
 	// A policy violation still increments the attempt counter so a
 	// hostile claimant cannot brute-force a strong password.
 	if err := domain.ValidatePasswordPolicy(in.Password, s.minPasswordLength, org.PasswordComplexityEnabled); err != nil {
-		newCount, _ := s.claims.IncrementAttemptCount(ctx, claim.ID)
-		remaining := domain.ClaimMaxPasswordAttempts - newCount
-		if remaining < 0 {
-			remaining = 0
-		}
-		return &ConsumeClaimResult{
-			Success:           false,
-			AttemptsRemaining: remaining,
-			Reason:            "weak_password",
-		}, nil
+		return weakPassword(ctx, st, claim), nil, uuid.Nil, nil
 	}
 	// Pre-existing org_admin guard. Even with a valid URL, we MUST
 	// NOT mint a second org_admin row.
-	if s.exists != nil {
-		existing, _ := s.exists.FindUsersByEmail(ctx, email)
-		for _, u := range existing {
-			if u != nil && u.OrganizationID == org.ID {
-				return &ConsumeClaimResult{Success: false, Reason: "email_exists"}, nil
-			}
+	existing, _ := st.FindUsersByEmail(ctx, email)
+	for _, u := range existing {
+		if u != nil && u.OrganizationID == org.ID {
+			return &ConsumeClaimResult{Success: false, Reason: "email_exists"}, nil, uuid.Nil, nil
 		}
 	}
-	// Burn-before-write: delete the claim BEFORE the new org_admin is created
-	// so a parallel attempt cannot land two writes.
-	//
-	// P3-2: that sentence is only true because Delete now REPORTS whether it
-	// removed a row. It used to discard the command tag, so a concurrent
-	// claimant deleted nothing, saw a nil error, and minted a SECOND org_admin
-	// — the delete was idempotent, and idempotent is the one thing a delete
-	// used as a mutex must not be. The loser now takes this branch.
-	if err := s.claims.Delete(ctx, claim.ID); err != nil {
-		return &ConsumeClaimResult{Success: false}, nil
+	// Burn-before-write: delete the claim BEFORE the new org_admin is created.
+	// The claim row is locked (LockByTokenHash), so a parallel consume waits
+	// and then finds no claim. Delete still REPORTS whether it removed a row
+	// (P3-2), which is what arbitrates when there is no transaction (the unit
+	// tests' fakes): the loser takes this branch.
+	if err := st.Delete(ctx, claim.ID); err != nil {
+		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
 	id, err := uuidgen.NewV7()
 	if err != nil {
-		return &ConsumeClaimResult{Success: false}, nil
+		return nil, nil, uuid.Nil, errClaimUserCreate
 	}
 	now := s.now().UTC()
 	user := &domain.User{
@@ -443,49 +509,38 @@ func (s *ClaimService) ConsumeClaim(ctx context.Context, in ConsumeClaimInput) (
 		n := strings.TrimSpace(in.Name)
 		user.Name = &n
 	}
-	if _, err := s.users.Create(ctx, user); err != nil {
-		// Partial-consume audit: the claim row is gone but the
-		// org_admin was not minted. The wire stays {success:false}.
-		_ = s.audit.Record(ctx, audit.Event{
-			Action:         domain.AuditClaimConsumptionPartial,
-			Outcome:        "denied",
-			SubjectID:      org.ID,
-			SubjectType:    "organization",
-			OrganizationID: org.ID,
-			IPAddress:      in.IPAddress,
-			UserAgent:      in.UserAgent,
-			Metadata: map[string]any{
-				"target_email": email,
-				"claim_id":     claim.ID.String(),
-			},
-		})
-		return &ConsumeClaimResult{Success: false}, nil
+	if _, err := st.CreateUser(ctx, user); err != nil {
+		// Roll the burn back with everything else: the link stays usable,
+		// and the wire stays {success:false}.
+		return nil, nil, uuid.Nil, errClaimUserCreate
 	}
-	_ = s.audit.Record(ctx, audit.Event{
-		Action:         domain.AuditClaimConsumed,
-		Outcome:        "success",
-		SubjectID:      user.ID,
-		SubjectType:    "user",
-		OrganizationID: org.ID,
-		IPAddress:      in.IPAddress,
-		UserAgent:      in.UserAgent,
-		Metadata: map[string]any{
-			"claim_id":  claim.ID.String(),
-			"user_role": string(user.Role),
-		},
-	})
-	return &ConsumeClaimResult{Success: true}, nil
+	return &ConsumeClaimResult{Success: true}, user, claim.ID, nil
+}
+
+// weakPassword counts one failed attempt and returns the weak-password
+// outcome with the attempts left.
+func weakPassword(ctx context.Context, st repository.ClaimConsumeTx, claim *domain.OrganizationClaim) *ConsumeClaimResult {
+	newCount, _ := st.IncrementAttemptCount(ctx, claim.ID)
+	remaining := domain.ClaimMaxPasswordAttempts - newCount
+	if remaining < 0 {
+		remaining = 0
+	}
+	return &ConsumeClaimResult{
+		Success:           false,
+		AttemptsRemaining: remaining,
+		Reason:            "weak_password",
+	}
 }
 
 // incrementAttemptsOrBurn increments the attempt counter and, on
 // max-reach, deletes the claim row.
-func (s *ClaimService) incrementAttemptsOrBurn(ctx context.Context, claim *domain.OrganizationClaim) {
-	newCount, err := s.claims.IncrementAttemptCount(ctx, claim.ID)
+func incrementAttemptsOrBurn(ctx context.Context, st repository.ClaimConsumeTx, claim *domain.OrganizationClaim) {
+	newCount, err := st.IncrementAttemptCount(ctx, claim.ID)
 	if err != nil {
 		return
 	}
 	if newCount >= domain.ClaimMaxPasswordAttempts {
-		_ = s.claims.Delete(ctx, claim.ID)
+		_ = st.Delete(ctx, claim.ID)
 	}
 }
 
