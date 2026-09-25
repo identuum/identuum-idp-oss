@@ -44,15 +44,46 @@ type MigrationResult struct {
 // Returns the per-source result list so callers can log which files
 // were applied this run.
 func RunMigrations(ctx context.Context, db *sql.DB) ([]MigrationResult, error) {
+	report, err := RunMigrationsReport(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return report.Results, nil
+}
+
+// MigrationReport is what one migration run did: the migrations it applied
+// (goose's Up returns only those), how many the binary embeds, and the
+// database's version afterwards.
+type MigrationReport struct {
+	Results  []MigrationResult
+	Embedded int
+	Version  int64
+}
+
+// Applied counts the results that applied a migration.
+func (r MigrationReport) Applied() int {
+	n := 0
+	for _, res := range r.Results {
+		if res.Applied {
+			n++
+		}
+	}
+	return n
+}
+
+// RunMigrationsReport is RunMigrations with its report: Embedded is the
+// provider's own source list (every migration the binary carries, applied
+// or not), Version the database's version after Up.
+func RunMigrationsReport(ctx context.Context, db *sql.DB) (MigrationReport, error) {
 	if db == nil {
-		return nil, errors.New("postgres: nil *sql.DB passed to RunMigrations")
+		return MigrationReport{}, errors.New("postgres: nil *sql.DB passed to RunMigrations")
 	}
 
 	locker, err := lock.NewPostgresSessionLocker(
 		lock.WithLockTimeout(MigrationLockPeriodSeconds, MigrationLockMaxRetries),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: migration lock setup failed: %w", err)
+		return MigrationReport{}, fmt.Errorf("postgres: migration lock setup failed: %w", err)
 	}
 
 	provider, err := goosev3.NewProvider(
@@ -62,12 +93,12 @@ func RunMigrations(ctx context.Context, db *sql.DB) ([]MigrationResult, error) {
 		goosev3.WithSessionLocker(locker),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: migration provider setup failed: %w", err)
+		return MigrationReport{}, fmt.Errorf("postgres: migration provider setup failed: %w", err)
 	}
 
 	results, err := provider.Up(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: migrations failed: %w", err)
+		return MigrationReport{}, fmt.Errorf("postgres: migrations failed: %w", err)
 	}
 
 	out := make([]MigrationResult, 0, len(results))
@@ -80,5 +111,9 @@ func RunMigrations(ctx context.Context, db *sql.DB) ([]MigrationResult, error) {
 			Applied: !r.Empty,
 		})
 	}
-	return out, nil
+	version, err := provider.GetDBVersion(ctx)
+	if err != nil {
+		return MigrationReport{}, fmt.Errorf("postgres: read migrated version failed: %w", err)
+	}
+	return MigrationReport{Results: out, Embedded: len(provider.ListSources()), Version: version}, nil
 }

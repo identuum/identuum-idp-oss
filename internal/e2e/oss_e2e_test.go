@@ -85,17 +85,12 @@ func applyMigrations(t *testing.T, dbURL string) {
 	}
 	defer func() { _ = db.Close() }()
 
-	results, err := postgres.RunMigrations(context.Background(), db)
+	report, err := postgres.RunMigrationsReport(context.Background(), db)
 	if err != nil {
 		t.Fatalf("run migrations: error returned (URL redacted): %v", classifyMigrationError(err))
 	}
-	applied := 0
-	for _, r := range results {
-		if r.Applied {
-			applied++
-		}
-	}
-	t.Logf("oss e2e: migrations: applied=%d of %d embedded", applied, len(results))
+	t.Logf("oss e2e: migrations: applied=%d of %d embedded; database at version %d",
+		report.Applied(), report.Embedded, report.Version)
 }
 
 // classifyOpenError converts a postgres.OpenStdlibDB error into a

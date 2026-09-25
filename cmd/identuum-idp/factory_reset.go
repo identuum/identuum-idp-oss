@@ -94,18 +94,13 @@ func runFactoryReset(ctx context.Context, databaseURL string, stdout, stderr io.
 	// Re-apply the embedded migrations so the database is immediately usable
 	// at factory state (migrated, empty, setup_required) — identical to a
 	// fresh `identuum-idp migrate`.
-	results, err := postgres.RunMigrations(ctx, db)
+	report, err := postgres.RunMigrationsReport(ctx, db)
 	if err != nil {
 		fmt.Fprintln(stderr, "identuum-idp: factory-reset: re-migration failed:", redactURL(err, databaseURL))
 		return 1
 	}
-	applied := 0
-	for _, r := range results {
-		if r.Applied {
-			applied++
-		}
-	}
-	fmt.Fprintf(stdout, "identuum-idp: factory-reset: re-applied %d migration(s) of %d embedded\n", applied, len(results))
+	fmt.Fprintf(stdout, "identuum-idp: factory-reset: re-applied %d migration(s) of %d embedded; database at version %d\n",
+		report.Applied(), report.Embedded, report.Version)
 	fmt.Fprintln(stdout, "identuum-idp: factory-reset: factory state reached — setup_required. Restart the appliance (or run bootstrap) to begin setup.")
 	return 0
 }

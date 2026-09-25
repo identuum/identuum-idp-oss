@@ -324,7 +324,7 @@ func runMigrate(ctx context.Context, databaseURL string, stdout, stderr io.Write
 		fmt.Fprintln(stderr, "identuum-idp: migrate: open stdlib db failed:", redactURL(err, databaseURL))
 		return 1
 	}
-	results, err := postgres.RunMigrations(ctx, db)
+	report, err := postgres.RunMigrationsReport(ctx, db)
 	closeErr := db.Close()
 	if err != nil {
 		fmt.Fprintln(stderr, "identuum-idp: migrate: run migrations failed:", redactURL(err, databaseURL))
@@ -335,13 +335,10 @@ func runMigrate(ctx context.Context, databaseURL string, stdout, stderr io.Write
 		return 1
 	}
 
-	applied := 0
-	for _, r := range results {
-		if r.Applied {
-			applied++
-		}
-	}
-	fmt.Fprintf(stdout, "identuum-idp: migrate: applied %d migration(s) of %d embedded\n", applied, len(results))
+	// OSS-MIGRATE-COUNT: the embedded count is the binary's own source list,
+	// not the length of what this run applied.
+	fmt.Fprintf(stdout, "identuum-idp: migrate: applied %d migration(s) of %d embedded; database at version %d\n",
+		report.Applied(), report.Embedded, report.Version)
 
 	return runDBCheck(ctx, databaseURL, stdout, stderr)
 }
