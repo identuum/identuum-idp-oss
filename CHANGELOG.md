@@ -33,6 +33,14 @@ follows [Semantic Versioning](https://semver.org/).
   HEAD on a GET route, CORS preflight, UI pages and assets, and unregistered
   paths answer as before. `pkg/uiserve` gains `Options.AllowedMethods`;
   left nil, every answer is unchanged.
+- **`migrate` says what it did**: `identuum-idp: migrate: applied N
+  migration(s) of M embedded; database at version V`, where M is every
+  migration the binary carries and V the database's version afterwards.
+  It printed the number applied as the embedded count, so a database
+  already up to date read "applied 0 migration(s) of 0 embedded" (the
+  container entrypoint on every restart, `migrate` run twice). Nothing was
+  missing: the published v0.6.0 image embeds all 40 migrations. The
+  factory-reset's re-migration line reports the same way.
 
 ### Deployment
 
