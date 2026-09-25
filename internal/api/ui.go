@@ -39,17 +39,18 @@ type uiGinContextKey struct{}
 // in-process dispatch need it); a composed sub-router or a UI without an
 // index.html records a fatal fault rather than silently serving nothing,
 // per P-018.
-func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
+// It returns the NoRoute handler it mounted, nil when none.
+func mountUI(router gin.IRouter, resolved OSSRouterDeps) gin.HandlerFunc {
 	fsys, source := uiserve.Select(resolved.UIStaticDir, "IDENTUUM_IDP_UI_DIR", resolved.UIEmbedded)
 	if fsys == nil {
-		return
+		return nil
 	}
 	engine, ok := router.(*gin.Engine)
 	if !ok {
 		if resolved.StartupReport != nil {
 			resolved.StartupReport.Fatal("mountUI", source+" is set but the UI can only be mounted on the root engine")
 		}
-		return
+		return nil
 	}
 	report := resolved.StartupReport
 	refresh := handlers.HandleBrowserSessionRefresh(handlers.AuthSessionsHandlerDeps{
@@ -64,6 +65,7 @@ func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
 		Edition:        "oss",
 		API:            engine,
 		Reserved:       uiRouteSegments(engine),
+		AllowedMethods: routeAllow(engine),
 		AllowedOrigins: resolved.CORSAllowedOrigins,
 		AccessCookie:   "access_token",
 		RefreshCookie:  "refresh_token",
@@ -96,7 +98,7 @@ func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
 		if report != nil {
 			report.Fatal("mountUI", err.Error())
 		}
-		return
+		return nil
 	}
 	serve := func(c *gin.Context) {
 		h.ServeHTTP(c.Writer, c.Request.WithContext(context.WithValue(c.Request.Context(), uiGinContextKey{}, c)))
@@ -109,6 +111,7 @@ func mountUI(router gin.IRouter, resolved OSSRouterDeps) {
 	// ONE catch-all: gin refuses a static sibling beside a `*target`
 	// wildcard, so the boundary's own session routes are dispatched inside it.
 	engine.Any(uiserve.BFFPrefix+"/*target", serve)
+	return serve
 }
 
 // uiGinHook runs a gin handler as a boundary hook on the request's own gin

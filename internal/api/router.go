@@ -618,9 +618,9 @@ func NewOSSEngine(deps OSSRouterDeps) *gin.Engine {
 // internal-only listener; see internal/runtime.Runtime.startMetricsListener
 // and TestNewOSSEngine_MetricsNotOnPublicRouter.)
 //
-// Non-GET on any of the JSON endpoints returns 405 + Allow: GET;
-// gin's mux is configured to call HandleMethodNotAllowed for that
-// behaviour — see engine.HandleMethodNotAllowed below.
+// A method a registered path does not answer gets 405 with an Allow header
+// naming the methods it does (OSS-405, method_not_allowed.go), when router
+// is the engine itself.
 func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	resolved := resolvedDeps(deps)
 
@@ -638,6 +638,9 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	// top-level body stays free of branching. The 2026-06-24 refactor
 	// reduced this function from cyclomatic complexity 57 to ~3.
 
+	// OSS-405: before every other middleware, so none of their answers
+	// carries the Allow header gin sets for a method mismatch.
+	router.Use(holdAllow)
 	// Security response headers are written first so they appear on EVERY
 	// response, including the NOT-SERVING 503 and auth 4xx rejections.
 	mountSecurityHeaders(router)
@@ -702,7 +705,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	// a NoRoute fallback — every route above keeps precedence, and the BFF
 	// under /bff/ dispatches back into this same engine. Mounts nothing
 	// unless UIStaticDir is set (see ui.go).
-	mountUI(router, resolved)
+	mountMethodNotAllowed(router, mountUI(router, resolved))
 }
 
 // notServingAllowlist is the set of paths that remain reachable while
