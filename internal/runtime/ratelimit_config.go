@@ -31,8 +31,15 @@ import (
 //	mfa-recovery-codes-regenerate
 //	               5 / 15m   (tight; per authenticated SUBJECT — a TOTP
 //	                          guessed at wire speed; THE-UNLIMITED-REGENERATE)
+//	email-verification-resend
+//	               10 / 15m  (tight; per IP — every accepted request can send
+//	                          a mail; OSS-SEC)
+//	email-verification-address
+//	               3 / 1h    (per TARGET ADDRESS, hashed — one inbox cannot
+//	                          be flooded from many IPs; OSS-SEC)
+//	email-verify   30 / 15m  (per IP — token guessing / burning; OSS-SEC)
 //
-// Only the seven classes the router mounts are populated; the remaining
+// Only the ten classes the router mounts are populated; the remaining
 // ratelimit.RateLimitConfig fields are intentionally left zero (no route
 // reads them).
 func resolveRateLimitConfig(getenv func(string) string) ratelimit.RateLimitConfig {
@@ -57,6 +64,11 @@ func resolveRateLimitConfig(getenv func(string) string) ratelimit.RateLimitConfi
 		PasswordResetLimit: resolveRateLimit(getenv, "PASSWORD_RESET", 10, 15*time.Minute),
 		// IDENTUUM_IDP_RATE_LIMIT_MFA_RECOVERY_CODES_REGENERATE_{REQUESTS,WINDOW}
 		MFARecoveryCodesRegenerateLimit: resolveRateLimit(getenv, "MFA_RECOVERY_CODES_REGENERATE", 5, 15*time.Minute),
+		// IDENTUUM_IDP_RATE_LIMIT_EMAIL_VERIFICATION_RESEND_{REQUESTS,WINDOW},
+		// _EMAIL_VERIFICATION_ADDRESS_{…}, _EMAIL_VERIFY_{…} (OSS-SEC)
+		EmailVerificationResendLimit:  resolveRateLimit(getenv, "EMAIL_VERIFICATION_RESEND", 10, 15*time.Minute),
+		EmailVerificationAddressLimit: resolveRateLimit(getenv, "EMAIL_VERIFICATION_ADDRESS", 3, time.Hour),
+		EmailVerifyLimit:              resolveRateLimit(getenv, "EMAIL_VERIFY", 30, 15*time.Minute),
 	}
 }
 

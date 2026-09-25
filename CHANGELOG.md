@@ -40,6 +40,23 @@ follows [Semantic Versioning](https://semver.org/).
   the three-attempt budget are unchanged. Concurrent consumes of one link
   already created exactly one user (the burn reports its row count); a test
   now guards that too.
+- **Verification mail can no longer be requested without bound, and it is
+  audited.** `POST /api/v1/auth/resend-verification` and
+  `GET /api/v1/auth/verify-email` carried no rate limit, and the runtime
+  built the email verification service with no audit, so an inbox could be
+  flooded and nothing was recorded.
+  - Resend is now limited per client IP (10 per 15 minutes) and per target
+    address (3 per hour, keyed by a SHA-256 of the address, never the
+    address). Known and unknown addresses are counted and answered alike.
+  - Verify is limited per client IP (30 per 15 minutes).
+  - Past a window the answer is the other limiters' `429` with
+    `Retry-After: 60`.
+  - Overrides: `IDENTUUM_IDP_RATE_LIMIT_EMAIL_VERIFICATION_RESEND_*`,
+    `_EMAIL_VERIFICATION_ADDRESS_*` and `_EMAIL_VERIFY_*` (`_REQUESTS`,
+    `_WINDOW`). An override can only raise a limit.
+  - Each sent mail is audited as `email_verification_resent` and each
+    verification as `email_verified`, with neither the token nor the
+    address.
 - **A wrong method on a registered path answers `405 Method Not Allowed`
   with an `Allow` header naming the path's methods** and the body
   `{"error":"method_not_allowed"}`, where it answered a plain 404 (for

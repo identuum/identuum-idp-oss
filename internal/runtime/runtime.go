@@ -1249,7 +1249,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		repos.User,
 		repos.EmailVerification,
 		verifyNotifier,
-		nil,
+		auditSvc, // OSS-SEC: was nil, so resend and verify were never audited
 		service.EmailVerificationServiceOptions{Logger: serviceLogger()}, // P3-12
 	)
 	orgActivationSvc := service.NewOrganizationActivationService(service.OrganizationActivationServiceConfig{

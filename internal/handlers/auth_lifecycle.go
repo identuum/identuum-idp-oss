@@ -41,7 +41,12 @@ package handlers
 //     the claim flow.
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"io"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -70,6 +75,39 @@ type AccountLifecycleHandlerDeps struct {
 	// surface. Nil (zero-value deps / tests) is a noop. Other lifecycle
 	// routes are unaffected.
 	PasswordResetLimiter gin.HandlerFunc
+
+	// ResendVerificationLimiters run, in order, before POST
+	// /api/v1/auth/resend-verification: the router's per-IP limiter
+	// (RateLimitConfig.EmailVerificationResendLimit) and its per-address
+	// limiter (EmailVerificationAddressLimit, keyed by ResendAddressKey).
+	// VerifyEmailLimiter runs before GET /api/v1/auth/verify-email
+	// (EmailVerifyLimit, per IP). Nil entries are skipped (OSS-SEC).
+	ResendVerificationLimiters []gin.HandlerFunc
+	VerifyEmailLimiter         gin.HandlerFunc
+}
+
+// ResendAddressKey is the per-address bucket key for resend-verification:
+// "addr:" + hex SHA-256 of the normalized (trimmed, lower-cased) address in
+// the JSON body, so the address itself is never held or logged. The body is
+// read and put back for the handler. A body without an address returns ""
+// (the limiter then buckets by client IP). Known and unknown addresses are
+// keyed alike.
+func ResendAddressKey(c *gin.Context) string {
+	raw, err := c.GetRawData()
+	if err != nil {
+		return ""
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(raw))
+	var body resendVerificationBody
+	if json.Unmarshal(raw, &body) != nil {
+		return ""
+	}
+	addr := strings.ToLower(strings.TrimSpace(body.Email))
+	if addr == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(addr))
+	return "addr:" + hex.EncodeToString(sum[:])
 }
 
 // RegisterAccountLifecycleRoutes mounts every route whose backing
@@ -109,6 +147,19 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		resetGroup.POST("/api/v1/auth/password/reset", HandleResetPassword(deps))
 	}
 	if deps.EmailVerify != nil {
+		// Per-IP and per-address limits on resend, per-IP on verify
+		// (OSS-SEC). Each sub-group carries its limiters; nil ones are
+		// skipped, as the reset group's is.
+		verifyGroup := router.Group("")
+		if deps.VerifyEmailLimiter != nil {
+			verifyGroup.Use(deps.VerifyEmailLimiter)
+		}
+		resendGroup := router.Group("")
+		for _, l := range deps.ResendVerificationLimiters {
+			if l != nil {
+				resendGroup.Use(l)
+			}
+		}
 		// docgen:endpoint
 		// docgen:surface=auth-lifecycle
 		// docgen:method=GET
@@ -116,8 +167,8 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:summary=Verify an email address via a one-time token. Idempotent — re-clicking the link after success returns 200. Single-use semantics enforced server-side.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=No Set-Cookie. 400 invalid_token collapses every failure mode (bad / expired / consumed / unknown user). Raw token never logged.
-		router.GET("/api/v1/auth/verify-email", HandleVerifyEmail(deps))
+		// docgen:notes=No Set-Cookie. 400 invalid_token collapses every failure mode (bad / expired / consumed / unknown user). Raw token never logged. Rate-limited per IP (429 past the window). Audited as email_verified.
+		verifyGroup.GET("/api/v1/auth/verify-email", HandleVerifyEmail(deps))
 		// docgen:endpoint
 		// docgen:surface=auth-lifecycle
 		// docgen:method=POST
@@ -125,8 +176,8 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:summary=Resend a verification email. Anti-enumeration — always 200 regardless of whether the email matches an unverified user.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=No Set-Cookie. Banned / deleted / already-verified users are silently skipped. Raw token never echoed.
-		router.POST("/api/v1/auth/resend-verification", HandleResendVerification(deps))
+		// docgen:notes=No Set-Cookie. Banned / deleted / already-verified users are silently skipped. Raw token never echoed. Rate-limited per IP and per target address (hashed; known and unknown addresses alike), 429 past either window. Each sent mail is audited as email_verification_resent, without the address.
+		resendGroup.POST("/api/v1/auth/resend-verification", HandleResendVerification(deps))
 	}
 	if deps.OrgActivation != nil {
 		// docgen:endpoint

@@ -86,6 +86,25 @@ type RateLimitConfig struct {
 	// Default: 5 requests per 15 minutes per subject.
 	MFARecoveryCodesRegenerateLimit RateLimit
 
+	// EmailVerificationResendLimit governs POST
+	// /api/v1/auth/resend-verification, keyed per IP. Every accepted request
+	// can send a verification mail, so it is tight like the reset request.
+	// Default: 10 requests per 15 minutes per IP (OSS-SEC).
+	EmailVerificationResendLimit RateLimit
+
+	// EmailVerificationAddressLimit is the same route's budget per TARGET
+	// ADDRESS, whatever the client IP, so one inbox cannot be flooded from
+	// many addresses. The bucket key is a SHA-256 of the normalized address,
+	// never the address; known and unknown addresses are counted alike, so
+	// the limit reveals nothing about which exist. Default: 3 requests per
+	// hour per address (OSS-SEC).
+	EmailVerificationAddressLimit RateLimit
+
+	// EmailVerifyLimit governs GET /api/v1/auth/verify-email, keyed per IP,
+	// bounding token guessing and burning. Default: 30 requests per 15
+	// minutes per IP (OSS-SEC).
+	EmailVerifyLimit RateLimit
+
 	RedisAddr     string
 	RedisPassword string
 }

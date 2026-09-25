@@ -1208,6 +1208,15 @@ func mountAccountLifecycle(router gin.IRouter, resolved OSSRouterDeps) {
 		// Per-IP rate limit on the abuse-prone password-reset routes only
 		// (tight). Noop when RateLimitConfig is zero-value.
 		PasswordResetLimiter: mw.NewRateLimitMiddleware(resolved.RateLimitConfig.PasswordResetLimit, "password-reset"),
+		// OSS-SEC: resend-verification per IP and per target address
+		// (hashed), verify-email per IP. Each is a noop only when its
+		// RateLimitConfig class is zero-value; the runtime always
+		// populates them (resolveRateLimitConfig).
+		ResendVerificationLimiters: []gin.HandlerFunc{
+			mw.NewRateLimitMiddleware(resolved.RateLimitConfig.EmailVerificationResendLimit, "email-verification-resend"),
+			mw.NewRateLimitMiddlewareWithKeyFn(resolved.RateLimitConfig.EmailVerificationAddressLimit, "email-verification-address", handlers.ResendAddressKey),
+		},
+		VerifyEmailLimiter: mw.NewRateLimitMiddleware(resolved.RateLimitConfig.EmailVerifyLimit, "email-verify"),
 	})
 }
 
