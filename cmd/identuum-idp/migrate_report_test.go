@@ -13,7 +13,6 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	"github.com/identuum/identuum-idp-oss/internal/testsupport"
-	"github.com/identuum/identuum-idp-oss/migrations"
 )
 
 // OSS-MIGRATE-COUNT: `migrate` (and factory-reset's re-migration) says what
@@ -24,11 +23,13 @@ import (
 // like the runtime tests: skips without IDENTUUM_IDP_TEST_DATABASE_URL, fails
 // under IDENTUUM_IDP_REQUIRE_DB_TESTS.
 
-// embeddedMigrations counts the .sql files the binary embeds and their
-// highest version, read from migrations.EmbedFS itself.
+// embeddedMigrations counts the .sql files in migrations/ (the directory the
+// binary embeds whole, migrations/embed.go) and their highest version, read
+// from disk so the expectation does not come from the code under test (and
+// this layer may not import the migrations package, boundaries.json).
 func embeddedMigrations(t *testing.T) (int, int64) {
 	t.Helper()
-	names, err := fs.Glob(migrations.EmbedFS, "*.sql")
+	names, err := fs.Glob(os.DirFS("../../migrations"), "*.sql")
 	if err != nil || len(names) == 0 {
 		t.Fatalf("embedded migrations: %d (%v)", len(names), err)
 	}
