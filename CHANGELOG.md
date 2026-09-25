@@ -7,6 +7,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Changed
+
+- **The embedded UI is identuum-ui `48f8f33`** (tree digest
+  `86c2925399c0a2b6bfc588daf6723ed49a1e37b348ed0d57b2f971403ea5996f`, in
+  place of `e400398`'s `cf25b025…`): it no longer offers the report export
+  links, the organization webhooks list or passkey rename, which no edition
+  serves, and session revoke asks only `POST /api/v1/revoke` on this
+  edition, where it tried the CE route first and fell back on its 404.
+
 ### Deployment
 
 - **The compose file pins identuum-idp-oss `v0.6.0` by index digest**
