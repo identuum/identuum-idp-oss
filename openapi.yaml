@@ -1849,14 +1849,14 @@ paths:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
     put:
       operationId: "identuum-idp-oss.profile.update_profile"
-      summary: "Update the authenticated user's own display name and OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale). Absent = unchanged, \"\" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale)."
+      summary: "Update the authenticated user's own display name (name) and the 19 OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale, phone_number, address_formatted, address_street_address, address_locality, address_region, address_postal_code, address_country). Absent = unchanged, \"\" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale, E.164 phone_number)."
       tags:
         - "profile"
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: "Update the authenticated user's own display name and OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale). Absent = unchanged, \"\" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale)."
+          description: "Update the authenticated user's own display name (name) and the 19 OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale, phone_number, address_formatted, address_street_address, address_locality, address_region, address_postal_code, address_country). Absent = unchanged, \"\" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale, E.164 phone_number)."
           content:
             application/json:
               schema:

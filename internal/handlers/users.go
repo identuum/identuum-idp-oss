@@ -417,7 +417,7 @@ func RegisterProfileRoute(router gin.IRouter, deps UsersHandlerDeps) {
 	// docgen:surface=profile
 	// docgen:method=PUT
 	// docgen:path=/api/v1/profile
-	// docgen:summary=Update the authenticated user's own display name and OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale). Absent = unchanged, "" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale).
+	// docgen:summary=Update the authenticated user's own display name (name) and the 19 OIDC profile fields (given_name, family_name, middle_name, nickname, preferred_username, profile, picture, website, gender, birthdate, zoneinfo, locale, phone_number, address_formatted, address_street_address, address_locality, address_region, address_postal_code, address_country). Absent = unchanged, "" = clear; formats validated (http(s) URLs, ISO-8601 birthdate, IANA zoneinfo, BCP47 locale, E.164 phone_number).
 	// docgen:tier=oss
 	// docgen:auth=authenticated
 	// docgen:response=oss.handlers.safeUser
@@ -426,8 +426,9 @@ func RegisterProfileRoute(router gin.IRouter, deps UsersHandlerDeps) {
 }
 
 // HandleUpdateProfile is the self-service half of THE-PROFILE-CLAIMS: the
-// authenticated human updates their own display name and the twelve
-// optional OIDC §5.1 profile fields. Nothing else on the user row is
+// authenticated human updates their own display name and the nineteen
+// optional OIDC §5.1 profile fields (the twelve profile-scope claims plus
+// phone_number and the six flattened address members). Nothing else on the user row is
 // reachable from here (email, role, status stay admin-only).
 func HandleUpdateProfile(deps UsersHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
