@@ -9,12 +9,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **The embedded UI is identuum-ui `48f8f33`** (tree digest
-  `86c2925399c0a2b6bfc588daf6723ed49a1e37b348ed0d57b2f971403ea5996f`, in
-  place of `e400398`'s `cf25b025…`): it no longer offers the report export
-  links, the organization webhooks list or passkey rename, which no edition
-  serves, and session revoke asks only `POST /api/v1/revoke` on this
-  edition, where it tried the CE route first and fell back on its 404.
+- **The embedded UI is identuum-ui `a8d829f`** (tree digest
+  `29049d21f102b01983e3396c8b24e196cac79a0e821c1a623b088c1a4844c6c2`, in
+  place of `e400398`'s `cf25b025…`; `48f8f33`, `86c29253…`, in between): it
+  no longer offers the report export links, the organization webhooks list
+  or passkey rename, which no edition serves, and session revoke asks only
+  `POST /api/v1/revoke` on this edition, where it tried the CE route first
+  and fell back on its 404. Since `48f8f33`: `/logout` is a sign-out page
+  whose form posts the sign-out (loading it never signs out); the boot
+  probe routes a CE upgrade-mode binary to `/upgrade`; a cookie-session
+  sign-out confirmed in its body reads as signed out.
 
 ### Fixed
 
