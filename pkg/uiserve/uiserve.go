@@ -38,6 +38,9 @@
 //     retried ONCE anonymously, so a dead cookie cannot 401 a public
 //     endpoint. Any other 401 is never retried;
 //   - permitted destinations: only canonical paths under a forward prefix;
+//   - with Options.AllowedMethods, a method the API does not serve at the
+//     destination is answered 405 with Allow before the browser proof, and
+//     never forwarded;
 //   - a response that sets a credential cookie has the login family's body
 //     tokens removed, so page script never sees a token; one that cannot be
 //     redacted is refused, cookies included;
@@ -136,6 +139,14 @@ type Options struct {
 	// ForwardPrefixes are the path prefixes the boundary forwards to; empty
 	// means "/api/v1/". Each ends in "/".
 	ForwardPrefixes []string
+	// AllowedMethods, when set, reports the methods the API serves at a
+	// forwarded target path for a request method it does not serve there
+	// (the Allow list), and nil when it serves the method or the path is none
+	// of its routes. The boundary then answers a wrong method 405 with that
+	// Allow before the browser proof and without forwarding, and a wrong
+	// method on its own session routes 405 with Allow: POST. Nil keeps every
+	// answer as before: each method forwarded, the session routes' 404.
+	AllowedMethods func(method, path string) []string
 	// AccessCookie names the cookie lifted into `Authorization: Bearer` when
 	// the browser sent no Authorization header; empty lifts nothing.
 	AccessCookie string
@@ -268,6 +279,13 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	_, _ = w.Write(b)
+}
+
+// writeMethodNotAllowed answers 405 with the Allow list, in the boundary's
+// {"error": code} shape.
+func writeMethodNotAllowed(w http.ResponseWriter, allow []string) {
+	w.Header().Set("Allow", strings.Join(allow, ", "))
+	writeJSON(w, http.StatusMethodNotAllowed, map[string]any{"error": "method_not_allowed"})
 }
 
 func writeNotFound(w http.ResponseWriter) {
@@ -420,6 +438,14 @@ func (h *handler) boundary(w http.ResponseWriter, r *http.Request, target string
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": destinationRefusedErr})
 		return
 	}
+	// A method the API does not serve at the target is answered here, as the
+	// API would answer it, and never forwarded.
+	if h.o.AllowedMethods != nil {
+		if allow := h.o.AllowedMethods(r.Method, target); len(allow) > 0 {
+			writeMethodNotAllowed(w, allow)
+			return
+		}
+	}
 	// Owner decision D1: every method, safe ones included.
 	if refuseWithoutBrowserProof(w, r, h.o.AllowedOrigins) {
 		return
@@ -447,6 +473,10 @@ func (h *handler) boundary(w http.ResponseWriter, r *http.Request, target string
 
 func (h *handler) refresh(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	if r.Method != http.MethodPost && h.o.Refresh != nil && h.o.AllowedMethods != nil {
+		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
 	if r.Method != http.MethodPost || h.o.Refresh == nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": destinationRefusedErr})
 		return
@@ -486,6 +516,10 @@ func (h *handler) canonicalTarget(target string) bool {
 // cannot expire an HttpOnly cookie.
 func (h *handler) logout(w http.ResponseWriter, r *http.Request) {
 	lo := h.o.Logout
+	if r.Method != http.MethodPost && lo.Target != "" && h.o.AllowedMethods != nil {
+		writeMethodNotAllowed(w, []string{http.MethodPost})
+		return
+	}
 	if r.Method != http.MethodPost || lo.Target == "" {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": destinationRefusedErr})
 		return
