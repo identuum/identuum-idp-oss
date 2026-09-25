@@ -5,13 +5,22 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.6.1`
+
+Fixes since `v0.6.0`, with identuum-ui `v0.3.1` embedded. Delta
+`v0.6.0..` (`git log`/`git diff --shortstat`, measured at `b471d35`,
+before this notes commit): 16 commits, 34 files, +1667/−158. No migration
+(`0001`–`0040`, as in `v0.6.0`), no dependency moved (`go.mod`/`go.sum`
+unchanged), Go 1.27.1; the canonical endpoint count stays 144
+(`go run ./tools/api-docgen --dry-run | grep -c '^  - id:'`). Nothing
+breaks for a `v0.6.0` install: see `docs/releases/v0.6.1.md`, "Upgrading".
 
 ### Changed
 
 - **The embedded UI is identuum-ui `cf6575a`** (tree digest
-  `b0eac627428a33c42df374573cf73b952c31f6aef874032b28ebd771a8b8e259`, in
-  place of `e400398`'s `cf25b025…`; `48f8f33`, `86c29253…`, `a8d829f`,
+  `b0eac627428a33c42df374573cf73b952c31f6aef874032b28ebd771a8b8e259`, the
+  same tree identuum-ui `v0.3.1` publishes, whose later commits carry only
+  release files), in place of `e400398`'s `cf25b025…` (with `48f8f33`, `86c29253…`, `a8d829f`,
   `29049d21…`, and `b33811b`, `b1241960…`, in between). Since `b33811b`:
   the profile tab shows the saved profile (it rendered empty, and saving it
   cleared every field), a site_admin's sessions tab says session management
