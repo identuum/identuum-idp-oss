@@ -9,10 +9,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **The embedded UI is identuum-ui `b33811b`** (tree digest
-  `b12419605c44bd88d07d9904fcee74a33b17031a65ac4bcaa1042935e2604c33`, in
-  place of `e400398`'s `cf25b025…`; `48f8f33`, `86c29253…`, and `a8d829f`,
-  `29049d21…`, in between). Since `a8d829f`: every date is sent and kept
+- **The embedded UI is identuum-ui `cf6575a`** (tree digest
+  `b0eac627428a33c42df374573cf73b952c31f6aef874032b28ebd771a8b8e259`, in
+  place of `e400398`'s `cf25b025…`; `48f8f33`, `86c29253…`, `a8d829f`,
+  `29049d21…`, and `b33811b`, `b1241960…`, in between). Since `b33811b`:
+  the profile tab shows the saved profile (it rendered empty, and saving it
+  cleared every field), a site_admin's sessions tab says session management
+  is not available for administrator accounts instead of "Could not load
+  sessions", and session revoke asks `POST /api/v1/revoke` on every
+  edition. Since `a8d829f`: every date is sent and kept
   as UTC and shown in the viewer's browser time zone with the zone named,
   the exact UTC time on hover; a page no longer fails to hydrate when the
   server's and the browser's calendar days differ. Since `e400398`, it

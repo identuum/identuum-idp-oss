@@ -1,11 +1,11 @@
 {
   "schema": "identuum-ui-vendor.v1",
-  "ui_commit": "b33811b2e0408bbc19c0ad5d4d389d96f924e494",
+  "ui_commit": "cf6575acb179833ae0b49f1c520b97092b638ec1",
   "ui_lockfile_sha256": "99a3e651dbce60f6d4453b627c1c69f9e97654c7c7f511a36669fed8ba5ac4dd",
   "node_version": "v26.8.1",
   "pnpm_version": "11.3.0",
   "files": {
-    "assets/index-D_sQ1-J5.js": "3c3e5d469e859d82cd702c6f1313ac0cdc26a3a5b000822577715c04eb9a550e",
+    "assets/index-BH09Bgfn.js": "b8a5f68f668fce33ff5b00b41b115114f8fdec7d140579679e5afe2edd631211",
     "assets/index-Dbnh0dux.css": "f444bb06b07a16060fef7cf281650161ea88f48fba107002161ecd49d25c2f02",
     "assets/rolldown-runtime-CbXtAM7H.js": "bbf7c5086ae414dc3f33777e3eebf16ea8631325b8bb4690d25091c03567f31a",
     "assets/vendor-B_AuP6ue.js": "3d50992d2004f7361108ded99a08d9a29e2579d9bb65c577785be3fe49cdb6cf",
@@ -14,7 +14,7 @@
     "assets/vendor-CZsacMJA.js": "ff7a6fae49ea1948b36abe61fe5ed87e25f7518b1f043abb3e42debdf70e232b",
     "assets/vendor-D-nJUweu.js": "65cff6f363b7f2d9a83f58a2e371ea10f9673dc456e1914e7918a3d626823244",
     "assets/vendor-D6ptLq3w.js": "77953b16c006100a20453784265085231bdafefbc0a9470c16e2690668fcaa4f",
-    "index.html": "c946fb7ba874b7f6773f2f5b49806a23785d807b607afc84387a9dccdb606520"
+    "index.html": "013c6093c806ddef60b38ffb5d87684c348f874cfea026143d95d8df01e97349"
   },
-  "tree_digest": "b12419605c44bd88d07d9904fcee74a33b17031a65ac4bcaa1042935e2604c33"
+  "tree_digest": "b0eac627428a33c42df374573cf73b952c31f6aef874032b28ebd771a8b8e259"
 }
