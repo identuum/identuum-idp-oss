@@ -16,7 +16,7 @@ func TestUI_BFF_RefreshRequiresBrowserProofAndLiveServices(t *testing.T) {
 		{"missing_csrf", "POST", "", "", false, 403},
 		{"foreign_origin", "POST", "https://other.test", "", true, 403},
 		{"explicit_bearer", "POST", "", "Bearer other", true, 400},
-		{"get", "GET", "", "", true, 404},
+		{"get", "GET", "", "", true, 405},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(tc.method, "/bff/session/refresh", nil)

@@ -19,7 +19,12 @@ import (
 func TestUISeam_RegisteredRouteSegmentsNeverBecomeTheShell(t *testing.T) {
 	e := uiEngine(t, uiExportDir(t))
 	e.POST("/oauth2/token", func(c *gin.Context) { c.Status(http.StatusNoContent) })
-	for _, p := range []string{"/oauth2/token", "/oauth2/unknown", "/oauth2"} {
+	// A wrong method on the registered route is the engine's 405 (OSS-405).
+	if rec := uiGet(e, "/oauth2/token"); rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") != "POST" ||
+		strings.Contains(rec.Body.String(), "<title>shell</title>") {
+		t.Fatalf("GET /oauth2/token: %d Allow=%q %q, want 405 Allow: POST, never the shell", rec.Code, rec.Header().Get("Allow"), rec.Body.String())
+	}
+	for _, p := range []string{"/oauth2/unknown", "/oauth2"} {
 		rec := uiGet(e, p)
 		if rec.Code != http.StatusNotFound || strings.Contains(rec.Body.String(), "<title>shell</title>") {
 			t.Fatalf("GET %s: %d %q, want the engine's plain 404, never the shell", p, rec.Code, rec.Body.String())
