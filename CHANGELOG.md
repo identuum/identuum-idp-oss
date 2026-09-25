@@ -9,10 +9,14 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **The embedded UI is identuum-ui `a8d829f`** (tree digest
-  `29049d21f102b01983e3396c8b24e196cac79a0e821c1a623b088c1a4844c6c2`, in
-  place of `e400398`'s `cf25b025…`; `48f8f33`, `86c29253…`, in between): it
-  no longer offers the report export links, the organization webhooks list
+- **The embedded UI is identuum-ui `b33811b`** (tree digest
+  `b12419605c44bd88d07d9904fcee74a33b17031a65ac4bcaa1042935e2604c33`, in
+  place of `e400398`'s `cf25b025…`; `48f8f33`, `86c29253…`, and `a8d829f`,
+  `29049d21…`, in between). Since `a8d829f`: every date is sent and kept
+  as UTC and shown in the viewer's browser time zone with the zone named,
+  the exact UTC time on hover; a page no longer fails to hydrate when the
+  server's and the browser's calendar days differ. Since `e400398`, it
+  also no longer offers the report export links, the organization webhooks list
   or passkey rename, which no edition serves, and session revoke asks only
   `POST /api/v1/revoke` on this edition, where it tried the CE route first
   and fell back on its 404. Since `48f8f33`: `/logout` is a sign-out page
