@@ -14,7 +14,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/identuum/identuum-idp-oss/internal/uiexport"
-	"github.com/identuum/identuum-idp-oss/pkg/uiserve"
 )
 
 // OSS-405: a wrong method on a path the IdP registers is answered 405 with an
@@ -26,6 +25,14 @@ const (
 	mnaOrigin = "https://admin.example.test"
 	mnaParam  = "00000000-0000-4000-8000-000000000001"
 	mnaBody   = `{"error":"method_not_allowed"}`
+
+	// The UI's wire values (pkg/uiserve's, which this layer may not import).
+	mnaBFF          = "/bff"
+	mnaRefreshPath  = "/bff/session/refresh"
+	mnaLogoutPath   = "/bff/session/logout"
+	mnaShellCache   = "no-store"
+	mnaAssetCache   = "public, max-age=31536000, immutable"
+	mnaNotFoundBody = "404 page not found"
 )
 
 // mnaMethods are the methods probed against every registered path, in the
@@ -161,7 +168,7 @@ func mnaPaths(routes gin.RoutesInfo) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, r := range routes {
-		if strings.HasPrefix(r.Path, uiserve.BFFPrefix+"/") || seen[r.Path] {
+		if strings.HasPrefix(r.Path, mnaBFF+"/") || seen[r.Path] {
 			continue
 		}
 		seen[r.Path] = true
@@ -201,7 +208,7 @@ func TestMethodNotAllowed_EveryRegisteredRoute(t *testing.T) {
 		}
 	}
 	t.Logf("covered %d registered paths (%d routes, the %s catch-all excluded) with %d wrong-method requests",
-		len(paths), len(routes), uiserve.BFFPrefix, requests)
+		len(paths), len(routes), mnaBFF, requests)
 }
 
 // TestMethodNotAllowed_TheMeasuredCases are the cases measured on b4c90df:
@@ -212,8 +219,8 @@ func TestMethodNotAllowed_TheMeasuredCases(t *testing.T) {
 		{http.MethodGet, "/api/v1/auth/login", "POST"},
 		{http.MethodPut, "/api/v1/auth/login", "POST"},
 		{http.MethodDelete, "/api/v1/organizations", "GET, POST"},
-		{http.MethodGet, uiserve.RefreshPath, "POST"},
-		{http.MethodGet, uiserve.LogoutPath, "POST"},
+		{http.MethodGet, mnaRefreshPath, "POST"},
+		{http.MethodGet, mnaLogoutPath, "POST"},
 		{http.MethodGet, "/api/v1/oauth/token", "POST"},
 	} {
 		mnaWant405(t, mnaDo(e, c.method, c.path, nil), c.method+" "+c.path, c.allow)
@@ -235,7 +242,7 @@ func TestMethodNotAllowed_WhatDoesNotChange(t *testing.T) {
 	t.Run("HEAD on every GET route", func(t *testing.T) {
 		n := 0
 		for _, r := range routes {
-			if r.Method != http.MethodGet || strings.HasPrefix(r.Path, uiserve.BFFPrefix+"/") {
+			if r.Method != http.MethodGet || strings.HasPrefix(r.Path, mnaBFF+"/") {
 				continue
 			}
 			n++
@@ -272,7 +279,7 @@ func TestMethodNotAllowed_WhatDoesNotChange(t *testing.T) {
 			p := mnaConcrete(page)
 			rec := mnaDo(e, http.MethodGet, p, nil)
 			if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `<div id="root">`) ||
-				rec.Header().Get("Cache-Control") != uiserve.ShellCacheControl || rec.Header().Get("Allow") != "" {
+				rec.Header().Get("Cache-Control") != mnaShellCache || rec.Header().Get("Allow") != "" {
 				t.Errorf("GET %s: %d Cache-Control=%q Allow=%q; want 200, the shell", p, rec.Code,
 					rec.Header().Get("Cache-Control"), rec.Header().Get("Allow"))
 			}
@@ -287,7 +294,7 @@ func TestMethodNotAllowed_WhatDoesNotChange(t *testing.T) {
 		}
 		p := "/assets/" + assets[0].Name()
 		rec := mnaDo(e, http.MethodGet, p, nil)
-		if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != uiserve.AssetCacheControl || rec.Header().Get("Allow") != "" {
+		if rec.Code != http.StatusOK || rec.Header().Get("Cache-Control") != mnaAssetCache || rec.Header().Get("Allow") != "" {
 			t.Errorf("GET %s: %d Cache-Control=%q Allow=%q", p, rec.Code, rec.Header().Get("Cache-Control"), rec.Header().Get("Allow"))
 		}
 	})
@@ -295,7 +302,7 @@ func TestMethodNotAllowed_WhatDoesNotChange(t *testing.T) {
 	t.Run("an unknown API path", func(t *testing.T) {
 		for _, m := range []string{http.MethodGet, http.MethodPost} {
 			rec := mnaDo(e, m, "/api/v1/no-such-route", nil)
-			if rec.Code != http.StatusNotFound || rec.Body.String() != uiserve.NotFoundBody || rec.Header().Get("Allow") != "" {
+			if rec.Code != http.StatusNotFound || rec.Body.String() != mnaNotFoundBody || rec.Header().Get("Allow") != "" {
 				t.Errorf("%s /api/v1/no-such-route: %d body=%.40q Allow=%q; want the plain 404", m, rec.Code, rec.Body.String(), rec.Header().Get("Allow"))
 			}
 		}
@@ -334,11 +341,11 @@ func TestMethodNotAllowed_TheBoundary(t *testing.T) {
 				continue
 			}
 			requests++
-			mnaWant405(t, mnaDo(e, m, uiserve.BFFPrefix+p, nil), m+" /bff"+p+" without the header", strings.Join(allow, ", "))
+			mnaWant405(t, mnaDo(e, m, mnaBFF+p, nil), m+" /bff"+p+" without the header", strings.Join(allow, ", "))
 		}
 	}
 	t.Logf("%d wrong-method /bff requests", requests)
-	for _, p := range []string{"/bff/api/v1/auth/login", uiserve.RefreshPath, uiserve.LogoutPath} {
+	for _, p := range []string{"/bff/api/v1/auth/login", mnaRefreshPath, mnaLogoutPath} {
 		mnaWant405(t, mnaDo(e, http.MethodGet, p, nil), "GET "+p+" without the header", "POST")
 		rec := mnaDo(e, http.MethodPost, p, nil)
 		if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "missing_request_header") {
