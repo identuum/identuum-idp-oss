@@ -16,6 +16,20 @@ follows [Semantic Versioning](https://semver.org/).
   serves, and session revoke asks only `POST /api/v1/revoke` on this
   edition, where it tried the CE route first and fell back on its 404.
 
+### Fixed
+
+- **A wrong method on a registered path answers `405 Method Not Allowed`
+  with an `Allow` header naming the path's methods** and the body
+  `{"error":"method_not_allowed"}`, where it answered a plain 404 (for
+  example `GET /api/v1/auth/login`, `DELETE /api/v1/organizations`,
+  `GET /api/v1/oauth/token`). Through the browser boundary the same request
+  is answered 405 before the `X-Requested-With`/Origin check and is never
+  forwarded, and `GET /bff/session/refresh` and `/bff/session/logout` answer
+  405 with `Allow: POST` where they answered 404 `bff_destination_refused`.
+  HEAD on a GET route, CORS preflight, UI pages and assets, and unregistered
+  paths answer as before. `pkg/uiserve` gains `Options.AllowedMethods`;
+  left nil, every answer is unchanged.
+
 ### Deployment
 
 - **The compose file pins identuum-idp-oss `v0.6.0` by index digest**
