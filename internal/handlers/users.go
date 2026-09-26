@@ -801,6 +801,15 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		// Password policy follows the TARGET user's org. Resolved only
 		// when a password is actually changing; a failed lookup falls
 		// back to the strict defaults (conservative direction).
+		// OSS-DEMOTE: a role change revokes the target's credentials, so its
+		// current role is read first, by value (a failed read counts as a
+		// change).
+		var roleBefore domain.UserRole
+		if req.Role != nil {
+			if before, berr := deps.UserService.GetUserForActor(c.Request.Context(), actor, id); berr == nil && before != nil {
+				roleBefore = before.Role
+			}
+		}
 		var pce *bool
 		minLen := 0
 		if req.Password != nil {
@@ -870,13 +879,23 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			}
 			return
 		}
-		// Lifecycle-first cascade (P-018 best-effort): when this update
-		// BANS the user, the ban has persisted above — revoke the user's
-		// live sessions + refresh tokens so the Stage-1 bearer session
-		// check rejects them. A revoke failure is logged at ERROR and
-		// never breaks the update or panics.
-		if req.Banned != nil && *req.Banned {
-			cascadeRevokeUser(c.Request.Context(), deps.SessionRevoker, deps.RefreshTokenRevoker, updated.ID, "user_banned")
+		// OSS-DEMOTE: a disable or a role change has persisted above; the
+		// user's credentials are revoked now, FAIL-CLOSED, so the change
+		// takes effect on its next request (a bearer's role and scopes come
+		// from the token, not a per-request re-read). A revocation failure
+		// answers 503 revocation_failed and the caller retries; the persisted
+		// change stays.
+		banned := req.Banned != nil && *req.Banned
+		roleChanged := req.Role != nil && roleBefore != updated.Role
+		if banned || roleChanged {
+			reason := "user_role_changed"
+			if banned {
+				reason = "user_banned"
+			}
+			if err := revokeUserCredentials(c.Request.Context(), deps.SessionRevoker, deps.RefreshTokenRevoker, updated.ID, reason); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "revocation_failed"})
+				return
+			}
 		}
 		// THE-PROFILE-CLAIMS: the optional profile fields, validated per
 		// field; a format violation is an honest 400 naming the field.

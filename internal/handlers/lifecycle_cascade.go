@@ -58,6 +58,39 @@ func cascadeRevokeUser(ctx context.Context, sessions service.SessionRevoker, ref
 	}
 }
 
+// revokeUserCredentials (OSS-DEMOTE) is the FAIL-CLOSED revocation a role
+// change or a disable through PUT /api/v1/users/:id runs, so the change takes
+// effect on the user's next request with every credential it holds:
+//   - its sessions: every session-bound access token (Bearer or the /bff
+//     cookie) dies on its next request, because the bearer check reads the
+//     token's session_id against the sessions table (mw/bearer.go), and the
+//     session and browser refresh tokens die with the session;
+//   - its OAuth refresh tokens, with the jtis of their linked access tokens
+//     denylisted (RefreshTokenService.RevokeAllForUser).
+//
+// A bearer principal's role and scopes come from the token's claims and are
+// not re-read per request, so without this a demoted org_admin kept its
+// rights until its access token expired. The first failure is returned; the
+// caller answers 503 revocation_failed, as identuum-idp-ce does. Nil seams
+// (scaffold deployments without a session store) have nothing to revoke.
+func revokeUserCredentials(ctx context.Context, sessions service.SessionRevoker, refresh service.UserRefreshTokenRevoker, userID uuid.UUID, reason string) error {
+	if sessions != nil {
+		if err := sessions.RevokeUserSessions(ctx, userID, reason, nil); err != nil {
+			logger.ErrorContext(ctx, "user credential revoke: session revoke failed",
+				zap.String("reason", reason), zap.Stringer("user_id", userID), zap.Error(err))
+			return err
+		}
+	}
+	if refresh != nil {
+		if _, err := refresh.RevokeAllForUser(ctx, userID); err != nil {
+			logger.ErrorContext(ctx, "user credential revoke: refresh-token revoke failed",
+				zap.String("reason", reason), zap.Stringer("user_id", userID), zap.Error(err))
+			return err
+		}
+	}
+	return nil
+}
+
 // cascadeRevokeOrg best-effort revokes ALL member sessions (via the
 // org-scoped session primitive RevokeByOrganizationID) and refresh tokens
 // (per-member fan-out reusing RevokeAllForUser) AFTER an org lifecycle
