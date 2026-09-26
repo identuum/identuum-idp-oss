@@ -301,7 +301,16 @@ func (s *OrgRoleService) RemoveScopeForActor(ctx context.Context, actor *domain.
 // Revocation never fires on a forbidden / cross-org / missing-user
 // failure — the fan-out is gated on the assignment having
 // persisted. A failed assignment is a non-event for session state.
+// refuseOwnRoles (OSS-GUARDS, CE parity: AdminPermissionsModel.md line 3):
+// an org_admin never assigns or removes its own roles.
+func refuseOwnRoles(actor *domain.Principal, userID uuid.UUID) bool {
+	return actor != nil && actor.IsOrgAdminOnly() && userID == actor.UserID
+}
+
 func (s *OrgRoleService) AssignRoleToUserForActor(ctx context.Context, actor *domain.Principal, userID, roleID uuid.UUID) error {
+	if refuseOwnRoles(actor, userID) {
+		return domain.ErrCannotChangeOwnRoles
+	}
 	role, err := s.GetRoleForActor(ctx, actor, roleID)
 	if err != nil {
 		return err
@@ -341,6 +350,9 @@ func (s *OrgRoleService) AssignRoleToUserForActor(ctx context.Context, actor *do
 // SessionRevoker for the target user only (not for other role
 // holders). Best-effort, non-fatal.
 func (s *OrgRoleService) RemoveRoleFromUserForActor(ctx context.Context, actor *domain.Principal, userID, roleID uuid.UUID) error {
+	if refuseOwnRoles(actor, userID) {
+		return domain.ErrCannotChangeOwnRoles
+	}
 	role, err := s.GetRoleForActor(ctx, actor, roleID)
 	if err != nil {
 		return err

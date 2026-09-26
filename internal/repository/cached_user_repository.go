@@ -307,6 +307,33 @@ func (r *CachedUserRepository) Update(ctx context.Context, id uuid.UUID, orgID u
 	return result, nil
 }
 
+var _ OrgAdminKeepingDeleter = (*CachedUserRepository)(nil)
+
+// DeleteKeepingActiveOrgAdmin (OSS-GUARDS) is Delete through the delegate's
+// transactional last-active-org_admin guard, with the same cache
+// invalidation. A delegate without the guard fails closed: the delete does
+// not run.
+func (r *CachedUserRepository) DeleteKeepingActiveOrgAdmin(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error {
+	guarded, ok := r.delegate.(OrgAdminKeepingDeleter)
+	if !ok {
+		return fmt.Errorf("cached user repository: delegate %T cannot keep an active org_admin", r.delegate)
+	}
+	user, errFetch := r.delegate.GetByID(ctx, id)
+	if errFetch != nil {
+		logger.Warning.Printf("DeleteKeepingActiveOrgAdmin: failed to fetch existing user %s for invalidation: %v", id, errFetch)
+	}
+	if err := guarded.DeleteKeepingActiveOrgAdmin(ctx, id, orgID); err != nil {
+		return err
+	}
+	if user != nil {
+		r.invalidateUserCache(ctx, user)
+	} else {
+		_ = r.redisClient.Del(ctx, r.idKey(id))
+		_ = r.redisClient.Del(ctx, r.withOrgKey(id))
+	}
+	return nil
+}
+
 func (r *CachedUserRepository) Delete(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error {
 	// Get user before deleting to invalidate cache
 	user, errFetch := r.delegate.GetByID(ctx, id)

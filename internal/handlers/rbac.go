@@ -588,6 +588,9 @@ func HandleAssignRoleToUser(deps RBACHandlerDeps) gin.HandlerFunc {
 		}
 		actor, _ := principalForCtx(c)
 		if err := deps.OrgRoleService.AssignRoleToUserForActor(c.Request.Context(), actor, userID, req.RoleID); err != nil {
+			if writeOrgAdminGuardError(c, err) {
+				return
+			}
 			if errors.Is(err, domain.ErrForbidden) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 				return
@@ -621,6 +624,9 @@ func HandleRemoveRoleFromUser(deps RBACHandlerDeps) gin.HandlerFunc {
 		}
 		actor, _ := principalForCtx(c)
 		if err := deps.OrgRoleService.RemoveRoleFromUserForActor(c.Request.Context(), actor, userID, roleID); err != nil {
+			if writeOrgAdminGuardError(c, err) {
+				return
+			}
 			if errors.Is(err, domain.ErrForbidden) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 				return

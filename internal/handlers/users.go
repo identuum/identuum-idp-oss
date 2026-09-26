@@ -850,6 +850,9 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			// rests on); everything unknown — including the hashing
 			// sentinel — is an INTERNAL fault and says so, instead of
 			// masquerading as a missing user.
+			if writeOrgAdminGuardError(c, err) {
+				return
+			}
 			switch {
 			case errors.Is(err, service.ErrUserNotFound()), errors.Is(err, domain.ErrUserNotFound):
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -914,6 +917,9 @@ func HandleDeleteUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		}
 		actor, _ := mw.PrincipalFromContext(c)
 		if err := deps.UserService.DeleteUserForActor(c.Request.Context(), actor, id); err != nil {
+			if writeOrgAdminGuardError(c, err) {
+				return
+			}
 			if errors.Is(err, domain.ErrForbidden) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 				return
@@ -997,6 +1003,9 @@ func HandleResetUserMFA(deps UsersHandlerDeps) gin.HandlerFunc {
 		actor, _ := mw.PrincipalFromContext(c)
 		updated, err := deps.UserService.ResetMFAForActor(c.Request.Context(), actor, id)
 		if err != nil {
+			if writeOrgAdminGuardError(c, err) {
+				return
+			}
 			switch {
 			case errors.Is(err, domain.ErrUnauthorized):
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})

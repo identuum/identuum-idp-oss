@@ -43,6 +43,13 @@ type UpdateUserOptions struct {
 	// only one writer wins. Used by ConsumeInvitationToken (§1.15) to make
 	// invitation consumption atomic against double-submit / replay.
 	RequireEmailVerifiedFalse bool
+
+	// KeepActiveOrgAdmin (OSS-GUARDS), when true, runs the update in one
+	// transaction that locks the organization row and refuses with
+	// domain.ErrLastOrgAdmin a change (ban, demotion) that would leave the
+	// organization with no active org_admin — active meaning role org_admin,
+	// not banned, not deleted, as CountOrgAdminsByOrganization counts.
+	KeepActiveOrgAdmin bool
 }
 
 // ListUserOptions contains options for listing users
@@ -131,6 +138,16 @@ type UserRepository interface {
 
 	// UpdateOrganizationID updates the organization a user belongs to (migration/admin use)
 	UpdateOrganizationID(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error
+}
+
+// OrgAdminKeepingDeleter (OSS-GUARDS) soft-deletes a user of orgID like
+// UserRepository.Delete, in one transaction that locks the organization row,
+// and refuses with domain.ErrLastOrgAdmin when the user is the organization's
+// last active org_admin. PgxUserRepository and CachedUserRepository implement
+// it (compile-time assertions beside each); UserService uses it for org_admin
+// actors whenever its repository does.
+type OrgAdminKeepingDeleter interface {
+	DeleteKeepingActiveOrgAdmin(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error
 }
 
 // AdminUserRepository extends UserRepository with admin-specific operations

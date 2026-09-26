@@ -254,6 +254,12 @@ func (s *UserService) ResetMFAForActor(ctx context.Context, actor *domain.Princi
 		if target.Role == domain.RoleSiteAdmin {
 			return nil, errUserNotFound
 		}
+		// OSS-GUARDS: an org_admin's own factor is self-service
+		// (POST /api/v1/me/mfa/disable, which asks for a proof), never
+		// this admin reset.
+		if targetUserID == actor.UserID {
+			return nil, domain.ErrCannotResetSelf
+		}
 	default:
 		return nil, domain.ErrForbidden
 	}
@@ -280,6 +286,14 @@ func validateUserUpdate(opts UpdateUserOptions) error {
 // Update mutates a user scoped to orgID. Password, when supplied,
 // is hashed before persistence.
 func (s *UserService) Update(ctx context.Context, id, orgID uuid.UUID, opts UpdateUserOptions) (*domain.User, error) {
+	return s.update(ctx, id, orgID, opts, false)
+}
+
+// update is Update; keepActiveOrgAdmin (OSS-GUARDS, set by UpdateUserForActor
+// for an org_admin actor) has the repository refuse with
+// domain.ErrLastOrgAdmin a change that would leave the organization without
+// an active org_admin.
+func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts UpdateUserOptions, keepActiveOrgAdmin bool) (*domain.User, error) {
 	// THE-UNVALIDATED-REST (2026-08-31): this method validated ONLY the
 	// password and handed Email and Role to the repository raw, so
 	// PUT {"email":"not-an-email"} and PUT {"role":"wizard"} were refused
@@ -295,11 +309,12 @@ func (s *UserService) Update(ctx context.Context, id, orgID uuid.UUID, opts Upda
 		return nil, fmt.Errorf("%w: %v", errUserInvalid, err)
 	}
 	repoOpts := repository.UpdateUserOptions{
-		Email:         opts.Email,
-		Name:          opts.Name,
-		Role:          opts.Role,
-		Banned:        opts.Banned,
-		EmailVerified: opts.EmailVerified,
+		Email:              opts.Email,
+		Name:               opts.Name,
+		Role:               opts.Role,
+		Banned:             opts.Banned,
+		EmailVerified:      opts.EmailVerified,
+		KeepActiveOrgAdmin: keepActiveOrgAdmin,
 	}
 	if opts.Password != nil && *opts.Password != "" {
 		// Per-org PasswordComplexityEnabled enforcement (Decision D-015
@@ -578,7 +593,16 @@ func (s *UserService) UpdateUserForActor(ctx context.Context, actor *domain.Prin
 		if opts.Role != nil && *opts.Role == domain.RoleSiteAdmin {
 			return nil, domain.ErrForbidden
 		}
-		scopedOrgID = actor.OrganizationID
+		// OSS-GUARDS: an org_admin never changes its own active state or
+		// role here (its own name and profile stay editable), and the
+		// repository refuses, in one transaction with the organization row
+		// locked, a change that leaves the organization without an active
+		// org_admin. site_admin is not bound: its line-18 recovery disables
+		// a sole org_admin on purpose.
+		if targetUserID == actor.UserID && (opts.Banned != nil || opts.Role != nil) {
+			return nil, domain.ErrCannotChangeSelf
+		}
+		return s.update(ctx, targetUserID, actor.OrganizationID, opts, true)
 	default:
 		return nil, domain.ErrForbidden
 	}
@@ -685,6 +709,15 @@ func (s *UserService) DeleteUserForActor(ctx context.Context, actor *domain.Prin
 		// update paths: a 403 confirms the row exists across a tenant boundary.
 		if actor.OrganizationID == uuid.Nil || target.OrganizationID != actor.OrganizationID {
 			return errUserNotFound
+		}
+		// OSS-GUARDS: an org_admin never deletes itself, and never the
+		// organization's last active org_admin (checked and written in one
+		// transaction with the organization row locked).
+		if targetUserID == actor.UserID {
+			return domain.ErrCannotChangeSelf
+		}
+		if d, ok := s.repo.(repository.OrgAdminKeepingDeleter); ok {
+			return d.DeleteKeepingActiveOrgAdmin(ctx, targetUserID, target.OrganizationID)
 		}
 	default:
 		return domain.ErrForbidden

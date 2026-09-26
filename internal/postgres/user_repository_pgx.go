@@ -459,6 +459,9 @@ func (r *PgxUserRepository) GetByExternalID(ctx context.Context, orgID uuid.UUID
 
 // Update updates a user's information
 func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid.UUID, opts repository.UpdateUserOptions) (*domain.User, error) {
+	if opts.KeepActiveOrgAdmin {
+		return r.updateKeepingActiveOrgAdmin(ctx, id, orgID, opts)
+	}
 	setParts := []string{}
 	args := []any{}
 	argIndex := 1

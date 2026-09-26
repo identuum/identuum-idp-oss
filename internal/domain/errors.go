@@ -79,14 +79,22 @@ var (
 	ErrAuditEventNotFound = errors.New("audit event not found")
 
 	// General
-	ErrInternal           = errors.New("internal system error")
-	ErrResourceNotFound   = errors.New("resource not found")
-	ErrInvalidRequest     = errors.New("invalid request format")
-	ErrForbidden          = errors.New("forbidden")
-	ErrFeatureNotLicensed = errors.New("feature not available on current license tier")
-	ErrUnauthorized       = errors.New("unauthorized")
-	ErrInvalidScope       = errors.New("invalid scope")
-	ErrInvalidAudience    = errors.New("invalid audience")
+	ErrInternal         = errors.New("internal system error")
+	ErrResourceNotFound = errors.New("resource not found")
+	ErrInvalidRequest   = errors.New("invalid request format")
+	ErrForbidden        = errors.New("forbidden")
+	// OSS-GUARDS (CE parity, AdminPermissionsModel.md line 3): an org_admin
+	// never changes its own active state, roles or MFA through the admin
+	// routes, and an organization's last active org_admin is never disabled,
+	// deleted or demoted. The handlers answer identuum-idp-ce's names.
+	ErrCannotChangeSelf     = errors.New("cannot_change_self")
+	ErrCannotChangeOwnRoles = errors.New("cannot_change_own_roles")
+	ErrCannotResetSelf      = errors.New("cannot_reset_self")
+	ErrLastOrgAdmin         = errors.New("last_org_admin")
+	ErrFeatureNotLicensed   = errors.New("feature not available on current license tier")
+	ErrUnauthorized         = errors.New("unauthorized")
+	ErrInvalidScope         = errors.New("invalid scope")
+	ErrInvalidAudience      = errors.New("invalid audience")
 	// ErrInvalidGrant — the OAuth grant request fails validation. RFC 6749 §5.2
 	// invalid_grant. Used by RFC 8693 token-exchange and RFC 7523 jwt-bearer
 	// (5.2.d) to collapse all subject-token / assertion validation failures
