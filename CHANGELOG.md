@@ -7,8 +7,30 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Security
+
+- **An organization can no longer lock itself out.** Through the admin
+  routes, an org_admin no longer:
+  - changes its own active state or role (`PUT /api/v1/users/:id` → 403
+    `cannot_change_self`; its own name and profile stay editable);
+  - deletes itself (`DELETE /api/v1/users/:id` → 403 `cannot_change_self`);
+  - assigns or removes its own roles (`/api/v1/users/:id/roles` → 403
+    `cannot_change_own_roles`);
+  - resets its own MFA (`POST /api/v1/users/:id/recovery/reset-mfa` → 403
+    `cannot_reset_self`; its own factor is self-service).
+
+  An organization's last active org_admin is never disabled, demoted or
+  deleted (409 `last_org_admin`). The check and the write run in one
+  transaction that locks the organization row, so two admins disabling each
+  other at once leave one. The rules match identuum-idp-ce
+  (contracts/AdminPermissionsModel.md line 3). The site_admin's recovery of
+  an organization that lost its admins is unchanged.
+
 ### Added
 
+- **`GET /api/v1/component` declares `user_approval: true`**: OSS holds
+  pending registrations and serves `POST /api/v1/users/:id/approve`.
+  identuum-idp-ce declares false.
 - **`GET /api/v1/component` names two mail capabilities**:
   `mail_ceremonies` is true only when SMTP is configured
   (`IDENTUUM_IDP_SMTP_HOST` and a sender, `internal/runtime/smtp_config.go`),
