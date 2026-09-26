@@ -96,8 +96,9 @@
 // only e2e-quick; every other reaching path — an unmatched one above all —
 // needs e2e-full, and a mixed change takes the highest tier. "none" is only
 // ever a positive match: a NoReachSet entry, or a deployment YAML change whose
-// every changed line is a comment or blank AND whose parsed value is
-// unchanged (main.go, commentOnlyYAML). QuickSet is narrow by design:
+// every changed line is a comment or blank AND whose non-comment lines are
+// unchanged with no multi-line scalar (main.go, commentOnlyYAML). QuickSet is
+// narrow by design:
 // internal/service/** is FULL except the ruled list of thirteen files.
 //
 // Rule MINT-REACHABILITY-1 binds to reach_test.go; rule TOOLS-NO-REACH-1
@@ -506,7 +507,7 @@ func (d Decision) Summary() string {
 			len(d.Changed), strings.Join(justified, "; "))
 	}
 	if len(d.CommentOnly) > 0 {
-		s += fmt.Sprintf("; comment-only deployment YAML, judged none by its diff and its parsed value: %s", strings.Join(d.CommentOnly, ", "))
+		s += fmt.Sprintf("; comment-only deployment YAML, judged none by its diff and its unchanged body: %s", strings.Join(d.CommentOnly, ", "))
 	}
 	return s
 }

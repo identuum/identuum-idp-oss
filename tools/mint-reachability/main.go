@@ -34,7 +34,8 @@ package main
 // e2e-quick record beside it whose heads are these trees' — consulted only
 // when the decision is quick. A quick record is never read as the e2e-full
 // record. Comment-only deployment YAML is judged none by its diff's content
-// and its parsed value, before classification.
+// and its body (every non-comment line unchanged, no multi-line scalar),
+// before classification.
 //
 // It never runs the mint and never skips it on its own: `make test-full`
 // reads the exit code. 0 = SATISFIED (skippable), 10 = MINT REQUIRED, 1 = it
@@ -48,11 +49,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
+	"regexp"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // ExitSkippable / ExitRequired / ExitUndecidable are the harness contract.
@@ -250,10 +249,11 @@ func proofsHold(d Decision, repoDir, uiDir string) (string, int) {
 // splitCommentOnlyYAML sets aside identuum-idp-oss deployment/**/*.yml|*.yaml
 // paths whose change since base is comment-only, judged by CONTENT, never by
 // name: every line the diff adds or removes is blank or a # comment, AND the
-// file parses to the same YAML value before and after — a '#' line inside a
-// block scalar is data, and the parse catches it. A new, deleted, renamed or
-// mode-changed file, a parse error or any git error keeps the path (fail
-// closed).
+// file's non-comment lines are identical before and after with no line in
+// either version that could open a multi-line scalar — a '#' line inside a
+// block or multi-line quoted scalar is data, so such a file is never judged
+// comment-only (yamlBody). A new, deleted, renamed or mode-changed file, or
+// any git error keeps the path (fail closed).
 func splitCommentOnlyYAML(dir, base, repo string, files []string) (kept, dropped []string) {
 	for _, f := range files {
 		if repo == "identuum-idp-oss" && strings.HasPrefix(f, "deployment/") &&
@@ -292,11 +292,36 @@ func commentOnlyYAML(dir, base, f string) bool {
 	if err != nil {
 		return false
 	}
-	var old, cur any
-	if yaml.Unmarshal([]byte(before), &old) != nil || yaml.Unmarshal(after, &cur) != nil {
-		return false
+	// The value is provably unchanged only where a '#' line cannot be data:
+	// a file with any line that could open a multi-line scalar is refused
+	// (fail closed), and with none, the documents minus their comment and
+	// blank lines must be byte-identical.
+	oldBody, okOld := yamlBody(before)
+	newBody, okNew := yamlBody(string(after))
+	return okOld && okNew && oldBody == newBody
+}
+
+// blockScalar matches a line that opens a YAML block scalar (`key: |`,
+// `key: >-`, `- |2`), inside which a '#' line is content, not a comment.
+var blockScalar = regexp.MustCompile(`(?:^|:|^\s*-)\s*[|>][-+0-9]*\s*(?:#.*)?$`)
+
+// yamlBody returns the document's non-comment, non-blank lines, and false
+// when any line could open a multi-line scalar — a block scalar indicator or
+// an odd count of either quote character (a flow scalar that may continue
+// onto the next line). Refusing those is what makes "# is a comment" true.
+func yamlBody(doc string) (string, bool) {
+	var body []string
+	for _, line := range strings.Split(doc, "\n") {
+		c := strings.TrimSpace(line)
+		if c == "" || strings.HasPrefix(c, "#") {
+			continue
+		}
+		if blockScalar.MatchString(line) || strings.Count(line, `"`)%2 != 0 || strings.Count(line, "'")%2 != 0 {
+			return "", false
+		}
+		body = append(body, strings.TrimRight(line, " \t"))
 	}
-	return reflect.DeepEqual(old, cur)
+	return strings.Join(body, "\n"), true
 }
 
 // isAncestor reports whether base is in the history of dir's HEAD. An
