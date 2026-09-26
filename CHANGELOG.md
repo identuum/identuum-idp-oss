@@ -7,6 +7,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Added
+
+- **`GET /api/v1/component` names two mail capabilities**:
+  `mail_ceremonies` is true only when SMTP is configured
+  (`IDENTUUM_IDP_SMTP_HOST` and a sender, `internal/runtime/smtp_config.go`),
+  and `admin_reset_link` is false (an identuum-idp-ce surface). The UI hides
+  "Forgot password?" and the reset, verification and activation-mail pages
+  when mail cannot be delivered.
+
 ### Deployment
 
 - **The compose file pins identuum-idp-oss `v0.6.1` by index digest**

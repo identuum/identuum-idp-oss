@@ -143,6 +143,41 @@ func TestNewOSSEngine_ComponentDiscoveryCapabilityFacts(t *testing.T) {
 	}
 }
 
+// CE-UI-2b (owner decision 2026-09-26, wiki platform/ce-mail-ceremonies.md
+// option B): the UI offers the mail ceremonies (forgot password, reset,
+// verify email, activation mail) only where the binary can send mail, and the
+// admin-issued reset link only where the binary serves it. OSS sends mail only
+// when SMTP is configured (internal/runtime/smtp_config.go); it has no admin
+// reset link.
+func TestNewOSSEngine_ComponentDiscoveryMailCapabilities(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		configured bool
+	}{
+		{"SMTP not configured", false},
+		{"SMTP configured", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := NewOSSEngine(OSSRouterDeps{EmailDeliveryConfigured: tc.configured})
+			req := httptest.NewRequest(http.MethodGet, "/api/v1/component", nil)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			var body struct {
+				Capabilities map[string]any `json:"capabilities"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+				t.Fatalf("/api/v1/component body is not JSON: %v", err)
+			}
+			if got, ok := body.Capabilities["mail_ceremonies"].(bool); !ok || got != tc.configured {
+				t.Errorf("capabilities.mail_ceremonies = %v (%T), want %v", body.Capabilities["mail_ceremonies"], body.Capabilities["mail_ceremonies"], tc.configured)
+			}
+			if got, ok := body.Capabilities["admin_reset_link"].(bool); !ok || got {
+				t.Errorf("capabilities.admin_reset_link = %v (%T), want false: OSS serves no admin reset link", body.Capabilities["admin_reset_link"], body.Capabilities["admin_reset_link"])
+			}
+		})
+	}
+}
+
 func TestNewOSSEngine_ComponentDiscoveryLicenseProjectionIsSafe(t *testing.T) {
 	e := NewOSSEngine(OSSRouterDeps{})
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/component", nil)

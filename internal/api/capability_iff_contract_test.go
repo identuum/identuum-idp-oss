@@ -343,6 +343,41 @@ func TestCapabilityIff_FalseCapabilitiesDocumentedPolicy(t *testing.T) {
 	})
 }
 
+// TestCapabilityIff_MailCapabilities pins the two CE-UI-2b capabilities that
+// are neither a constant `true` backed by a route nor a constant `false`:
+//   - mail_ceremonies is RUNTIME-DERIVED from deps.EmailDeliveryConfigured
+//     (set from resolveEmailNotifier in internal/runtime); its routes are
+//     registered either way, the flag says whether their mail can arrive.
+//   - admin_reset_link is absent-by-design on OSS (an identuum-idp-ce
+//     surface, owner decision 2026-09-26): no handler registers a
+//     reset-link route.
+func TestCapabilityIff_MailCapabilities(t *testing.T) {
+	router := readIffSource(t, "internal/api/router.go")
+	if !strings.Contains(router, `"mail_ceremonies":  deps.EmailDeliveryConfigured,`) {
+		t.Error("mail_ceremonies must be derived from deps.EmailDeliveryConfigured, never a constant")
+	}
+	if !strings.Contains(router, `"admin_reset_link": false,`) {
+		t.Error("admin_reset_link must stay false on OSS")
+	}
+	handlerDir := filepath.Join(repoRootIff(t), "internal", "handlers")
+	entries, err := os.ReadDir(handlerDir)
+	if err != nil {
+		t.Fatalf("read handler dir: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || strings.HasSuffix(e.Name(), "_test.go") || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		body, rerr := os.ReadFile(filepath.Join(handlerDir, e.Name()))
+		if rerr != nil {
+			continue
+		}
+		if strings.Contains(string(body), "reset-link") {
+			t.Errorf("admin_reset_link is false but a reset-link route appears in %s", e.Name())
+		}
+	}
+}
+
 // TestCapabilityIff_AllAdvertisedCapabilitiesCovered serves as a
 // cross-check: it asserts that the static iff table above (the union
 // of `true` backings + `false` documented policies) covers every
@@ -381,6 +416,9 @@ func TestCapabilityIff_AllAdvertisedCapabilitiesCovered(t *testing.T) {
 		"reporting":         true,
 		"anomaly_detection": true,
 		"observability":     true,
+		// runtime-derived / absent-by-design (TestCapabilityIff_MailCapabilities)
+		"mail_ceremonies":  true,
+		"admin_reset_link": true,
 	}
 
 	// Extract every `"<key>":` token inside the componentHandler

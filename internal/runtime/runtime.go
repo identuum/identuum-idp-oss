@@ -1295,6 +1295,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		// unset the handlers say so instead of guessing.
 		UIPublicBaseURL: r.cfg.UIPublicBaseURL,
 		UIStaticDir:     r.cfg.UIStaticDir,
+		// CE-UI-2b: GET /api/v1/component advertises mail_ceremonies only
+		// when resolveEmailNotifier found a usable SMTP configuration.
+		EmailDeliveryConfigured: smtpNotifier != nil,
 		// PLAN-E-1: the vendored export compiled into the binary, served
 		// when IDENTUUM_IDP_UI_DIR is not set (the directory wins when it is).
 		UIEmbedded:                             uiexport.FS(),

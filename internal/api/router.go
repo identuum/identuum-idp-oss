@@ -433,6 +433,13 @@ type OSSRouterDeps struct {
 	OrganizationActivationService *service.OrganizationActivationService
 	ClaimService                  *service.ClaimService
 
+	// EmailDeliveryConfigured reports whether the runtime resolved an SMTP
+	// notifier (internal/runtime/smtp_config.go resolveEmailNotifier returned
+	// one). It drives the `mail_ceremonies` capability of GET
+	// /api/v1/component: the reset, verification and activation mails are
+	// only offered where they can be delivered (CE-UI-2b).
+	EmailDeliveryConfigured bool
+
 	// WebAuthnService backs the OSS WebAuthn / passkeys family
 	// (registration begin/finish, login begin/finish, credential
 	// list/delete). When nil, none of the WebAuthn routes register
@@ -1643,6 +1650,10 @@ func componentHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				"reporting":                   false,
 				"anomaly_detection":           false,
 				"observability":               false,
+				// CE-UI-2b: mail is offered only where it can be
+				// delivered; OSS issues no admin reset links.
+				"mail_ceremonies":  deps.EmailDeliveryConfigured,
+				"admin_reset_link": false,
 			},
 			"auth": gin.H{
 				"authority":     "identuum-idp",
