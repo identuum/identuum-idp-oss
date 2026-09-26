@@ -350,7 +350,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeUser
-		// docgen:notes=site_admin can reset MFA for any target. org_admin additionally requires the users:mfa:revoke scope and may only reset MFA for users in the org_admin's own organization (cross-org and site_admin targets get 403). The response is the safe user projection — it never includes mfa_secret or mfa_recovery_codes. Resetting a user without MFA enrolled still returns 200.
+		// docgen:notes=site_admin can reset MFA for any target. org_admin additionally requires the users:mfa:revoke scope and may only reset MFA for users in the org_admin's own organization (cross-org and site_admin targets get 404, never 403, so a probe cannot tell another tenant's user exists), and never its own MFA (403 cannot_reset_self; its own factor is self-service). The response is the safe user projection — it never includes mfa_secret or mfa_recovery_codes. Resetting a user without MFA enrolled still returns 200.
 		mfaReset.POST("/:id/recovery/reset-mfa", HandleResetUserMFA(deps))
 	} else {
 		// Read-only deployments: every mutation 501s; the scaffold
