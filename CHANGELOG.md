@@ -9,6 +9,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- **A role change takes effect at once.** A bearer's role and scopes come
+  from its access token, so a demoted org_admin used to keep org_admin
+  rights until its token expired (up to one hour).
+  - Any role change through `PUT /api/v1/users/:id` now revokes the user's
+    sessions, which kills every session-bound access token and refresh
+    token on its next request, and its OAuth refresh tokens, with their
+    linked access tokens denylisted.
+  - A disable does the same. It was already refused on the next request.
+  - Revocation is now fail-closed: a failure answers 503 `revocation_failed`
+    and the change stays, so the caller retries.
 - **An organization can no longer lock itself out.** Through the admin
   routes, an org_admin no longer:
   - changes its own active state or role (`PUT /api/v1/users/:id` → 403
@@ -55,6 +65,15 @@ follows [Semantic Versioning](https://semver.org/).
   assets; deployment/README.md, "Releasing: the compose asset", is the
   procedure and its check. publish-image.yml's header also named the UI on
   `:7104`; it names `:7113`.
+
+### Fixed
+
+- **Honest statuses on user PUT and DELETE**:
+  - `DELETE /api/v1/users/:id` answered 404 for any failure, database faults
+    included. Only a missing user is 404 now; a fault is 500
+    `internal_error`.
+  - Both routes answer an unidentified actor 401 `unauthorized`, as the
+    reset-MFA route does, where PUT answered 500 and DELETE 404.
 
 ## `v0.6.1`
 
