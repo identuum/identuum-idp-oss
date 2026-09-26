@@ -1,6 +1,6 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "c5dd4a77ea4ca46ff84a323876c1e2f4205b3179",
+  "base_commit": "e76d15fc19ea01cf5d137d03bed4f52dacc3b6f6",
   "changes": [
     {
       "rule_id": "CI-RECORD-HONEST-1",
@@ -31,16 +31,6 @@
       "rule_id": "GRYPE-SUBJECT-1",
       "change_class": "rule_removed",
       "reason": "THE-LAST-BORROWER (2026-09-21): retired with tools/grype-gate for the reason given on GRYPE-FIXABLE-FAILS-1 — the subject-naming judge (image subjects with both predicates NOT APPLICABLE, directory subjects on their own tree, a -root that is not the subject refused, the base-name label of 1cbe9f6) is lictor's, proved in lictor's floor; ui's image scan and CE's and this repository's directory scans all print the same lines through it. This entry replaces the rule's test_fingerprint_changed declaration on the same base (THE-SCANNER-THAT-SAYS-WHAT-IT-SAW bf8fa9f4ed01 -> 5b86174c063c, THE-THREE-SMALL-ONES-OSS 5b86174c063c -> f6763bdbb6b3, both recorded in the wiki's log): a rule removed in the diff is not also fingerprint-changed in it, and ledger-diff-gate refused the pair (\"DECLARED but not in the diff\")."
-    },
-    {
-      "rule_id": "CI-LOCAL-PARITY-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-LAST-BORROWER (2026-09-21): parity_test.go's workflow fixture gained LICTOR_VERSION and LICTOR_SHA256, the parser subtest expects both, the normalization table carries lictor's `{\"schema_version\":\"lictor.version.v1\",\"version\":\"v0.1.0\"}` → 0.1.0 and `command not found` → \"\", and the KindPin subtest holds LICTOR_VERSION; toolSpecs gained the lictor pin (`lictor version --json` against workflow env LICTOR_VERSION) so `make toolchain-parity` reads \"9 pins agree\". The sentence is unchanged and still true: every declared version and digest is compared, a missing declaration or tool fails. Rehashed cf524dc9b2df -> 7c7879a51067. THE-JUDGE-OWNS-ITS-PIN (2026-09-21), same unwitnessed base: parity_test.go's synthetic workflow fixture follows the pin it models — LICTOR_VERSION v0.1.0 -> v0.4.0 and LICTOR_SHA256 c051b5fa… -> 85e2750…, with the parser and KindPin subtests expecting the new values — after ci.yml moved to the installed, released lictor v0.4.0; the assertion sites are untouched (17 before and after) and the sentence is unchanged. Rehashed 7c7879a51067 -> df9c5b241c89. THE-PATCH-THAT-FOLLOWS (2026-09-21), same unwitnessed base: the same fixture follows the pin to lictor v0.4.1 (LICTOR_VERSION v0.4.0 -> v0.4.1, LICTOR_SHA256 85e2750… -> 61f13b5…) after the patch release; nothing else in the test moved, the assertion sites are still 17, and every judged line in this repository is byte-identical across the upgrade. Rehashed df9c5b241c89 -> b5f60b1589c6. THE-PIN-AND-THE-GUARD (2026-09-23), same unwitnessed base: the same fixture follows ci.yml to lictor v0.4.2 (LICTOR_VERSION v0.4.1 -> v0.4.2, LICTOR_SHA256 61f13b5… -> 0757b9d…) and govulncheck v1.8.0 (GOVULNCHECK_VERSION v1.7.0 -> v1.8.0 in the workflow fixture, the parser and KindPin expectations, and the govulncheck normalization row's `Scanner: govulncheck@v1.8.0` -> 1.8.0); nothing else in the test moved, the assertion sites are still 17, and the sentence is unchanged. Rehashed b5f60b1589c6 -> a716fcacc473."
-    },
-    {
-      "rule_id": "LEDGER-REBASE-DERIVES-BASE-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "THE-SIX-SMALL-ONES, OSS 2 (2026-09-16): rebase_test.go gained the subtest that a declaration the witness consumed is NAMED by the re-base with the refusal the next verify will make, while nothing is removed and every declaration still survives byte-for-byte. The sentence is unchanged and still true: only base_commit is written, an invalid manifest is refused, the derived base is re-measured at verify, and verify never re-bases. Rehashed 10f4bf006b94 -> faaf599948eb."
     }
   ]
 }
