@@ -167,12 +167,11 @@ func resolveOrgPasswordPolicy(ctx context.Context, orgs OrgPolicyReader, orgID u
 //     (defense in depth). org_admin can never read, list, create,
 //     update, or move users outside their own organization, and
 //     cannot create or promote a site_admin user.
-//   - DELETE and POST /:id/restore stay site_admin-only. The
-//     service layer also rejects an org_admin Delete/Restore for
-//     cross-org or site_admin targets, but the safer HTTP default
-//     is the unchanged site_admin guard. A future slice can
-//     loosen these once an audit-export gate is wired so a
-//     misbehaving org_admin's deletion sweep is observable.
+//   - DELETE admits an org_admin carrying users:delete
+//     (USERS-DELETE-GUARD-1); the service scopes it to its own
+//     organization and refuses deleting itself or the organization's
+//     last active org_admin (OSS-GUARDS). POST /:id/restore stays
+//     site_admin-only.
 //   - Bulk-create is live and SYNCHRONOUS (user_bulk_create.go —
 //     best-effort per-row results in one response; the ancestor's
 //     async JobService design was not carried into OSS).
@@ -928,9 +927,12 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 	}
 }
 
-// HandleDeleteUser soft-deletes a user. Site-admin-only at the
-// HTTP layer; the service-layer guard is still consulted so a
-// future loosening cannot accidentally permit cross-org deletes.
+// HandleDeleteUser soft-deletes a user. The route admits site_admin and an
+// org_admin carrying users:delete (USERS-DELETE-GUARD-1); the service
+// scopes an org_admin to its own organization (a cross-org target is the
+// anti-enumeration 404) and refuses deleting itself or the organization's
+// last active org_admin (OSS-GUARDS). Only a missing user is 404; an
+// unidentified actor is 401 and any other fault 500 (OSS-DEMOTE).
 func HandleDeleteUser(deps UsersHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := uuid.Parse(c.Param("id"))
