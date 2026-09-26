@@ -867,6 +867,10 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			case errors.Is(err, domain.ErrUserAlreadyExists):
 				c.JSON(http.StatusConflict, gin.H{"error": "email_exists"})
+			case errors.Is(err, domain.ErrUnauthorized):
+				// OSS-DEMOTE: the service could not identify the actor; the
+				// family's answer (HandleResetUserMFA), not a 500.
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			case errors.Is(err, service.ErrUserInvalid()):
 				// THE-UNVALIDATED-REST: a malformed email or an unlisted
 				// role is a BAD REQUEST. Until the service validated them
@@ -939,11 +943,17 @@ func HandleDeleteUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			if writeOrgAdminGuardError(c, err) {
 				return
 			}
-			if errors.Is(err, domain.ErrForbidden) {
+			switch {
+			case errors.Is(err, domain.ErrForbidden):
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
+			case errors.Is(err, domain.ErrUnauthorized):
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			case errors.Is(err, service.ErrUserNotFound()), errors.Is(err, domain.ErrUserNotFound):
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			default:
+				// A database fault is not a missing user (OSS-DEMOTE).
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
 		// Lifecycle-first cascade (P-018 best-effort): the soft-delete has
