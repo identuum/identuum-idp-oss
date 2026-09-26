@@ -11,13 +11,14 @@ Three Compose files live here. They serve different audiences.
 ## Customer-facing single-node install
 
 ```bash
-curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
+curl -fsSLO https://github.com/identuum/identuum-idp-oss/releases/latest/download/docker-compose.yml
 docker compose up -d
 open http://localhost:7113
 ```
 
-`docker compose up -d` pulls the published image from
-`ghcr.io/identuum/identuum-idp-oss`.
+The file is the `docker-compose.yml` asset of the latest GitHub Release
+(checksum: its `docker-compose.yml.sha256` asset). `docker compose up -d`
+pulls the published image from `ghcr.io/identuum/identuum-idp-oss`.
 The customer download is exactly one file — no sibling source checkout
 is needed, and the customer never compiles anything locally.
 
@@ -73,6 +74,35 @@ file. The manual `workflow_dispatch` publish workflow lives at
 `identuum-idp-oss/.github/workflows/publish-image.yml`. It accepts a `version_tag` input plus an opt-in `latest_tag` toggle;
 it never pushes `latest` automatically. The workflow is intentionally
 manual so a release is always an explicit maintainer act.
+
+### Releasing: the compose asset
+
+Every release carries its pinned compose file as a GitHub Release asset;
+the install line downloads it from `releases/latest/download`. After the
+commit that pins the new image digest in `deployment/docker-compose.yml`:
+
+1. Upload that commit's `deployment/docker-compose.yml` and its checksum to
+   the release, and mark the release latest:
+
+   ```bash
+   cd deployment
+   shasum -a 256 docker-compose.yml > docker-compose.yml.sha256
+   gh release upload vX.Y.Z docker-compose.yml docker-compose.yml.sha256 --clobber
+   ```
+
+2. Check what a customer downloads — anonymously, through the latest URL:
+
+   ```bash
+   curl -fsSL https://github.com/identuum/identuum-idp-oss/releases/latest/download/docker-compose.yml | shasum -a 256
+   curl -fsSL https://github.com/identuum/identuum-idp-oss/releases/latest/download/docker-compose.yml | grep 'image: ghcr.io/identuum/identuum-idp-oss:'
+   ```
+
+   The sha256 must equal the uploaded file's, and the image line must be
+   the new tag and digest.
+
+A release whose compose asset is missing, or whose latest download differs
+from the pinned file, has failed: the install line would serve nothing or
+an older release.
 
 ## Maintainer / developer source build
 

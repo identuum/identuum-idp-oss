@@ -11,9 +11,9 @@
 # Customer install (wiki/platform/idp-appliance-install-ux.md
 # D-IDP-INSTALL-06) expects:
 #
-#   curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
+#   curl -fsSLO https://github.com/identuum/identuum-idp-oss/releases/latest/download/docker-compose.yml
 #   docker compose up -d
-#   open http://localhost:7104
+#   open http://localhost:7113
 #
 # The customer-facing deployment/docker-compose.yml pins an image this
 # workflow published, `ghcr.io/identuum/identuum-idp-oss:<tag>@sha256:<digest>`

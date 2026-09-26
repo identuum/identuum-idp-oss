@@ -13,6 +13,18 @@ follows [Semantic Versioning](https://semver.org/).
   (`deployment/docker-compose.yml`, `sha256:39f968e2…`, publish run
   36200767001, built from `f1de6ee`), in place of `v0.6.0`.
 
+### Documentation
+
+- **The install line downloads the compose file from GitHub Releases**:
+  `curl -fsSLO https://github.com/identuum/identuum-idp-oss/releases/latest/download/docker-compose.yml`
+  (README.md, deployment/README.md, the compose and publish-image.yml
+  header comments, docs/releases/v0.6.1.md), in place of
+  `downloads.identuum.com`, which does not resolve. Every release carries
+  its pinned `docker-compose.yml` and `docker-compose.yml.sha256` as
+  assets; deployment/README.md, "Releasing: the compose asset", is the
+  procedure and its check. publish-image.yml's header also named the UI on
+  `:7104`; it names `:7113`.
+
 ## `v0.6.1`
 
 Fixes since `v0.6.0`, with identuum-ui `v0.3.1` embedded. Delta

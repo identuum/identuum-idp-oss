@@ -79,10 +79,14 @@ not an evaluation stub. It runs `identuum-idp`, which also serves the
 instance on one host, behind one Compose project.
 
 ```bash
-curl -fsSLO https://downloads.identuum.com/idp-oss/docker-compose.yml
+curl -fsSLO https://github.com/identuum/identuum-idp-oss/releases/latest/download/docker-compose.yml
 docker compose up -d
 open http://localhost:7113
 ```
+
+The compose file is an asset of the latest GitHub Release; it pins that
+release's image by tag and digest. Its checksum is the release's
+`docker-compose.yml.sha256` asset.
 
 The Compose stack starts two services:
 
