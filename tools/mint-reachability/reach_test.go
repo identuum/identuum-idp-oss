@@ -477,6 +477,165 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 			t.Error("conformance-notes/plan.go escaped under the conformance/ entry")
 		}
 	})
+
+	t.Run("the gate picks the mint: none, quick or full, and an unmatched path is full", func(t *testing.T) {
+		// GATE-TIERS (owner ruling 2026-09-26, platform/gate-cost.md). Every
+		// case runs the real decision on two throwaway trees and a green
+		// e2e-full record pinned to their first heads; `quick` also writes a
+		// green e2e-quick record pinned to their CURRENT heads, so a quick-tier
+		// change is paid and a full-tier change is still owed.
+		const compose = "# identuum-idp-oss compose\n#   curl -fsSLO https://example.test/old.yml\nservices:\n  idp:\n    # the pinned image\n    image: ghcr.io/x/y:v1@sha256:aaa\n"
+		base := []tierCommit{{"oss", "deployment/docker-compose.yml", compose}}
+		for _, tc := range []struct {
+			name     string
+			change   []tierCommit
+			quick    bool
+			wantCode int
+			want     []string
+		}{
+			{"a compose header comment and a blank line → none",
+				[]tierCommit{{"oss", "deployment/docker-compose.yml", strings.Replace(compose, "old.yml\n", "new.yml\n\n", 1)}},
+				false, ExitSkippable, []string{"MINT SATISFIED", "tier none", "comment-only"}},
+			{"an indented comment inside a service → none",
+				[]tierCommit{{"oss", "deployment/docker-compose.yml", strings.Replace(compose, "# the pinned image", "# the image, pinned by digest", 1)}},
+				false, ExitSkippable, []string{"MINT SATISFIED", "tier none"}},
+			{"the compose image line → full",
+				[]tierCommit{{"oss", "deployment/docker-compose.yml", strings.Replace(compose, "sha256:aaa", "sha256:bbb", 1)}},
+				true, ExitRequired, []string{"MINT REQUIRED", "tier full", "deployment/docker-compose.yml"}},
+			{"a ui component with a green quick record at these heads → quick, paid",
+				[]tierCommit{{"ui", "src/components/ui/badge.tsx", "export {}\n"}},
+				true, ExitSkippable, []string{"MINT SATISFIED by GATE-RUN.e2e-quick.txt", "tier quick", "identuum-ui/src/components/ui/badge.tsx"}},
+			{"a ui component without a quick record → quick, owed",
+				[]tierCommit{{"ui", "src/components/ui/badge.tsx", "export {}\n"}},
+				false, ExitRequired, []string{"MINT REQUIRED", "tier quick", "e2e-quick"}},
+			{"internal/service/claim_service.go → full, a quick record does not pay it",
+				[]tierCommit{{"oss", "internal/service/claim_service.go", "package service\n"}},
+				true, ExitRequired, []string{"MINT REQUIRED", "tier full", "internal/service/claim_service.go"}},
+			{"an unknown path → full (fail closed)",
+				[]tierCommit{{"oss", "newdir/thing.go", "package newdir\n"}},
+				true, ExitRequired, []string{"MINT REQUIRED", "tier full", "newdir/thing.go"}},
+			{"a mixed diff takes the highest tier → full",
+				[]tierCommit{{"ui", "src/components/ui/badge.tsx", "export {}\n"}, {"oss", "internal/service/claim_service.go", "package service\n"}},
+				true, ExitRequired, []string{"MINT REQUIRED", "tier full"}},
+			{"a ui sign-in page → full",
+				[]tierCommit{{"ui", "src/app/login/page.tsx", "export {}\n"}},
+				true, ExitRequired, []string{"MINT REQUIRED", "tier full"}},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				record, oss, ui := tierFixture(t, base, tc.change, tc.quick)
+				line, code := decideFromRecord(record, oss, ui)
+				if code != tc.wantCode {
+					t.Fatalf("exit %d, want %d: %s", code, tc.wantCode, line)
+				}
+				for _, w := range tc.want {
+					if !strings.Contains(line, w) {
+						t.Errorf("the line must say %q: %s", w, line)
+					}
+				}
+			})
+		}
+
+		// The ruled quick list for internal/service (owner ruling 2026-09-26):
+		// each listed file is quick; any other service file is full.
+		for _, f := range []string{
+			"api_resource_service.go", "audit_persistent.go", "domain_dns_verifier.go",
+			"org_role_service.go", "organization_domain_service.go",
+			"organization_protocol_settings_service.go", "organization_service.go",
+			"service_account_admin.go", "service_account_service.go",
+			"user_profile_service.go", "scope_template_service.go",
+			"user_scope_service.go", "smtp_notifier.go",
+		} {
+			record, oss, ui := tierFixture(t, nil, []tierCommit{{"oss", "internal/service/" + f, "package service\n"}}, true)
+			if line, code := decideFromRecord(record, oss, ui); code != ExitSkippable || !strings.Contains(line, "tier quick") {
+				t.Errorf("internal/service/%s is on the ruled quick list: exit %d: %s", f, code, line)
+			}
+		}
+		record, oss, ui := tierFixture(t, nil, []tierCommit{{"oss", "internal/service/local_login_service.go", "package service\n"}}, true)
+		if line, code := decideFromRecord(record, oss, ui); code != ExitRequired || !strings.Contains(line, "tier full") {
+			t.Errorf("an unlisted service file must be full: exit %d: %s", code, line)
+		}
+
+		// A '#' line inside a YAML block scalar is data, not a comment: the
+		// value the appliance reads changes, so it stays full.
+		const scalar = "configs:\n  ui:\n    content: |\n      {\"a\": 1}\n"
+		record, oss, ui = tierFixture(t, []tierCommit{{"oss", "deployment/docker-compose.yml", scalar}},
+			[]tierCommit{{"oss", "deployment/docker-compose.yml", strings.Replace(scalar, "{\"a\": 1}\n", "{\"a\": 1}\n      # inside the scalar\n", 1)}}, true)
+		if line, code := decideFromRecord(record, oss, ui); code != ExitRequired || !strings.Contains(line, "tier full") {
+			t.Errorf("a # line inside a block scalar was judged a comment: exit %d: %s", code, line)
+		}
+
+		// A quick record is never an e2e-full mint.
+		quickAsFull, oss2, ui2 := tierFixture(t, nil, nil, false)
+		text, err := os.ReadFile(quickAsFull)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(quickAsFull, []byte(strings.Replace(string(text), "make e2e-full", "make e2e-quick", 1)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if line, code := decideFromRecord(quickAsFull, oss2, ui2); code != ExitRequired {
+			t.Errorf("an e2e-quick record read as the e2e-full record satisfied the mint: exit %d: %s", code, line)
+		}
+	})
+}
+
+// tierCommit is one file committed in a tier fixture: repo "oss" or "ui".
+type tierCommit struct{ repo, path, content string }
+
+// tierFixture builds this repository and its sibling, commits base, writes a
+// green e2e-full record pinned to both heads, commits change, and — when quick
+// — writes a green e2e-quick record pinned to the CURRENT heads beside it.
+func tierFixture(t *testing.T, base, change []tierCommit, quick bool) (record, oss, ui string) {
+	t.Helper()
+	oss, _ = newTree(t)
+	ui, _ = newTree(t)
+	dir := func(r string) string {
+		if r == "ui" {
+			return ui
+		}
+		return oss
+	}
+	commit := func(c tierCommit) {
+		full := filepath.Join(dir(c.repo), c.path)
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(c.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		gitIn(t, dir(c.repo), "add", c.path)
+		gitIn(t, dir(c.repo), "commit", "-q", "-m", "change "+c.path)
+	}
+	for _, c := range base {
+		commit(c)
+	}
+	heads := func() (string, string) {
+		return gitIn(t, ui, "rev-parse", "--short", "HEAD"), gitIn(t, oss, "rev-parse", "--short", "HEAD")
+	}
+	recDir := t.TempDir()
+	record = filepath.Join(recDir, "GATE-RUN.e2e-full.txt")
+	uiHead, ossHead := heads()
+	writeRecordNamed(t, record, "e2e-full", uiHead, ossHead)
+	for _, c := range change {
+		commit(c)
+	}
+	if quick {
+		uiHead, ossHead = heads()
+		writeRecordNamed(t, filepath.Join(recDir, "GATE-RUN.e2e-quick.txt"), "e2e-quick", uiHead, ossHead)
+	}
+	return record, oss, ui
+}
+
+// writeRecordNamed writes a green, finished gate-run.v1 record for mode
+// ("e2e-full" or "e2e-quick") at p.
+func writeRecordNamed(t *testing.T, p, mode, uiHead, ossHead string) {
+	t.Helper()
+	text := "schema: gate-run.v1\ngate: identuum-ui make " + mode + "\nrepo-head: " + uiHead +
+		"\nplan: a\ntarget: a exit=0\nfinished: 2026-09-26T10:00:00Z\n" +
+		"xrepo: identuum-idp-oss head=" + ossHead + " tree=sha256:3729e7ca\nresult: green\n"
+	if err := os.WriteFile(p, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // makefileRecipe returns the recipe lines of a Makefile target: everything

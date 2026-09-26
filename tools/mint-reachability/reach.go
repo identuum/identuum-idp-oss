@@ -91,6 +91,15 @@
 // module's Makefile, the e2e specs and harness (e2e-full/scripts/ included),
 // go.mod, go.sum, the root tools/tools.go — REQUIRES the mint.
 //
+// WHICH MINT (GATE-TIERS, owner ruling 2026-09-26, platform/gate-cost.md):
+// a required mint has a TIER. A reaching path a QuickSet entry covers needs
+// only e2e-quick; every other reaching path — an unmatched one above all —
+// needs e2e-full, and a mixed change takes the highest tier. "none" is only
+// ever a positive match: a NoReachSet entry, or a deployment YAML change whose
+// every changed line is a comment or blank AND whose parsed value is
+// unchanged (main.go, commentOnlyYAML). QuickSet is narrow by design:
+// internal/service/** is FULL except the ruled list of thirteen files.
+//
 // Rule MINT-REACHABILITY-1 binds to reach_test.go; rule TOOLS-NO-REACH-1
 // binds the gate-program entries and their proof to closure_test.go.
 package main
@@ -223,6 +232,97 @@ var baseNoReachSet = []NoReachEntry{
 	{Pattern: ".legattus-policy.json", Why: "Legattus's committed policy: read by Legattus, never copied into the runtime image (only --from= artifacts are), never embedded (go list EmbedPatterns names only migrations/*.sql) — proved by reach_test.go on every run", ThisRepoOnly: true},
 }
 
+// QuickEntry is a path class whose change needs e2e-quick, not e2e-full.
+// Patterns are matched against the NAMESPACED path (identuum-ui/… for the
+// sibling), so an entry names its repository; an Except pattern keeps its
+// paths at e2e-full.
+type QuickEntry struct {
+	Pattern string
+	Except  []string
+	Why     string
+}
+
+// QuickSpecs are the dev-loop specs e2e-quick runs (identuum-ui full-run.sh,
+// E2E_MODE=quick): changing one of them needs only the run that runs it.
+var QuickSpecs = []string{
+	"e2e/login.spec.ts",
+	"e2e/health-and-redirects.spec.ts",
+	"e2e/oss-site-admin-smoke.spec.ts",
+	"e2e/org-admin-smoke.spec.ts",
+	"e2e/org-admin-settings.spec.ts",
+	"e2e/dashboard.spec.ts",
+	"e2e/account-settings.spec.ts",
+	"e2e/local-time-hydration.spec.ts",
+}
+
+// quickServiceFiles is the owner's ruled list (2026-09-26): the internal/service
+// files whose change needs only e2e-quick. Every other file under
+// internal/service — auth, sessions, MFA, claims, passwords, verification,
+// tokens, sign-in, activation, client secrets, user state, and any file added
+// later — stays e2e-full until the owner lists it here.
+var quickServiceFiles = []string{
+	"api_resource_service.go",
+	"audit_persistent.go",
+	"domain_dns_verifier.go",
+	"org_role_service.go",
+	"organization_domain_service.go",
+	"organization_protocol_settings_service.go",
+	"organization_service.go",
+	"service_account_admin.go",
+	"service_account_service.go",
+	"user_profile_service.go",
+	"scope_template_service.go",
+	"user_scope_service.go",
+	"smtp_notifier.go",
+}
+
+// QuickSet is the committed quick-tier declaration.
+var QuickSet = quickSet()
+
+func quickSet() []QuickEntry {
+	set := []QuickEntry{
+		{Pattern: "identuum-ui/src/components/**", Why: "presentational components, rendered by the quick specs"},
+		{Pattern: "identuum-ui/src/app/**", Except: []string{
+			"identuum-ui/src/app/api/**", "identuum-ui/src/app/login/**", "identuum-ui/src/app/logout/**",
+			"identuum-ui/src/app/setup/**", "identuum-ui/src/app/claim/**", "identuum-ui/src/app/activate/**",
+		}, Why: "pages outside sign-in, sign-out, setup, claim, activation and the API routes"},
+		{Pattern: "cmd/**", Why: "the binary's commands; the appliance boot is exercised by e2e-quick's oss-up, dev-smoke and fresh-appliance"},
+		{Pattern: "internal/postgres/**", Why: "repositories; the schema lives in migrations/**, which stays full"},
+		{Pattern: "internal/domain/**", Why: "domain types"},
+	}
+	for _, s := range QuickSpecs {
+		set = append(set, QuickEntry{Pattern: "identuum-ui/" + s, Why: "a spec e2e-quick runs"})
+	}
+	for _, f := range quickServiceFiles {
+		set = append(set, QuickEntry{Pattern: "internal/service/" + f, Why: "on the owner's ruled quick list (2026-09-26)"})
+	}
+	return set
+}
+
+// quickCovers reports whether a QuickSet entry covers the namespaced path p
+// and none of that entry's Except patterns does.
+func quickCovers(p string) bool {
+	for _, e := range QuickSet {
+		if !matchPath(e.Pattern, p) {
+			continue
+		}
+		for _, x := range e.Except {
+			if matchPath(x, p) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+// Tiers are the three answers: which mint a change set owes.
+const (
+	TierNone  = "none"
+	TierQuick = "quick"
+	TierFull  = "full"
+)
+
 // SiblingPrefixes are the namespaces main.go puts in front of a sibling
 // repository's paths. An entry is matched against the path WITHOUT its
 // namespace, so the one declaration governs both repositories; the reported
@@ -252,6 +352,15 @@ type Decision struct {
 	// Unknown paths are reaching too, listed separately because "I have
 	// never seen this" is a different statement from "this reaches".
 	Unknown []string
+	// Tier is which mint the change owes: TierNone when nothing reaches,
+	// TierQuick when every reaching path is quick-class, else TierFull.
+	// Full lists the reaching paths no QuickSet entry covers.
+	Tier string
+	Full []string
+	// CommentOnly are deployment YAML paths the caller judged none by their
+	// diff's content (never by name) before classifying; reported, not
+	// classified.
+	CommentOnly []string
 }
 
 // Decide classifies a change set. An EMPTY change set is skippable: there is
@@ -285,8 +394,19 @@ func Decide(changed []string, set []NoReachEntry) Decision {
 		}
 		d.Reaching = append(d.Reaching, p)
 		d.Unknown = append(d.Unknown, p)
+		if !quickCovers(p) {
+			d.Full = append(d.Full, p)
+		}
 	}
 	d.Required = len(d.Reaching) > 0
+	switch {
+	case !d.Required:
+		d.Tier = TierNone
+	case len(d.Full) == 0:
+		d.Tier = TierQuick
+	default:
+		d.Tier = TierFull
+	}
 	return d
 }
 
@@ -360,19 +480,35 @@ func (d Decision) Line() string {
 // why each path was (or was not) covered. The -e2e-record mode prints one
 // per repository.
 func (d Decision) Summary() string {
-	if len(d.Changed) == 0 {
-		return "no change since the last minted witness"
+	tier := d.Tier
+	if tier == "" {
+		tier = TierNone
+		if d.Required {
+			tier = TierFull
+		}
 	}
-	if d.Required {
-		return fmt.Sprintf("%d of %d changed path(s) reach the appliance: %s",
+	var s string
+	switch {
+	case len(d.Changed) == 0:
+		s = "tier none: no change since the last minted witness"
+	case tier == TierQuick:
+		s = fmt.Sprintf("tier quick (e2e-quick): %d of %d changed path(s) reach the appliance, every one quick-class: %s",
 			len(d.Reaching), len(d.Changed), strings.Join(clip(d.Reaching, 8), ", "))
+	case d.Required:
+		s = fmt.Sprintf("tier full (e2e-full): %d of %d changed path(s) reach the appliance: %s",
+			len(d.Reaching), len(d.Changed), strings.Join(clip(d.Reaching, 8), ", "))
+	default:
+		var justified []string
+		for _, p := range d.Changed {
+			justified = append(justified, fmt.Sprintf("%s [%s]", p, d.NoReach[p]))
+		}
+		s = fmt.Sprintf("tier none: all %d changed path(s) are declared no-reach: %s",
+			len(d.Changed), strings.Join(justified, "; "))
 	}
-	var justified []string
-	for _, p := range d.Changed {
-		justified = append(justified, fmt.Sprintf("%s [%s]", p, d.NoReach[p]))
+	if len(d.CommentOnly) > 0 {
+		s += fmt.Sprintf("; comment-only deployment YAML, judged none by its diff and its parsed value: %s", strings.Join(d.CommentOnly, ", "))
 	}
-	return fmt.Sprintf("all %d changed path(s) are declared no-reach: %s",
-		len(d.Changed), strings.Join(justified, "; "))
+	return s
 }
 
 func clip(s []string, n int) []string {

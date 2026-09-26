@@ -26,7 +26,15 @@ package main
 // gate (THE-RECORD-ONLY-CLOSE, 2026-09-07) by the same set: the record's own
 // heads are the left-hand side, every path changed since them in BOTH
 // repositories is judged, and the record stands ONLY when every one is
-// declared no-reach. That mode is unchanged.
+// declared no-reach — or, since GATE-TIERS (2026-09-26), when every reaching
+// one is quick-class and a green GATE-RUN.e2e-quick.txt pins these trees.
+//
+// GATE-TIERS: a required mint names its tier (reach.go). A full-tier change
+// is paid only by a new e2e-full record; a quick-tier change also by a green
+// e2e-quick record beside it whose heads are these trees' — consulted only
+// when the decision is quick. A quick record is never read as the e2e-full
+// record. Comment-only deployment YAML is judged none by its diff's content
+// and its parsed value, before classification.
 //
 // It never runs the mint and never skips it on its own: `make test-full`
 // reads the exit code. 0 = SATISFIED (skippable), 10 = MINT REQUIRED, 1 = it
@@ -40,8 +48,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ExitSkippable / ExitRequired / ExitUndecidable are the harness contract.
@@ -114,25 +125,68 @@ func decideFromRecord(recordPath, repoDir, uiDir string) (string, int) {
 		}
 		return fmt.Sprintf("check FAILED: mint-reachability — %s: %v", name, err), ExitUndecidable
 	}
-	// The record must vouch for THESE trees: each pinned head has to be in
-	// the history of the tree it names, or the record is some other tree's.
-	var changed []string
+	if heads.Quick() {
+		return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s was written by e2e-quick (%s): a quick record pays the quick tier only, never the e2e-full mint", name, heads.Gate), ExitRequired
+	}
+	d, line, code := judgeSince(name, heads, repoDir, uiDir)
+	if code != ExitSkippable {
+		return line, code
+	}
+	since := fmt.Sprintf("(since %s: identuum-ui %s, identuum-idp-oss %s)", name, heads.UI, heads.Sibling)
+	switch d.Tier {
+	case TierFull:
+		return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s %s", d.Summary(), since), ExitRequired
+	case TierQuick:
+		// GATE-TIERS: the quick tier is paid only by a green e2e-quick record
+		// pinned to THESE trees — nothing reaching since its own heads. It is
+		// read here and nowhere else: only a quick decision consults it.
+		qpath := filepath.Join(filepath.Dir(recordPath), quickRecordName)
+		qline, ok := quickPays(qpath, repoDir, uiDir)
+		if !ok {
+			return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s %s; e2e-quick owed: %s", d.Summary(), since, qline), ExitRequired
+		}
+		if line, code := proofsHold(d, repoDir, uiDir); code != ExitSkippable {
+			return line, code
+		}
+		return fmt.Sprintf("check OK: mint-reachability MINT SATISFIED by %s — %s %s", qline, d.Summary(), since), ExitSkippable
+	}
+	if line, code := proofsHold(d, repoDir, uiDir); code != ExitSkippable {
+		return line, code
+	}
+	return fmt.Sprintf("check OK: mint-reachability MINT SATISFIED by %s (identuum-ui %s, identuum-idp-oss %s) — %s",
+		name, heads.UI, heads.Sibling, d.Summary()), ExitSkippable
+}
+
+// quickRecordName is e2e-quick's record, beside the e2e-full one in the
+// sibling checkout (gitignored there, never tracked).
+const quickRecordName = "GATE-RUN.e2e-quick.txt"
+
+// judgeSince checks that the record's two heads are in the judged trees'
+// histories and classifies every path changed since them — comment-only
+// deployment YAML set aside by content first. A non-Skippable code means the
+// question could not be put: the line says why.
+func judgeSince(name string, heads E2EHeads, repoDir, uiDir string) (Decision, string, int) {
+	var changed, commentOnly []string
 	for _, r := range []struct{ name, dir, base string }{
 		{"identuum-ui", uiDir, heads.UI},
 		{"identuum-idp-oss", repoDir, heads.Sibling},
 	} {
+		// The record must vouch for THESE trees: each pinned head has to be in
+		// the history of the tree it names, or the record is some other tree's.
 		if !isAncestor(r.dir, r.base) {
 			head, _ := gitOut(r.dir, "rev-parse", "--short", "HEAD")
-			return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s pins %s %s, which is not in the history of the %s tree being judged (HEAD %s): the record vouches for another tree",
+			return Decision{}, fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s pins %s %s, which is not in the history of the %s tree being judged (HEAD %s): the record vouches for another tree",
 				name, r.name, r.base, r.name, head), ExitRequired
 		}
 		files, err := changedSince(r.dir, r.base)
 		if err != nil {
-			return fmt.Sprintf("check FAILED: mint-reachability — %s since %s: %v", r.name, r.base, err), ExitUndecidable
+			return Decision{}, fmt.Sprintf("check FAILED: mint-reachability — %s since %s: %v", r.name, r.base, err), ExitUndecidable
 		}
+		kept, dropped := splitCommentOnlyYAML(r.dir, r.base, r.name, files)
+		commentOnly = append(commentOnly, dropped...)
 		// Namespace the sibling's paths so a report can never confuse which
 		// repository a file came from.
-		for _, f := range files {
+		for _, f := range kept {
 			if r.name == "identuum-idp-oss" {
 				changed = append(changed, f)
 			} else {
@@ -141,27 +195,108 @@ func decideFromRecord(recordPath, repoDir, uiDir string) (string, int) {
 		}
 	}
 	d := Decide(changed, NoReachSet)
-	if d.Required {
-		return fmt.Sprintf("check OK: mint-reachability MINT REQUIRED — %s (since %s: identuum-ui %s, identuum-idp-oss %s)",
-			d.Summary(), name, heads.UI, heads.Sibling), ExitRequired
+	d.CommentOnly = commentOnly
+	return d, "", ExitSkippable
+}
+
+// quickPays reports whether the e2e-quick record at path pays the quick tier
+// for THESE trees: green, finished, written by e2e-quick, both heads in
+// history, and nothing reaching since them. The line names the record or why
+// it does not pay.
+func quickPays(path, repoDir, uiDir string) (string, bool) {
+	name := filepath.Base(path)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Sprintf("no green %s at %s", name, path), false
 	}
-	// A gate-program entry excused something: its proof must hold on THIS
-	// tree before that excuse stands. If the proof cannot run or fails, the
-	// answer is undecidable, which the harness treats as MINT REQUIRED.
+	heads, err := parseE2ERecord(string(raw))
+	if err != nil {
+		return fmt.Sprintf("%s does not pay: %v", name, err), false
+	}
+	if !heads.Quick() {
+		return fmt.Sprintf("%s was not written by e2e-quick (%s)", name, heads.Gate), false
+	}
+	d, line, code := judgeSince(name, heads, repoDir, uiDir)
+	if code != ExitSkippable {
+		return fmt.Sprintf("%s does not pay: %s", name, line), false
+	}
+	if d.Required {
+		return fmt.Sprintf("%s is stale — since its heads (identuum-ui %s, identuum-idp-oss %s): %s", name, heads.UI, heads.Sibling, d.Summary()), false
+	}
+	if line, code := proofsHold(d, repoDir, uiDir); code != ExitSkippable {
+		return fmt.Sprintf("%s does not pay: %s", name, line), false
+	}
+	return fmt.Sprintf("%s (identuum-ui %s, identuum-idp-oss %s)", name, heads.UI, heads.Sibling), true
+}
+
+// proofsHold re-proves, on THIS tree, every declaration d relied on that
+// rests on a proof: a gate-program entry or the sibling's Makefile. If a
+// proof cannot run or fails, the answer is undecidable, which the harness
+// treats as MINT REQUIRED.
+func proofsHold(d Decision, repoDir, uiDir string) (string, int) {
 	if reliesOnGateProgram(d) {
 		if _, err := ProveGateProgramsUnreachable(repoDir); err != nil {
 			return fmt.Sprintf("check FAILED: mint-reachability — %v", err), ExitUndecidable
 		}
 	}
-	// The same obligation for the sibling's Makefile entry: the proof is read
-	// from the sibling's own Dockerfile and package.json on THIS tree.
 	if reliesOnSiblingMakefile(d) {
 		if _, err := ProveSiblingMakefileUnreachable(uiDir); err != nil {
 			return fmt.Sprintf("check FAILED: mint-reachability — %v", err), ExitUndecidable
 		}
 	}
-	return fmt.Sprintf("check OK: mint-reachability MINT SATISFIED by %s (identuum-ui %s, identuum-idp-oss %s) — %s",
-		name, heads.UI, heads.Sibling, d.Summary()), ExitSkippable
+	return "", ExitSkippable
+}
+
+// splitCommentOnlyYAML sets aside identuum-idp-oss deployment/**/*.yml|*.yaml
+// paths whose change since base is comment-only, judged by CONTENT, never by
+// name: every line the diff adds or removes is blank or a # comment, AND the
+// file parses to the same YAML value before and after — a '#' line inside a
+// block scalar is data, and the parse catches it. A new, deleted, renamed or
+// mode-changed file, a parse error or any git error keeps the path (fail
+// closed).
+func splitCommentOnlyYAML(dir, base, repo string, files []string) (kept, dropped []string) {
+	for _, f := range files {
+		if repo == "identuum-idp-oss" && strings.HasPrefix(f, "deployment/") &&
+			(strings.HasSuffix(f, ".yml") || strings.HasSuffix(f, ".yaml")) && commentOnlyYAML(dir, base, f) {
+			dropped = append(dropped, f)
+			continue
+		}
+		kept = append(kept, f)
+	}
+	return kept, dropped
+}
+
+func commentOnlyYAML(dir, base, f string) bool {
+	diff, err := gitOut(dir, "diff", "-U0", base, "--", f)
+	if err != nil || !strings.Contains(diff, "@@") {
+		return false
+	}
+	for _, line := range strings.Split(diff, "\n") {
+		switch {
+		case strings.HasPrefix(line, "new file"), strings.HasPrefix(line, "deleted file"),
+			strings.HasPrefix(line, "rename "), strings.HasPrefix(line, "old mode"), strings.HasPrefix(line, "new mode"):
+			return false
+		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
+			continue
+		case strings.HasPrefix(line, "+"), strings.HasPrefix(line, "-"):
+			if c := strings.TrimSpace(line[1:]); c != "" && !strings.HasPrefix(c, "#") {
+				return false
+			}
+		}
+	}
+	before, err := gitOut(dir, "show", base+":"+f)
+	if err != nil {
+		return false
+	}
+	after, err := os.ReadFile(filepath.Join(dir, f))
+	if err != nil {
+		return false
+	}
+	var old, cur any
+	if yaml.Unmarshal([]byte(before), &old) != nil || yaml.Unmarshal(after, &cur) != nil {
+		return false
+	}
+	return reflect.DeepEqual(old, cur)
 }
 
 // isAncestor reports whether base is in the history of dir's HEAD. An
@@ -176,7 +311,12 @@ func isAncestor(dir, base string) bool {
 type E2EHeads struct {
 	UI      string
 	Sibling string
+	// Gate is the record's `gate:` line: which harness mode wrote it.
+	Gate string
 }
+
+// Quick reports whether e2e-quick wrote the record.
+func (h E2EHeads) Quick() bool { return strings.HasSuffix(h.Gate, "make e2e-quick") }
 
 // parseE2ERecord reads the heads out of a gate-run.v1 record and refuses
 // anything that is not a green, finished record pinned to both heads. The
@@ -190,6 +330,8 @@ func parseE2ERecord(text string) (E2EHeads, error) {
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		switch {
+		case strings.HasPrefix(line, "gate: "):
+			h.Gate = strings.TrimSpace(strings.TrimPrefix(line, "gate: "))
 		case strings.HasPrefix(line, "repo-head: "):
 			h.UI = strings.TrimSpace(strings.TrimPrefix(line, "repo-head: "))
 		case strings.HasPrefix(line, "xrepo: identuum-idp-oss "):
@@ -231,10 +373,14 @@ func judgeE2ERecord(recordPath, repoDir, uiDir string) int {
 		fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %s: %v\n", filepath.Base(recordPath), err)
 		return ExitUndecidable
 	}
+	if heads.Quick() {
+		fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %s was written by e2e-quick (%s): a quick record is never the e2e-full record\n", filepath.Base(recordPath), heads.Gate)
+		return ExitUndecidable
+	}
 	// Each repository is judged on its own range and says so on its own
 	// line, so a reader sees WHICH tree moved and on what; the verdict is
 	// over the union, because the record pins both.
-	var changed []string
+	var changed, commentOnly []string
 	for _, r := range []struct{ name, dir, base string }{
 		{"identuum-ui", uiDir, heads.UI},
 		{"identuum-idp-oss", repoDir, heads.Sibling},
@@ -244,24 +390,39 @@ func judgeE2ERecord(recordPath, repoDir, uiDir string) int {
 			fmt.Fprintf(os.Stderr, "check FAILED: e2e-record-reach — %s since %s: %v\n", r.name, r.base, err)
 			return ExitUndecidable
 		}
+		kept, dropped := splitCommentOnlyYAML(r.dir, r.base, r.name, files)
+		commentOnly = append(commentOnly, dropped...)
 		var named []string
-		for _, f := range files {
+		for _, f := range kept {
 			if r.name == "identuum-idp-oss" {
 				named = append(named, f)
 			} else {
 				named = append(named, r.name+"/"+f)
 			}
 		}
-		fmt.Printf("e2e-record: %s %s..HEAD — %s\n", r.name, r.base, Decide(named, NoReachSet).Summary())
+		one := Decide(named, NoReachSet)
+		one.CommentOnly = dropped
+		fmt.Printf("e2e-record: %s %s..HEAD — %s\n", r.name, r.base, one.Summary())
 		changed = append(changed, named...)
 	}
 	d := Decide(changed, NoReachSet)
+	d.CommentOnly = commentOnly
 	fmt.Printf("e2e-record: %s was minted at identuum-ui %s and identuum-idp-oss %s; %d path(s) changed since, in the two trees, judged by the no-reach set\n",
 		filepath.Base(recordPath), heads.UI, heads.Sibling, len(d.Changed))
 	fmt.Println(d.Line())
-	if d.Required {
-		fmt.Printf("check FAILED: e2e-record-reach REFUSED — the stale record cannot stand for this tree: %d reaching path(s) since its heads; mint a new e2e-full\n", len(d.Reaching))
+	if d.Tier == TierFull {
+		fmt.Printf("check FAILED: e2e-record-reach REFUSED — the stale record cannot stand for this tree: %d reaching path(s) since its heads, %d of them full-class; mint a new e2e-full\n", len(d.Reaching), len(d.Full))
 		return ExitRequired
+	}
+	if d.Tier == TierQuick {
+		// GATE-TIERS: every reaching path is quick-class — the stale e2e-full
+		// record stands only beside a green e2e-quick record for THESE trees.
+		qline, ok := quickPays(filepath.Join(filepath.Dir(recordPath), quickRecordName), repoDir, uiDir)
+		if !ok {
+			fmt.Printf("check FAILED: e2e-record-reach REFUSED — %d quick-class path(s) since its heads and no e2e-quick record pays them: %s; mint e2e-quick\n", len(d.Reaching), qline)
+			return ExitRequired
+		}
+		fmt.Printf("e2e-record: the quick tier is paid by %s\n", qline)
 	}
 	// The same proof obligation as the mint decision: an excuse resting on
 	// a gate-program entry stands only while the entry is provably sound.
