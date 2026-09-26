@@ -1654,6 +1654,11 @@ func componentHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				// delivered; OSS issues no admin reset links.
 				"mail_ceremonies":  deps.EmailDeliveryConfigured,
 				"admin_reset_link": false,
+				// OSS-GUARDS: OSS holds pending registrations (a banned
+				// org_user awaiting approval) and serves
+				// POST /api/v1/users/:id/approve; identuum-idp-ce declares
+				// false, and the UI hides Approve only on an explicit false.
+				"user_approval": true,
 			},
 			"auth": gin.H{
 				"authority":     "identuum-idp",

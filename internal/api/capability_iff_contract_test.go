@@ -378,6 +378,22 @@ func TestCapabilityIff_MailCapabilities(t *testing.T) {
 	}
 }
 
+// TestCapabilityIff_UserApproval (OSS-GUARDS): OSS has a pending-registration
+// state (banned org_user awaiting approval) and serves
+// POST /api/v1/users/:id/approve, so it declares user_approval true
+// explicitly. identuum-idp-ce declares it false and serves no approve route;
+// the UI hides Approve only on an explicit false.
+func TestCapabilityIff_UserApproval(t *testing.T) {
+	router := readIffSource(t, "internal/api/router.go")
+	if !strings.Contains(router, `"user_approval": true,`) {
+		t.Error(`user_approval must be declared true: OSS serves POST /api/v1/users/:id/approve`)
+	}
+	users := readIffSource(t, "internal/handlers/users.go")
+	if !strings.Contains(users, `update.POST("/:id/approve", HandleApproveUser(deps))`) {
+		t.Error("user_approval is true but internal/handlers/users.go registers no approve route")
+	}
+}
+
 // TestCapabilityIff_AllAdvertisedCapabilitiesCovered serves as a
 // cross-check: it asserts that the static iff table above (the union
 // of `true` backings + `false` documented policies) covers every
@@ -419,6 +435,8 @@ func TestCapabilityIff_AllAdvertisedCapabilitiesCovered(t *testing.T) {
 		// runtime-derived / absent-by-design (TestCapabilityIff_MailCapabilities)
 		"mail_ceremonies":  true,
 		"admin_reset_link": true,
+		// served-by-route (TestCapabilityIff_UserApproval)
+		"user_approval": true,
 	}
 
 	// Extract every `"<key>":` token inside the componentHandler
