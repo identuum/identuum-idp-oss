@@ -1,5 +1,17 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "611ba186b51ac8642035caca66d627c997952958",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "FAMILY-FALLBACK-1",
+      "change_class": "sentence_changed",
+      "after_sentence_sha256": "f0a82b9c18c3ff473784194f411a78f7f190c59d104c667ee85e231c82536a00",
+      "reason": "OSS-CLIENTS (2026-09-27, brief item 4): DELETE /api/v1/clients/:id for another organization's client or an unknown id answered 200 {\"deleted\": id} and recorded client.deleted while deleting nothing; the brief requires 404 with no audit row, and item 3 requires the client's tokens revoked first with a failed revocation answering 503 and deleting nothing. The sentence keeps the idempotent-delete 200s of the other families and names the clients exception. Amended through rulefloor amend."
+    },
+    {
+      "rule_id": "FAMILY-FALLBACK-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "OSS-CLIENTS: family_fallback_test.go's clients subtest now expects a miss to be 404 (was the documented 200), an injected revocation failure 503 revocation_failed with the client still present, no revoker wired 503, a delete fault on an own-organization client 500 internal_error (unchanged answer), and an own delete 200 after revoking that client's tokens; fakeClientTokenRevoker is its fixture. Mutation watched: with the revocation error ignored the subtest read 'revocation failure = 200 map[deleted:...], want 503 revocation_failed'; restored, green. The other four families are untouched. Rehashed 93012f7bb0e0 -> 7769557540aa."
+    }
+  ]
 }
