@@ -970,7 +970,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	introspectionSvc := service.NewIntrospectionService(report,
 		tokenVerifier.(*auth.RepositoryVerifier),
 		userScopeSvc,
-	).WithAgentCommunication(repos.AgentCommunicationAuthorization, repos.Client)
+	).WithAgentCommunication(repos.AgentCommunicationAuthorization, repos.Client).
+		WithClientLiveness(repos.Client)
 
 	// Single source of truth: the minters stamp exactly the same anchor the
 	// bearer verifier confines to (resolved above). No independent

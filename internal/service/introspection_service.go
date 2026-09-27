@@ -141,6 +141,10 @@ type IntrospectionService struct {
 	authorizations repository.AgentCommunicationAuthorizationRepository
 	clients        AgentCommunicationClientLookup
 	now            func() time.Time
+
+	// clientLiveness, when set, refuses a token whose client is gone
+	// (OSS-CLIENTS).
+	clientLiveness AgentCommunicationClientLookup
 }
 
 // WithAgentCommunication enables participant-token introspection: a token
@@ -295,6 +299,31 @@ func (s *IntrospectionService) WithRevocationChecker(c TokenRevocationChecker) *
 	return s
 }
 
+// WithClientLiveness makes every verdict consult the token's client: a token
+// whose client_id no longer names a client (deleted) is inactive, and a
+// lookup error fails closed as a store outage (OSS-CLIENTS). Tokens without
+// a client_id (login session tokens) are unaffected. Nil detaches.
+func (s *IntrospectionService) WithClientLiveness(l AgentCommunicationClientLookup) *IntrospectionService {
+	s.clientLiveness = l
+	return s
+}
+
+// clientLive reports whether the token's client still exists. (true, nil)
+// when no lookup is wired or the token names no client.
+func (s *IntrospectionService) clientLive(ctx context.Context, claims *IntrospectionClaims) (bool, error) {
+	if s.clientLiveness == nil || claims.ClientID == "" {
+		return true, nil
+	}
+	c, err := s.clientLiveness.GetClientByClientID(ctx, claims.ClientID)
+	if err != nil {
+		if errors.Is(err, domain.ErrClientNotFound) {
+			return false, nil
+		}
+		return false, domain.AuthStoreUnavailable("client", err)
+	}
+	return c != nil, nil
+}
+
 // Introspect runs the supplied rawToken through the verifier and
 // returns an IntrospectionResponse. The response is ALWAYS safe
 // to serialize:
@@ -356,6 +385,9 @@ func (s *IntrospectionService) IntrospectVerdict(ctx context.Context, rawToken s
 		if revoked {
 			return IntrospectionResponse{Active: false}, nil
 		}
+	}
+	if live, liveErr := s.clientLive(ctx, claims); liveErr != nil || !live {
+		return IntrospectionResponse{Active: false}, liveErr
 	}
 	resp := IntrospectionResponse{
 		Active:    true,
@@ -488,6 +520,9 @@ func (s *IntrospectionService) IntrospectActiveClaimsVerdict(ctx context.Context
 		if revoked {
 			return nil, false, nil
 		}
+	}
+	if live, liveErr := s.clientLive(ctx, claims); liveErr != nil || !live {
+		return nil, false, liveErr
 	}
 	return claims, true, nil
 }
