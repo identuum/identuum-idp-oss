@@ -5,6 +5,18 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- **A failed revocation leaves no change.** A role change or a disable
+  through `PUT /api/v1/users/:id` whose credential revocation fails still
+  answers 503 `revocation_failed`, but the user row is no longer written:
+  the revocation now runs first, after every guard and validation and right
+  before the write. A retry of the same request is still a change, so it
+  revokes again. The user row and the credentials live in separate stores
+  with no shared transaction, so revoke-first is the order used.
+
 ## `v0.6.2`
 
 Security and correctness fixes since `v0.6.1`, with identuum-ui `v0.3.2`

@@ -759,6 +759,10 @@ func HandleCreateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 // considered; password is hashed before persistence. org_admin
 // cannot mutate site_admin users, cross-org users, or promote a
 // target to site_admin — those are 403 from UpdateUserForActor.
+// errRevocationFailed marks an update refused because the target's
+// credentials could not be revoked first; nothing was written.
+var errRevocationFailed = errors.New("revocation_failed")
+
 func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := uuid.Parse(c.Param("id"))
@@ -800,15 +804,6 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		// Password policy follows the TARGET user's org. Resolved only
 		// when a password is actually changing; a failed lookup falls
 		// back to the strict defaults (conservative direction).
-		// OSS-DEMOTE: a role change revokes the target's credentials, so its
-		// current role is read first, by value (a failed read counts as a
-		// change).
-		var roleBefore domain.UserRole
-		if req.Role != nil {
-			if before, berr := deps.UserService.GetUserForActor(c.Request.Context(), actor, id); berr == nil && before != nil {
-				roleBefore = before.Role
-			}
-		}
 		var pce *bool
 		minLen := 0
 		if req.Password != nil {
@@ -818,7 +813,18 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		}
 		var updated *domain.User
 		if userFieldsPresent || profilePatch.IsEmpty() {
-			updated, err = deps.UserService.UpdateUserForActor(c.Request.Context(), actor, id, service.UpdateUserOptions{
+			// OSS-DEMOTE, SMALL-FIXES-1: a disable or a role change revokes
+			// the user's credentials (a bearer's role and scopes come from
+			// the token, not a per-request re-read). The service revokes
+			// FIRST, after its guards and right before the write, so a
+			// failed revocation leaves no change and a retry revokes again.
+			revoke := func(ctx context.Context, userID uuid.UUID, reason string) error {
+				if rerr := revokeUserCredentials(ctx, deps.SessionRevoker, deps.RefreshTokenRevoker, userID, reason); rerr != nil {
+					return errRevocationFailed
+				}
+				return nil
+			}
+			updated, err = deps.UserService.UpdateUserForActorRevokingFirst(c.Request.Context(), actor, id, service.UpdateUserOptions{
 				Email:                     req.Email,
 				Password:                  req.Password,
 				Name:                      req.Name,
@@ -827,12 +833,16 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				EmailVerified:             req.EmailVerified,
 				PasswordComplexityEnabled: pce,
 				MinPasswordLength:         minLen,
-			})
+			}, revoke)
 		} else {
 			// Profile-only update: the SAME actor authority as an update
 			// (GetUserForActor is the read half of UpdateUserForActor's
 			// tenant rules), then the profile write below.
 			updated, err = deps.UserService.GetUserForActor(c.Request.Context(), actor, id)
+		}
+		if errors.Is(err, errRevocationFailed) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "revocation_failed"})
+			return
 		}
 		if errors.Is(err, domain.ErrForbidden) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
@@ -881,24 +891,6 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			}
 			return
-		}
-		// OSS-DEMOTE: a disable or a role change has persisted above; the
-		// user's credentials are revoked now, FAIL-CLOSED, so the change
-		// takes effect on its next request (a bearer's role and scopes come
-		// from the token, not a per-request re-read). A revocation failure
-		// answers 503 revocation_failed and the caller retries; the persisted
-		// change stays.
-		banned := req.Banned != nil && *req.Banned
-		roleChanged := req.Role != nil && roleBefore != updated.Role
-		if banned || roleChanged {
-			reason := "user_role_changed"
-			if banned {
-				reason = "user_banned"
-			}
-			if err := revokeUserCredentials(c.Request.Context(), deps.SessionRevoker, deps.RefreshTokenRevoker, updated.ID, reason); err != nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "revocation_failed"})
-				return
-			}
 		}
 		// THE-PROFILE-CLAIMS: the optional profile fields, validated per
 		// field; a format violation is an honest 400 naming the field.

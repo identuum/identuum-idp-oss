@@ -286,14 +286,15 @@ func validateUserUpdate(opts UpdateUserOptions) error {
 // Update mutates a user scoped to orgID. Password, when supplied,
 // is hashed before persistence.
 func (s *UserService) Update(ctx context.Context, id, orgID uuid.UUID, opts UpdateUserOptions) (*domain.User, error) {
-	return s.update(ctx, id, orgID, opts, false)
+	return s.update(ctx, id, orgID, opts, false, nil)
 }
 
 // update is Update; keepActiveOrgAdmin (OSS-GUARDS, set by UpdateUserForActor
 // for an org_admin actor) has the repository refuse with
 // domain.ErrLastOrgAdmin a change that would leave the organization without
-// an active org_admin.
-func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts UpdateUserOptions, keepActiveOrgAdmin bool) (*domain.User, error) {
+// an active org_admin. beforeWrite, when set, runs after validation and
+// right before the repository write; its error aborts the write.
+func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts UpdateUserOptions, keepActiveOrgAdmin bool, beforeWrite func(context.Context) error) (*domain.User, error) {
 	// THE-UNVALIDATED-REST (2026-08-31): this method validated ONLY the
 	// password and handed Email and Role to the repository raw, so
 	// PUT {"email":"not-an-email"} and PUT {"role":"wizard"} were refused
@@ -335,6 +336,11 @@ func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts Upda
 			return nil, errPasswordHashing
 		}
 		repoOpts.Password = &hash
+	}
+	if beforeWrite != nil {
+		if err := beforeWrite(ctx); err != nil {
+			return nil, err
+		}
 	}
 	updated, err := s.repo.Update(ctx, id, orgID, repoOpts)
 	if err != nil {
@@ -557,6 +563,21 @@ func (s *UserService) guardSiteAdminTenantWrite(ctx context.Context, opts Create
 //
 // site_admin actors are unrestricted.
 func (s *UserService) UpdateUserForActor(ctx context.Context, actor *domain.Principal, targetUserID uuid.UUID, opts UpdateUserOptions) (*domain.User, error) {
+	return s.UpdateUserForActorRevokingFirst(ctx, actor, targetUserID, opts, nil)
+}
+
+// UserCredentialRevoker revokes every credential of a user (sessions and
+// refresh tokens); reason names the change for the audit trail.
+type UserCredentialRevoker func(ctx context.Context, userID uuid.UUID, reason string) error
+
+// UpdateUserForActorRevokingFirst is UpdateUserForActor for a caller that
+// revokes the target's credentials when the update disables it or changes its
+// role (SMALL-FIXES-1). The user row and the credentials live in separate
+// stores with no shared transaction, so the revocation runs FIRST: after every
+// guard and validation, right before the write. A failed revocation returns
+// its error and leaves no change, and a retry of the same request is still a
+// change, so it revokes again.
+func (s *UserService) UpdateUserForActorRevokingFirst(ctx context.Context, actor *domain.Principal, targetUserID uuid.UUID, opts UpdateUserOptions, revoke UserCredentialRevoker) (*domain.User, error) {
 	if err := s.guardActorBaseline(actor); err != nil {
 		return nil, err
 	}
@@ -602,11 +623,29 @@ func (s *UserService) UpdateUserForActor(ctx context.Context, actor *domain.Prin
 		if targetUserID == actor.UserID && (opts.Banned != nil || opts.Role != nil) {
 			return nil, domain.ErrCannotChangeSelf
 		}
-		return s.update(ctx, targetUserID, actor.OrganizationID, opts, true)
+		return s.update(ctx, targetUserID, actor.OrganizationID, opts, true, revokeBeforeWrite(target, opts, revoke))
 	default:
 		return nil, domain.ErrForbidden
 	}
-	return s.Update(ctx, targetUserID, scopedOrgID, opts)
+	return s.update(ctx, targetUserID, scopedOrgID, opts, false, revokeBeforeWrite(target, opts, revoke))
+}
+
+// revokeBeforeWrite is the revocation an update owes: a disable, or a role
+// other than the target's current one. Nil when none is owed.
+func revokeBeforeWrite(target *domain.User, opts UpdateUserOptions, revoke UserCredentialRevoker) func(context.Context) error {
+	if revoke == nil {
+		return nil
+	}
+	reason := ""
+	switch {
+	case opts.Banned != nil && *opts.Banned:
+		reason = "user_banned"
+	case opts.Role != nil && *opts.Role != target.Role:
+		reason = "user_role_changed"
+	default:
+		return nil
+	}
+	return func(ctx context.Context) error { return revoke(ctx, target.ID, reason) }
 }
 
 // ApproveRegistrationForActor approves a pending self-registered user by

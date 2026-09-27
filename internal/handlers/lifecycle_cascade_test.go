@@ -334,19 +334,20 @@ func TestCascade_RevokeError_DoesNotBreakLifecycle(t *testing.T) {
 	user := &domain.User{ID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgUser}
 	repo := newMemUserRepo()
 	_, _ = repo.Create(context.Background(), user)
-	// SessionRevoker errors; RefreshTokenRevoker nil. The ban persists (the
-	// lifecycle change is the source of truth) and, since OSS-DEMOTE, the
-	// answer is FAIL-CLOSED: 503 revocation_failed, so the caller retries the
-	// revocation rather than being told the credentials are gone. Until then
-	// this asserted 200 — the best-effort contract OSS-DEMOTE replaced.
+	// SessionRevoker errors; RefreshTokenRevoker nil. Since OSS-DEMOTE the
+	// answer is FAIL-CLOSED: 503 revocation_failed (until then this asserted
+	// 200, the best-effort contract OSS-DEMOTE replaced). Since SMALL-FIXES-1
+	// the revocation runs before the write, so the ban does NOT persist and a
+	// retry is still a change that revokes again; until then this asserted
+	// that the ban persisted despite the revoke error.
 	deps := UsersHandlerDeps{Audit: audit.NoopService{}, UserService: service.NewUserService(nil, repo), SessionRevoker: erroringSessionRevoker{}}
 
 	code := runHandler(t, http.MethodPut, "/u/:id", "/u/"+user.ID.String(), `{"banned":true}`, HandleUpdateUser(deps))
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("ban with erroring revoker: status = %d, want 503 revocation_failed (fail-closed)", code)
 	}
-	if got, _ := repo.GetByID(context.Background(), user.ID); got == nil || !got.Banned {
-		t.Errorf("lifecycle change must persist despite revoke error; banned=%v", got)
+	if got, _ := repo.GetByID(context.Background(), user.ID); got == nil || got.Banned {
+		t.Errorf("a ban whose revocation failed must leave no change; got %v", got)
 	}
-	t.Logf("EVIDENCE (e) revoke error: ban persisted (banned=true), op returned 503, no panic")
+	t.Logf("EVIDENCE (e) revoke error: no change (banned=false), op returned 503, no panic")
 }
