@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
@@ -29,6 +30,10 @@ type ClientsHandlerDeps struct {
 	ClientService *service.ClientService
 	ClientRepo    repository.ClientRepository
 	Audit         audit.Service
+
+	// ClientTokenRevoker revokes a client's tokens before DELETE removes
+	// it (OSS-CLIENTS). Nil fails closed: the delete answers 503.
+	ClientTokenRevoker ClientTokenRevoker
 
 	// StartupReport, when wired, receives a fatal fault if neither
 	// ClientService nor ClientRepo is supplied — instead of panicking
@@ -158,6 +163,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:summary=Delete an OAuth client.
 		// docgen:tier=oss
 		// docgen:auth=org_admin
+		// docgen:notes=Revokes the client's refresh tokens and their linked access tokens before deleting; a failed revocation answers 503 and deletes nothing. Another organization's client or an unknown id answers 404.
 		deleteG.DELETE("/:id", HandleDeleteClient(deps))
 
 		// docgen:endpoint
@@ -176,6 +182,12 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		g.DELETE("/:id", clientsServiceMissing("delete"))
 		g.POST("/:id/secret/regenerate", clientsServiceMissing("secret rotation"))
 	}
+}
+
+// ClientTokenRevoker revokes every token issued to an OAuth client
+// (*service.RefreshTokenService satisfies it).
+type ClientTokenRevoker interface {
+	RevokeAllForClient(ctx context.Context, clientID string) (int64, error)
 }
 
 // requireClientInActorOrg fetches the client and refuses (404, written to c)
@@ -599,18 +611,34 @@ func HandleDeleteClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		// The row is gone after the delete — read its tenant org first so the
-		// audit event lands in the right trail (best-effort; a failed read
-		// leaves the org empty rather than blocking the delete).
-		var clientOrg uuid.UUID
-		if prior, perr := deps.ClientService.GetClient(c.Request.Context(), id); perr == nil && prior != nil {
-			clientOrg = orgOf(prior.OrganizationID)
+		// OSS-CLIENTS: another organization's client and an unknown id are
+		// 404 and write nothing — the old path answered 200 and audited a
+		// delete that deleted nothing. 404 for both, so an org_admin cannot
+		// probe which client UUIDs exist in other tenants.
+		ctx := c.Request.Context()
+		// ClientService.GetClient reports every miss as not found, the same
+		// verdict requireClientInActorOrg gives the read path.
+		prior, err := deps.ClientService.GetClient(ctx, id)
+		scope := orgAdminClientScope(c)
+		if err != nil || prior == nil || prior.OrganizationID == nil || *prior.OrganizationID != *scope {
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			return
 		}
-		if err := deps.ClientService.DeleteClient(c.Request.Context(), id, orgAdminClientScope(c)); err != nil {
-			// Delete is documented-idempotent (P3-14: a miss or a
-			// tombstone is a 0-row Exec, no error) — errors here are
-			// infrastructure faults, so the old 404 was a pure lie
-			// (THE-SIXTEEN-ELSES).
+		// Revoke first: a client whose tokens cannot be revoked is not
+		// deleted, so no live token outlives it (OSS-CLIENTS). Access tokens
+		// not linked to a refresh token are refused at use by the
+		// introspection client-liveness check.
+		if deps.ClientTokenRevoker == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "revocation_failed"})
+			return
+		}
+		if _, err := deps.ClientTokenRevoker.RevokeAllForClient(ctx, prior.ClientID); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "revocation_failed"})
+			return
+		}
+		clientOrg := orgOf(prior.OrganizationID)
+		if err := deps.ClientService.DeleteClient(ctx, id, scope); err != nil {
+			// Errors here are infrastructure faults (THE-SIXTEEN-ELSES).
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}

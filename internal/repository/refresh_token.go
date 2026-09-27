@@ -102,3 +102,10 @@ type RefreshTokenAccessJTIRevocationRepository interface {
 	RevokeAllBySubjectReturningAccessJTIs(ctx context.Context, subject string, at time.Time) (int64, []RevokedRefreshTokenAccessJTI, error)
 	RevokeByFamilyReturningAccessJTIs(ctx context.Context, familyID string, at time.Time) (int64, []RevokedRefreshTokenAccessJTI, error)
 }
+
+// RefreshTokenClientRevocationRepository revokes every refresh token of one
+// OAuth client, returning the linked access jtis (OSS-CLIENTS: a client
+// delete revokes its tokens first).
+type RefreshTokenClientRevocationRepository interface {
+	RevokeAllByClientReturningAccessJTIs(ctx context.Context, clientID string, at time.Time) (int64, []RevokedRefreshTokenAccessJTI, error)
+}

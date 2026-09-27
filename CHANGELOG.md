@@ -7,7 +7,24 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+### Security
+
+- **A deleted client's tokens stop at once.** Userinfo and introspection
+  used to judge an access token by its signature, subject and revocation
+  only, so a deleted client's unexpired token kept working.
+  - Userinfo now answers 401 `invalid_token` and introspection
+    `active:false` for a token whose client no longer exists. A failed
+    client lookup fails closed (503).
+  - `DELETE /api/v1/clients/:id` revokes the client's refresh tokens, and
+    the access tokens linked to them, before it deletes the client. A
+    failed revocation answers 503 `revocation_failed` and deletes nothing.
+
 ### Fixed
+
+- **Client delete tells the truth.** `DELETE /api/v1/clients/:id` for
+  another organization's client or an unknown id answered 200
+  `{"deleted": id}` and recorded a `client.deleted` audit event while
+  deleting nothing. It now answers 404 and records nothing.
 
 - **A failed revocation leaves no change.** A role change or a disable
   through `PUT /api/v1/users/:id` whose credential revocation fails still

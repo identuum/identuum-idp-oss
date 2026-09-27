@@ -200,8 +200,9 @@ func newLiveEngine(t *testing.T, principal *domain.Principal) liveEngine {
 	stRepo := newMemScopeTemplateRepo()
 	rec := &audit.Recorder{}
 	RegisterClientsRoutes(r, ClientsHandlerDeps{
-		ClientService: service.NewClientService(nil, clientRepo),
-		Audit:         rec,
+		ClientService:      service.NewClientService(nil, clientRepo),
+		Audit:              rec,
+		ClientTokenRevoker: &fakeClientTokenRevoker{},
 	})
 	RegisterAPIResourcesRoutes(r, APIResourcesHandlerDeps{
 		APIResourceService: service.NewAPIResourceService(nil, apiRepo),

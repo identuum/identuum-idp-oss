@@ -930,12 +930,18 @@ func mountClients(router gin.IRouter, resolved OSSRouterDeps) {
 		// reached only by a direct caller that forces both deps nil.
 		return
 	}
-	handlers.RegisterClientsRoutes(router, handlers.ClientsHandlerDeps{
+	deps := handlers.ClientsHandlerDeps{
 		ClientService: resolved.ClientService,
 		ClientRepo:    resolved.ClientRepo,
 		Audit:         resolved.Audit,
 		StartupReport: resolved.StartupReport,
-	})
+	}
+	// A nil *RefreshTokenService stays a nil interface: DELETE then fails
+	// closed with 503 (OSS-CLIENTS).
+	if resolved.RefreshTokenService != nil {
+		deps.ClientTokenRevoker = resolved.RefreshTokenService
+	}
+	handlers.RegisterClientsRoutes(router, deps)
 }
 
 func mountDCR(router gin.IRouter, resolved OSSRouterDeps, orgFeatureLookup handlers.OrgFeatureLookup) {

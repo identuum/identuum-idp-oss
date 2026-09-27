@@ -329,6 +329,47 @@ func (r *PgxRefreshTokenRepository) RevokeAllBySubjectReturningAccessJTIs(ctx co
 	return count, jtis, nil
 }
 
+// RevokeAllByClientReturningAccessJTIs revokes every live refresh token
+// issued to clientID and returns the access-token jtis they are linked to
+// (OSS-CLIENTS: a client delete revokes its tokens first).
+func (r *PgxRefreshTokenRepository) RevokeAllByClientReturningAccessJTIs(ctx context.Context, clientID string, at time.Time) (int64, []repository.RevokedRefreshTokenAccessJTI, error) {
+	if clientID == "" {
+		return 0, nil, nil
+	}
+	const q = `
+		UPDATE oauth_refresh_tokens
+		SET    revoked_at = $2
+		WHERE  client_id  = $1
+		  AND  revoked_at IS NULL
+		RETURNING access_jti, expires_at`
+	rows, err := r.db.Query(ctx, q, clientID, at)
+	if err != nil {
+		return 0, nil, fmt.Errorf("postgres: revoke oauth_refresh_tokens by client returning access_jti: %w", err)
+	}
+	defer rows.Close()
+	var (
+		count int64
+		jtis  []repository.RevokedRefreshTokenAccessJTI
+	)
+	for rows.Next() {
+		var (
+			accessJTI *string
+			expiresAt time.Time
+		)
+		if err := rows.Scan(&accessJTI, &expiresAt); err != nil {
+			return 0, nil, fmt.Errorf("postgres: scan revoked oauth_refresh_tokens access_jti: %w", err)
+		}
+		count++
+		if accessJTI != nil && *accessJTI != "" {
+			jtis = append(jtis, repository.RevokedRefreshTokenAccessJTI{JTI: *accessJTI, ExpiresAt: expiresAt})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, nil, fmt.Errorf("postgres: iterate revoked oauth_refresh_tokens access_jti: %w", err)
+	}
+	return count, jtis, nil
+}
+
 // DeleteExpiredBefore prunes rows whose ExpiresAt is at or before
 // the supplied cutoff. Returns the row count for observability.
 func (r *PgxRefreshTokenRepository) DeleteExpiredBefore(ctx context.Context, cutoff time.Time) (int64, error) {

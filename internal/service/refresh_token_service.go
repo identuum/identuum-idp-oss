@@ -556,6 +556,32 @@ func (s *RefreshTokenService) RevokeAllForUser(ctx context.Context, userID uuid.
 	return n, s.revokeLinkedAccessJTIs(ctx, accessJTIs)
 }
 
+// ErrRefreshClientRevocationUnsupported: the refresh-token store cannot
+// revoke by client, so a client delete must not proceed (OSS-CLIENTS).
+var ErrRefreshClientRevocationUnsupported = errors.New("refresh token store cannot revoke by client")
+
+// RevokeAllForClient revokes every live refresh token of clientID and
+// denylists the access tokens linked to them (OSS-CLIENTS: DELETE
+// /api/v1/clients/:id revokes first). Fails closed when the store cannot
+// revoke by client.
+func (s *RefreshTokenService) RevokeAllForClient(ctx context.Context, clientID string) (int64, error) {
+	if clientID == "" {
+		return 0, nil
+	}
+	repo, ok := s.repo.(repository.RefreshTokenClientRevocationRepository)
+	if !ok {
+		return 0, ErrRefreshClientRevocationUnsupported
+	}
+	n, accessJTIs, err := repo.RevokeAllByClientReturningAccessJTIs(ctx, clientID, s.now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	if s.tokenRevocations == nil {
+		return n, nil
+	}
+	return n, s.revokeLinkedAccessJTIs(ctx, accessJTIs)
+}
+
 func (s *RefreshTokenService) revokeLinkedAccessJTIs(ctx context.Context, accessJTIs []repository.RevokedRefreshTokenAccessJTI) error {
 	seen := make(map[string]struct{}, len(accessJTIs))
 	var firstErr error

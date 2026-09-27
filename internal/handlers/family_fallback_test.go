@@ -69,6 +69,18 @@ func (r *faultClientRepo) Delete(ctx context.Context, id uuid.UUID, orgID *uuid.
 	return r.memClientRepo.Delete(ctx, id, orgID)
 }
 
+type fakeClientTokenRevoker struct {
+	err   error
+	calls int
+	last  string
+}
+
+func (r *fakeClientTokenRevoker) RevokeAllForClient(_ context.Context, clientID string) (int64, error) {
+	r.calls++
+	r.last = clientID
+	return 0, r.err
+}
+
 type faultOrgDomainRepo struct {
 	*memOrgDomainRepo
 	deleteErr error
@@ -163,21 +175,46 @@ func TestFiveFamilyFallbacksTellTheTruth(t *testing.T) {
 		}
 	})
 
-	t.Run("clients delete: idempotent miss stays 200, unknown fault is 500 not a 404 lie", func(t *testing.T) {
+	t.Run("clients delete: miss is 404, revocation failure 503 deletes nothing, unknown fault is 500", func(t *testing.T) {
 		// THE-CLIENTS-GUARD: the clients surface answers to the org's own
-		// org_admin now, never site_admin — the honest-refusal contract is
-		// unchanged; only the driving principal flipped.
+		// org_admin, never site_admin. OSS-CLIENTS: a miss is 404 (it was a
+		// 200 that deleted nothing), and the client's tokens are revoked
+		// before the row goes — a failed revocation is 503 and the client
+		// stays.
 		orgAdmin := &domain.Principal{UserID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgAdmin}
 		repo := &faultClientRepo{memClientRepo: newMemClientRepo()}
-		deps := ClientsHandlerDeps{Audit: audit.NoopService{}, ClientService: service.NewClientService(nil, repo)}
-		code, _ := honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+uuid.NewString(), "", HandleDeleteClient(deps))
-		if code != http.StatusOK {
-			t.Fatalf("idempotent miss = %d, want the documented 200", code)
-		}
-		repo.deleteErr = boom
+		revoker := &fakeClientTokenRevoker{}
+		deps := ClientsHandlerDeps{Audit: audit.NoopService{}, ClientService: service.NewClientService(nil, repo), ClientTokenRevoker: revoker}
+		own := &domain.Client{ID: uuid.New(), ClientID: "own-client", OrganizationID: &orgAdmin.OrganizationID}
+		_ = repo.RegisterClient(context.Background(), own)
 		code, body := honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+uuid.NewString(), "", HandleDeleteClient(deps))
+		if code != http.StatusNotFound {
+			t.Fatalf("miss = %d %v, want 404", code, body)
+		}
+		revoker.err = boom
+		code, body = honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+own.ID.String(), "", HandleDeleteClient(deps))
+		if code != http.StatusServiceUnavailable || body["error"] != "revocation_failed" {
+			t.Fatalf("revocation failure = %d %v, want 503 revocation_failed", code, body)
+		}
+		if got, _ := repo.GetClientByID(context.Background(), own.ID); got == nil {
+			t.Fatal("the client was deleted although its tokens could not be revoked")
+		}
+		noRevoker := deps
+		noRevoker.ClientTokenRevoker = nil
+		code, _ = honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+own.ID.String(), "", HandleDeleteClient(noRevoker))
+		if code != http.StatusServiceUnavailable {
+			t.Fatalf("no revoker wired = %d, want 503 (fail closed)", code)
+		}
+		revoker.err = nil
+		repo.deleteErr = boom
+		code, body = honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+own.ID.String(), "", HandleDeleteClient(deps))
 		if code != http.StatusInternalServerError || body["error"] != "internal_error" {
 			t.Fatalf("unknown = %d %v, want 500 internal_error (no 23505 path exists on delete — no invented 409)", code, body)
+		}
+		repo.deleteErr = nil
+		code, _ = honestRefusalCall(t, orgAdmin, http.MethodDelete, "/c/:id", "/c/"+own.ID.String(), "", HandleDeleteClient(deps))
+		if code != http.StatusOK || revoker.calls != 3 || revoker.last != "own-client" {
+			t.Fatalf("own delete = %d, revoker calls %d for %q; want 200 after revoking own-client", code, revoker.calls, revoker.last)
 		}
 	})
 
