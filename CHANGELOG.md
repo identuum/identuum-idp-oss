@@ -5,7 +5,17 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.6.2`
+
+Security and correctness fixes since `v0.6.1`, with identuum-ui `v0.3.2`
+embedded. Delta `v0.6.1..` (`git log`/`git diff --shortstat`, measured at
+`c1367b4`, before this notes commit): 33 commits, 37 files, +1867/−165.
+No migration (`0001`–`0040`, as in `v0.6.1`), no dependency moved
+(`go.mod`/`go.sum` unchanged), Go 1.27.1. The canonical endpoint count
+stays 144 (`go run ./tools/api-docgen --dry-run | grep -c '^  - id:'`). No
+route, field or response shape is removed or renamed. The new refusals
+below are security fixes; `docs/releases/v0.6.2.md` lists them under
+Upgrading.
 
 ### Security
 
