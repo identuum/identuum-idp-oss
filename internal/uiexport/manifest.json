@@ -1,12 +1,12 @@
 {
   "schema": "identuum-ui-vendor.v1",
-  "ui_commit": "bdc3489e11a9517823a8447a4f30791c9d13a4a1",
+  "ui_commit": "1d9ba78b66b93b39d4bb4f7dfe45e2aecf24a5d5",
   "ui_lockfile_sha256": "99a3e651dbce60f6d4453b627c1c69f9e97654c7c7f511a36669fed8ba5ac4dd",
   "node_version": "v26.8.1",
   "pnpm_version": "11.3.0",
   "files": {
-    "assets/index-B-n5BCje.js": "2c89dadd4b3df6639235e06700c68b7c674e5a915e39d00db7a4924a2434c7a4",
     "assets/index-Dbnh0dux.css": "f444bb06b07a16060fef7cf281650161ea88f48fba107002161ecd49d25c2f02",
+    "assets/index-GZaw2Gzx.js": "92d141607069b1bc728e149d135d26433d9d7597298ee757fb6aa695ec0ae674",
     "assets/rolldown-runtime-CbXtAM7H.js": "bbf7c5086ae414dc3f33777e3eebf16ea8631325b8bb4690d25091c03567f31a",
     "assets/vendor-B_AuP6ue.js": "3d50992d2004f7361108ded99a08d9a29e2579d9bb65c577785be3fe49cdb6cf",
     "assets/vendor-Bz7hHZhM.js": "1b5c3eb1d6a6d97a2cddd14493c7f2d3174d228ebc629dea2fadf95b085efc27",
@@ -14,7 +14,7 @@
     "assets/vendor-CZsacMJA.js": "ff7a6fae49ea1948b36abe61fe5ed87e25f7518b1f043abb3e42debdf70e232b",
     "assets/vendor-D-nJUweu.js": "65cff6f363b7f2d9a83f58a2e371ea10f9673dc456e1914e7918a3d626823244",
     "assets/vendor-D6ptLq3w.js": "77953b16c006100a20453784265085231bdafefbc0a9470c16e2690668fcaa4f",
-    "index.html": "09d1bbf5ab4a23d4a88283f5eb177135c2f3a8ff5aaefb5fd4a8efa92e3ef44f"
+    "index.html": "386885771f1bb2f1bd170bf9c83de7079585d357cbf282701e95c78f5bef6330"
   },
-  "tree_digest": "17a7fa99b575aee3d2c6672c1f6edfd76bd7d0bf3a2328b16e32209702ac6f4a"
+  "tree_digest": "3525279e98b07bd592f297f83f213bf0062c923dd9a87db497ea376a3163e83c"
 }
