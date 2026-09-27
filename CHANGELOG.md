@@ -5,7 +5,26 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.6.3`
+
+Security and correctness fixes since `v0.6.2`, with identuum-ui `v0.3.3`
+embedded. Delta `v0.6.2..` (`git log`/`git diff --shortstat`, measured at
+`32b9335`, before this notes commit): 21 commits, 24 files, +793/−109.
+No migration (`0001`–`0040`, as in `v0.6.2`), no dependency moved
+(`go.mod`/`go.sum` unchanged), Go 1.27.1. The canonical endpoint count
+stays 144 (`go run ./tools/api-docgen --dry-run | grep -c '^  - id:'`) and
+`openapi.yaml` is unchanged. No route, field or response shape is removed
+or renamed. The new refusals below are security fixes;
+`docs/releases/v0.6.3.md` lists them under Upgrading.
+
+### Changed
+
+- **The embedded UI is identuum-ui `v0.3.3`** (`96d0169`, `22962eb`,
+  `bd3b002`, `562dc1d`, `32b9335`): `/` sends a signed-in visitor to their
+  role's home instead of `/login`; `/reset-link` says it is not available
+  on this installation (OSS declares `admin_reset_link: false`); the
+  create-application form hides the public-client option only where an IdP
+  declares `public_clients: false`, which OSS does not.
 
 ### Security
 
