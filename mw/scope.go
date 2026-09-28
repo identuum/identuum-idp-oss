@@ -38,7 +38,7 @@ func DenyM2MClients() gin.HandlerFunc {
 			requestID := c.GetString(RequestIDKey)
 			logger.Warning.WithFields(map[string]any{
 				domain.CtxKeyRequestID: requestID,
-				"path":                 c.Request.URL.Path,
+				"path":                 logger.RedactPath(c.Request.URL.Path),
 				"method":               c.Request.Method,
 			}).Print("DenyM2MClients: service account attempted to access a user-only endpoint")
 

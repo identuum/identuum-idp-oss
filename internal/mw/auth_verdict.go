@@ -185,7 +185,7 @@ func RespondUnauthenticatedReason(c *gin.Context, reason string) {
 		ctx = c.Request.Context()
 		method = c.Request.Method
 		if c.Request.URL != nil {
-			path = c.Request.URL.Path
+			path = logger.RedactPath(c.Request.URL.Path)
 		}
 	}
 	logger.Security.WarnContext(ctx, "authentication refused",

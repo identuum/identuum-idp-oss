@@ -39,7 +39,7 @@ func DatabaseReadinessMiddleware(pool Pinger) gin.HandlerFunc {
 			requestID := c.GetString(RequestIDKey)
 			logger.Warning.WithFields(map[string]any{
 				domain.CtxKeyRequestID: requestID,
-				"path":                 c.Request.URL.Path,
+				"path":                 logger.RedactPath(c.Request.URL.Path),
 			}).Print("Request rejected - database not ready")
 
 			c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -82,7 +82,7 @@ func RequestIDMiddleware() gin.HandlerFunc {
 		// Capture start time
 		start := time.Now()
 
-		path := c.Request.URL.Path
+		path := logger.RedactPath(c.Request.URL.Path)
 		// Only log API requests to reduce noise
 		shouldLog := strings.HasPrefix(path, "/api")
 

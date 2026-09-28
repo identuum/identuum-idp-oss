@@ -32,7 +32,7 @@ func RequestTimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 
 		if ctx.Err() == context.DeadlineExceeded {
 			logger.ErrorContext(ctx, "Request timeout exceeded",
-				zap.String("path", c.Request.URL.Path),
+				zap.String("path", logger.RedactPath(c.Request.URL.Path)),
 				zap.String("method", c.Request.Method),
 				zap.String("timeout", timeout.String()),
 			)

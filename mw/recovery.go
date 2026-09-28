@@ -19,7 +19,7 @@ func RecoveryMiddleware() gin.HandlerFunc {
 				logger.ErrorContext(c.Request.Context(), "Panic recovered in HTTP handler",
 					zap.Any("panic", err),
 					zap.String("stack", stack),
-					zap.String("path", c.Request.URL.Path),
+					zap.String("path", logger.RedactPath(c.Request.URL.Path)),
 					zap.String("method", c.Request.Method),
 					zap.String("ip", c.ClientIP()),
 				)

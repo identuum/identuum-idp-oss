@@ -65,7 +65,7 @@ func NewRateLimitMiddlewareWithKeyFn(limit ratelimit.RateLimit, limitType string
 			zap.String("event_type", "rate_limit_exceeded"),
 			zap.String("limit_type", limitType),
 			zap.String("ip_address", c.ClientIP()),
-			zap.String("path", c.Request.URL.Path),
+			zap.String("path", logger.RedactPath(c.Request.URL.Path)),
 		)
 		c.Header("Retry-After", "60")
 		c.AbortWithStatusJSON(http.StatusTooManyRequests, types.ErrorResponse{

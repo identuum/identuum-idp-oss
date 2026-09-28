@@ -9,6 +9,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
+	"github.com/identuum/identuum-idp-oss/logger"
 )
 
 // Audit-aware scope guards.
@@ -57,7 +58,7 @@ func emitScopeDenial(c *gin.Context, auditSvc audit.Service, required []string) 
 	meta := map[string]any{
 		"required_scopes": append([]string(nil), required...),
 		"method":          c.Request.Method,
-		"path":            c.Request.URL.Path,
+		"path":            logger.RedactPath(c.Request.URL.Path),
 	}
 	if p, ok := PrincipalFromContext(c); ok && p != nil {
 		meta["actor_role"] = string(p.Role)

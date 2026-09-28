@@ -7,6 +7,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/features"
+	"github.com/identuum/identuum-idp-oss/logger"
 )
 
 // RequireFeature returns a Gin middleware that allows the request
@@ -86,7 +87,7 @@ func RequireFeatureWithAudit(gate features.FeatureGate, auditSvc audit.Service, 
 			meta := map[string]any{
 				"feature": feature,
 				"method":  c.Request.Method,
-				"path":    c.Request.URL.Path,
+				"path":    logger.RedactPath(c.Request.URL.Path),
 			}
 			if p, ok := PrincipalFromContext(c); ok && p != nil {
 				meta["actor_role"] = string(p.Role)
