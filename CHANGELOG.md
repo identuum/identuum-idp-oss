@@ -5,6 +5,26 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **Invite a user with a one-time link** (OSS-ONBOARD-A, owner ruling D-016):
+  `POST /api/v1/users` without a password creates a pending user and answers
+  `{user, invite_token, invite_url | invite_url_unavailable, expires_at}` once;
+  `POST /api/v1/users/:id/invite` re-issues (the older link stops working;
+  a user who is not pending is `409`); the public
+  `GET /api/v1/auth/invite/:token` and `POST /api/v1/auth/invite` validate and
+  redeem (password under the organization's policy, then verified and
+  active; `invalid_token` for unknown, expired or spent; rate-limited like
+  sign-in). With SMTP configured the link is also mailed. The token is 256-bit,
+  stored hashed, single-use, 24 hours; audited as `user.invited`,
+  `user.invite_reissued` and `user.invite_redeemed` without it. `GET
+  /api/v1/component` declares `user_invite`; users carry
+  `invitation_pending`. No migration: the invite uses the user row's
+  activation columns. Canonical endpoint count 144 → 147. The creation with a
+  password is unchanged. docs/OPERATOR-GUIDE.md "Invite a user".
+
 ## `v0.6.3`
 
 Security and correctness fixes since `v0.6.2`, with identuum-ui `v0.3.3`

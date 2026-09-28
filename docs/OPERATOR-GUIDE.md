@@ -155,6 +155,72 @@ POST /api/v1/organizations/<org-id>/resend-activation
 
 The response has the same shape, link included.
 
+## Invite a user
+
+An organization admin can add a user **without choosing their password**: the
+IdP creates the user *pending* and issues a **one-time invite link**. The user
+opens it, sets their own password under the organization's policy, and is then
+verified and active; at their first sign-in they enrol MFA if the
+organization's policy asks for it. The link is shown to you once, at invite
+time, and again if you re-issue it — never afterwards.
+
+The same two modes apply as for an organization's activation:
+
+- **Email delivery configured** (`IDENTUUM_IDP_SMTP_HOST` and friends): the
+  IdP also emails the link to the user. You still get it in the response, so
+  you can deliver it yourself if the mail does not arrive.
+- **Email delivery not configured** — the default on a fresh install: nothing
+  is sent. Hand the link to the user yourself, over a channel you trust.
+
+### Inviting
+
+Create the user with an email (and optionally a name and role) and **no
+password**, as an org_admin of the organization:
+
+```
+POST /api/v1/users   {"email": "…", "name": "…"}
+```
+
+The answer carries the user and the invite:
+
+```
+user                     the pending user (invitation_pending: true)
+invite_token             the raw one-time credential (not a URL)
+invite_url               the link to send — opens the invite page with the
+                         token already filled in
+expires_at               when the link stops working (24 hours)
+```
+
+**Send the link**, as with an activation. When the IdP does not know the UI's
+browser-facing address it answers `invite_url_unavailable`, naming
+`IDENTUUM_IDP_UI_PUBLIC_BASE_URL`, instead of a guessed link; set it and
+re-issue. Creating a user **with** a password still works as before (the user
+is unverified until verified by mail).
+
+### Re-issuing
+
+If the link is lost or expired, re-issue it for the pending user — the
+previous link stops working:
+
+```
+POST /api/v1/users/<user-id>/invite
+```
+
+The answer has the email, a new `invite_token`, `invite_url` (or
+`invite_url_unavailable`) and `expires_at`. A user who has already redeemed
+(or was created with a password) is not pending: `409 user_not_pending`.
+
+### What the user does
+
+The invite page (identuum-ui `/invite`) checks the link with
+`GET /api/v1/auth/invite/<token>` and submits the new password to
+`POST /api/v1/auth/invite {token, password}`. A password that does not meet
+the policy is refused and the link stays usable; an unknown, expired or
+already-used link gets one answer (`invalid_token`). Both calls are
+rate-limited like sign-in. The token is stored only as a hash, works once, and
+never appears in a log line or an audit row (`user.invited`,
+`user.invite_reissued`, `user.invite_redeemed`).
+
 ## Factory reset (DESTROYS ALL DATA)
 
 ```
