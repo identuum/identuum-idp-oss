@@ -200,6 +200,10 @@ func requireClientInActorOrg(c *gin.Context, deps ClientsHandlerDeps, id uuid.UU
 		return true
 	}
 	client, err := deps.ClientService.GetClient(c.Request.Context(), id)
+	if domain.IsAuthStoreUnavailable(err) {
+		mw.RespondAuthStoreUnavailable(c, "clients", err)
+		return false
+	}
 	if err != nil || client == nil ||
 		client.OrganizationID == nil || *client.OrganizationID != *orgFilter {
 		c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -370,6 +374,10 @@ func HandleGetClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			client, err = deps.ClientService.GetClient(c.Request.Context(), id)
 		} else {
 			client, err = deps.ClientRepo.GetClientByID(c.Request.Context(), id)
+		}
+		if domain.IsAuthStoreUnavailable(err) {
+			mw.RespondAuthStoreUnavailable(c, "clients", err)
+			return
 		}
 		if err != nil || client == nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -616,9 +624,14 @@ func HandleDeleteClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		// delete that deleted nothing. 404 for both, so an org_admin cannot
 		// probe which client UUIDs exist in other tenants.
 		ctx := c.Request.Context()
-		// ClientService.GetClient reports every miss as not found, the same
-		// verdict requireClientInActorOrg gives the read path.
+		// ClientService.GetClient reports a miss as not found, the same
+		// verdict requireClientInActorOrg gives the read path, and a store
+		// error as the 503 it is (SMALL-FIXES-2).
 		prior, err := deps.ClientService.GetClient(ctx, id)
+		if domain.IsAuthStoreUnavailable(err) {
+			mw.RespondAuthStoreUnavailable(c, "clients", err)
+			return
+		}
 		scope := orgAdminClientScope(c)
 		if err != nil || prior == nil || prior.OrganizationID == nil || *prior.OrganizationID != *scope {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})

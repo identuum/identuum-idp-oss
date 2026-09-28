@@ -246,7 +246,7 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				RespondAuthStoreUnavailable(c, "bearer.verify", err)
 				return
 			}
-			RespondUnauthenticatedReason(c, ReasonTokenInvalid)
+			respondInvalidBearerToken(c, ReasonTokenInvalid)
 			return
 		}
 		// RFC 7009 per-token revocation (P0-6), enforced for EVERY bearer
@@ -267,7 +267,7 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				return
 			}
 			if revoked {
-				RespondUnauthenticatedReason(c, ReasonTokenRevoked)
+				respondInvalidBearerToken(c, ReasonTokenRevoked)
 				return
 			}
 		}
@@ -321,6 +321,17 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 		SetPrincipal(c, principal)
 		c.Next()
 	}
+}
+
+// respondInvalidBearerToken refuses a presented bearer token the verifier
+// or the revocation store judged: RFC 6750 §3.1 names that refusal
+// invalid_token ("expired, revoked, malformed, or invalid for other
+// reasons"), carried in WWW-Authenticate as userinfo's own refusals carry it
+// (internal/handlers/userinfo.go). The 401 body and its reason are unchanged
+// (SMALL-FIXES-2).
+func respondInvalidBearerToken(c *gin.Context, reason string) {
+	c.Header("WWW-Authenticate", `Bearer error="invalid_token"`)
+	RespondUnauthenticatedReason(c, reason)
 }
 
 // NewSessionSubjectResolver builds the DEFAULT use-time liveness resolver over

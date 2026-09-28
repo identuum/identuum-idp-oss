@@ -483,8 +483,16 @@ func (s *ClientService) DeleteClient(ctx context.Context, id uuid.UUID, orgID *u
 }
 
 // GetClient fetches a client by its UUID id.
+//
+// A missing row is errClientNotFound (a verdict, 404); any other repository
+// error is infrastructure and comes back wrapped as
+// domain.AuthStoreUnavailable, so the handlers answer 503 instead of
+// reporting a database outage as "not found" (SMALL-FIXES-2).
 func (s *ClientService) GetClient(ctx context.Context, id uuid.UUID) (*domain.Client, error) {
 	c, err := s.repo.GetClientByID(ctx, id)
+	if err != nil && !errors.Is(err, domain.ErrClientNotFound) {
+		return nil, domain.AuthStoreUnavailable("client", err)
+	}
 	if err != nil || c == nil {
 		return nil, errClientNotFound
 	}
