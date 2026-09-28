@@ -1665,6 +1665,10 @@ func componentHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				// POST /api/v1/users/:id/approve; identuum-idp-ce declares
 				// false, and the UI hides Approve only on an explicit false.
 				"user_approval": true,
+				// SMALL-FIXES-2: OSS registers public clients (is_public on
+				// POST /api/v1/clients); declared, not left absent.
+				// identuum-idp-ce declares false (CE-UI-3b).
+				"public_clients": true,
 			},
 			"auth": gin.H{
 				"authority":     "identuum-idp",

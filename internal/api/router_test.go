@@ -136,6 +136,7 @@ func TestNewOSSEngine_ComponentDiscoveryCapabilityFacts(t *testing.T) {
 		"reporting":                   false,
 		"anomaly_detection":           false,
 		"observability":               false,
+		"public_clients":              true, // SMALL-FIXES-2: declared, not left absent
 	} {
 		if got, ok := capabilities[key].(bool); !ok || got != want {
 			t.Errorf("capabilities[%q] = %v (%T), want %v", key, capabilities[key], capabilities[key], want)

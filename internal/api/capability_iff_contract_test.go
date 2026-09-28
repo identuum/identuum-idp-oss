@@ -394,6 +394,21 @@ func TestCapabilityIff_UserApproval(t *testing.T) {
 	}
 }
 
+// TestCapabilityIff_PublicClients (SMALL-FIXES-2): OSS registers public
+// clients (POST /api/v1/clients takes is_public), so it declares
+// public_clients true explicitly instead of leaving the UI to read an absent
+// key as true. identuum-idp-ce declares it false (CE-UI-3b).
+func TestCapabilityIff_PublicClients(t *testing.T) {
+	router := readIffSource(t, "internal/api/router.go")
+	if !strings.Contains(router, `"public_clients": true,`) {
+		t.Error(`public_clients must be declared true: OSS registers public clients`)
+	}
+	clients := readIffSource(t, "internal/handlers/clients.go")
+	if !strings.Contains(clients, "`json:\"is_public\"`") {
+		t.Error("public_clients is true but internal/handlers/clients.go's create request takes no is_public")
+	}
+}
+
 // TestCapabilityIff_AllAdvertisedCapabilitiesCovered serves as a
 // cross-check: it asserts that the static iff table above (the union
 // of `true` backings + `false` documented policies) covers every
@@ -435,8 +450,9 @@ func TestCapabilityIff_AllAdvertisedCapabilitiesCovered(t *testing.T) {
 		// runtime-derived / absent-by-design (TestCapabilityIff_MailCapabilities)
 		"mail_ceremonies":  true,
 		"admin_reset_link": true,
-		// served-by-route (TestCapabilityIff_UserApproval)
-		"user_approval": true,
+		// served-by-route (TestCapabilityIff_UserApproval, TestCapabilityIff_PublicClients)
+		"user_approval":  true,
+		"public_clients": true,
 	}
 
 	// Extract every `"<key>":` token inside the componentHandler
