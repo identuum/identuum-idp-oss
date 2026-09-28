@@ -1231,9 +1231,18 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	var resetNotifier service.PasswordResetNotifier = service.UnconfiguredEmailNotifier{}
 	var verifyNotifier service.EmailVerificationNotifier = service.UnconfiguredEmailNotifier{}
 	var activationNotifier service.OrganizationActivationNotifier = service.UnconfiguredEmailNotifier{}
+	var inviteNotifier service.UserInviteNotifier = service.UnconfiguredEmailNotifier{}
 	if smtpNotifier != nil { // assign only when concrete non-nil (typed-nil-interface guard)
-		resetNotifier, verifyNotifier, activationNotifier = smtpNotifier, smtpNotifier, smtpNotifier
+		resetNotifier, verifyNotifier, activationNotifier, inviteNotifier = smtpNotifier, smtpNotifier, smtpNotifier, smtpNotifier
 	}
+	// OSS-ONBOARD-A (D-016): the user invite — no SMTP, the admin hands the
+	// link over; SMTP, it is also mailed. Same TTL as the organization
+	// activation.
+	userSvc.WithInvite(service.UserInviteConfig{
+		Orgs:     repos.Organization,
+		Notifier: inviteNotifier,
+		Logger:   serviceLogger(),
+	})
 	fmt.Fprintln(r.cfg.Stdout, "identuum-idp: serve: email delivery:", emailMode)
 
 	passwordResetSvc := service.NewPasswordResetService(service.PasswordResetServiceConfig{

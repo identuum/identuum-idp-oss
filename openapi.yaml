@@ -428,6 +428,36 @@ paths:
           description: "Begin upstream single-provider OIDC login: resolve the org's configured OIDC provider by id, fetch its discovery metadata, mint state/nonce/PKCE, persist the OIDCState, and 302-redirect to the provider's authorize URL."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/auth/invite":
+    post:
+      operationId: "identuum-idp-oss.auth-lifecycle.redeem_user_invite"
+      summary: "Redeem a user invite (OSS-ONBOARD-A): sets the password under the organization's policy, marks the user verified, and spends the token (single-use)."
+      tags:
+        - "auth-lifecycle"
+      security: []
+      responses:
+        "200":
+          description: "Redeem a user invite (OSS-ONBOARD-A): sets the password under the organization's policy, marks the user verified, and spends the token (single-use)."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/auth/invite/{token}":
+    get:
+      operationId: "identuum-idp-oss.auth-lifecycle.validate_user_invite"
+      summary: "Validate a user invite token (OSS-ONBOARD-A). Returns the invited user's email so the UI can render the password form; the token is not spent."
+      tags:
+        - "auth-lifecycle"
+      parameters:
+        - name: "token"
+          in: path
+          required: true
+          schema:
+            type: string
+      security: []
+      responses:
+        "200":
+          description: "Validate a user invite token (OSS-ONBOARD-A). Returns the invited user's email so the UI can render the password form; the token is not spent."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/login":
     post:
       operationId: "identuum-idp-oss.auth.local_login"
@@ -2227,6 +2257,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/oss_handlers_safeUser"
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/users/{id}/invite":
+    post:
+      operationId: "identuum-idp-oss.users.reissue_user_invite"
+      summary: "Re-issue a pending user's one-time invite link (the older link stops working). Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured."
+      tags:
+        - "users"
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Re-issue a pending user's one-time invite link (the older link stops working). Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/users/{id}/recovery/reset-mfa":

@@ -29,13 +29,32 @@ const activationLinkSettingName = "IDENTUUM_IDP_UI_PUBLIC_BASE_URL"
 // activationLink returns the absolute activation URL for rawToken, or an
 // empty string when no base URL is configured.
 func activationLink(uiBaseURL, rawToken string) string {
+	return uiTokenLink(uiBaseURL, "/activate", rawToken)
+}
+
+// uiTokenLink is base + page + "?token=<raw>", or "" when no base URL is
+// configured (the handlers then name the setting instead of guessing).
+func uiTokenLink(uiBaseURL, page, rawToken string) string {
 	base := strings.TrimRight(strings.TrimSpace(uiBaseURL), "/")
 	if base == "" || strings.TrimSpace(rawToken) == "" {
 		return ""
 	}
 	params := url.Values{}
 	params.Set("token", rawToken)
-	return base + "/activate?" + params.Encode()
+	return base + page + "?" + params.Encode()
+}
+
+// applyInviteLinkFields writes invite_url, or invite_url_unavailable
+// naming the setting, exactly one of the two (OSS-ONBOARD-A, D-016): the
+// /invite page of identuum-ui redeems the token.
+func applyInviteLinkFields(body map[string]any, uiBaseURL, rawToken string) {
+	if link := uiTokenLink(uiBaseURL, "/invite", rawToken); link != "" {
+		body["invite_url"] = link
+		return
+	}
+	body["invite_url_unavailable"] = "no invite link can be built because " + activationLinkSettingName +
+		" is not set; set it to the browser-facing base URL of the identuum-ui " +
+		"frontend (for example http://localhost:7104) and re-issue the invite"
 }
 
 // activationLinkUnavailableReason is the operator-facing explanation used

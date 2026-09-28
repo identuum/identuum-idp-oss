@@ -46,6 +46,7 @@ const (
 	emailKindVerification  = "verification"
 	emailKindActivation    = "activation"
 	emailKindPasswordReset = "password_reset"
+	emailKindUserInvite    = "user_invite"
 )
 
 // ErrEmailDeliveryNotConfigured is returned by UnconfiguredEmailNotifier
@@ -69,6 +70,10 @@ func (UnconfiguredEmailNotifier) SendPasswordResetEmail(context.Context, *domain
 }
 
 func (UnconfiguredEmailNotifier) SendVerificationEmail(context.Context, *domain.User, string) error {
+	return ErrEmailDeliveryNotConfigured
+}
+
+func (UnconfiguredEmailNotifier) SendUserInviteEmail(context.Context, *domain.User, string, time.Time) error {
 	return ErrEmailDeliveryNotConfigured
 }
 
@@ -213,6 +218,28 @@ func (s *SMTPNotifier) SendVerificationEmail(ctx context.Context, user *domain.U
 
 // SendActivationEmail builds the organization-activation link from
 // LinkBaseURL and delivers it.
+// SendUserInviteEmail mails a user invite (OSS-ONBOARD-A, D-016): the link
+// to identuum-ui's /invite page with the one-time token. The issuing admin
+// receives the same link in the API response, so a lost mail is recoverable.
+func (s *SMTPNotifier) SendUserInviteEmail(ctx context.Context, user *domain.User, rawToken string, expiresAt time.Time) error {
+	params := url.Values{}
+	params.Set("token", rawToken)
+	inviteURL := s.linkBaseURL + "/invite?" + params.Encode()
+
+	subject := "You have been invited"
+	if user.OrganizationName != nil {
+		subject = fmt.Sprintf("You have been invited to %s", *user.OrganizationName)
+	}
+	body := fmt.Sprintf("An administrator has invited you to sign in.\n\n"+
+		"Set your password by opening the link below:\n\n"+
+		"%s\n\n"+
+		"This link can be used once and expires at %s.", inviteURL, expiresAt.Format(time.RFC1123))
+	if user.Name != nil {
+		body = fmt.Sprintf("Hello %s,\n\n%s", *user.Name, body)
+	}
+	return s.sendEmail(ctx, emailKindUserInvite, user.Email, subject, body)
+}
+
 func (s *SMTPNotifier) SendActivationEmail(ctx context.Context, user *domain.User, rawToken string, expiresAt time.Time) error {
 	params := url.Values{}
 	params.Set("token", rawToken)

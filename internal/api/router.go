@@ -1004,6 +1004,9 @@ func mountUserSurface(router gin.IRouter, resolved OSSRouterDeps) {
 		// THE-PROFILE-CLAIMS: the optional profile row behind GET/PUT
 		// /profile and the admin user surface. Nil-safe in the handlers.
 		ProfileService: resolved.UserProfileService,
+		// OSS-ONBOARD-A (D-016): the invite link's base, the UI origin
+		// verbatim; empty stays empty and the answer names the setting.
+		InviteLinkBaseURL: resolved.UIPublicBaseURL,
 	}
 	// Wire the OSS session revoker only when the runtime has
 	// constructed UserSessionService; absent that, the handler
@@ -1209,7 +1212,8 @@ func mountAccountLifecycle(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.PasswordResetService == nil &&
 		resolved.EmailVerificationService == nil &&
 		resolved.OrganizationActivationService == nil &&
-		resolved.ClaimService == nil {
+		resolved.ClaimService == nil &&
+		!resolved.UserService.InviteEnabled() {
 		return
 	}
 	handlers.RegisterAccountLifecycleRoutes(router, handlers.AccountLifecycleHandlerDeps{
@@ -1230,6 +1234,10 @@ func mountAccountLifecycle(router gin.IRouter, resolved OSSRouterDeps) {
 			mw.NewRateLimitMiddlewareWithKeyFn(resolved.RateLimitConfig.EmailVerificationAddressLimit, "email-verification-address", handlers.ResendAddressKey),
 		},
 		VerifyEmailLimiter: mw.NewRateLimitMiddleware(resolved.RateLimitConfig.EmailVerifyLimit, "email-verify"),
+		// OSS-ONBOARD-A: the public invite validate + redeem hold the
+		// login-class limit, per IP.
+		UserInvite:        resolved.UserService,
+		UserInviteLimiter: mw.NewRateLimitMiddleware(resolved.RateLimitConfig.LoginLimit, "user-invite"),
 	})
 }
 
@@ -1669,6 +1677,11 @@ func componentHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				// POST /api/v1/clients); declared, not left absent.
 				// identuum-idp-ce declares false (CE-UI-3b).
 				"public_clients": true,
+				// OSS-ONBOARD-A (D-016): an org_admin invites a user with a
+				// one-time link (POST /api/v1/users without a password,
+				// POST /api/v1/users/:id/invite, public /api/v1/auth/invite).
+				// The UI gates its Invite user page on this key.
+				"user_invite": deps.UserService.InviteEnabled(),
 			},
 			"auth": gin.H{
 				"authority":     "identuum-idp",

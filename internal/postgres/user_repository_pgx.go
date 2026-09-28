@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
@@ -686,6 +687,39 @@ func (r *PgxUserRepository) ConsumeRecoveryCode(ctx context.Context, id uuid.UUI
 // burned by a failed attempt. newPasswordHash MUST be a pre-computed argon2id
 // hash. Returns (updatedUser, true, nil) on success, (nil, false, nil) when the
 // token was not claimable (already consumed / unknown).
+// ConsumeInviteToken redeems a user invite (OSS-ONBOARD-A) in ONE
+// statement: the pending row whose activation_token_hash matches, not yet
+// expired at `now`, unbanned, unverified, in an ACTIVE organization, gets
+// its password, becomes verified, and loses the token. Zero rows — unknown,
+// spent, expired, or an organization activation's token (its organization
+// is not active) — answers claimed=false, so a concurrent redeem cannot
+// win twice. Unlike ConsumeActivationToken it never touches the
+// organization.
+func (r *PgxUserRepository) ConsumeInviteToken(ctx context.Context, tokenHash, newPasswordHash string, now time.Time) (*domain.User, bool, error) {
+	const claim = `
+		UPDATE users u
+		SET activation_token_hash = NULL,
+		    activation_token_expires_at = NULL,
+		    password_hash = $2,
+		    email_verified = true,
+		    updated_at = NOW()
+		WHERE u.activation_token_hash = $1
+		  AND u.deleted_at IS NULL
+		  AND u.banned = false
+		  AND u.email_verified = false
+		  AND (u.activation_token_expires_at IS NULL OR u.activation_token_expires_at > $3)
+		  AND EXISTS (SELECT 1 FROM organizations o WHERE o.id = u.organization_id AND o.active AND o.deleted_at IS NULL)
+		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`
+	user, err := r.scanUser(r.db.QueryRow(ctx, claim, tokenHash, newPasswordHash, now))
+	if err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("claim invite token: %w", err)
+	}
+	return user, true, nil
+}
+
 func (r *PgxUserRepository) ConsumeActivationToken(ctx context.Context, activationTokenHash, newPasswordHash string) (*domain.User, bool, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {

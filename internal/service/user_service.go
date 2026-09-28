@@ -24,6 +24,9 @@ import (
 // services that are not in OSS yet.
 type UserService struct {
 	repo repository.UserRepository
+	// invite is set by WithInvite (OSS-ONBOARD-A); nil leaves the invite
+	// unavailable.
+	invite *userInvite
 }
 
 // NewUserService constructs a UserService. repo must be non-nil.
@@ -481,13 +484,23 @@ func (s *UserService) ListUsersForActor(ctx context.Context, actor *domain.Princ
 // site_admin actors must supply opts.OrganizationID explicitly so
 // the System Org is never accidentally chosen.
 func (s *UserService) CreateUserForActor(ctx context.Context, actor *domain.Principal, opts CreateUserOptions) (*domain.User, error) {
-	if err := s.guardActorBaseline(actor); err != nil {
+	if err := s.authorizeCreate(ctx, actor, &opts); err != nil {
 		return nil, err
+	}
+	return s.Create(ctx, opts)
+}
+
+// authorizeCreate is CreateUserForActor's authority check, shared with
+// InviteUserForActor (OSS-ONBOARD-A) so an invite answers exactly as a
+// create does. It pins an org_admin's opts.OrganizationID to its own.
+func (s *UserService) authorizeCreate(ctx context.Context, actor *domain.Principal, opts *CreateUserOptions) error {
+	if err := s.guardActorBaseline(actor); err != nil {
+		return err
 	}
 	switch {
 	case actor.IsSiteAdmin():
 		if opts.OrganizationID == uuid.Nil {
-			return nil, fmt.Errorf("organization id is required for site_admin create")
+			return fmt.Errorf("organization id is required for site_admin create")
 		}
 		// SITE-ADMIN-TENANT-WRITE (owner ruling: THE MODEL WINS). site_admin is
 		// INFRASTRUCTURE authority, not a tenant super-admin. The authority
@@ -506,24 +519,24 @@ func (s *UserService) CreateUserForActor(ctx context.Context, actor *domain.Prin
 		//
 		// The system organization is exempt: it is infrastructure, not a
 		// tenant, and bootstrap / recover-site-admin write into it.
-		if err := s.guardSiteAdminTenantWrite(ctx, opts); err != nil {
-			return nil, err
+		if err := s.guardSiteAdminTenantWrite(ctx, *opts); err != nil {
+			return err
 		}
 	case actor.IsOrgAdminOnly():
 		if actor.OrganizationID == uuid.Nil {
-			return nil, domain.ErrForbidden
+			return domain.ErrForbidden
 		}
 		if opts.OrganizationID != uuid.Nil && opts.OrganizationID != actor.OrganizationID {
-			return nil, domain.ErrForbidden
+			return domain.ErrForbidden
 		}
 		opts.OrganizationID = actor.OrganizationID
 		if opts.Role == domain.RoleSiteAdmin {
-			return nil, domain.ErrForbidden
+			return domain.ErrForbidden
 		}
 	default:
-		return nil, domain.ErrForbidden
+		return domain.ErrForbidden
 	}
-	return s.Create(ctx, opts)
+	return nil
 }
 
 // guardSiteAdminTenantWrite enforces the authority model's limit on what

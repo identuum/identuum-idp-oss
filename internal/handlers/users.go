@@ -66,6 +66,11 @@ type UsersHandlerDeps struct {
 	// PUT /profile (self-service) and PUT /users/:id (admin) patch it. Nil
 	// leaves every profile field unset and refuses profile writes.
 	ProfileService *service.UserProfileService
+
+	// InviteLinkBaseURL is identuum-ui's browser-facing origin; the invite
+	// answer carries <base>/invite?token=… or, when empty,
+	// invite_url_unavailable naming the setting (OSS-ONBOARD-A, D-016).
+	InviteLinkBaseURL string
 }
 
 // profileFieldsRequest is the wire shape of the twelve optional OIDC §5.1
@@ -258,7 +263,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeUser
-		// docgen:notes=org_admin actor additionally requires the users:create scope.
+		// docgen:notes=org_admin actor additionally requires the users:create scope. With no password the request is an INVITE (OSS-ONBOARD-A, D-016): the user is created pending (unverified, no usable password) and the answer is {user, invite_token, invite_url or invite_url_unavailable, expires_at}, returned once and also mailed when SMTP is configured; the user redeems at POST /api/v1/auth/invite. Audited as user.invited without the token.
 		// docgen:status=201
 		create.POST("", HandleCreateUser(deps))
 
@@ -297,6 +302,18 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:response=oss.handlers.safeUser
 		// docgen:notes=Only a user in the pending state (banned=true, role=org_user) may be approved; already-active users, admins, and missing users return 4xx (409/403/404). org_admin additionally requires the users:update scope and may only approve users in their own organization.
 		update.POST("/:id/approve", HandleApproveUser(deps))
+
+		if deps.UserService.InviteEnabled() {
+			// docgen:endpoint
+			// docgen:surface=users
+			// docgen:method=POST
+			// docgen:path=/api/v1/users/:id/invite
+			// docgen:summary=Re-issue a pending user's one-time invite link (the older link stops working). Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured.
+			// docgen:tier=oss
+			// docgen:auth=site_admin|org_admin
+			// docgen:notes=org_admin additionally requires the users:update scope and reaches only its own organization's users (another organization's user is 404). site_admin may re-issue only for an org_admin (the one it may seed); otherwise 403. A user who is not pending (redeemed, or created with a password) is 409 user_not_pending. The token is never logged or audited (user.invite_reissued).
+			update.POST("/:id/invite", HandleReissueUserInvite(deps))
+		}
 
 		// Delete: site_admin OR org_admin with users:delete (USERS-DELETE-GUARD-1,
 		// THE-GUARDED-DELETE). AdminPermissionsModel.md: site_admin "cannot manage
@@ -524,25 +541,28 @@ func HandleGetProfile(deps UsersHandlerDeps) gin.HandlerFunc {
 // (PasswordHash, ActivationTokenHash, VerificationTokenHash,
 // MFASecret, MFARecoveryCodes) are deliberately omitted.
 type safeUser struct {
-	ID                     uuid.UUID       `json:"id"`
-	OrganizationID         uuid.UUID       `json:"organization_id"`
-	Email                  string          `json:"email"`
-	Name                   *string         `json:"name,omitempty"`
-	Role                   domain.UserRole `json:"role"`
-	AuthSource             string          `json:"auth_source"`
-	EmailVerified          bool            `json:"email_verified"`
-	MFAEnabled             bool            `json:"mfa_enabled"`
-	MFAPolicy              *string         `json:"mfa_policy,omitempty"`
-	Banned                 bool            `json:"banned"`
-	OIDCLinked             bool            `json:"oidc_linked"`
-	RequiresPasswordChange bool            `json:"requires_password_change"`
-	OrganizationName       *string         `json:"organization_name,omitempty"`
-	Domain                 *string         `json:"domain,omitempty"`
-	ExternalID             *string         `json:"external_id,omitempty"`
-	LastLoginAt            *time.Time      `json:"last_login_at,omitempty"`
-	CreatedAt              time.Time       `json:"created_at"`
-	UpdatedAt              time.Time       `json:"updated_at"`
-	DeletedAt              *time.Time      `json:"deleted_at,omitempty"`
+	ID             uuid.UUID       `json:"id"`
+	OrganizationID uuid.UUID       `json:"organization_id"`
+	Email          string          `json:"email"`
+	Name           *string         `json:"name,omitempty"`
+	Role           domain.UserRole `json:"role"`
+	AuthSource     string          `json:"auth_source"`
+	EmailVerified  bool            `json:"email_verified"`
+	// InvitationPending: the user was invited and has not redeemed the
+	// link yet (OSS-ONBOARD-A). The token itself is never projected.
+	InvitationPending      bool       `json:"invitation_pending"`
+	MFAEnabled             bool       `json:"mfa_enabled"`
+	MFAPolicy              *string    `json:"mfa_policy,omitempty"`
+	Banned                 bool       `json:"banned"`
+	OIDCLinked             bool       `json:"oidc_linked"`
+	RequiresPasswordChange bool       `json:"requires_password_change"`
+	OrganizationName       *string    `json:"organization_name,omitempty"`
+	Domain                 *string    `json:"domain,omitempty"`
+	ExternalID             *string    `json:"external_id,omitempty"`
+	LastLoginAt            *time.Time `json:"last_login_at,omitempty"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
+	DeletedAt              *time.Time `json:"deleted_at,omitempty"`
 
 	// OIDC §5.1 profile fields (THE-PROFILE-CLAIMS): present only when set.
 	GivenName         *string `json:"given_name,omitempty"`
@@ -602,6 +622,7 @@ func toSafeUser(u *domain.User) safeUser {
 		Role:                   u.Role,
 		AuthSource:             u.AuthSource,
 		EmailVerified:          u.EmailVerified,
+		InvitationPending:      service.IsInvitePending(u),
 		MFAEnabled:             u.MFAEnabled,
 		MFAPolicy:              u.MFAPolicy,
 		Banned:                 u.Banned,
@@ -714,6 +735,18 @@ func HandleCreateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		actor, _ := mw.PrincipalFromContext(c)
+		// OSS-ONBOARD-A (D-016): no password is an invite — a pending user
+		// and the one-time link, returned once. The password create below is
+		// unchanged.
+		if req.Password == "" && deps.UserService.InviteEnabled() {
+			handleInviteUser(c, deps, actor, service.CreateUserOptions{
+				OrganizationID: req.OrganizationID,
+				Email:          req.Email,
+				Name:           req.Name,
+				Role:           req.Role,
+			})
+			return
+		}
 		// Target org for the password policy: the requested org, or the
 		// actor's own org when omitted (the org_admin self-org case the
 		// service substitutes anyway).

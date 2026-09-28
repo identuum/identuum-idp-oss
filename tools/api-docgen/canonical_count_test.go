@@ -89,7 +89,10 @@ import (
 // 139 → 143: added the agent-communication admin surface — POST + GET
 // /api/v1/agent-communication-authorizations, GET .../:id, POST .../:id/revoke
 // (org_admin own-org only; AYGHU-2 ADMIN API on the AYGHU-1 foundation).
-const CanonicalEndpointCount = 144
+// 144 → 147: the user invite (OSS-ONBOARD-A, D-016) — POST
+// /api/v1/users/:id/invite (re-issue) and the public GET
+// /api/v1/auth/invite/:token + POST /api/v1/auth/invite (validate, redeem).
+const CanonicalEndpointCount = 147
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

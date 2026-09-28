@@ -409,6 +409,32 @@ func TestCapabilityIff_PublicClients(t *testing.T) {
 	}
 }
 
+// TestCapabilityIff_UserInvite (OSS-ONBOARD-A, D-016): user_invite is
+// declared from the same condition that mounts the invite's routes —
+// UserService.InviteEnabled() — so the key is true exactly when
+// POST /api/v1/users/:id/invite and the public /api/v1/auth/invite routes
+// are served. The ui gates its Invite user page on it.
+func TestCapabilityIff_UserInvite(t *testing.T) {
+	router := readIffSource(t, "internal/api/router.go")
+	if !strings.Contains(router, `"user_invite": deps.UserService.InviteEnabled(),`) {
+		t.Error(`user_invite must be declared from deps.UserService.InviteEnabled()`)
+	}
+	users := readIffSource(t, "internal/handlers/users.go")
+	if !strings.Contains(users, "if deps.UserService.InviteEnabled() {") || !strings.Contains(users, `update.POST("/:id/invite", HandleReissueUserInvite(deps))`) {
+		t.Error("user_invite is declared but internal/handlers/users.go does not mount the re-issue route under InviteEnabled()")
+	}
+	lifecycle := readIffSource(t, "internal/handlers/auth_lifecycle.go")
+	for _, want := range []string{
+		"if deps.UserInvite.InviteEnabled() {",
+		`inviteGroup.GET("/api/v1/auth/invite/:token", HandleValidateUserInvite(deps))`,
+		`inviteGroup.POST("/api/v1/auth/invite", HandleRedeemUserInvite(deps))`,
+	} {
+		if !strings.Contains(lifecycle, want) {
+			t.Errorf("user_invite is declared but internal/handlers/auth_lifecycle.go lacks %q", want)
+		}
+	}
+}
+
 // TestCapabilityIff_AllAdvertisedCapabilitiesCovered serves as a
 // cross-check: it asserts that the static iff table above (the union
 // of `true` backings + `false` documented policies) covers every
@@ -453,6 +479,8 @@ func TestCapabilityIff_AllAdvertisedCapabilitiesCovered(t *testing.T) {
 		// served-by-route (TestCapabilityIff_UserApproval, TestCapabilityIff_PublicClients)
 		"user_approval":  true,
 		"public_clients": true,
+		// runtime-wired, served-by-route (TestCapabilityIff_UserInvite)
+		"user_invite": true,
 	}
 
 	// Extract every `"<key>":` token inside the componentHandler

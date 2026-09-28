@@ -84,6 +84,12 @@ type AccountLifecycleHandlerDeps struct {
 	// (EmailVerifyLimit, per IP). Nil entries are skipped (OSS-SEC).
 	ResendVerificationLimiters []gin.HandlerFunc
 	VerifyEmailLimiter         gin.HandlerFunc
+
+	// UserInvite validates and redeems user invites (OSS-ONBOARD-A); nil or
+	// without WithInvite leaves the two public invite routes unmounted.
+	// UserInviteLimiter runs before both (the login-class limit, per IP).
+	UserInvite        *service.UserService
+	UserInviteLimiter gin.HandlerFunc
 }
 
 // ResendAddressKey is the per-address bucket key for resend-verification:
@@ -178,6 +184,30 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:auth=public
 		// docgen:notes=No Set-Cookie. Banned / deleted / already-verified users are silently skipped. Raw token never echoed. Rate-limited per IP and per target address (hashed; known and unknown addresses alike), 429 past either window. Each sent mail is audited as email_verification_resent, without the address.
 		resendGroup.POST("/api/v1/auth/resend-verification", HandleResendVerification(deps))
+	}
+	if deps.UserInvite.InviteEnabled() {
+		inviteGroup := router.Group("")
+		if deps.UserInviteLimiter != nil {
+			inviteGroup.Use(deps.UserInviteLimiter)
+		}
+		// docgen:endpoint
+		// docgen:surface=auth-lifecycle
+		// docgen:method=GET
+		// docgen:path=/api/v1/auth/invite/:token
+		// docgen:summary=Validate a user invite token (OSS-ONBOARD-A). Returns the invited user's email so the UI can render the password form; the token is not spent.
+		// docgen:tier=oss
+		// docgen:auth=public
+		// docgen:notes=400 invalid_token for an unknown, expired or spent token (one answer). Rate-limited per IP at the login class; 429 past the window.
+		inviteGroup.GET("/api/v1/auth/invite/:token", HandleValidateUserInvite(deps))
+		// docgen:endpoint
+		// docgen:surface=auth-lifecycle
+		// docgen:method=POST
+		// docgen:path=/api/v1/auth/invite
+		// docgen:summary=Redeem a user invite (OSS-ONBOARD-A): sets the password under the organization's policy, marks the user verified, and spends the token (single-use).
+		// docgen:tier=oss
+		// docgen:auth=public
+		// docgen:notes=Body {token, password}. 400 weak_password (the token stays usable) or invalid_token (unknown, expired or spent; one answer). No Set-Cookie: the user signs in next and enrols MFA there per the organization's policy. Rate-limited per IP at the login class; 429 past the window. Audited as user.invite_redeemed without the token.
+		inviteGroup.POST("/api/v1/auth/invite", HandleRedeemUserInvite(deps))
 	}
 	if deps.OrgActivation != nil {
 		// docgen:endpoint

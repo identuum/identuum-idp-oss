@@ -89,6 +89,24 @@ var bindOptionsJustified = map[string]optionsGap{
 		Why:   "RFC 7592 management mirrors the 7591 posture: service-account linkage stays admin-only.",
 	},
 
+	// ── OSS-ONBOARD-A (D-016): the invite branch of POST /api/v1/users ──
+	// The invite literal is built only when the bound password is EMPTY
+	// (that is the branch condition); the user sets their own password at
+	// POST /api/v1/auth/invite, where the organization's policy is applied.
+	// The password create literal in the same handler feeds all three.
+	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.Password": {
+		State: "bound-to-refuse",
+		Why:   "invite branch: reached only when the bound password is empty — an invite carries no password; the invitee sets it at redeem (user_invite.go).",
+	},
+	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.MinPasswordLength": {
+		State: "absent",
+		Why:   "invite branch: no password is set at invite; RedeemInvite applies the policy floor when the invitee sets one.",
+	},
+	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.PasswordComplexityEnabled": {
+		State: "absent",
+		Why:   "invite branch: no password is set at invite; RedeemInvite reads the organization's complexity policy when the invitee sets one.",
+	},
+
 	// ── THE-PROFILE-CLAIMS: self-service PUT /api/v1/profile ──
 	// The caller edits their OWN display name + the twelve OIDC §5.1
 	// profile fields (the latter through UserProfilePatch, fully fed). The
