@@ -207,6 +207,25 @@ type bootstrapDeps struct {
 	// setup_required while a site_admin exists is exactly the split-brain the
 	// setup wizard then chokes on. PgxSetupStateRepository satisfies it.
 	Setup setupCompleter
+	// Audit records the setup the way the wizard does (OSS-FIN-3):
+	// setup.completed and the first admin's user_created
+	// (service.BootstrapAuditor). Nil records nothing.
+	Audit bootstrapRecorder
+}
+
+// bootstrapRecorder is the narrow slice of service.BootstrapAuditor
+// bootstrap needs.
+type bootstrapRecorder interface {
+	SetupCompleted(ctx context.Context, admin *domain.User)
+}
+
+// bootstrapAudit is the persistent audit log when the repositories carry
+// one, else nothing.
+func bootstrapAudit(repos *postgres.Repositories) bootstrapRecorder {
+	if repos == nil || repos.Audit == nil {
+		return nil
+	}
+	return service.NewBootstrapAuditor(repos.Audit)
 }
 
 // setupCompleter is the narrow slice of the setup-state repository bootstrap
@@ -365,7 +384,11 @@ func bootstrapCore(ctx context.Context, deps bootstrapDeps, opts bootstrapOption
 		return 1
 	}
 	fmt.Fprintf(stdout, "identuum-idp: bootstrap: created site_admin (id=%s, email=%s)\n", created.ID, created.Email)
-	return finishBootstrap(ctx, deps, stdout, stderr)
+	rc = finishBootstrap(ctx, deps, stdout, stderr)
+	if deps.Audit != nil {
+		deps.Audit.SetupCompleted(ctx, created)
+	}
+	return rc
 }
 
 // runBootstrap is the CLI entrypoint for the 'bootstrap' subcommand.
@@ -410,5 +433,6 @@ func runBootstrap(ctx context.Context, databaseURL string, stdout, stderr io.Wri
 		Keys:  repos.Key,
 		Users: repos.User,
 		Setup: postgres.NewPgxSetupStateRepository(pool),
+		Audit: bootstrapAudit(repos),
 	}, opts, stdout, stderr)
 }
