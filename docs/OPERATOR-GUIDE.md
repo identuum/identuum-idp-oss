@@ -174,8 +174,13 @@ The same two modes apply as for an organization's activation:
 
 ### Inviting
 
-Create the user with an email (and optionally a name and role) and **no
-password**, as an org_admin of the organization:
+In the console: **Users → Invite user**, then email, name and role (Member or
+Admin). The link, its raw token and its expiry are shown once, with a Copy
+button. A pending user reads **Invitation pending**, and their page offers
+**Re-issue invitation**.
+
+Over the API, create the user with an email (and optionally a name and role)
+and **no password**, as an org_admin of the organization:
 
 ```
 POST /api/v1/users   {"email": "…", "name": "…"}

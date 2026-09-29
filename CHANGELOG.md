@@ -25,6 +25,25 @@ follows [Semantic Versioning](https://semver.org/).
   activation columns. Canonical endpoint count 144 → 147. The creation with a
   password is unchanged. docs/OPERATOR-GUIDE.md "Invite a user".
 
+### Changed
+
+- **The embedded UI is identuum-ui `05f0c96`** (OSS-ONBOARD-B): Users →
+  Invite user (`/org-admin/users/new`) shows the one-time link, its token and
+  its expiry once; pending users read "Invitation pending" and their page
+  re-issues. The public `/invite?token=` page validates the link, sets the
+  password and sends the user to sign-in. Each of these appears only where
+  `user_invite` is declared.
+
+### Security
+
+- **One-time tokens in a request path no longer reach the logs**
+  (OSS-ONBOARD-B). Until now the access log, the database-not-ready,
+  DenyM2MClients, panic, timeout, rate-limit and auth-refused lines, and the
+  `feature.denied` and `scope.denied` audit rows, recorded the raw path of
+  `GET /api/v1/auth/invite/:token` and
+  `GET /api/v1/auth/organizations/activate/:token`, token included. They
+  now record the route template (`…/:token`).
+
 ## `v0.6.3`
 
 Security and correctness fixes since `v0.6.2`, with identuum-ui `v0.3.3`
