@@ -27,12 +27,39 @@ follows [Semantic Versioning](https://semver.org/).
 - **`activation_pending` on the organization read surface** (OSS-FIN-1):
   org_admins exist and none has activated — the state `PUT active=true`
   refuses with `409 activation_pending`.
+- **First-party clients** (OSS-FIN-2, owner ruling D-018(b)): `POST` and
+  `PUT /api/v1/clients` accept `skip_consent` for the caller's own
+  organization's client, and every client read returns it. `/authorize`
+  then issues the code without the consent page (`prompt=consent` still
+  shows it), and `oauth_authorize.code_issued` records `consent_skipped`.
+  `client.updated` records `skip_consent_before` and `skip_consent_after`.
+  A public client is refused `400 invalid_request` ("skip_consent requires
+  a confidential client", RFC 8252 §8.6); dynamic client registration
+  cannot set it.
+- **Inviting a user created with a password before D-017** (OSS-FIN-2):
+  `POST /api/v1/users/:id/invite` now also invites a local user who is
+  unverified and holds no invite (created with a password in `v0.7.0` or
+  earlier); redeeming sets a new password and verifies the account. A
+  verified user is still `409 user_not_pending`.
+- **TOTP enrolment at the OpenID Connect browser sign-in** (OSS-FIN-2):
+  after the D-017 change step, a user whose organization requires MFA and
+  who has none enrols an authenticator app on the same form (the key and
+  its `otpauth://` link as text, the recovery codes once, then a code) and
+  is signed in; a wrong code asks again. The console hand-off page remains
+  only for an enrolment that cannot start.
 
 ### Changed
 
 - A user flagged `requires_password_change` used to be refused as
   `invalid_credentials` after a correct password; the flag now leads to the
   change step above.
+- **RP-initiated logout without `post_logout_redirect_uri` shows a
+  signed-out page** (OSS-FIN-2, owner ruling D-018(a)):
+  `/api/v1/oidc/logout` answers `200` with a static "You are signed out"
+  page (`no-store`, a CSP with no scripts, naming no user or client) after
+  the same termination, instead of `204` with no body. The redirect case,
+  its refusals and the `204` for an unresolved client with a redirect are
+  unchanged.
 
 ## `v0.7.0`
 

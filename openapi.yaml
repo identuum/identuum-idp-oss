@@ -2275,7 +2275,7 @@ paths:
   "/api/v1/users/{id}/invite":
     post:
       operationId: "identuum-idp-oss.users.reissue_user_invite"
-      summary: "Re-issue a pending user's one-time invite link (the older link stops working). Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured."
+      summary: "Re-issue a pending user's one-time invite link (the older link stops working), or invite an unverified user created with a password before D-017. Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured."
       tags:
         - "users"
       parameters:
@@ -2288,7 +2288,7 @@ paths:
         - cookieAuth: []
       responses:
         "200":
-          description: "Re-issue a pending user's one-time invite link (the older link stops working). Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured."
+          description: "Re-issue a pending user's one-time invite link (the older link stops working), or invite an unverified user created with a password before D-017. Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/users/{id}/recovery/reset-mfa":

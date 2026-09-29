@@ -281,8 +281,14 @@ POST /api/v1/users/<user-id>/invite
 ```
 
 The answer has the email, a new `invite_token`, `invite_url` (or
-`invite_url_unavailable`) and `expires_at`. A user who has already redeemed
-(or was created with a password) is not pending: `409 user_not_pending`.
+`invite_url_unavailable`) and `expires_at`. A verified user (one who has
+redeemed, or was created with a password under D-017) is not pending:
+`409 user_not_pending`.
+
+A user created with a password in `v0.7.0` or earlier is still unverified
+and cannot sign in without mail. The same call invites them (**Send
+invitation** on the user's page in the console); accepting sets a new
+password and verifies the account.
 
 ### What the user does
 
@@ -318,15 +324,23 @@ GET /.well-known/openid-configuration
   at `/api/v1/auth/browser-login` (email, password, and a TOTP code if they
   enrolled one); being signed in to the console does not carry over. The first
   authorization of a client shows a consent page (**Approve** / **Deny**); the
-  decision is remembered.
+  decision is remembered. An organization admin may mark an application the
+  organization runs itself **First-party (skip consent)** (D-018): its users
+  are not asked, the change is audited, and `prompt=consent` still asks. A
+  public client cannot be first-party.
+- **First sign-in under an MFA policy:** a user who must change an admin-set
+  password (D-017) and has no authenticator enrols one on the same sign-in
+  page — the key and its `otpauth://` link, the recovery codes once, then a
+  code.
 - **Refresh:** request `offline_access` to receive a refresh token;
   `grant_type=refresh_token` returns a new access token and a new refresh
   token (the old one is rotated out).
 - **Sign-out:** `GET /api/v1/oidc/logout?id_token_hint=…` ends the IdP's
-  browser session (the next `/authorize` asks for a sign-in again). Without a
-  registered `post_logout_redirect_uri` it answers `204` with no page, so pass
-  one. Access tokens already issued stay valid until they expire, and the
-  console has its own session: **Sign out** there separately.
+  browser session (the next `/authorize` asks for a sign-in again). With a
+  registered `post_logout_redirect_uri` the browser returns there; without one
+  the IdP shows its own "You are signed out" page (D-018). Access tokens
+  already issued stay valid until they expire, and the console has its own
+  session: **Sign out** there separately.
 
 ## Factory reset (DESTROYS ALL DATA)
 
