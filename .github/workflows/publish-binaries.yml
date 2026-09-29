@@ -1,0 +1,197 @@
+name: Publish OSS IDP binaries
+
+# OSS-BINARIES (owner ruling): each release also ships the bare binary for
+# linux/amd64 and linux/arm64, so an operator can run identuum-idp-oss with
+# the binary alone (no image, no Makefile). MANUAL ONLY, like
+# publish-image.yml.
+#
+#   dry_run: true  (default) — builds main as 0.0.0-dryrun and keeps the
+#                  binaries, SHA256SUMS and the provenance attestation as
+#                  workflow artifacts only. Nothing is uploaded anywhere.
+#   dry_run: false — builds the checked-out tag <version_tag>, which must
+#                  point at that commit, and uploads the two binaries and
+#                  SHA256SUMS to the EXISTING GitHub Release <version_tag>
+#                  (created with the image). Never --clobber: an asset of
+#                  the same name (for example the compose file) is refused,
+#                  not replaced.
+#
+# Each binary is built as `make build-binary` and deployment/Dockerfile.local
+# build it (CGO_ENABLED=0, -trimpath, the same -ldflags stamping
+# main.buildVersion and internal/buildinfo.Commit) with the embedded UI
+# (internal/uiexport, checked against its manifest before the build).
+#
+# Least privilege: the build job reads the repository and writes only the
+# build-provenance attestation (id-token + attestations). Only the upload job
+# — which runs only when dry_run is false — can write a release.
+#
+# Hardening (as publish-image.yml): every action is pinned by commit SHA; the
+# dispatch inputs reach shell only through the environment, never through
+# ${{ }} interpolation inside a run script.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Existing Git tag and GitHub Release to build and upload to (e.g. v0.7.0). Ignored when dry_run is true.'
+        required: false
+        type: string
+        default: ''
+      dry_run:
+        description: 'Build main as 0.0.0-dryrun and keep the binaries as workflow artifacts only (no upload).'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, checksum and attest
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    env:
+      VERSION_TAG: ${{ inputs.version_tag }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      artifact: ${{ steps.meta.outputs.artifact }}
+    steps:
+      - name: Check the inputs
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN}" = "true" ]; then
+            if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+              echo "::error::a dry run builds main; dispatch it on main (got ${GITHUB_REF})"
+              exit 1
+            fi
+          elif [ -z "${VERSION_TAG}" ]; then
+            echo "::error::version_tag is required when dry_run is false"
+            exit 1
+          fi
+
+      - name: Checkout main (dry run) or the requested version tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.dry_run && github.ref || inputs.version_tag }}
+          fetch-depth: 0
+
+      - name: Verify the tag exists and matches the checked-out commit
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse -q --verify "refs/tags/${VERSION_TAG}" >/dev/null; then
+            echo "::error::tag '${VERSION_TAG}' does not exist in this repository"
+            exit 1
+          fi
+          TAG_COMMIT="$(git rev-list -n 1 "refs/tags/${VERSION_TAG}")"
+          HEAD_COMMIT="$(git rev-parse HEAD)"
+          if [ "${TAG_COMMIT}" != "${HEAD_COMMIT}" ]; then
+            echo "::error::tag '${VERSION_TAG}' -> ${TAG_COMMIT} does not match checked-out ${HEAD_COMMIT}"
+            exit 1
+          fi
+          echo "verified: ${VERSION_TAG} points at ${HEAD_COMMIT}"
+
+      - name: Compute version, commit and artifact name
+        id: meta
+        run: |
+          set -euo pipefail
+          if [ "${DRY_RUN}" = "true" ]; then
+            VERSION="0.0.0-dryrun"
+          else
+            VERSION="${VERSION_TAG#v}"
+          fi
+          {
+            echo "version=${VERSION}"
+            echo "commit=$(git rev-parse HEAD)"
+            echo "artifact=identuum-idp-oss_${VERSION}_binaries"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          # A privileged publish job restores no cache it did not create.
+          cache: false
+
+      - name: The embedded UI matches its manifest
+        run: go test ./internal/uiexport -run '^TestVendoredTreeMatchesManifest$' -count=1
+
+      - name: Build linux/amd64 and linux/arm64
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build \
+              -trimpath \
+              -ldflags "-s -w -X main.buildVersion=${VERSION} -X github.com/identuum/identuum-idp-oss/internal/buildinfo.Commit=${COMMIT}" \
+              -o "dist/identuum-idp-oss_${VERSION}_linux_${arch}" \
+              ./cmd/identuum-idp
+          done
+          ls -l dist
+
+      - name: Smoke the amd64 binary (the runner's own architecture)
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          set -euo pipefail
+          BIN="dist/identuum-idp-oss_${VERSION}_linux_amd64"
+          OUT="$("${BIN}" version)"
+          echo "version: ${OUT}"
+          case "${OUT}" in
+            *"${VERSION}"*"${COMMIT:0:12}"*) echo "version and commit verified" ;;
+            *) echo "::error::binary reports '${OUT}', expected ${VERSION} and ${COMMIT}"; exit 1 ;;
+          esac
+          "${BIN}" help >/dev/null
+
+      - name: SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd dist
+          sha256sum identuum-idp-oss_* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Build-provenance attestation for each binary
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'dist/identuum-idp-oss_*'
+
+      - name: Keep the binaries as workflow artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.meta.outputs.artifact }}
+          path: dist/
+          if-no-files-found: error
+
+  upload:
+    name: Upload to the existing release
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION_TAG: ${{ inputs.version_tag }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Fetch the attested binaries
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.artifact }}
+          path: dist
+
+      - name: Upload to release (no --clobber)
+        run: |
+          set -euo pipefail
+          gh release view "${VERSION_TAG}" >/dev/null
+          cd dist
+          sha256sum -c SHA256SUMS
+          gh release upload "${VERSION_TAG}" identuum-idp-oss_* SHA256SUMS
