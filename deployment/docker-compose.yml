@@ -138,7 +138,7 @@ services:
     # to rebuild from local source use deployment/docker-compose.build.yml
     # as an overlay. (v0.3.4 was tagged but its image never published —
     # stopped by the publish workflow's Trivy gate.)
-    image: ghcr.io/identuum/identuum-idp-oss:v0.6.3@sha256:61e09e34cb003c46d1fbc12527b2d0e4b6e09e79a75b1768d0dc959b078a40d5
+    image: ghcr.io/identuum/identuum-idp-oss:v0.7.0@sha256:6c475a74a4b133c450f2350b6c566cd33be90dd0549a58431ae6dc8c2928680a
     container_name: identuum-idp-oss
     restart: unless-stopped
     depends_on:
