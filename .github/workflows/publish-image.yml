@@ -142,6 +142,7 @@ jobs:
           platforms: linux/amd64
           build-args: |
             VERSION=${{ steps.meta.outputs.version_semver }}
+            COMMIT=${{ steps.meta.outputs.short_sha }}
 
       - name: Canonical verification — binary version matches the tag
         run: |
@@ -184,6 +185,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version_semver }}
+            COMMIT=${{ steps.meta.outputs.short_sha }}
           # Apple Silicon hosts pull linux/arm64 natively; linux/amd64 covers
           # the GitHub-hosted runner and most server deployments.
           platforms: linux/amd64,linux/arm64
