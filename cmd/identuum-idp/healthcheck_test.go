@@ -10,15 +10,19 @@ import (
 
 // The distroless image has no shell and no curl, so a Docker healthcheck
 // must be the binary asking its own /healthz: 0 when it answers 200, 1
-// otherwise — including nothing listening.
+// otherwise — including nothing listening. The store probe /readyz answers
+// 200 here (store up); healthcheck_store_test.go covers it answering 503.
 func TestHealthcheck_ExitsZeroOnlyWhenHealthzAnswers200(t *testing.T) {
 	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/healthz" {
+		switch r.URL.Path {
+		case "/healthz":
+			w.WriteHeader(status)
+		case "/readyz":
+			w.WriteHeader(http.StatusOK)
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		w.WriteHeader(status)
 	}))
 	defer srv.Close()
 

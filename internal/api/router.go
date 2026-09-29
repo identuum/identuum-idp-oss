@@ -852,6 +852,13 @@ func mountPublicSurface(router gin.IRouter, resolved OSSRouterDeps) {
 	// belongs to a separate docs slice.)
 	router.GET("/livez", livezHandler())
 
+	// Readiness of the store — 200 while Postgres answers a ping, 503 when it
+	// does not. /health and /healthz read only the StartupReport and stay
+	// liveness; the container healthcheck (`identuum-idp healthcheck`) asks
+	// both /healthz and /readyz (OSS-POLISH: the image stayed "healthy" with
+	// the database stopped). Not api-docgen-annotated, like /livez.
+	router.GET("/readyz", readyzHandler(resolved.DBPinger))
+
 	// /healthz answers exactly as /health (same handler, status and body).
 	// identuum-ui probes the IdP at /healthz first (the Kubernetes spelling
 	// identuum-idp-ce serves) and its site-admin settings page probes ONLY
@@ -1754,6 +1761,24 @@ func healthHandler(deps OSSRouterDeps) gin.HandlerFunc {
 func livezHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "live"})
+	}
+}
+
+// readyzHandler answers 503 {"status":"store_unreachable"} when the store
+// ping fails within 2s, else 200 {"status":"ready"}. A nil pinger (the no-DB
+// scaffold) has no store to wait for and answers ready.
+func readyzHandler(ping func(context.Context) error) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		if ping != nil {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+			defer cancel()
+			if err := ping(ctx); err != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"status": "store_unreachable"})
+				return
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
 	}
 }
 
