@@ -835,7 +835,7 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 		if req.Active != nil && *req.Active && activationPending(c.Request.Context(), deps.AdminCounter, id) {
 			c.JSON(http.StatusConflict, gin.H{
 				"error":   "activation_pending",
-				"message": "this organization is activated by its administrator's activation link; re-issue it with POST /api/v1/organizations/:id/resend-activation",
+				"message": "this organization is activated by its administrator's activation link; to hand over a new one, use Re-issue activation link on the organization's page",
 			})
 			return
 		}
