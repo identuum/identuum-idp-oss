@@ -119,6 +119,15 @@ func IsInvitePending(u *domain.User) bool {
 	return u != nil && !u.EmailVerified && u.ActivationTokenHash != nil && u.DeletedAt == nil
 }
 
+// isPreD017Unverified is a local user created with a password before D-017
+// (v0.7.0 and earlier): unverified, holding no invite token, so without mail
+// it can never sign in. An invite is how an org_admin brings it in; redeeming
+// sets a new password and verifies it (OSS-FIN-2).
+func isPreD017Unverified(u *domain.User) bool {
+	return u != nil && !u.EmailVerified && u.ActivationTokenHash == nil && u.DeletedAt == nil &&
+		u.AuthSource == domain.AuthSourceLocal
+}
+
 // InviteUserForActor creates a pending user under the same authority as
 // CreateUserForActor (an org_admin in its own organization; site_admin
 // only for an organization's first org_admin) and returns it with the raw
@@ -189,7 +198,8 @@ func (s *UserService) InviteUserForActor(ctx context.Context, actor *domain.Prin
 // ReissueInviteForActor mints a fresh token for a pending user; the older
 // one stops working. An org_admin reaches only its own organization's
 // users (another organization's user is not found, G10); a site_admin
-// only the org_admin it may seed. A user who is not pending answers
+// only the org_admin it may seed. A pre-D-017 unverified user is invited
+// the same way (isPreD017Unverified). Any other user answers
 // ErrUserNotPendingInvite.
 func (s *UserService) ReissueInviteForActor(ctx context.Context, actor *domain.Principal, targetUserID uuid.UUID) (*domain.User, string, time.Time, error) {
 	if s.invite == nil {
@@ -217,7 +227,7 @@ func (s *UserService) ReissueInviteForActor(ctx context.Context, actor *domain.P
 	default:
 		return nil, "", time.Time{}, domain.ErrForbidden
 	}
-	if !IsInvitePending(target) {
+	if !IsInvitePending(target) && !isPreD017Unverified(target) {
 		return nil, "", time.Time{}, errUserNotPendingInvite
 	}
 	raw, hash, err := newInviteToken()

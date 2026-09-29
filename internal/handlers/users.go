@@ -308,10 +308,10 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 			// docgen:surface=users
 			// docgen:method=POST
 			// docgen:path=/api/v1/users/:id/invite
-			// docgen:summary=Re-issue a pending user's one-time invite link (the older link stops working). Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured.
+			// docgen:summary=Re-issue a pending user's one-time invite link (the older link stops working), or invite an unverified user created with a password before D-017. Returns email, invite_token, invite_url or invite_url_unavailable, and expires_at once; also mailed when SMTP is configured.
 			// docgen:tier=oss
 			// docgen:auth=site_admin|org_admin
-			// docgen:notes=org_admin additionally requires the users:update scope and reaches only its own organization's users (another organization's user is 404). site_admin may re-issue only for an org_admin (the one it may seed); otherwise 403. A user who is not pending (redeemed, or created with a password) is 409 user_not_pending. The token is never logged or audited (user.invite_reissued).
+			// docgen:notes=org_admin additionally requires the users:update scope and reaches only its own organization's users (another organization's user is 404). site_admin may re-issue only for an org_admin (the one it may seed); otherwise 403. A local user who is unverified with no invite (created with a password before D-017) is invited the same way, and redeeming sets a new password and verifies it. A verified user (redeemed, or created with a password under D-017) is 409 user_not_pending. The token is never logged or audited (user.invite_reissued).
 			update.POST("/:id/invite", HandleReissueUserInvite(deps))
 		}
 
