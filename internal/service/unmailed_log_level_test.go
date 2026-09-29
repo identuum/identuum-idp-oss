@@ -46,12 +46,13 @@ func TestUnmailedInviteAndActivation_InfoWhenNotConfigured_WarnWhenDeliveryFails
 		t.Helper()
 		core, logs := observer.New(zapcore.DebugLevel)
 		lg := zap.New(core)
-		(&UserService{}).WithInvite(UserInviteConfig{Notifier: n, Logger: lg}).
-			mailInvite(context.Background(), user, "raw", time.Now())
+		fixed := func() time.Time { return seamEpoch }
+		(&UserService{}).WithInvite(UserInviteConfig{Notifier: n, Logger: lg, Now: fixed}).
+			mailInvite(context.Background(), user, "raw", seamEpoch.Add(time.Hour))
 		orgs := newFakeOrgRepo(org)
 		svc := NewOrganizationActivationService(OrganizationActivationServiceConfig{
 			Users: newFakeUserRepo(user), Orgs: orgs, OrgsAdmin: orgs,
-			Audit: audit.NoopService{}, Notifier: n.(OrganizationActivationNotifier), Logger: lg,
+			Audit: audit.NoopService{}, Notifier: n.(OrganizationActivationNotifier), Logger: lg, Now: fixed,
 		})
 		_, _, err := svc.IssueActivationToken(context.Background(), user)
 		require.NoError(t, err)
