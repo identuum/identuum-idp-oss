@@ -51,8 +51,9 @@ const passwordChangeFormTemplate = `<!DOCTYPE html>
 </html>`
 
 // mfaEnrolFirstPage answers a change that succeeded for a user whose
-// organization requires an authenticator not yet enrolled: this form cannot
-// enrol one, the console can.
+// organization requires an authenticator not yet enrolled, when the
+// enrolment at this form cannot start (browser_login_mfa_enrol.go): the
+// console can enrol one.
 const mfaEnrolFirstPage = `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><meta http-equiv="Cache-Control" content="no-store"><title>Set up two-factor authentication — Identuum</title></head>
@@ -130,32 +131,15 @@ func handleBrowserPasswordChange(c *gin.Context, deps BrowserLoginHandlerDeps, h
 	}
 	switch {
 	case service.IsMFARequiredForUser(user) && !user.MFAEnabled:
-		writeNoStoreHTML(c, mfaEnrolFirstPage)
+		// OSS-FIN-2: enrol TOTP here; the console hand-off remains only
+		// for an enrolment that cannot start.
+		if !startBrowserMFAEnrol(c, deps, user, remember, returnTo) {
+			writeNoStoreHTML(c, mfaEnrolFirstPage)
+		}
 		return
 	case user.MFAEnabled:
 		browserLoginRedirect(c, "notice=password_changed", returnTo)
 		return
 	}
-	maxSessions := 0
-	if user.OrgMaxSessionsPerUser != nil {
-		maxSessions = *user.OrgMaxSessionsPerUser
-	}
-	ip, ua := c.ClientIP(), c.Request.UserAgent()
-	acr, amr := service.LoginContext(false)
-	issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
-		UserID:             user.ID,
-		IPAddress:          &ip,
-		UserAgent:          &ua,
-		RememberMe:         remember,
-		Acr:                acr,
-		Amr:                amr,
-		MaxSessionsPerUser: maxSessions,
-		OrganizationID:     user.OrganizationID,
-		Role:               string(user.Role),
-	})
-	if err != nil || issued == nil || issued.Session == nil {
-		c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
-		return
-	}
-	finishBrowserSignIn(c, deps, &service.LoginResult{UserID: user.ID.String(), User: user, Session: issued.Session, RefreshToken: issued.RefreshToken}, returnTo)
+	startBrowserSession(c, deps, user, remember, false, "", returnTo)
 }

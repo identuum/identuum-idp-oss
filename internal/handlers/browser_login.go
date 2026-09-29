@@ -136,6 +136,10 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 			handleBrowserPasswordChange(c, deps, handle, returnTo)
 			return
 		}
+		if handle := c.PostForm("mfa_enroll_session"); handle != "" && deps.changeStepWired() {
+			handleBrowserMFAEnrol(c, deps, handle, returnTo)
+			return
+		}
 
 		ip := c.ClientIP()
 		ua := c.Request.UserAgent()
