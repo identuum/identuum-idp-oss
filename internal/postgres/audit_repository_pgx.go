@@ -55,9 +55,9 @@ func (r *PgxAuditRepository) Insert(ctx context.Context, e domain.AuditEvent) er
 			id, created_at, event_type, outcome, actor_id, actor_type, actor_email,
 			actor_role, actor_organization_id, subject_id, subject_type,
 			subject_email, ip_address, user_agent, request_id, correlation_id,
-			priority, metadata
+			priority, metadata, organization_id
 		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19
 		)`
 
 	metadata := e.Metadata
@@ -84,6 +84,7 @@ func (r *PgxAuditRepository) Insert(ctx context.Context, e domain.AuditEvent) er
 		e.CorrelationID,
 		string(e.Priority),
 		metadata,
+		e.OrganizationID,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert audit event: %w", err)
@@ -158,9 +159,12 @@ func (r *PgxAuditRepository) ListEvents(ctx context.Context, orgScope *uuid.UUID
 		where = append(where, fmt.Sprintf(clause, len(args)))
 	}
 
-	// Tenant clamp — from the EXPLICIT arg, never from f.
+	// Tenant clamp — from the EXPLICIT arg, never from f. OSS-FIN-3: the rows
+	// of the organization ACTED UPON, whoever acted; a row written before
+	// migration 0042 (organization_id NULL) keeps the visibility it had,
+	// through actor_organization_id.
 	if orgScope != nil {
-		add("actor_organization_id = $%d", *orgScope)
+		add("(organization_id = $%[1]d OR (organization_id IS NULL AND actor_organization_id = $%[1]d))", *orgScope)
 	}
 	if f.EventType != nil {
 		add("event_type = $%d", string(*f.EventType))
@@ -185,7 +189,7 @@ func (r *PgxAuditRepository) ListEvents(ctx context.Context, orgScope *uuid.UUID
 		SELECT id, created_at, event_type, outcome, actor_id, actor_type,
 		       actor_email, actor_role, actor_organization_id, subject_id,
 		       subject_type, subject_email, host(ip_address), user_agent,
-		       request_id, correlation_id, priority, metadata
+		       request_id, correlation_id, priority, metadata, organization_id
 		FROM audit_events`
 	if len(where) > 0 {
 		query += "\n\t\tWHERE " + strings.Join(where, " AND ")
@@ -209,7 +213,7 @@ func (r *PgxAuditRepository) ListEvents(ctx context.Context, orgScope *uuid.UUID
 			&e.ID, &e.CreatedAt, &eventType, &e.Outcome, &e.ActorID, &e.ActorType,
 			&e.ActorEmail, &e.ActorRole, &e.ActorOrganizationID, &e.SubjectID,
 			&e.SubjectType, &e.SubjectEmail, &e.IPAddress, &e.UserAgent,
-			&e.RequestID, &e.CorrelationID, &priority, &e.Metadata,
+			&e.RequestID, &e.CorrelationID, &priority, &e.Metadata, &e.OrganizationID,
 		); err != nil {
 			return nil, false, fmt.Errorf("failed to scan audit event: %w", err)
 		}

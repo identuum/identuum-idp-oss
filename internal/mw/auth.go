@@ -32,7 +32,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
@@ -50,6 +52,34 @@ func SetPrincipal(c *gin.Context, p *domain.Principal) {
 		return
 	}
 	c.Set(principalContextKey, p)
+	// OSS-FIN-3: the audit actor travels on the request's context, so the
+	// persistent audit service fills every row's actor centrally.
+	if c.Request != nil {
+		c.Request = c.Request.WithContext(audit.WithActor(c.Request.Context(), AuditActor(p)))
+	}
+}
+
+// AuditActor is the audit.Actor a principal acts as: a service account
+// (actor_type claim), a user (a user id), else the OAuth client itself.
+func AuditActor(p *domain.Principal) audit.Actor {
+	a := audit.Actor{
+		ID:             p.UserID,
+		Email:          p.Email,
+		Role:           string(p.Role),
+		OrganizationID: p.OrganizationID,
+		ClientID:       p.ClientID,
+	}
+	switch {
+	case p.ActorType == audit.ActorTypeServiceAccount:
+		a.Type = audit.ActorTypeServiceAccount
+	case p.UserID != uuid.Nil:
+		a.Type = audit.ActorTypeUser
+	case p.ClientID != "":
+		a.Type = audit.ActorTypeClient
+	default:
+		a.Type = audit.ActorTypeUser
+	}
+	return a
 }
 
 // PrincipalFromContext returns the stored principal and a presence

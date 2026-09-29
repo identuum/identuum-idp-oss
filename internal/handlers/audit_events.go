@@ -42,24 +42,26 @@ type AuditHandlerDeps struct {
 // selfSessionView). Domain types are never returned. Nullable columns are
 // omitted when NULL. metadata is included by owner decision.
 type auditEventView struct {
-	ID                  string         `json:"id"`
-	CreatedAt           string         `json:"created_at"`
-	EventType           string         `json:"event_type"`
-	Outcome             *string        `json:"outcome,omitempty"`
-	ActorID             *string        `json:"actor_id,omitempty"`
-	ActorType           string         `json:"actor_type"`
-	ActorEmail          *string        `json:"actor_email,omitempty"`
-	ActorRole           *string        `json:"actor_role,omitempty"`
-	ActorOrganizationID *string        `json:"actor_organization_id,omitempty"`
-	SubjectID           *string        `json:"subject_id,omitempty"`
-	SubjectType         *string        `json:"subject_type,omitempty"`
-	SubjectEmail        *string        `json:"subject_email,omitempty"`
-	IPAddress           *string        `json:"ip_address,omitempty"`
-	UserAgent           *string        `json:"user_agent,omitempty"`
-	RequestID           *string        `json:"request_id,omitempty"`
-	CorrelationID       *string        `json:"correlation_id,omitempty"`
-	Priority            string         `json:"priority"`
-	Metadata            map[string]any `json:"metadata,omitempty"`
+	ID                  string  `json:"id"`
+	CreatedAt           string  `json:"created_at"`
+	EventType           string  `json:"event_type"`
+	Outcome             *string `json:"outcome,omitempty"`
+	ActorID             *string `json:"actor_id,omitempty"`
+	ActorType           string  `json:"actor_type"`
+	ActorEmail          *string `json:"actor_email,omitempty"`
+	ActorRole           *string `json:"actor_role,omitempty"`
+	ActorOrganizationID *string `json:"actor_organization_id,omitempty"`
+	// OrganizationID is the organization acted upon (OSS-FIN-3).
+	OrganizationID *string        `json:"organization_id,omitempty"`
+	SubjectID      *string        `json:"subject_id,omitempty"`
+	SubjectType    *string        `json:"subject_type,omitempty"`
+	SubjectEmail   *string        `json:"subject_email,omitempty"`
+	IPAddress      *string        `json:"ip_address,omitempty"`
+	UserAgent      *string        `json:"user_agent,omitempty"`
+	RequestID      *string        `json:"request_id,omitempty"`
+	CorrelationID  *string        `json:"correlation_id,omitempty"`
+	Priority       string         `json:"priority"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
 }
 
 type auditEventsResponse struct {
@@ -97,7 +99,7 @@ func RegisterAuditRoutes(router gin.IRouter, deps AuditHandlerDeps) {
 	// docgen:summary=Read the OSS plain persistent audit log, newest first. Filter by event_type, outcome, actor_id, subject_id and a created_at range; paginate with limit (default 50, max 200) + offset.
 	// docgen:tier=oss
 	// docgen:auth=site_admin|org_admin
-	// docgen:notes=site_admin sees all orgs (unscoped); an org_admin with the audit:read scope sees ONLY their own org — the org clamp is an explicit repository argument taken from Principal.OrganizationID, and any client-supplied actor_organization_id filter is IGNORED for a non-site_admin (P3-13 tenant boundary). org_user is refused 403 even holding the scope. No COUNT(*): the response carries the page plus has_more. Reading the log emits no audit event of its own.
+	// docgen:notes=site_admin sees all orgs (unscoped); an org_admin with the audit:read scope sees ONLY their own org — every row whose organization_id (the organization acted upon) is its own, whoever acted, a site_admin included; rows written before migration 0042 by their actor_organization_id as before. The org clamp is an explicit repository argument taken from Principal.OrganizationID, and any client-supplied actor_organization_id filter is IGNORED for a non-site_admin (P3-13 tenant boundary). Every row names its actor (actor_type user, client, service_account, setup_token, system, or anonymous without a principal). org_user is refused 403 even holding the scope. No COUNT(*): the response carries the page plus has_more. Reading the log emits no audit event of its own.
 	// docgen:status=200
 	g.GET("", HandleListAuditEvents(deps))
 }
@@ -229,6 +231,7 @@ func toAuditEventView(e domain.AuditEvent) auditEventView {
 		ActorEmail:          e.ActorEmail,
 		ActorRole:           e.ActorRole,
 		ActorOrganizationID: uuidStr(e.ActorOrganizationID),
+		OrganizationID:      uuidStr(e.OrganizationID),
 		SubjectID:           uuidStr(e.SubjectID),
 		SubjectType:         e.SubjectType,
 		SubjectEmail:        e.SubjectEmail,

@@ -312,12 +312,15 @@ type AuditEvent struct {
 	ActorEmail          *string
 	ActorRole           *string
 	ActorOrganizationID *uuid.UUID
-	ActorID             *uuid.UUID
-	SubjectID           *uuid.UUID
-	SubjectEmail        *string
-	RequestID           *string
-	IPAddress           *string
-	UserAgent           *string
+	// OrganizationID is the organization ACTED UPON (migration 0042,
+	// OSS-FIN-3); ActorOrganizationID is the actor's own.
+	OrganizationID *uuid.UUID
+	ActorID        *uuid.UUID
+	SubjectID      *uuid.UUID
+	SubjectEmail   *string
+	RequestID      *string
+	IPAddress      *string
+	UserAgent      *string
 	// Outcome wires the audit.outcome column — the success/denied/error
 	// discriminator. NULL when the emitting audit.Event left Outcome empty.
 	Outcome *string

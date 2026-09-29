@@ -803,6 +803,12 @@ func NotServingGuard(report *lifecycle.StartupReport) gin.HandlerFunc {
 // verifier, the chain is a no-op and protected groups fail closed at
 // the guard layer.
 func mountBearerAuth(router gin.IRouter, resolved OSSRouterDeps) {
+	// OSS-FIN-3: mark every request, so an audit row recorded with no
+	// principal is anonymous rather than system work.
+	router.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(audit.WithRequest(c.Request.Context()))
+		c.Next()
+	})
 	if resolved.TokenVerifier == nil {
 		return
 	}

@@ -23,7 +23,10 @@ type Principal struct {
 	// this field — notably pkg/oidc.PrincipalRef.Subject, whose doc says
 	// verbatim (CONF-11). Anything keying an internal uuid lookup wants
 	// UserID.
-	Sub            string
+	Sub string
+	// ActorType is the token's actor_type claim ("user", "service_account")
+	// when it carries one (OSS-FIN-3: the audit actor).
+	ActorType      string
 	UserID         uuid.UUID
 	OrganizationID uuid.UUID
 	SessionID      uuid.UUID

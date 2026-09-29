@@ -58,8 +58,12 @@ type Service interface {
 //     applicable to the action (e.g. system events with no human
 //     actor).
 //
-//   - OrganizationID is the tenant scope. uuid.Nil is allowed for
-//     site-admin / platform-wide events.
+//   - OrganizationID is the organization ACTED UPON (OSS-FIN-3), not the
+//     actor's. uuid.Nil is allowed for platform-wide events; a persistent
+//     Service then takes it from Metadata["organization_id"], or from the
+//     actor's organization when the actor is bound to one. The actor itself
+//     is filled from the request's Actor (actor.go) wherever the call site
+//     left it empty.
 //
 //   - Outcome is a short status token ("success", "denied",
 //     "error"). Kept as a string rather than an enum so OSS does

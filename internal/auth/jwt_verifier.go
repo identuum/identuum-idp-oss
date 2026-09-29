@@ -260,6 +260,9 @@ func claimsToPrincipal(claims jwt.MapClaims) (*domain.Principal, error) {
 	if v, ok := claims["client_id"].(string); ok {
 		p.ClientID = v
 	}
+	if v, ok := claims["actor_type"].(string); ok {
+		p.ActorType = v
+	}
 	if v, ok := claims["session_id"].(string); ok && v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			p.SessionID = id
