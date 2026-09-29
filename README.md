@@ -146,7 +146,10 @@ code is invalidated.
 4. **The organization administrator invites users** (**Users → Invite
    user**) and hands each one-time invite link over; the user sets a
    password at `/invite` and signs in. MFA follows the organization's
-   policy.
+   policy. (Over the API an administrator may instead create a user with a
+   password; that user is active and verified at once and, by default, must
+   choose their own password at first sign-in — then MFA if the policy asks.
+   See the operator guide, "Creating a user with a password instead".)
 5. **The organization administrator registers an application**
    (**Applications → New**; the client secret is shown once) and points it at
    `/.well-known/openid-configuration`: authorization code with PKCE,

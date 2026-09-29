@@ -5,6 +5,35 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- **Admin-set passwords the Microsoft way** (OSS-FIN-1, owner ruling D-017):
+  a user created with a password (`POST /api/v1/users`, `/users/bulk`) is
+  active and verified at once — the admin vouches; `user.created` records
+  `password_set_by_admin` and `must_change_password`. By default the user must
+  choose their own password at first sign-in: `POST /api/v1/auth/login`
+  answers `401 password_change_required` with a one-time `session_id`, and the
+  new `POST /api/v1/auth/login/password-change {session_id, new_password}`
+  sets it (organization policy; not the admin-set one; `400 weak_password`
+  keeps the handle), then continues to MFA enrolment or verification when the
+  policy asks, else the session. The OpenID Connect browser sign-in renders
+  the same step. `must_change_password: false` lets the admin-set password
+  stand. Migration `0041` admits the pending kind; canonical endpoint count
+  147 → 148. Users created with a password before this release are unchanged
+  (still unverified). docs/OPERATOR-GUIDE.md "Creating a user with a password
+  instead".
+- **`activation_pending` on the organization read surface** (OSS-FIN-1):
+  org_admins exist and none has activated — the state `PUT active=true`
+  refuses with `409 activation_pending`.
+
+### Changed
+
+- A user flagged `requires_password_change` used to be refused as
+  `invalid_credentials` after a correct password; the flag now leads to the
+  change step above.
+
 ## `v0.7.0`
 
 An organization admin adds users without mail, a site admin re-issues a

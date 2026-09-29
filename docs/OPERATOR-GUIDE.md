@@ -249,8 +249,27 @@ expires_at               when the link stops working (24 hours)
 **Send the link**, as with an activation. When the IdP does not know the UI's
 browser-facing address it answers `invite_url_unavailable`, naming
 `IDENTUUM_IDP_UI_PUBLIC_BASE_URL`, instead of a guessed link; set it and
-re-issue. Creating a user **with** a password still works as before (the user
-is unverified until verified by mail).
+re-issue.
+
+### Creating a user with a password instead (API)
+
+The invite is the console's way. Over the API an administrator may instead
+set the first password (owner ruling D-017):
+
+```
+POST /api/v1/users   {"email": "…", "password": "…", "role": "org_user"}
+```
+
+The user is **active and verified at once** — the administrator vouches for
+the account, and the creation is audited (`user.created` with
+`password_set_by_admin: true`). No mail is sent. By default the user **must
+change the password at first sign-in**: the password you set gets them only
+to a "choose a new password" step (console and OpenID Connect sign-in
+alike), then MFA enrolment when the organization's policy requires it, and
+only then a session. The new password follows the organization's policy and
+must differ from the one you set. Send `"must_change_password": false` to let
+your password stand; that choice is audited too
+(`must_change_password: false`).
 
 ### Re-issuing
 

@@ -81,14 +81,19 @@ Every release carries its pinned compose file as a GitHub Release asset;
 the install line downloads it from `releases/latest/download`. After the
 commit that pins the new image digest in `deployment/docker-compose.yml`:
 
-1. Upload that commit's `deployment/docker-compose.yml` and its checksum to
-   the release, and mark the release latest:
+1. Create the release from the tag's own notes and mark it latest, then
+   upload that commit's `deployment/docker-compose.yml` and its checksum:
 
    ```bash
+   gh release create vX.Y.Z --verify-tag --latest --title "identuum-idp-oss vX.Y.Z" \
+     --notes-file docs/releases/vX.Y.Z.md
    cd deployment
    shasum -a 256 docker-compose.yml > docker-compose.yml.sha256
    gh release upload vX.Y.Z docker-compose.yml docker-compose.yml.sha256 --clobber
    ```
+
+   `--verify-tag` refuses a tag that does not exist on the remote, so the
+   release can never create one.
 
 2. Check what a customer downloads — anonymously, through the latest URL:
 
