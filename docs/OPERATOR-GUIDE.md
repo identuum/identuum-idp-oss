@@ -195,7 +195,9 @@ load such a link.
 ### Re-issuing
 
 If the credential is lost or expired (24 hours), re-issue it — this
-invalidates the previous one:
+invalidates the previous one. In the console: **Organizations**, open the
+organization, **Re-issue activation link**, confirm; the new link (with
+Copy), its token and its expiry are shown once. Over the API:
 
 ```
 POST /api/v1/organizations/<org-id>/resend-activation

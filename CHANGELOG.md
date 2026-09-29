@@ -43,7 +43,8 @@ follows [Semantic Versioning](https://semver.org/).
   activates it. It used to switch the organization on without its
   administrator, whose link then answered `organization_already_active`. A
   shell organization, or one whose administrator has activated, reactivates
-  as before.
+  as before. The refusal's message names the console action, **Re-issue
+  activation link** on the organization's page (OSS-FINAL).
 
 - **The embedded UI is identuum-ui `05f0c96`** (OSS-ONBOARD-B): Users →
   Invite user (`/org-admin/users/new`) shows the one-time link, its token and
@@ -55,7 +56,12 @@ follows [Semantic Versioning](https://semver.org/).
   `9745185` (OSS-BINARIES) the new-organization form says the activation
   link is shown to hand over and mailed only when email delivery is
   configured, and Reactivate on a never-activated organization explains its
-  `409` instead of "Try again".
+  `409` instead of "Try again". From `8d30b24` (OSS-FINAL) a pending
+  organization's page offers **Re-issue activation link**: after a
+  confirmation it shows the new link with Copy, its token and its expiry once,
+  and the earlier link stops working (it was reachable only once the
+  activation had expired); assign-admin, `/activate` and `/claim` say what
+  D-016 says.
 - **`identuum-idp healthcheck` (the image's Docker HEALTHCHECK) reports
   unhealthy when the database is unreachable** (OSS-POLISH). It now requires
   `/healthz` and the new unannotated `/readyz` (503
