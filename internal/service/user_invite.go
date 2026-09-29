@@ -316,6 +316,13 @@ func (s *UserService) mailInvite(ctx context.Context, user *domain.User, raw str
 		return
 	}
 	if err := s.invite.notifier.SendUserInviteEmail(ctx, user, raw, expiresAt); err != nil {
+		// D-016: no SMTP is the default and the admin hands the link over,
+		// so an unmailed invite is expected, not a warning.
+		if errors.Is(err, ErrEmailDeliveryNotConfigured) {
+			s.invite.logger.Info("user invite: not mailed: delivery not configured",
+				zap.String("user_id", user.ID.String()))
+			return
+		}
 		s.invite.logger.Warn("user invite: send email failed",
 			zap.String("user_id", user.ID.String()),
 			zap.Error(err),

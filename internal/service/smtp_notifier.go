@@ -62,7 +62,8 @@ var ErrEmailDeliveryNotConfigured = errors.New(
 // ErrEmailDeliveryNotConfigured — never a fake success. The wire
 // responses of the consuming services are unchanged (anti-enumeration
 // messages stay uniform); honesty is delivered at the operator level
-// (startup notice + per-attempt Warn logs).
+// (startup notice + a per-attempt log: Warn for reset and verification;
+// Info for invite and activation, whose link the admin hands over — D-016).
 type UnconfiguredEmailNotifier struct{}
 
 func (UnconfiguredEmailNotifier) SendPasswordResetEmail(context.Context, *domain.User, string) error {

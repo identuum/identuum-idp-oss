@@ -235,10 +235,17 @@ func (s *OrganizationActivationService) IssueActivationToken(ctx context.Context
 	}
 	if s.notifier != nil {
 		if sendErr := s.notifier.SendActivationEmail(ctx, user, raw, expiresAt); sendErr != nil {
-			s.logger.Warn("activation: send email failed",
-				zap.String("user_id", user.ID.String()),
-				zap.Error(sendErr),
-			)
+			// D-016: without SMTP the site_admin hands the activation link
+			// over, so an unmailed activation is expected, not a warning.
+			if errors.Is(sendErr, ErrEmailDeliveryNotConfigured) {
+				s.logger.Info("activation: not mailed: delivery not configured",
+					zap.String("user_id", user.ID.String()))
+			} else {
+				s.logger.Warn("activation: send email failed",
+					zap.String("user_id", user.ID.String()),
+					zap.Error(sendErr),
+				)
+			}
 		}
 	}
 	return raw, expiresAt, nil
