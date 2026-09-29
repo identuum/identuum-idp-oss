@@ -862,6 +862,11 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		return api.OSSRouterDeps{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			fmt.Errorf("runtime: jwks-db pool open failed: %w", redactURL(err, r.cfg.JWKSDBURL))
 	}
+	if err := requireMigratedSchema(ctx, pool); err != nil {
+		pool.Close()
+		return api.OSSRouterDeps{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			redactURL(err, r.cfg.JWKSDBURL)
+	}
 	// P3-5: encrypt signing_keys.private_key at rest via the SAME env-keyed
 	// CryptoService posture that protects every other OSS at-rest secret.
 	// FAIL-CLOSED: a missing/invalid key records a StartupReport fatal
