@@ -153,7 +153,8 @@ services:
       - "${IDENTUUM_IDP_BIND_ADDRESS:-0.0.0.0}:7113:7113"
     healthcheck:
       # The runtime image is distroless (no shell, no curl): the binary asks
-      # its own GET /healthz and exits 0 only on 200.
+      # its own GET /healthz (liveness) and GET /readyz (the database answers)
+      # and exits 0 only when both answer 200.
       test: ["CMD", "/app/identuum-idp", "healthcheck"]
       interval: 10s
       timeout: 5s
