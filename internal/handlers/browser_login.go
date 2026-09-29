@@ -178,6 +178,15 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 					return
 				}
 			}
+			if errors.Is(err, service.ErrLoginMFAEnrollmentRequired) && deps.changeStepWired() && result != nil && result.User != nil {
+				// OSS-FIN-3: the password is proven and the organization
+				// requires an authenticator the user has not enrolled; enrol
+				// it here (FIN-2's enrolment) before any cookie exists.
+				if startBrowserMFAEnrol(c, deps, result.User, remember, returnTo) {
+					auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result)
+					return
+				}
+			}
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 				Action:    "user_session.browser_login.failure",
 				Outcome:   "denied",

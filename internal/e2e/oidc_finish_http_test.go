@@ -229,3 +229,34 @@ func TestE2E_OSS_OIDCFinish(t *testing.T) {
 		t.Errorf("no user_session.login.mfa_enrolled audit row for the browser enrolment")
 	}
 }
+
+// OSS-FIN-3 item 5: a user whose organization requires MFA, who has none
+// enrolled and no password change pending, enrols TOTP at the OpenID Connect
+// browser sign-in (FIN-2's enrolment, without the change step first).
+func TestE2E_OSS_BrowserEnrolWithoutChange(t *testing.T) {
+	w := startInviteEngine(t, map[string]string{"UI": inviteUIBase, "IDENTUUM_IDP_RATE_LIMIT_LOGIN_REQUESTS": "1000"})
+	if _, err := w.pool.Exec(w.ctx, `UPDATE organizations SET mfa_policy = 'required' WHERE id = $1`, w.orgA.ID); err != nil {
+		t.Fatalf("require MFA in the organization: %v", err)
+	}
+	id, email := w.createWithPassword(`,"must_change_password":false`)
+	b := newBrowser(t, w.base)
+	_, _, f := b.get("/api/v1/auth/browser-login?return_to=%2Fapi%2Fv1%2Foauth%2Fauthorize%3Fx%3D1")
+	f.Set("email", email)
+	f.Set("password", adminSetPassword)
+	st, _, enrol := b.post(f)
+	ef := hidden(enrol)
+	secret := regexp.MustCompile(`data-secret="([A-Z2-7]+)"`).FindStringSubmatch(enrol)
+	if st != http.StatusOK || ef.Get("mfa_enroll_session") == "" || secret == nil || b.hasSessionCookie() {
+		t.Fatalf("browser sign-in under an MFA policy, nothing enrolled = %d; want 200 with the TOTP enrolment form and no session", st)
+	}
+	ef.Set("totp_code", computeTOTPCodeForTest(t, secret[1], uint64(time.Now().Unix()/30)))
+	st, loc, _ := b.post(ef)
+	if st != http.StatusSeeOther || loc != "/api/v1/oauth/authorize?x=1" || !b.hasSessionCookie() {
+		t.Errorf("enrolment code = %d to %q (cookie %v); want 303 to return_to with the session cookie", st, loc, b.hasSessionCookie())
+	}
+	var on bool
+	_ = w.pool.QueryRow(w.ctx, `SELECT mfa_enabled FROM users WHERE id = $1`, id).Scan(&on)
+	if !on {
+		t.Errorf("mfa_enabled false after the browser enrolment")
+	}
+}
