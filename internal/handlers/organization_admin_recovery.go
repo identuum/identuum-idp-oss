@@ -102,16 +102,12 @@ func HandleListOrgAdminRecoveryCandidates(deps OrganizationsHandlerDeps) gin.Han
 			return
 		}
 		// Resolve the org so a missing org is an honest 404 rather than an
-		// empty candidate list. Prefer the service; fall back to the repo,
-		// matching HandleGetOrganization.
-		var o *domain.Organization
-		switch {
-		case deps.OrganizationService != nil:
-			o, err = deps.OrganizationService.GetByID(c.Request.Context(), id)
-		case deps.OrganizationRepo != nil:
-			o, err = deps.OrganizationRepo.GetByID(c.Request.Context(), id)
-		}
-		if err != nil || o == nil {
+		// empty candidate list — through the SAME active-agnostic view as
+		// HandleGetOrganization. OSS-POLISH (ORG-RESTORE-1): the active-only
+		// lookup answered 404 for a restored (inactive) org whose detail
+		// page read 200, so its recovery panel said "Organization not
+		// found". Soft-deleted orgs keep their 404.
+		if _, ok := adminViewOrganization(c.Request.Context(), deps, id); !ok {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}

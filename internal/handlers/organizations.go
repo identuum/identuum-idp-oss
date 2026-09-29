@@ -571,6 +571,35 @@ func HandleGetCurrentOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc
 }
 
 // HandleGetOrganization returns a single organization by id.
+// adminViewOrganization is the active-agnostic read a site_admin's view of
+// one organization uses: a DEACTIVATED org must stay reachable or
+// deactivation is a trap door (nothing to inspect, nothing to re-activate
+// from), and a RESTORED org comes back inactive. Soft-DELETED orgs report
+// not found — ORG-RESTORE-1's pinned contract; /restore is their recovery
+// door. ok is false when there is nothing to show.
+func adminViewOrganization(ctx context.Context, deps OrganizationsHandlerDeps, id uuid.UUID) (*domain.Organization, bool) {
+	var (
+		o   *domain.Organization
+		err error
+	)
+	switch {
+	case deps.OrganizationService != nil:
+		o, err = deps.OrganizationService.GetByIDAdminView(ctx, id)
+	case deps.OrganizationRepo == nil:
+		return nil, false
+	default:
+		if ar, okAdmin := deps.OrganizationRepo.(repository.AdminOrganizationRepository); okAdmin {
+			o, err = ar.GetByIDAdmin(ctx, id)
+		} else {
+			o, err = deps.OrganizationRepo.GetByID(ctx, id)
+		}
+	}
+	if err != nil || o == nil || o.DeletedAt != nil {
+		return nil, false
+	}
+	return o, true
+}
+
 func HandleGetOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := uuid.Parse(c.Param("id"))
@@ -578,19 +607,8 @@ func HandleGetOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		// Active-agnostic read: a DEACTIVATED org must stay reachable here
-		// or deactivation is a trap door (nothing to inspect, nothing to
-		// re-activate from). Soft-DELETED orgs keep answering 404 — that is
-		// ORG-RESTORE-1's pinned contract; /restore is their recovery door.
-		var o *domain.Organization
-		if deps.OrganizationService != nil {
-			o, err = deps.OrganizationService.GetByIDAdminView(c.Request.Context(), id)
-		} else if ar, okAdmin := deps.OrganizationRepo.(repository.AdminOrganizationRepository); okAdmin {
-			o, err = ar.GetByIDAdmin(c.Request.Context(), id)
-		} else {
-			o, err = deps.OrganizationRepo.GetByID(c.Request.Context(), id)
-		}
-		if err != nil || o == nil || o.DeletedAt != nil {
+		o, ok := adminViewOrganization(c.Request.Context(), deps, id)
+		if !ok {
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
