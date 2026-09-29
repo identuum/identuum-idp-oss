@@ -32,7 +32,36 @@ follows [Semantic Versioning](https://semver.org/).
   its expiry once; pending users read "Invitation pending" and their page
   re-issues. The public `/invite?token=` page validates the link, sets the
   password and sends the user to sign-in. Each of these appears only where
-  `user_invite` is declared.
+  `user_invite` is declared. From `cf2f5f7` (OSS-POLISH) a deleted
+  organization's row in the site-admin list links only to Restore.
+- **`identuum-idp healthcheck` (the image's Docker HEALTHCHECK) reports
+  unhealthy when the database is unreachable** (OSS-POLISH). It now requires
+  `/healthz` and the new unannotated `/readyz` (503
+  `{"status":"store_unreachable"}` when the store does not answer a ping).
+  `/health` and `/healthz` stay liveness. The canonical endpoint count is
+  unchanged.
+- **The setup token no longer lands in the working directory** (OSS-POLISH).
+  With `IDENTUUM_IDP_DATA_DIR` unset, the data directory is the per-user
+  config directory's `identuum-idp`. The image still uses `/app/data`.
+- **An invite or activation that is not mailed because SMTP is not
+  configured logs Info**, "not mailed: delivery not configured" (D-016's
+  default mode), not WARN. Delivery failures, password reset and email
+  verification still log WARN.
+- **The published image names its commit** (OSS-POLISH):
+  `publish-image.yml` passes the tagged commit as `COMMIT`, so
+  `identuum-idp version` no longer reports "commit unknown".
+
+### Fixed
+
+- **Audit gaps** (OSS-POLISH, rehearsal F4 and F7):
+  - Setup completion records `setup.completed` and `user_created` (the
+    first admin).
+  - Disable and enable record `user_deactivated` / `user_activated` with
+    the actor, not a bare `user.updated`.
+  - A code minted from the consent page records
+    `oauth_authorize.code_issued`.
+- **A restored organization's admin-recovery candidates answer 200**, not
+  404, so the site-admin recovery panel shows its admins (ORG-RESTORE-1).
 
 ### Security
 
