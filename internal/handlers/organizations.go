@@ -377,6 +377,23 @@ func adminStateForOrgs(ctx context.Context, counter OrgAdminCounter, ids []uuid.
 	return out
 }
 
+// activationPending reports whether the organization has org_admins and none
+// of them has ever activated (email-verified). A counter error answers false:
+// the guard never blocks on an unreadable count, and the update proceeds as
+// before it existed.
+func activationPending(ctx context.Context, counter OrgAdminCounter, id uuid.UUID) bool {
+	if counter == nil {
+		return false
+	}
+	ids := []uuid.UUID{id}
+	admins, err := counter.CountOrgAdminsByOrganizations(ctx, ids)
+	if err != nil || admins[id] == 0 {
+		return false
+	}
+	verified, err := counter.CountVerifiedOrgAdminsByOrganizations(ctx, ids)
+	return err == nil && verified[id] == 0
+}
+
 // orgAdminRecoveryBlockingCounter is the optional count adminStateForOrgs
 // prefers: org_admins that are verified or hold an unexpired activation.
 type orgAdminRecoveryBlockingCounter interface {
@@ -807,6 +824,19 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 		}
 		if req.Tier != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "tier_not_settable", "message": "tier is a licensing attribute and is not settable via the API"})
+			return
+		}
+		// OSS-BINARIES: an organization whose administrators have never
+		// activated is activated by its administrator's link. Turning it on
+		// here breaks that link (consume answers organization_already_active),
+		// so the pending administrator could never set a password. Refused;
+		// re-issue the link with resend-activation. A shell organization (no
+		// admin) and one with an activated admin still reactivate.
+		if req.Active != nil && *req.Active && activationPending(c.Request.Context(), deps.AdminCounter, id) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":   "activation_pending",
+				"message": "this organization is activated by its administrator's activation link; re-issue it with POST /api/v1/organizations/:id/resend-activation",
+			})
 			return
 		}
 		updated, err := deps.OrganizationService.Update(c.Request.Context(), id, repository.UpdateOrganizationOptions{
