@@ -36,8 +36,8 @@ func TestCountRecoveryBlockingOrgAdmins_ValidPendingBlocksExpiredDoesNot(t *test
 		}[kind]
 		if _, err := pool.Exec(ctx, `
 			INSERT INTO users (id, email, password_hash, organization_id, role, activation_token_hash, activation_token_expires_at, email_verified)
-			VALUES ($1, $2, 'x', $3, 'org_admin', 'h-'||$1::text, `+q+`)`,
-			uuid.New(), "admin-"+slug+"@example.test", orgID); err != nil {
+			VALUES ($1, $2, 'x', $3, 'org_admin', $4, `+q+`)`,
+			uuid.New(), "admin-"+slug+"@example.test", orgID, "h-"+uuid.NewString()); err != nil {
 			t.Fatalf("seed %s admin: %v", kind, err)
 		}
 		t.Cleanup(func() {

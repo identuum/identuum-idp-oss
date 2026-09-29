@@ -380,7 +380,8 @@ unmigrated database it stops at once with "the database is not migrated —
 run `identuum-idp migrate <database-url>` before serving".
 
 ```bash
-export IDENTUUM_IDP_DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable'
+# Your database; this example is the compose file's local-only dev account.
+export IDENTUUM_IDP_DATABASE_URL='postgres://identuum_idp:dev-identuum_idp-not-a-secret@127.0.0.1:5432/identuum_idp?sslmode=disable'
 # Required: seals MFA secrets and signing keys at rest. Generate it once and
 # keep it — losing it makes existing MFA enrolments and keys unreadable.
 export IDENTUUM_IDP_ENCRYPTION_KEY="$(openssl rand -hex 32)"
