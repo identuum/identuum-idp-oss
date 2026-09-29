@@ -75,14 +75,17 @@ func NewClientService(report *lifecycle.StartupReport, repo repository.ClientRep
 // OAuth client. Mirrors the monolith's RegisterClientOptions for
 // the OSS-safe fields only.
 type RegisterClientOptions struct {
-	Name                              string
-	OrganizationID                    *uuid.UUID
-	ServiceAccountID                  *uuid.UUID
-	RedirectURIs                      []string
-	PostLogoutRedirectURIs            []string
-	AllowedAudiences                  []string
-	Scope                             string
-	IsPublic                          bool
+	Name                   string
+	OrganizationID         *uuid.UUID
+	ServiceAccountID       *uuid.UUID
+	RedirectURIs           []string
+	PostLogoutRedirectURIs []string
+	AllowedAudiences       []string
+	Scope                  string
+	IsPublic               bool
+	// SkipConsent marks a first-party client (D-018(b)); Client.Validate
+	// refuses it for a public client.
+	SkipConsent                       bool
 	TokenEndpointAuthMethod           string
 	TokenEndpointAuthSigningAlg       string
 	JWKSUri                           string
@@ -147,6 +150,8 @@ type UpdateClientOptions struct {
 	// reason as TokenEndpointAuthSigningAlg — NOT NULL, CHECK allow-list
 	// with no empty member, repository substitutes 'EdDSA' for a blank.
 	IDTokenSignedResponseAlg *string
+	// SkipConsent: nil leaves it unchanged (D-018(b)).
+	SkipConsent *bool
 }
 
 // errClientNotFound is the sentinel for missing rows. Handlers map
@@ -278,6 +283,7 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 		// public-clients-may-not-bind-a-service-account guard, which reads
 		// the STORED flag (v0.3.1 gap A).
 		IsPublic:                          opts.IsPublic,
+		SkipConsent:                       opts.SkipConsent,
 		Scope:                             opts.Scope,
 		RedirectURIs:                      opts.RedirectURIs,
 		PostLogoutRedirectURIs:            opts.PostLogoutRedirectURIs,
@@ -412,6 +418,9 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 	}
 	if opts.BackchannelLogoutSessionRequired != nil {
 		client.BackchannelLogoutSessionRequired = *opts.BackchannelLogoutSessionRequired
+	}
+	if opts.SkipConsent != nil {
+		client.SkipConsent = *opts.SkipConsent
 	}
 	if opts.ServiceAccountID != nil {
 		if *opts.ServiceAccountID == uuid.Nil {

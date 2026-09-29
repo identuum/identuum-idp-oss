@@ -82,7 +82,10 @@ var (
 	ErrInternal         = errors.New("internal system error")
 	ErrResourceNotFound = errors.New("resource not found")
 	ErrInvalidRequest   = errors.New("invalid request format")
-	ErrForbidden        = errors.New("forbidden")
+	// ErrSkipConsentPublicClient refuses skip_consent on a public client
+	// (D-018(b), RFC 8252 §8.6).
+	ErrSkipConsentPublicClient = errors.New("skip_consent requires a confidential client")
+	ErrForbidden               = errors.New("forbidden")
 	// OSS-GUARDS (CE parity, AdminPermissionsModel.md line 3): an org_admin
 	// never changes its own active state, roles or MFA through the admin
 	// routes, and an organization's last active org_admin is never disabled,

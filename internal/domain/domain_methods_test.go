@@ -149,6 +149,31 @@ func TestClient_PublicClientInvariants(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			// D-018(b), RFC 8252 §8.6: a public client's identity cannot be
+			// assured, so it is never first-party.
+			name: "public client with skip_consent is invalid",
+			client: Client{
+				ClientID:     "pub-4",
+				Name:         "Native App",
+				RedirectURIs: []string{"http://127.0.0.1/cb"},
+				IsPublic:     true,
+				SkipConsent:  true,
+			},
+			wantErr:     true,
+			errContains: "skip_consent requires a confidential client",
+		},
+		{
+			name: "confidential client with skip_consent is valid (first-party)",
+			client: Client{
+				ClientID:         "conf-3",
+				Name:             "First-party App",
+				RedirectURIs:     []string{"https://app.example/cb"},
+				ClientSecretHash: "ahash",
+				SkipConsent:      true,
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -142,7 +143,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=org_admin
 		// docgen:response=oss.handlers.safeClient
-		// docgen:notes=The cleartext client_secret appears in the response body exactly once. The server retains only the hash.
+		// docgen:notes=The cleartext client_secret appears in the response body exactly once. The server retains only the hash. skip_consent true marks a first-party client (no consent page at /authorize, D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6).
 		// docgen:status=201
 		createG.POST("", HandleCreateClient(deps))
 
@@ -153,6 +154,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:summary=Update OAuth client metadata (does not rotate the client_secret).
 		// docgen:tier=oss
 		// docgen:auth=org_admin
+		// docgen:notes=skip_consent marks or unmarks a first-party client, audited with its before and after values in client.updated (D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6).
 		// docgen:response=oss.handlers.safeClient
 		updateG.PUT("/:id", HandleUpdateClient(deps))
 
@@ -269,7 +271,10 @@ type safeClient struct {
 	// a proxy — private_key_jwt clients are secretless AND confidential).
 	// Deliberately no omitempty: false must be VISIBLE, not absent (v0.3.1
 	// gap A).
-	IsPublic                          bool       `json:"is_public"`
+	IsPublic bool `json:"is_public"`
+	// skip_consent (D-018(b)): a first-party client /authorize issues codes
+	// for without the consent page. No omitempty, for the same reason.
+	SkipConsent                       bool       `json:"skip_consent"`
 	OrganizationID                    *uuid.UUID `json:"organization_id,omitempty"`
 	ServiceAccountID                  *uuid.UUID `json:"service_account_id,omitempty"`
 	Scope                             string     `json:"scope"`
@@ -297,6 +302,7 @@ func toSafeClient(c *domain.Client) safeClient {
 		ClientID:                          c.ClientID,
 		Name:                              c.Name,
 		IsPublic:                          c.IsPublic,
+		SkipConsent:                       c.SkipConsent,
 		OrganizationID:                    c.OrganizationID,
 		ServiceAccountID:                  c.ServiceAccountID,
 		Scope:                             c.Scope,
@@ -411,6 +417,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			AllowedAudiences                  []string   `json:"allowed_audiences,omitempty"`
 			Scope                             string     `json:"scope"`
 			IsPublic                          bool       `json:"is_public"`
+			SkipConsent                       *bool      `json:"skip_consent,omitempty"`
 			TokenEndpointAuthMethod           string     `json:"token_endpoint_auth_method,omitempty"`
 			TokenEndpointAuthSigningAlg       string     `json:"token_endpoint_auth_signing_alg,omitempty"`
 			JWKSUri                           string     `json:"jwks_uri,omitempty"`
@@ -444,6 +451,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			AllowedAudiences:                  req.AllowedAudiences,
 			Scope:                             req.Scope,
 			IsPublic:                          req.IsPublic,
+			SkipConsent:                       req.SkipConsent != nil && *req.SkipConsent,
 			TokenEndpointAuthMethod:           req.TokenEndpointAuthMethod,
 			TokenEndpointAuthSigningAlg:       req.TokenEndpointAuthSigningAlg,
 			JWKSUri:                           req.JWKSUri,
@@ -461,7 +469,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 				mw.RespondAuthStoreUnavailable(c, "clients", err)
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			respondClientInvalid(c, err)
 			return
 		}
 		safe := toSafeClient(client)
@@ -480,9 +488,10 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			IPAddress:      c.ClientIP(),
 			UserAgent:      c.Request.UserAgent(),
 			Metadata: map[string]any{
-				"client_id": client.ClientID,
-				"name":      client.Name,
-				"is_public": client.IsPublic,
+				"client_id":    client.ClientID,
+				"name":         client.Name,
+				"is_public":    client.IsPublic,
+				"skip_consent": client.SkipConsent,
 			},
 		}))
 	}
@@ -517,6 +526,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			BackchannelLogoutURI              *string    `json:"backchannel_logout_uri,omitempty"`
 			BackchannelLogoutSessionRequired  *bool      `json:"backchannel_logout_session_required,omitempty"`
 			IDTokenSignedResponseAlg          *string    `json:"id_token_signed_response_alg,omitempty"`
+			SkipConsent                       *bool      `json:"skip_consent,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -525,13 +535,16 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		if !requireClientInActorOrg(c, deps, id) {
 			return
 		}
-		// Prior binding state, read ONLY when this update touches the SA
-		// binding — it decides whether the SA-subject link/unlink audit event
-		// below fires and which SA an unbind names.
+		// Prior state, read ONLY when this update touches the SA binding or
+		// skip_consent — it decides whether the SA-subject link/unlink audit
+		// event below fires and which SA an unbind names, and gives the
+		// skip_consent change its before value (D-018(b)).
 		var priorSA *uuid.UUID
-		if req.ServiceAccountID != nil {
+		var priorSkip bool
+		if req.ServiceAccountID != nil || req.SkipConsent != nil {
 			if prior, perr := deps.ClientService.GetClient(c.Request.Context(), id); perr == nil && prior != nil {
 				priorSA = prior.ServiceAccountID
+				priorSkip = prior.SkipConsent
 			}
 		}
 		client, err := deps.ClientService.UpdateClient(c.Request.Context(), id, service.UpdateClientOptions{
@@ -550,6 +563,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			BackchannelLogoutURI:              req.BackchannelLogoutURI,
 			BackchannelLogoutSessionRequired:  req.BackchannelLogoutSessionRequired,
 			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
+			SkipConsent:                       req.SkipConsent,
 		})
 		if err != nil {
 			// AUTH-503 (THE-SILENT-EXPIRY): same distinction as create.
@@ -557,10 +571,15 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 				mw.RespondAuthStoreUnavailable(c, "clients", err)
 				return
 			}
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			respondClientInvalid(c, err)
 			return
 		}
 		c.JSON(http.StatusOK, toSafeClient(client))
+		meta := map[string]any{"client_id": client.ClientID}
+		if req.SkipConsent != nil {
+			meta["skip_consent_before"] = priorSkip
+			meta["skip_consent_after"] = client.SkipConsent
+		}
 		_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
 			Action:         "client.updated",
 			Outcome:        "success",
@@ -569,7 +588,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			OrganizationID: orgOf(client.OrganizationID),
 			IPAddress:      c.ClientIP(),
 			UserAgent:      c.Request.UserAgent(),
-			Metadata:       map[string]any{"client_id": client.ClientID},
+			Metadata:       meta,
 		}))
 		// A binding change is ALSO a service-account lifecycle event — the
 		// SA's own audit trail (subject_id = the SA) must show which client
@@ -709,6 +728,17 @@ func HandleRegenerateClientSecret(deps ClientsHandlerDeps) gin.HandlerFunc {
 			Metadata:       map[string]any{"client_id": client.ClientID},
 		}))
 	}
+}
+
+// respondClientInvalid answers a refused create or update with 400. The
+// skip_consent refusal (D-018(b)) names its rule; every other refusal keeps
+// the flattened answer.
+func respondClientInvalid(c *gin.Context, err error) {
+	if errors.Is(err, domain.ErrSkipConsentPublicClient) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 }
 
 // clientsServiceMissing returns a 501 explaining that the named

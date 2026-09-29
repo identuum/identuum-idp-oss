@@ -295,6 +295,9 @@ type AuthorizeResult struct {
 	State       string
 	ExpiresAt   time.Time
 	ClientID    string
+	// ConsentSkipped: the code was issued for a first-party client without
+	// the consent gate (D-018(b)); the code_issued audit records it.
+	ConsentSkipped bool
 }
 
 // Sentinel errors. The handler maps each to either a 302 redirect
@@ -618,6 +621,9 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		State:       req.State,
 		ExpiresAt:   created.ExpiresAt,
 		ClientID:    req.ClientID,
+		// Reaching here with SkipConsent set means the gate was bypassed:
+		// prompt=consent returned above.
+		ConsentSkipped: client.SkipConsent,
 	}, nil
 }
 

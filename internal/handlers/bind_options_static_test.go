@@ -88,6 +88,18 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "RFC 7592 management mirrors the 7591 posture: service-account linkage stays admin-only.",
 	},
+	// D-018(b) (OSS-FIN-2): first-party is the org_admin's audited decision on
+	// its own organization's client (clients.go feeds it). A self-registered
+	// client marking itself consent-free would skip the user's consent by its
+	// own say-so.
+	"internal/handlers/dcr.go:HandleDCRRegister.RegisterClientOptions.SkipConsent": {
+		State: "absent",
+		Why:   "D-018(b): skip_consent is an org_admin decision on the admin surface (clients.go feeds it); a DCR registrant declaring itself first-party would skip consent by its own say-so.",
+	},
+	"internal/handlers/dcr_management.go:HandleDCRManagementPut.UpdateClientOptions.SkipConsent": {
+		State: "absent",
+		Why:   "D-018(b): RFC 7592 management mirrors the 7591 posture: the registration access token must not make its client consent-free.",
+	},
 
 	// ── OSS-ONBOARD-A (D-016): the invite branch of POST /api/v1/users ──
 	// The invite literal is built only when the bound password is EMPTY

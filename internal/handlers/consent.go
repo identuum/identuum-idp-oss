@@ -209,7 +209,7 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 			emitAuthorizeError(c, AuthorizeHandlerDeps{AuthorizeService: deps.AuthorizeService, Audit: deps.Audit}, req, authorizeQueryFromRequest(req), err)
 			return
 		}
-		recordCodeIssued(c, deps.Audit, result.ClientID, req.Scope)
+		recordCodeIssued(c, deps.Audit, result, req.Scope)
 		c.Redirect(http.StatusFound, result.RedirectURL)
 	}
 }

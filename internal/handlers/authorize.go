@@ -195,7 +195,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		recordCodeIssued(c, deps.Audit, result.ClientID, req.Scope)
+		recordCodeIssued(c, deps.Audit, result, req.Scope)
 		c.Redirect(http.StatusFound, result.RedirectURL)
 	}
 }
@@ -203,16 +203,17 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 // recordCodeIssued is the one oauth_authorize.code_issued record, written
 // wherever Authorize mints a code: the /authorize handler and the consent
 // page's approve (OSS-POLISH, audit F7 — the latter was unaudited).
-func recordCodeIssued(c *gin.Context, auditSvc audit.Service, clientID, scope string) {
+func recordCodeIssued(c *gin.Context, auditSvc audit.Service, result *service.AuthorizeResult, scope string) {
 	_ = auditSvc.Record(c.Request.Context(), audit.Event{
 		Action:    "oauth_authorize.code_issued",
 		Outcome:   "success",
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 		Metadata: map[string]any{
-			"client_id":     clientID,
-			"response_type": "code",
-			"scopes_count":  len(splitWhitespace(scope)),
+			"client_id":       result.ClientID,
+			"response_type":   "code",
+			"scopes_count":    len(splitWhitespace(scope)),
+			"consent_skipped": result.ConsentSkipped,
 		},
 	})
 }

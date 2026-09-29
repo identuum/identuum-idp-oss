@@ -351,6 +351,15 @@ func (c *Client) Validate() error {
 	if c.IsPublic && c.ServiceAccountID != nil {
 		return errors.New("public client cannot be linked to a service account")
 	}
+	// D-018(b): consent is skipped only for a client whose identity can be
+	// assured. A public client proves nothing at the token endpoint — any app
+	// can claim its client_id and redirect URI — so RFC 8252 §8.6 applies:
+	// "Authorization servers SHOULD NOT process authorization requests
+	// automatically without user consent or interaction, except when the
+	// identity of the client can be assured."
+	if c.IsPublic && c.SkipConsent {
+		return ErrSkipConsentPublicClient
+	}
 
 	method := c.EffectiveAuthMethod()
 
