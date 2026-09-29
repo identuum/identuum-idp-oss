@@ -29,16 +29,24 @@ type loginPasswordChangeRequest struct {
 // auditLoginStep records a denied sign-in step with the user's id only.
 func auditLoginStep(c *gin.Context, svc audit.Service, action string, result *service.LoginResult) {
 	meta := map[string]any{}
-	if result != nil && result.User != nil {
-		meta["user_id"] = result.User.ID.String()
-	}
-	_ = svc.Record(c.Request.Context(), audit.Event{
+	ev := audit.Event{
 		Action:    action,
 		Outcome:   "denied",
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 		Metadata:  meta,
-	})
+	}
+	if result != nil && result.User != nil {
+		meta["user_id"] = result.User.ID.String()
+		// OSS-FIN-3: the password is proven, so the step is the user's own —
+		// not anonymous — and concerns the user's organization.
+		ev.ActorType = audit.ActorTypeUser
+		ev.ActorID = result.User.ID
+		ev.ActorEmail = result.User.Email
+		ev.ActorRole = string(result.User.Role)
+		ev.OrganizationID = result.User.OrganizationID
+	}
+	_ = svc.Record(c.Request.Context(), ev)
 }
 
 // changeRequiredPassword runs the shared change for both sign-in surfaces:
