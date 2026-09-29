@@ -195,19 +195,26 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "oauth_authorize.code_issued",
-			Outcome:   "success",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
-			Metadata: map[string]any{
-				"client_id":     result.ClientID,
-				"response_type": "code",
-				"scopes_count":  len(splitWhitespace(req.Scope)),
-			},
-		})
+		recordCodeIssued(c, deps.Audit, result.ClientID, req.Scope)
 		c.Redirect(http.StatusFound, result.RedirectURL)
 	}
+}
+
+// recordCodeIssued is the one oauth_authorize.code_issued record, written
+// wherever Authorize mints a code: the /authorize handler and the consent
+// page's approve (OSS-POLISH, audit F7 — the latter was unaudited).
+func recordCodeIssued(c *gin.Context, auditSvc audit.Service, clientID, scope string) {
+	_ = auditSvc.Record(c.Request.Context(), audit.Event{
+		Action:    "oauth_authorize.code_issued",
+		Outcome:   "success",
+		IPAddress: c.ClientIP(),
+		UserAgent: c.Request.UserAgent(),
+		Metadata: map[string]any{
+			"client_id":     clientID,
+			"response_type": "code",
+			"scopes_count":  len(splitWhitespace(scope)),
+		},
+	})
 }
 
 // authorizeQueryFromRequest re-encodes an AuthorizeRequest's wire

@@ -942,13 +942,31 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			profile = deps.loadProfile(c.Request.Context(), updated.ID)
 		}
 		c.JSON(http.StatusOK, toSafeUserWithProfile(updated, profile))
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user.updated",
-			Outcome:   "success",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
-			Metadata:  map[string]any{"user_id": updated.ID},
-		})
+		// OSS-POLISH (audit F4): disable and enable are their own events,
+		// and every row names its actor. A PUT that only toggles
+		// active/banned records user_deactivated or user_activated; any
+		// other change records user.updated as well.
+		record := func(action string) {
+			_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
+				Action:    action,
+				Outcome:   "success",
+				IPAddress: c.ClientIP(),
+				UserAgent: c.Request.UserAgent(),
+				Metadata:  map[string]any{"user_id": updated.ID},
+			}))
+		}
+		otherChange := req.Email != nil || req.Password != nil || req.Name != nil ||
+			req.Role != nil || req.EmailVerified != nil || !profilePatch.IsEmpty()
+		if req.Banned == nil || otherChange {
+			record("user.updated")
+		}
+		if req.Banned != nil {
+			if *req.Banned {
+				record(string(domain.AuditUserDeactivated))
+			} else {
+				record(string(domain.AuditUserActivated))
+			}
+		}
 	}
 }
 

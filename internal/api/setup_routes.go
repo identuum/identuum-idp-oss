@@ -6,9 +6,42 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/setup"
 )
+
+// recordSetupCompleted writes the two rows a completed first-run setup owes
+// the audit log (OSS-POLISH, audit F4): setup.completed for the first
+// organization and user_created for the pinned site_admin, the first admin.
+// The caller holds only the setup token, so the actor type says so. Neither
+// row carries the token, the password or the operator's typed address.
+func recordSetupCompleted(c *gin.Context, auditSvc audit.Service, out *setup.CompleteOutput) {
+	if auditSvc == nil || out == nil {
+		return
+	}
+	siteAdminID, _ := uuid.Parse(domain.SiteAdminID)
+	base := audit.Event{
+		Outcome:        "success",
+		ActorType:      "setup_token",
+		OrganizationID: out.OrganizationID,
+		IPAddress:      c.ClientIP(),
+		UserAgent:      c.Request.UserAgent(),
+	}
+	done := base
+	done.Action = "setup.completed"
+	done.Metadata = map[string]any{"organization_id": out.OrganizationID.String(), "organization_name": out.OrganizationName}
+	_ = auditSvc.Record(c.Request.Context(), done)
+	admin := base
+	admin.Action = string(domain.AuditUserCreated)
+	admin.SubjectID = siteAdminID
+	admin.SubjectType = "user"
+	admin.SubjectEmail = out.LoginEmail
+	admin.Metadata = map[string]any{"role": string(domain.RoleSiteAdmin), "first_admin": true}
+	_ = auditSvc.Record(c.Request.Context(), admin)
+}
 
 // SetupService is the narrow interface the appliance setup routes
 // depend on. *setup.Service satisfies it; tests substitute fakes.
@@ -24,6 +57,9 @@ type SetupService interface {
 type SetupRoutesDeps struct {
 	Service SetupService
 	DataDir string
+	// Audit records setup.completed and the first admin's user_created
+	// (OSS-POLISH, audit F4). Nil records nothing.
+	Audit audit.Service
 }
 
 // setupCompleteRequest is the wizard form submission. The
@@ -142,6 +178,7 @@ func handleSetupComplete(deps SetupRoutesDeps) gin.HandlerFunc {
 		switch {
 		case err == nil:
 			c.JSON(http.StatusOK, out)
+			recordSetupCompleted(c, deps.Audit, out)
 		case errors.Is(err, setup.ErrAlreadyComplete):
 			c.JSON(http.StatusGone, gin.H{"error": "setup_already_complete"})
 		case errors.Is(err, setup.ErrTokenInvalid):

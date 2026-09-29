@@ -909,6 +909,7 @@ func mountSetup(router gin.IRouter, resolved OSSRouterDeps) {
 	RegisterSetupRoutes(router, SetupRoutesDeps{
 		Service: resolved.SetupService,
 		DataDir: resolved.SetupDataDir,
+		Audit:   resolved.Audit,
 	})
 }
 
