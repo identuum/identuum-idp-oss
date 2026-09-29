@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "f0bdb95fde54dac40607dfd106e93fa644fd777a",
+  "base_commit": "0aca4e487033d2ac092469f064b79d7a5a4e7802",
   "changes": [
     {
       "rule_id": "WIRE-CONTRACT-ORG-1",
       "change_class": "test_fingerprint_changed",
-      "reason": "OSS-FIN-1 (2026-09-29, brief item 2): the org read surface gains activation_pending, a third member of the tri-state admin projection (pointer + omitempty, absent when the counter is unwired): org_admins exist and none has ever activated — the state PUT active=true refuses with 409 activation_pending, which the site-admin list now reads as 'Waiting for activation'. The pinned omitempty key set and the fully-populated instance gain the key; nothing is removed. Mutation watched: with the tag renamed activation_pend the test read 'omitempty key set drifted: got [activation_pend …] want [activation_pending …]'; restored, green. Rehashed bcf994289cbf -> d4674f731225."
+      "reason": "OSS-FIN-1 (2026-09-29, brief item 2): the org read surface gains activation_pending, a third member of the tri-state admin projection (pointer + omitempty, absent when the counter is unwired): org_admins exist and none has ever activated — the state PUT active=true refuses with 409 activation_pending, which the site-admin list now reads as 'Waiting for activation'. The pinned omitempty key set and the fully-populated instance gain the key; nothing is removed. Mutation watched: with the tag renamed activation_pend the test read 'omitempty key set drifted: got [activation_pend …] want [activation_pending …]'; restored, green. Rehashed bcf994289cbf -\u003e d4674f731225."
     }
   ]
 }
