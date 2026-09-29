@@ -1690,6 +1690,12 @@ func componentHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				// POST /api/v1/users/:id/invite, public /api/v1/auth/invite).
 				// The UI gates its Invite user page on this key.
 				"user_invite": deps.UserService.InviteEnabled(),
+				// OSS-RC: the organization activation is redeemed from a
+				// handed-over link with or without mail (D-016); declared
+				// iff GET/POST /api/v1/auth/organizations/activate are
+				// mounted. The UI offers /activate on this key, not on
+				// mail_ceremonies (false on a default no-SMTP install).
+				"activation_link": deps.OrganizationActivationService != nil,
 			},
 			"auth": gin.H{
 				"authority":     "identuum-idp",

@@ -435,6 +435,29 @@ func TestCapabilityIff_UserInvite(t *testing.T) {
 	}
 }
 
+// TestCapabilityIff_ActivationLink (OSS-RC): the organization activation is
+// redeemed from a handed-over link with or without mail (D-016), so the UI
+// needs to know the IdP serves it independently of mail_ceremonies. The key
+// is declared iff the activation routes are mounted.
+func TestCapabilityIff_ActivationLink(t *testing.T) {
+	router := readIffSource(t, "internal/api/router.go")
+	if !strings.Contains(router, `"activation_link": deps.OrganizationActivationService != nil,`) {
+		t.Error(`activation_link must be declared from deps.OrganizationActivationService != nil`)
+	}
+	if !strings.Contains(router, "OrgActivation: resolved.OrganizationActivationService,") {
+		t.Error("the router no longer passes OrganizationActivationService to the lifecycle routes")
+	}
+	lifecycle := readIffSource(t, "internal/handlers/auth_lifecycle.go")
+	for _, want := range []string{
+		"if deps.OrgActivation != nil {",
+		`router.GET("/api/v1/auth/organizations/activate/:token", HandleValidateActivationToken(deps))`,
+	} {
+		if !strings.Contains(lifecycle, want) {
+			t.Errorf("activation_link is declared but internal/handlers/auth_lifecycle.go lacks %q", want)
+		}
+	}
+}
+
 // TestCapabilityIff_AllAdvertisedCapabilitiesCovered serves as a
 // cross-check: it asserts that the static iff table above (the union
 // of `true` backings + `false` documented policies) covers every
@@ -481,6 +504,8 @@ func TestCapabilityIff_AllAdvertisedCapabilitiesCovered(t *testing.T) {
 		"public_clients": true,
 		// runtime-wired, served-by-route (TestCapabilityIff_UserInvite)
 		"user_invite": true,
+		// runtime-wired, served-by-route (TestCapabilityIff_ActivationLink)
+		"activation_link": true,
 	}
 
 	// Extract every `"<key>":` token inside the componentHandler
