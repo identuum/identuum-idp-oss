@@ -48,12 +48,37 @@ func newLogoutEngine(t *testing.T, client *domain.Client) (*gin.Engine, *service
 	return r, sessions, cookies
 }
 
-func TestLogout_NoCookieReturnsNoContent(t *testing.T) {
-	r, _, _ := newLogoutEngine(t, nil)
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/oidc/logout", nil))
-	if w.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", w.Code)
+// OSS-FIN-2 (owner ruling D-018a): RP-initiated logout without
+// post_logout_redirect_uri shows the IdP's "You are signed out" page — 200
+// HTML, no-store, a strict CSP, no scripts, naming no user or client —
+// where it used to answer 204 and leave the browser on an aborted
+// navigation. The termination before it is unchanged (the cookie is still
+// cleared, TestLogout_ClearsCookieAlways).
+func TestLogout_NoRedirectShowsSignedOutPage(t *testing.T) {
+	r, _, _ := newLogoutEngine(t, &domain.Client{ClientID: "cli-1", Name: "Secret App Name"})
+	for _, url := range []string{"/api/v1/oidc/logout", "/api/v1/oidc/logout?client_id=cli-1&state=abc"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
+		body := w.Body.String()
+		if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+			t.Fatalf("%s = %d %q; want 200 text/html", url, w.Code, w.Header().Get("Content-Type"))
+		}
+		if !strings.Contains(body, "You are signed out") {
+			t.Errorf("%s: the page does not say You are signed out", url)
+		}
+		if cc := w.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+			t.Errorf("%s: Cache-Control = %q; want no-store", url, cc)
+		}
+		csp := w.Header().Get("Content-Security-Policy")
+		for _, d := range []string{"default-src 'none'", "script-src 'none'", "frame-ancestors 'none'", "form-action 'none'", "base-uri 'none'"} {
+			if !strings.Contains(csp, d) {
+				t.Errorf("%s: CSP %q lacks %q", url, csp, d)
+			}
+		}
+		lower := strings.ToLower(body)
+		if strings.Contains(lower, "<script") || strings.Contains(body, "cli-1") || strings.Contains(body, "Secret App Name") || strings.Contains(body, "abc") {
+			t.Errorf("%s: the page carries a script or names the client or the state", url)
+		}
 	}
 }
 
@@ -229,8 +254,9 @@ func TestLogout_HintSessionIDRevokesSession(t *testing.T) {
 	url := "/api/v1/oidc/logout?id_token_hint=" + hint
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, url, nil))
-	if w.Code != http.StatusNoContent {
-		t.Errorf("status = %d, want 204", w.Code)
+	// D-018a: no post_logout_redirect_uri → the signed-out page.
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "You are signed out") {
+		t.Errorf("status = %d, want 200 with the signed-out page", w.Code)
 	}
 }
 

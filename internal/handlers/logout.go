@@ -50,7 +50,7 @@ func RegisterEndSessionRoutes(router gin.IRouter, deps EndSessionHandlerDeps) {
 	// docgen:summary=OIDC RP-initiated logout / end_session endpoint (clears the browser cookie + revokes the cookie-resolved session; honours post_logout_redirect_uri when allowed by the registered client).
 	// docgen:tier=oss
 	// docgen:auth=session
-	// docgen:notes=Anonymous callers receive the same end-session UX (idempotent) — no session is required for the route to terminate cleanly. Terminal success is 204 (no post_logout_redirect_uri) OR a 302 redirect to the validated post_logout_redirect_uri; with two success codes there is no single status to pin, so it is intentionally left unannotated and defaults to 200 in the spec (never guessed from the method).
+	// docgen:notes=Anonymous callers receive the same end-session UX (idempotent) — no session is required for the route to terminate cleanly. Terminal success is 200 with the IdP's "You are signed out" HTML page when no post_logout_redirect_uri is given (D-018a: Cache-Control no-store, a CSP of default-src 'none' with no scripts, naming no user or client), OR a 302 redirect to the validated post_logout_redirect_uri. A post_logout_redirect_uri whose client cannot be resolved still answers 204; one the client does not allow answers 400.
 	router.GET("/api/v1/oidc/logout", HandleEndSession(deps))
 }
 
@@ -181,9 +181,11 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// Phase 4: clear cookie.
 		writeSessionCookie(c, deps.CookieSession.Clear())
 
-		// Phase 5: maybe redirect.
+		// Phase 5: maybe redirect. D-018a: with no post_logout_redirect_uri
+		// the browser lands on the IdP's own signed-out page (it used to get
+		// a bare 204 and an aborted navigation).
 		if postLogoutRedirectURI == "" {
-			c.Status(http.StatusNoContent)
+			renderSignedOutPage(c)
 			return
 		}
 		// Resolve the client used to validate the redirect URI.
@@ -267,6 +269,38 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// (X-Identuum-Logout) and in the audit trail.
 		c.Redirect(http.StatusFound, location)
 	}
+}
+
+// signedOutPage is the IdP's own landing after RP-initiated logout with no
+// post_logout_redirect_uri (owner ruling D-018a). Static: it names no user,
+// client or state, runs no script and loads nothing.
+const signedOutPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Signed out — Identuum</title>
+  <style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1c1917}h1{font-size:1.5rem}</style>
+</head>
+<body>
+  <main>
+    <h1>You are signed out</h1>
+    <p>Your session with the identity provider has ended. You can close this window.</p>
+  </main>
+</body>
+</html>`
+
+// renderSignedOutPage writes signedOutPage: 200, never cached, and a CSP that
+// forbids scripts, framing, forms and every other load (the one inline style
+// is allowed by its hash-free 'unsafe-inline' style directive only).
+func renderSignedOutPage(c *gin.Context) {
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.Header("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.String(http.StatusOK, signedOutPage)
 }
 
 // resolveLogoutClient returns the *domain.Client whose

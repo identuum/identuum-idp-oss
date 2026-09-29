@@ -157,8 +157,10 @@ func TestRuleLogoutUnconfirmed1_StoreErrorNeverSilent_CookieStillCleared_Healthy
 		req.Header.Set(mw.CorrelationIDHeader, "cid-logout-1")
 		w := httptest.NewRecorder()
 		h.endSessionEngine(nil).ServeHTTP(w, req)
-		if w.Code != http.StatusNoContent {
-			t.Fatalf("status = %d, want 204 (the logout still completes for the user)", w.Code)
+		// D-018a: the logout still completes for the user, on the
+		// signed-out page (it answered 204 before the ruling).
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (the logout still completes for the user)", w.Code)
 		}
 		assertUnconfirmedTriple(t, "end-session resolve", h, *calls, w, "cid-logout-1", "cookie-session")
 	})
@@ -244,8 +246,8 @@ func TestRuleLogoutUnconfirmed1_StoreErrorNeverSilent_CookieStillCleared_Healthy
 		req.AddCookie(cookie)
 		w := httptest.NewRecorder()
 		h.endSessionEngine(nil).ServeHTTP(w, req)
-		if w.Code != http.StatusNoContent {
-			t.Fatalf("status = %d, want 204", w.Code)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 (D-018a signed-out page)", w.Code)
 		}
 		if len(*calls) != 0 || h.unconfirmedEvent() != nil || w.Header().Get(LogoutUnconfirmedHeader) != "" {
 			t.Errorf("healthy logout must emit no store-error log, no unconfirmed event, no marker: sink=%d actions=%v header=%q", len(*calls), h.auditActions(), w.Header().Get(LogoutUnconfirmedHeader))

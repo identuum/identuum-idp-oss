@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "0aca4e487033d2ac092469f064b79d7a5a4e7802",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "LOGOUT-UNCONFIRMED-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "OSS-FIN-2 (2026-09-29, owner ruling D-018a): RP-initiated logout without post_logout_redirect_uri now answers 200 with the IdP's signed-out page instead of 204, so the rule test's two status assertions expect 200 (the logout still completes for the user). What the rule pins — a store error is never silent, the cookie is still cleared, a healthy logout emits neither marker nor event — is unchanged. Mutation watched: with the old 204 restored in HandleEndSession the test read 'status = 204, want 200 (the logout still completes for the user)'; restored, green. Rehashed ba532d4889be -> cd499c8d4e89."
+    }
+  ]
 }
