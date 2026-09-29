@@ -335,12 +335,17 @@ type safeOrganization struct {
 	// types.OrganizationInfo contract the UI already consumes.
 	IsClaimed      *bool `json:"is_claimed,omitempty"`
 	CanAssignAdmin *bool `json:"can_assign_admin,omitempty"`
+	// ActivationPending (OSS-FIN-1): org_admins exist and none has ever
+	// activated — the state PUT active=true refuses with 409
+	// activation_pending, and the one the console re-issues the link for.
+	ActivationPending *bool `json:"activation_pending,omitempty"`
 }
 
 // orgAdminState is the computed per-org admin-state projection.
 type orgAdminState struct {
-	hasAdmin  bool
-	canAssign bool
+	hasAdmin          bool
+	canAssign         bool
+	activationPending bool
 }
 
 // adminStateForOrgs computes the projection for the given orgs from the
@@ -369,10 +374,14 @@ func adminStateForOrgs(ctx context.Context, counter OrgAdminCounter, ids []uuid.
 	if err != nil {
 		return nil
 	}
+	verified, err := counter.CountVerifiedOrgAdminsByOrganizations(ctx, ids)
+	if err != nil {
+		return nil
+	}
 	out := make(map[uuid.UUID]orgAdminState, len(ids))
 	for _, id := range ids {
 		hasAdmin := admins[id] > 0
-		out[id] = orgAdminState{hasAdmin: hasAdmin, canAssign: hasAdmin && blocking[id] == 0}
+		out[id] = orgAdminState{hasAdmin: hasAdmin, canAssign: hasAdmin && blocking[id] == 0, activationPending: hasAdmin && verified[id] == 0}
 	}
 	return out
 }
@@ -402,9 +411,10 @@ type orgAdminRecoveryBlockingCounter interface {
 
 // withAdminState returns s with the admin-state projection applied.
 func withAdminState(s safeOrganization, st orgAdminState) safeOrganization {
-	hasAdmin, canAssign := st.hasAdmin, st.canAssign
+	hasAdmin, canAssign, pending := st.hasAdmin, st.canAssign, st.activationPending
 	s.IsClaimed = &hasAdmin
 	s.CanAssignAdmin = &canAssign
+	s.ActivationPending = &pending
 	return s
 }
 

@@ -36,15 +36,19 @@ func TestAdminState_ValidPendingActivationBlocksRecovery(t *testing.T) {
 		name          string
 		c             pendingAwareCounter
 		wantCanAssign bool
+		wantPending   bool // OSS-FIN-1: activation_pending
 	}{
-		{"valid pending activation", pendingAwareCounter{admins: 1, verified: 0, blocking: 1}, false},
-		{"expired pending activation", pendingAwareCounter{admins: 1, verified: 0, blocking: 0}, true},
-		{"active admin", pendingAwareCounter{admins: 1, verified: 1, blocking: 1}, false},
-		{"no admin", pendingAwareCounter{}, false},
+		{"valid pending activation", pendingAwareCounter{admins: 1, verified: 0, blocking: 1}, false, true},
+		{"expired pending activation", pendingAwareCounter{admins: 1, verified: 0, blocking: 0}, true, true},
+		{"active admin", pendingAwareCounter{admins: 1, verified: 1, blocking: 1}, false, false},
+		{"no admin", pendingAwareCounter{}, false, false},
 	} {
 		st := adminStateForOrgs(context.Background(), tt.c, []uuid.UUID{id})[id]
 		if st.canAssign != tt.wantCanAssign {
 			t.Errorf("%s: can_assign_admin = %v, want %v", tt.name, st.canAssign, tt.wantCanAssign)
+		}
+		if st.activationPending != tt.wantPending {
+			t.Errorf("%s: activation_pending = %v, want %v", tt.name, st.activationPending, tt.wantPending)
 		}
 	}
 }

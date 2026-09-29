@@ -52,7 +52,9 @@ var (
 	// omitempty: ABSENT unless set. is_claimed/can_assign_admin are the
 	// tri-state admin projection — their absence is load-bearing
 	// (ABSENT ≠ NEGATIVE), so they must stay pointer+omitempty.
+	// activation_pending (OSS-FIN-1) joins the same tri-state projection.
 	wireOrgKeysOmitEmpty = []string{
+		"activation_pending",
 		"api_authorization_policy",
 		"can_assign_admin",
 		"deleted_at",
@@ -131,6 +133,7 @@ func TestWireContractOrg_JSONKeySetIsPinned(t *testing.T) {
 		DeletedAt:              &now,
 		IsClaimed:              &yes,
 		CanAssignAdmin:         &yes,
+		ActivationPending:      &yes,
 	}
 	if got, want := marshaledKeys(t, full), sortedUnion(wireOrgKeysAlways, wireOrgKeysOmitEmpty); !reflect.DeepEqual(got, want) {
 		t.Fatalf("full payload key set drifted:\n got  %v\n want %v", got, want)
