@@ -49,6 +49,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -271,6 +272,20 @@ type Runtime struct {
 // New validates cfg and returns a Runtime. New does NOT open the
 // DB, bind the listener, or construct services — those happen in
 // Start. A zero Runtime should not be used; always go through New.
+// defaultDataDir is the data directory when IDENTUUM_IDP_DATA_DIR is unset:
+// the per-user config directory's identuum-idp (for example
+// ~/.config/identuum-idp), so a run from a checkout no longer writes
+// setup-token.txt into the working tree (OSS-POLISH). The appliance always
+// sets IDENTUUM_IDP_DATA_DIR (/app/data). Only without a home directory does
+// it fall back to the working directory, as before.
+func defaultDataDir() string {
+	base, err := os.UserConfigDir()
+	if err != nil || base == "" {
+		return "."
+	}
+	return filepath.Join(base, "identuum-idp")
+}
+
 func New(cfg Config) (*Runtime, error) {
 	if cfg.Addr == "" {
 		return nil, errors.New("runtime: Config.Addr is empty")
@@ -291,7 +306,7 @@ func New(cfg Config) (*Runtime, error) {
 		if env := cfg.Getenv("IDENTUUM_IDP_DATA_DIR"); env != "" {
 			cfg.DataDir = env
 		} else {
-			cfg.DataDir = "."
+			cfg.DataDir = defaultDataDir()
 		}
 	}
 	if cfg.UIPublicBaseURL == "" {
@@ -430,6 +445,16 @@ func (r *Runtime) Start(ctx context.Context) error {
 	// present and matches, otherwise regenerates. After setup
 	// completes it returns a nil banner and no further log lines.
 	if deps.SetupService != nil {
+		// The default per-user data directory may not exist yet; an
+		// existing directory keeps its mode (WriteTokenFile still refuses
+		// a world-writable one).
+		if err := os.MkdirAll(r.cfg.DataDir, 0o700); err != nil {
+			if r.pool != nil {
+				r.pool.Close()
+				r.pool = nil
+			}
+			return fmt.Errorf("runtime: create data dir: %w", err)
+		}
 		banner, setupErr := deps.SetupService.Initialize(ctx, r.cfg.DataDir)
 		if setupErr != nil {
 			if r.pool != nil {

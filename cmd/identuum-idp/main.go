@@ -30,6 +30,7 @@
 //	IDENTUUM_IDP_LISTEN         listen address (default 0.0.0.0:7113)
 //	IDENTUUM_IDP_ENCRYPTION_KEY at-rest AES key (read by the runtime; see the MFA-key audit)
 //	IDENTUUM_IDP_DATA_DIR       persistent data dir for the setup foundation
+//	                            (default: <user config dir>/identuum-idp)
 //	IDENTUUM_IDP_UI_PUBLIC_BASE_URL  optional UI base URL used to compose the setup URL
 //
 // When no database URL is configured, the binary exits non-zero with a

@@ -371,7 +371,9 @@ under construction. What ships today:
 - A single-row `system_setup_state` migration (0019) tracking
   `setup_required` → `setup_complete`.
 - An IDP-generated setup code persisted as plaintext in
-  `$IDENTUUM_IDP_DATA_DIR/setup-token.txt` (mode 0600) and as a
+  `$IDENTUUM_IDP_DATA_DIR/setup-token.txt` (mode 0600; `/app/data` in the
+  image; unset, the per-user config directory's `identuum-idp`, never the
+  working directory) and as a
   SHA-256 hash in the database. While setup is incomplete, the
   serve boot log prints the wizard URL, the plaintext code,
   and the local `show-setup-code` command. Once setup completes the
