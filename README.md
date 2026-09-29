@@ -364,15 +364,27 @@ one.
 ## Running the bare binary (no Docker, no Makefile)
 
 The binary alone runs the whole product, UI included; it needs only a
-PostgreSQL 18+ database. Build it from this repository
-(`go build -o identuum-idp ./cmd/identuum-idp`) or copy it out of the
-release image (a Linux binary, `linux/amd64` or `linux/arm64`):
+PostgreSQL 18+ database. From `v0.7.0` each release ships it for
+`linux/amd64` and `linux/arm64`, with a `SHA256SUMS` file and a
+build-provenance attestation per binary. Download, check and install it
+(`ARCH=arm64` on an ARM host):
 
 ```bash
-docker create --name identuum-idp-bin ghcr.io/identuum/identuum-idp-oss:v0.6.3
-docker cp identuum-idp-bin:/app/identuum-idp ./identuum-idp
-docker rm identuum-idp-bin
+VERSION=0.7.0
+ARCH=amd64
+BASE=https://github.com/identuum/identuum-idp-oss/releases/download/v${VERSION}
+curl -fsSLO "${BASE}/identuum-idp-oss_${VERSION}_linux_${ARCH}"
+curl -fsSLO "${BASE}/SHA256SUMS"
+sha256sum --ignore-missing -c SHA256SUMS
+# Optional, with the GitHub CLI: proves the binary was built by this
+# repository's release workflow.
+gh attestation verify "identuum-idp-oss_${VERSION}_linux_${ARCH}" -R identuum/identuum-idp-oss
+install -m 0755 "identuum-idp-oss_${VERSION}_linux_${ARCH}" ./identuum-idp
+./identuum-idp version
 ```
+
+Or build it from this repository (Go, as `go.mod` names it; the UI is
+embedded from the vendored tree): `go build -o identuum-idp ./cmd/identuum-idp`.
 
 Then configure it through the environment, **migrate, and serve**. Unlike
 the image's entrypoint, the bare binary does not migrate on start: on an

@@ -24,8 +24,26 @@ follows [Semantic Versioning](https://semver.org/).
   `invitation_pending`. No migration: the invite uses the user row's
   activation columns. Canonical endpoint count 144 → 147. The creation with a
   password is unchanged. docs/OPERATOR-GUIDE.md "Invite a user".
+- **Linux binaries per release** (OSS-BINARIES, owner ruling): the manual
+  workflow `.github/workflows/publish-binaries.yml` builds
+  `identuum-idp-oss_<version>_linux_amd64` and `…_linux_arm64`
+  (`CGO_ENABLED=0`, `-trimpath`, version and commit stamped, the embedded UI
+  checked against its manifest), writes `SHA256SUMS` over both and attests
+  each binary's build provenance. `dry_run` (the default) keeps them as
+  workflow artifacts; otherwise they are uploaded to the existing release of
+  the verified tag, never replacing an asset. README "Running the bare
+  binary"; deployment/README "Releasing: the binaries".
 
 ### Changed
+
+- **Reactivating a never-activated organization is refused** (OSS-BINARIES):
+  `PUT /api/v1/organizations/:id` with `{"active":true}` answers `409
+  activation_pending` and changes nothing while the organization's
+  administrators have never activated; the administrator's activation link
+  activates it. It used to switch the organization on without its
+  administrator, whose link then answered `organization_already_active`. A
+  shell organization, or one whose administrator has activated, reactivates
+  as before.
 
 - **The embedded UI is identuum-ui `05f0c96`** (OSS-ONBOARD-B): Users →
   Invite user (`/org-admin/users/new`) shows the one-time link, its token and
@@ -33,7 +51,11 @@ follows [Semantic Versioning](https://semver.org/).
   re-issues. The public `/invite?token=` page validates the link, sets the
   password and sends the user to sign-in. Each of these appears only where
   `user_invite` is declared. From `cf2f5f7` (OSS-POLISH) a deleted
-  organization's row in the site-admin list links only to Restore.
+  organization's row in the site-admin list links only to Restore. From
+  `9745185` (OSS-BINARIES) the new-organization form says the activation
+  link is shown to hand over and mailed only when email delivery is
+  configured, and Reactivate on a never-activated organization explains its
+  `409` instead of "Try again".
 - **`identuum-idp healthcheck` (the image's Docker HEALTHCHECK) reports
   unhealthy when the database is unreachable** (OSS-POLISH). It now requires
   `/healthz` and the new unannotated `/readyz` (503

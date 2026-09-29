@@ -104,6 +104,35 @@ A release whose compose asset is missing, or whose latest download differs
 from the pinned file, has failed: the install line would serve nothing or
 an older release.
 
+### Releasing: the binaries
+
+From `v0.7.0` every release also carries the bare binary for `linux/amd64`
+and `linux/arm64` and a `SHA256SUMS` over both, built and attested by the
+manual workflow `.github/workflows/publish-binaries.yml`:
+
+1. Optionally, rehearse on `main` first: dispatch it with `dry_run` true (the
+   default). It builds `main` as `0.0.0-dryrun`, attests both binaries and
+   keeps them as workflow artifacts only.
+2. After the tag and its GitHub Release exist, dispatch it on the tag with
+   `version_tag` set to the tag and `dry_run` false:
+
+   ```bash
+   gh workflow run publish-binaries.yml --ref vX.Y.Z -f version_tag=vX.Y.Z -f dry_run=false
+   ```
+
+   It refuses a tag that does not point at the checked-out commit, and
+   uploads `identuum-idp-oss_X.Y.Z_linux_amd64`, `…_linux_arm64` and
+   `SHA256SUMS` to the existing release without `--clobber`, so an asset of
+   the same name (the compose file included) is never replaced.
+3. Check what an operator downloads:
+
+   ```bash
+   curl -fsSLO https://github.com/identuum/identuum-idp-oss/releases/download/vX.Y.Z/identuum-idp-oss_X.Y.Z_linux_amd64
+   curl -fsSLO https://github.com/identuum/identuum-idp-oss/releases/download/vX.Y.Z/SHA256SUMS
+   sha256sum --ignore-missing -c SHA256SUMS
+   gh attestation verify identuum-idp-oss_X.Y.Z_linux_amd64 -R identuum/identuum-idp-oss
+   ```
+
 ## Maintainer / developer source build
 
 When you want to rebuild the image from a local checkout, layer the
