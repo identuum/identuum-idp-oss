@@ -7,6 +7,19 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.8.0`
+
+A user created with a password chooses their own at first sign-in (D-017),
+an organization admin can mark its own application first-party (D-018), and
+the audit log says who did what to which organization; identuum-ui `v0.5.0`
+embedded. Delta `v0.7.0..` (`git log`/`git diff --shortstat`, measured at
+`5d8ffa3`, before this notes commit): 34 commits, 76 files, +2523/−186.
+Migrations `0041` and `0042` (applied on boot by the image; run
+`identuum-idp migrate` for the bare binary), no dependency moved
+(`go.mod`/`go.sum` unchanged), Go 1.27.1. The canonical endpoint count
+147 → 148. No route, field or response shape removed; the behaviour changes
+are listed in docs/releases/v0.8.0.md, "Upgrading".
+
 ### Added
 
 - **Admin-set passwords the Microsoft way** (OSS-FIN-1, owner ruling D-017):
@@ -68,6 +81,11 @@ follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **The embedded UI is identuum-ui `v0.5.0`** (`2e552be`, tree digest
+  `bf41513457ab23b76e55159a8e0f7f05ec52804dd26e392ccda16e38f83f7000`):
+  "Choose a new password" at first sign-in, "First-party (skip consent)" on
+  applications, "Send invitation" for users created with a password before
+  D-017, and the actor and Organization columns in the audit tables.
 - **An organization admin's audit view shows its organization's rows,
   whoever acted** (OSS-FIN-3): `GET /api/v1/audit/events` for an org_admin
   returns every row whose `organization_id` is its own — a site admin's
