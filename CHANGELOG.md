@@ -5,7 +5,17 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.7.0`
+
+An organization admin adds users without mail, a site admin re-issues a
+lost activation link from the console, and each release ships Linux
+binaries; identuum-ui `v0.4.0` embedded. Delta `v0.6.3..` (`git log`/`git
+diff --shortstat`, measured at `929951f`, before this notes commit): 55
+commits, 73 files, +3800/−208. No migration (`0001`–`0040`, as in
+`v0.6.3`), no dependency moved (`go.mod`/`go.sum` unchanged), Go 1.27.1.
+The canonical endpoint count 144 → 147. No route, field or response shape
+removed; the new refusals are listed in docs/releases/v0.7.0.md,
+"Upgrading".
 
 ### Added
 
@@ -46,7 +56,9 @@ follows [Semantic Versioning](https://semver.org/).
   as before. The refusal's message names the console action, **Re-issue
   activation link** on the organization's page (OSS-FINAL).
 
-- **The embedded UI is identuum-ui `05f0c96`** (OSS-ONBOARD-B): Users →
+- **The embedded UI is identuum-ui `v0.4.0`** (`55af159`, tree digest
+  `20950ed95cf47bad23bf215665e4ca1bcee70738c23c4adf54673e18fb4eebf6`). From
+  `05f0c96` (OSS-ONBOARD-B): Users →
   Invite user (`/org-admin/users/new`) shows the one-time link, its token and
   its expiry once; pending users read "Invitation pending" and their page
   re-issues. The public `/invite?token=` page validates the link, sets the
