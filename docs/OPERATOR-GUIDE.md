@@ -12,6 +12,41 @@ Running under compose from the deployment directory? `docker compose exec
 identuum-idp` may be substituted for `docker exec identuum-idp-oss`
 everywhere below.
 
+Running the bare binary instead (no Docker)? Every command below is the same
+subcommand of `./identuum-idp`; see README "Running the bare binary".
+
+## Sign in the first time
+
+After the setup wizard, sign in at `/login` as `site_admin@system.local`
+with the password you chose in the wizard. This first sign-in enrols an
+authenticator app (TOTP) and shows one-time recovery codes — store them; every
+later sign-in asks for a code. The address you typed in the wizard is the
+site administrator's contact email, not the login.
+
+## Check health
+
+```
+docker inspect --format '{{.State.Health.Status}}' identuum-idp-oss
+```
+
+The image's healthcheck (`/app/identuum-idp healthcheck`) passes only when
+`GET /healthz` (liveness: the process serves) and `GET /readyz` (the database
+answers a ping) both answer 200. With PostgreSQL down the container turns
+`unhealthy` within about a minute while `/healthz` stays 200; it turns
+`healthy` again once the database is back.
+
+## Where data lives
+
+- **PostgreSQL** (volume `identuum-idp-oss-postgres-data`): every
+  organization, user, client, session, key and audit row. Sessions survive a
+  restart of the IdP.
+- **The data volume** (`identuum-idp-oss-data`, `/app/data`): the generated
+  at-rest encryption key (unless you supply `IDENTUUM_IDP_ENCRYPTION_KEY`) and,
+  until setup completes, the setup code. Losing the key makes MFA enrolments
+  and signing keys unreadable: back it up with the database.
+- **Bare binary:** the setup code goes to `IDENTUUM_IDP_DATA_DIR`, or when that
+  is unset to `<user config dir>/identuum-idp` — never the working directory.
+
 ## Diagnose the appliance
 
 ```
@@ -92,14 +127,27 @@ docker exec identuum-idp-oss /app/identuum-idp migrate
 ```
 
 One-shot; safe to re-run (already-applied migrations are skipped). The
-appliance entrypoint migrates on boot, so this is normally only needed when
-operating against an externally-managed database.
+appliance entrypoint migrates on boot, so in the image this is normally only
+needed when operating against an externally-managed database. **The bare
+binary does not migrate on start:** run `./identuum-idp migrate
+"$IDENTUUM_IDP_DATABASE_URL"` before the first `./identuum-idp` and after every
+upgrade.
 
 ## Hand a new organization admin their activation
 
 Creating an organization with an `admin_email` issues a **one-time activation
 credential** for that administrator. It is shown to you once, at creation
 time, and again if you re-issue it — never afterwards.
+
+In the console: **Organizations → New**, then name, domain and the initial
+admin email. The success page shows the activation link (with the raw token
+underneath). The new organization is **inactive** until its administrator
+activates it, so it appears under **Deactivated**, not in the default list;
+its admin state reads *Admin active* in the list (*Administrator account
+active* on its page) while the activation is valid, and *Invitation expired* /
+*Pending invitation expired* once it has lapsed. The administrator
+opens the link, sets a password, enrols an authenticator app on the same
+page, and then signs in at `/login` with their email.
 
 **This works with or without email delivery.** Those are the two supported
 modes, and they differ only in whether the IdP also sends the message for
@@ -226,6 +274,39 @@ rate-limited like sign-in. The token is stored only as a hash, works once, and
 never appears in a log line or an audit row (`user.invited`,
 `user.invite_reissued`, `user.invite_redeemed`).
 
+## Register an application (OpenID Connect)
+
+An organization admin registers a client in the console: **Applications →
+New** — name, redirect URIs (one per line), optional post-logout redirect URIs
+and audiences, and the default scope (for example
+`openid profile email offline_access`). Clients are confidential unless you
+tick **Public client**; the **client secret is shown once**, on the creation
+page. The client's endpoints are in the discovery document:
+
+```
+GET /.well-known/openid-configuration
+  authorization_endpoint   /api/v1/oauth/authorize
+  token_endpoint           /api/v1/oauth/token
+  userinfo_endpoint        /api/v1/oidc/userinfo
+  end_session_endpoint     /api/v1/oidc/logout
+```
+
+- **Authorization code with PKCE** (`S256`). The token endpoint accepts
+  `client_secret_basic`, `client_secret_post` and `private_key_jwt`.
+- **Sign-in happens on the IdP's own page.** `/authorize` signs the user in
+  at `/api/v1/auth/browser-login` (email, password, and a TOTP code if they
+  enrolled one); being signed in to the console does not carry over. The first
+  authorization of a client shows a consent page (**Approve** / **Deny**); the
+  decision is remembered.
+- **Refresh:** request `offline_access` to receive a refresh token;
+  `grant_type=refresh_token` returns a new access token and a new refresh
+  token (the old one is rotated out).
+- **Sign-out:** `GET /api/v1/oidc/logout?id_token_hint=…` ends the IdP's
+  browser session (the next `/authorize` asks for a sign-in again). Without a
+  registered `post_logout_redirect_uri` it answers `204` with no page, so pass
+  one. Access tokens already issued stay valid until they expire, and the
+  console has its own session: **Sign out** there separately.
+
 ## Factory reset (DESTROYS ALL DATA)
 
 ```
@@ -250,3 +331,6 @@ comes back up serving with the same key.
 ```
 docker exec identuum-idp-oss /app/identuum-idp version
 ```
+
+Prints the version and the commit the image was built from, for example
+`identuum-idp-oss 0.7.0 (commit 1a2b3c4d5e6f)`.

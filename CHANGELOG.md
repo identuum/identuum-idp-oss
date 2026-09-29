@@ -62,6 +62,20 @@ follows [Semantic Versioning](https://semver.org/).
     `oauth_authorize.code_issued`.
 - **A restored organization's admin-recovery candidates answer 200**, not
   404, so the site-admin recovery panel shows its admins (ORG-RESTORE-1).
+- **The activation link works without SMTP** (OSS-RC): `GET /api/v1/component`
+  declares `activation_link`, and the embedded UI (identuum-ui `12eb4e1`)
+  offers `/activate` on it; on a default no-SMTP install the page used to
+  say it was not available. The setup wizard names the
+  `show-setup-code` subcommand (it named a flag that does not exist).
+- **A valid pending administrator no longer reads "Invitation expired"**
+  (OSS-RC): `can_assign_admin` turns `true` only once the pending activation
+  has expired.
+- **Serving an unmigrated database says what to do** (OSS-RC): it stops at
+  once with "run `identuum-idp migrate`" instead of a minute of lease
+  retries blaming another instance.
+- **README and the operator guide describe `v0.7.0`**: the binary-only path
+  (migrate, then serve), first sign-in and MFA, organizations and invites,
+  OpenID Connect clients, health, where data lives.
 
 ### Security
 

@@ -23,12 +23,12 @@ provider. `identuum-idp-oss` ships the Starter-tier OAuth 2.1 /
 OpenID Connect surface as a self-contained Go module that you can run
 on your own infrastructure.
 
-> **Status:** current release `v0.5.0` — see Project Status above for
-> the current license. The binary's version is STAMPED at build time from
-> the release tag (`-ldflags -X main.buildVersion=…`; un-stamped builds
-> report `dev` and can never pass the publish gate). Latest release notes:
-> `docs/releases/v0.5.0.md`; the tag is cut by the owner, not by CI. The
-> codebase passes the full validation matrix described below.
+> **Status:** this README describes `v0.7.0` (release notes:
+> `docs/releases/v0.7.0.md`, a draft until the tag is cut); the latest
+> published release is `v0.6.3`. See Project Status above for the current
+> license. The binary's version and commit are STAMPED at build time
+> (`identuum-idp version` prints both; un-stamped builds report `dev` and
+> `commit unknown`). The tag is cut by the owner, not by CI.
 
 ---
 
@@ -119,14 +119,54 @@ state, alongside the wizard URL and the local support command for
 re-displaying it later:
 
 ```bash
-docker compose exec identuum-idp \
-    identuum-idp show-setup-code /app/data
+docker compose exec identuum-idp /app/identuum-idp show-setup-code /app/data
 ```
 
-The setup code authorises the wizard only. It is not the
+(The image is distroless: the binary is `/app/identuum-idp` and is not on
+the `PATH`.) The setup code authorises the wizard only. It is not the
 administrator password — that you create during the wizard. After
 the wizard completes, the setup APIs respond `410 Gone` and the
 code is invalidated.
+
+### First sign-in, organizations and users
+
+1. **Sign in as the site administrator** at `http://localhost:7113/login`.
+   The login is always `site_admin@system.local` (the wizard shows it); the
+   password is the one you chose in the wizard. At this first sign-in you
+   enrol an authenticator app (TOTP) and are shown one-time recovery codes;
+   every later sign-in asks for a code.
+2. **Create an organization** in the console (**Organizations → New**) with
+   the email of its administrator. The organization is inactive until that
+   administrator activates it, so it is listed under **Deactivated**, not
+   under the default list. The console shows a one-time **activation link**:
+   hand it to the administrator. Without SMTP — the default — nothing is
+   mailed; with SMTP the link is also mailed.
+3. **The organization administrator opens the link**, sets a password,
+   enrols an authenticator app and signs in at `/login` with that address.
+4. **The organization administrator invites users** (**Users → Invite
+   user**) and hands each one-time invite link over; the user sets a
+   password at `/invite` and signs in. MFA follows the organization's
+   policy.
+5. **The organization administrator registers an application**
+   (**Applications → New**; the client secret is shown once) and points it at
+   `/.well-known/openid-configuration`: authorization code with PKCE,
+   refresh with `offline_access`, sign-out at the discovery document's
+   `end_session_endpoint`.
+
+The full operator detail — the two mail modes, re-issuing links, the API
+equivalents — is in [`docs/OPERATOR-GUIDE.md`](docs/OPERATOR-GUIDE.md).
+
+### Health and where data lives
+
+- `docker ps` shows the container's health from `identuum-idp healthcheck`,
+  which requires both `GET /healthz` (liveness: the process serves) and
+  `GET /readyz` (the database answers). With the database down the container
+  turns **unhealthy** while `/healthz` stays 200.
+- Everything durable is in PostgreSQL (the `identuum-idp-oss-postgres-data`
+  volume) plus the data volume `identuum-idp-oss-data` at `/app/data`, which
+  holds the generated at-rest encryption key and, until setup completes, the
+  setup code. Back both up; sessions survive a restart because they live in
+  the database.
 
 The Compose file under
 [`deployment/docker-compose.yml`](deployment/docker-compose.yml) is
@@ -289,7 +329,9 @@ Important environment variables:
 |----------|---------|
 | `IDENTUUM_IDP_DATABASE_URL` | Postgres DSN used at runtime |
 | `IDENTUUM_IDP_TEST_DATABASE_URL` | Postgres DSN used by the integration harness |
-| `IDENTUUM_IDP_ENCRYPTION_KEY` | At-rest AES key (32 bytes / 64 hex); encrypts MFA seeds at rest. **Optional** — auto-generated + persisted on first boot if unset. Production **should** supply a real externally-managed key (see below) |
+| `IDENTUUM_IDP_ENCRYPTION_KEY` | At-rest AES key (32 bytes / 64 hex); encrypts MFA seeds at rest. **Optional in the image** — its entrypoint auto-generates + persists one on first boot; **required for the bare binary**. Production **should** supply a real externally-managed key (see below) |
+| `IDENTUUM_IDP_DATA_DIR` | Where the setup code is written while setup is incomplete (`/app/data` in the image; unset: `<user config dir>/identuum-idp`) |
+| `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` | The UI's browser-facing base URL, used to build activation and invite links (the binary's own origin, e.g. `http://localhost:7113`); unset, the IdP answers `*_url_unavailable` instead of a link |
 | `IDENTUUM_IDP_ISSUER` | Public issuer URL (e.g. `https://idp.example.com`) |
 | `IDENTUUM_IDP_LISTEN` | Serve/listen address (default `0.0.0.0:7113`; `--listen` flag overrides) |
 
@@ -319,35 +361,48 @@ one.
   become unrecoverable and affected users must re-enroll. Back up the key (or
   manage it externally) alongside the database.
 
-## Running locally
+## Running the bare binary (no Docker, no Makefile)
 
-The Makefile exposes two ways to run the service against the local
-Postgres:
+The binary alone runs the whole product, UI included; it needs only a
+PostgreSQL 18+ database. Build it from this repository
+(`go build -o identuum-idp ./cmd/identuum-idp`) or copy it out of the
+release image (a Linux binary, `linux/amd64` or `linux/arm64`):
 
-- `make oss-up` — builds the local Docker image and runs the app
-  container on `127.0.0.1:7113`.
-- Direct binary execution:
+```bash
+docker create --name identuum-idp-bin ghcr.io/identuum/identuum-idp-oss:v0.6.3
+docker cp identuum-idp-bin:/app/identuum-idp ./identuum-idp
+docker rm identuum-idp-bin
+```
 
-  ```bash
-  go build -o identuum-idp ./cmd/identuum-idp
+Then configure it through the environment, **migrate, and serve**. Unlike
+the image's entrypoint, the bare binary does not migrate on start: on an
+unmigrated database it stops at once with "the database is not migrated —
+run `identuum-idp migrate <database-url>` before serving".
 
-  # Apply embedded migrations (one-shot subcommand; URL is a positional arg).
-  ./identuum-idp migrate \
-    "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss?sslmode=disable"
+```bash
+export IDENTUUM_IDP_DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/DB?sslmode=disable'
+# Required: seals MFA secrets and signing keys at rest. Generate it once and
+# keep it — losing it makes existing MFA enrolments and keys unreadable.
+export IDENTUUM_IDP_ENCRYPTION_KEY="$(openssl rand -hex 32)"
+export IDENTUUM_IDP_ISSUER=http://localhost:7113
+export IDENTUUM_IDP_LISTEN=127.0.0.1:7113
+# Where the setup code is written (default: <user config dir>/identuum-idp,
+# for example ~/.config/identuum-idp — never the working directory).
+export IDENTUUM_IDP_DATA_DIR=/var/lib/identuum-idp
 
-  # Serve (default action, no subcommand). Serving REQUIRES the at-rest key —
-  # 0000…0001 is a PUBLIC dev key, local-only. Flags default from the env
-  # (IDENTUUM_IDP_DATABASE_URL / _ISSUER / _LISTEN); run `identuum-idp help`.
-  IDENTUUM_IDP_ENCRYPTION_KEY=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f \
-    ./identuum-idp \
-      --database-url "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss?sslmode=disable" \
-      --issuer "http://localhost:7113" \
-      --listen 127.0.0.1:7113
-  ```
+./identuum-idp migrate "$IDENTUUM_IDP_DATABASE_URL"
+./identuum-idp
+```
 
-A fresh deployment has zero signing keys. Before tokens can be
-issued, an operator must complete site-admin bootstrap and then
-generate the first signing key:
+The boot log prints the wizard URL and the setup code; re-display it with
+`./identuum-idp show-setup-code "$IDENTUUM_IDP_DATA_DIR"`. Check health with
+`./identuum-idp healthcheck http://127.0.0.1:7113`. `./identuum-idp help`
+lists every subcommand. (Developers: `make oss-up` builds the local image
+and runs it on `127.0.0.1:7113`.)
+
+The setup wizard creates the first EdDSA signing key (the headless
+`bootstrap` subcommand does too). Further keys can be generated by the
+site administrator:
 
 ```http
 POST /api/v1/keys/generate
@@ -362,11 +417,10 @@ rejected by the OSS issuance path** — `id_token_signing_alg_values_supported`
 excludes RS256 by design. (Inbound `private_key_jwt` client assertions
 may still use RS256; the two settings are separate.)
 
-## First-run setup (under development)
+## First-run setup (how it works)
 
-The appliance-style first-run setup foundation is in place but the full
-customer-facing `docker compose up -d` → browser-wizard flow is still
-under construction. What ships today:
+The `docker compose up -d` → browser-wizard flow ships end to end (the
+wizard is part of the embedded UI). Its parts:
 
 - A single-row `system_setup_state` migration (0019) tracking
   `setup_required` → `setup_complete`.
@@ -384,15 +438,18 @@ under construction. What ships today:
   - `POST /api/setup/verify-token` — checks a candidate setup code
   - `POST /api/setup/complete` — creates the first organization,
     site administrator, and EdDSA signing key, then flips state
-- A zero-credential local support command:
+    (audited as `setup.completed` and `user_created`)
+- A zero-credential local support command (in the image:
+  `/app/identuum-idp show-setup-code /app/data`):
   ```bash
   identuum-idp show-setup-code <data-dir>
   ```
   Reads the on-disk token file and prints it. Exits non-zero with a
   diagnostic when setup is already complete (no file) or the data
   directory is missing.
-- A first-pass setup wizard lives in `identuum-ui` and drives this
-  surface; see that repo for the UI side.
+- The wizard at `/setup` (embedded identuum-ui) drives this surface. The
+  site administrator's authenticator is enrolled at the first sign-in,
+  not in the wizard.
 
 The `bootstrap` and `recover-site-admin` operator subcommands remain the
 supported headless recovery path. The wizard does not replace them.
