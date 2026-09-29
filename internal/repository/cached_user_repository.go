@@ -265,6 +265,18 @@ func (r *CachedUserRepository) CountVerifiedOrgAdminsByOrganizations(ctx context
 	return r.delegate.CountVerifiedOrgAdminsByOrganizations(ctx, orgIDs)
 }
 
+// CountRecoveryBlockingOrgAdminsByOrganizations delegates when the wrapped
+// repository offers it (OSS-RC), else falls back to the verified count — the
+// behaviour before the recovery-blocking count existed.
+func (r *CachedUserRepository) CountRecoveryBlockingOrgAdminsByOrganizations(ctx context.Context, orgIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	if b, ok := r.delegate.(interface {
+		CountRecoveryBlockingOrgAdminsByOrganizations(context.Context, []uuid.UUID) (map[uuid.UUID]int, error)
+	}); ok {
+		return b.CountRecoveryBlockingOrgAdminsByOrganizations(ctx, orgIDs)
+	}
+	return r.delegate.CountVerifiedOrgAdminsByOrganizations(ctx, orgIDs)
+}
+
 // === Pass-through methods with cache invalidation ===
 
 func (r *CachedUserRepository) Create(ctx context.Context, user *domain.User) (*domain.User, error) {

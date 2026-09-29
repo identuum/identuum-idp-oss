@@ -1237,6 +1237,40 @@ func (r *PgxUserRepository) CountVerifiedOrgAdminsByOrganization(ctx context.Con
 }
 
 // CountVerifiedOrgAdminsByOrganizations is the batch version for list endpoints.
+// CountRecoveryBlockingOrgAdminsByOrganizations counts, per org id, the live
+// org_admins that block site_admin recovery delegation: email-verified ones,
+// and pending ones whose activation has not expired (OSS-RC — a freshly
+// created org's admin read as "Invitation expired").
+func (r *PgxUserRepository) CountRecoveryBlockingOrgAdminsByOrganizations(ctx context.Context, orgIDs []uuid.UUID) (map[uuid.UUID]int, error) {
+	result := make(map[uuid.UUID]int, len(orgIDs))
+	if len(orgIDs) == 0 {
+		return result, nil
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT organization_id, COUNT(*) AS cnt
+		FROM users
+		WHERE organization_id = ANY($1)
+		  AND role = 'org_admin'
+		  AND deleted_at IS NULL
+		  AND banned = false
+		  AND (email_verified = true
+		       OR (activation_token_hash IS NOT NULL AND activation_token_expires_at > NOW()))
+		GROUP BY organization_id`, orgIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count recovery-blocking org admins by organizations: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id uuid.UUID
+		var cnt int
+		if err := rows.Scan(&id, &cnt); err != nil {
+			return nil, fmt.Errorf("failed to scan recovery-blocking org admin count: %w", err)
+		}
+		result[id] = cnt
+	}
+	return result, rows.Err()
+}
+
 func (r *PgxUserRepository) CountVerifiedOrgAdminsByOrganizations(ctx context.Context, orgIDs []uuid.UUID) (map[uuid.UUID]int, error) {
 	result := make(map[uuid.UUID]int, len(orgIDs))
 	if len(orgIDs) == 0 {

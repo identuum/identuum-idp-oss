@@ -357,16 +357,30 @@ func adminStateForOrgs(ctx context.Context, counter OrgAdminCounter, ids []uuid.
 	if err != nil {
 		return nil
 	}
-	verified, err := counter.CountVerifiedOrgAdminsByOrganizations(ctx, ids)
+	// OSS-RC: recovery opens only when no admin blocks it — neither a
+	// verified one nor a pending one whose activation is still valid. A
+	// counter without that count keeps the verified-only answer.
+	var blocking map[uuid.UUID]int
+	if b, ok := counter.(orgAdminRecoveryBlockingCounter); ok {
+		blocking, err = b.CountRecoveryBlockingOrgAdminsByOrganizations(ctx, ids)
+	} else {
+		blocking, err = counter.CountVerifiedOrgAdminsByOrganizations(ctx, ids)
+	}
 	if err != nil {
 		return nil
 	}
 	out := make(map[uuid.UUID]orgAdminState, len(ids))
 	for _, id := range ids {
 		hasAdmin := admins[id] > 0
-		out[id] = orgAdminState{hasAdmin: hasAdmin, canAssign: hasAdmin && verified[id] == 0}
+		out[id] = orgAdminState{hasAdmin: hasAdmin, canAssign: hasAdmin && blocking[id] == 0}
 	}
 	return out
+}
+
+// orgAdminRecoveryBlockingCounter is the optional count adminStateForOrgs
+// prefers: org_admins that are verified or hold an unexpired activation.
+type orgAdminRecoveryBlockingCounter interface {
+	CountRecoveryBlockingOrgAdminsByOrganizations(ctx context.Context, orgIDs []uuid.UUID) (map[uuid.UUID]int, error)
 }
 
 // withAdminState returns s with the admin-state projection applied.
