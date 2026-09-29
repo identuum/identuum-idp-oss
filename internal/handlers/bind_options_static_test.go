@@ -106,6 +106,10 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "invite branch: no password is set at invite; RedeemInvite reads the organization's complexity policy when the invitee sets one.",
 	},
+	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.MustChangePassword": {
+		State: "bound-to-refuse",
+		Why:   "invite branch (D-016): there is no admin-set password to change — the invitee chooses their own at redeem; D-017's must_change_password applies to the password create literal, which feeds it.",
+	},
 
 	// ── THE-PROFILE-CLAIMS: self-service PUT /api/v1/profile ──
 	// The caller edits their OWN display name + the twelve OIDC §5.1

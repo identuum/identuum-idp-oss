@@ -56,6 +56,15 @@ type CreateUserOptions struct {
 	PasswordComplexityEnabled *bool
 	// MinPasswordLength is the policy floor; 0 ⇒ safe default of 8.
 	MinPasswordLength int
+	// MustChangePassword (OSS-FIN-1, D-017): the admin-set password must
+	// be changed at first sign-in. nil ⇒ true, the default; the creator
+	// may send false.
+	MustChangePassword *bool
+}
+
+// MustChange resolves MustChangePassword (nil ⇒ true, D-017's default).
+func (o CreateUserOptions) MustChange() bool {
+	return o.MustChangePassword == nil || *o.MustChangePassword
 }
 
 // UpdateUserOptions is forwarded verbatim to repository.UpdateUserOptions
@@ -166,9 +175,13 @@ func (s *UserService) Create(ctx context.Context, opts CreateUserOptions) (*doma
 		PasswordHash:   hash,
 		Role:           opts.Role,
 		AuthSource:     domain.AuthSourceLocal,
-		EmailVerified:  false,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		// D-017: the admin who set the password vouches for the account —
+		// it is verified and active at once, with no mail. By default the
+		// password must be changed at first sign-in.
+		EmailVerified:          true,
+		RequiresPasswordChange: opts.MustChange(),
+		CreatedAt:              now,
+		UpdatedAt:              now,
 	}
 	if opts.Name != "" {
 		n := opts.Name

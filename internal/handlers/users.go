@@ -729,6 +729,8 @@ func HandleCreateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			Password       string          `json:"password"`
 			Name           string          `json:"name,omitempty"`
 			Role           domain.UserRole `json:"role"`
+			// D-017: defaults to true; false lets the admin-set password stand.
+			MustChangePassword *bool `json:"must_change_password,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -763,6 +765,7 @@ func HandleCreateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			Role:                      req.Role,
 			PasswordComplexityEnabled: pce,
 			MinPasswordLength:         minLen,
+			MustChangePassword:        req.MustChangePassword,
 		})
 		if errors.Is(err, domain.ErrForbidden) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
@@ -783,6 +786,10 @@ func HandleCreateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				"email":           created.Email,
 				"role":            string(created.Role),
 				"organization_id": created.OrganizationID,
+				// D-017: the admin vouched for the account (verified at once)
+				// and chose whether the password must change at first sign-in.
+				"password_set_by_admin": true,
+				"must_change_password":  created.RequiresPasswordChange,
 			},
 		})
 	}

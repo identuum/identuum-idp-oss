@@ -41,7 +41,7 @@ func (r *PgxMFAPendingLoginSessionRepository) Create(ctx context.Context, row *d
 	if row.UserID == uuid.Nil {
 		return nil, errors.New("postgres: MFAPendingLoginSession requires non-nil UserID")
 	}
-	if row.Kind != domain.MFAPendingKindEnroll && row.Kind != domain.MFAPendingKindVerify {
+	if row.Kind != domain.MFAPendingKindEnroll && row.Kind != domain.MFAPendingKindVerify && row.Kind != domain.MFAPendingKindPasswordChange {
 		return nil, fmt.Errorf("postgres: invalid MFAPendingLoginSession kind %q", row.Kind)
 	}
 	const q = `

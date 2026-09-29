@@ -92,7 +92,9 @@ import (
 // 144 → 147: the user invite (OSS-ONBOARD-A, D-016) — POST
 // /api/v1/users/:id/invite (re-issue) and the public GET
 // /api/v1/auth/invite/:token + POST /api/v1/auth/invite (validate, redeem).
-const CanonicalEndpointCount = 147
+// 147 → 148: POST /api/v1/auth/login/password-change, the required
+// password change of a sign-in with an admin-set password (OSS-FIN-1, D-017).
+const CanonicalEndpointCount = 148
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

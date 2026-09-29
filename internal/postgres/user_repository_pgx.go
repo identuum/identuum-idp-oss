@@ -625,6 +625,10 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 	if opts.RequireEmailVerifiedFalse {
 		whereClause += " AND email_verified = false"
 	}
+	// D-017: the required change at sign-in wins once.
+	if opts.RequirePasswordChangePending {
+		whereClause += " AND requires_password_change = true AND deleted_at IS NULL AND banned = false"
+	}
 
 	query := fmt.Sprintf(`
 		UPDATE users

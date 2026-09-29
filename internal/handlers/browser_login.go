@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -34,6 +35,13 @@ type BrowserLoginHandlerDeps struct {
 	// surface.
 	BrowserTokens *service.BrowserSessionTokenService
 	Audit         audit.Service
+	// D-017: the required password change of a sign-in. With all three
+	// wired, a proven admin-set password renders the change form (a
+	// one-time handle, no cookie); without them the sign-in is refused as
+	// before a change step existed.
+	MFAEnrollment  *service.MFAEnrollmentService
+	ChangePassword *service.ChangePasswordService
+	UserSession    *service.UserSessionService
 }
 
 // RegisterBrowserLoginRoutes mounts
@@ -95,7 +103,7 @@ func HandleBrowserLoginForm(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 		c.Header("Cache-Control", "no-store")
 		c.Header("Pragma", "no-cache")
 		c.Status(http.StatusOK)
-		renderLoginForm(c.Writer, returnTo, errCode, csrfToken)
+		renderLoginForm(c.Writer, returnTo, errCode, csrfToken, c.Query("notice") == "password_changed")
 	}
 }
 
@@ -124,6 +132,10 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 		totp := c.PostForm("totp_code")
 		remember := c.PostForm("remember_me") == "1" || c.PostForm("remember_me") == "true"
 		returnTo := validateReturnTo(c.PostForm("return_to"))
+		if handle := c.PostForm("password_change_session"); handle != "" && deps.changeStepWired() {
+			handleBrowserPasswordChange(c, deps, handle, returnTo)
+			return
+		}
 
 		ip := c.ClientIP()
 		ua := c.Request.UserAgent()
@@ -152,6 +164,16 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 				c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
 				return
 			}
+			if errors.Is(err, service.ErrLoginPasswordChangeRequired) && deps.changeStepWired() && result != nil && result.User != nil {
+				// D-017: the admin-set password is proven; the user chooses
+				// their own before any cookie exists.
+				row, perr := deps.MFAEnrollment.CreatePending(c.Request.Context(), result.User, domain.MFAPendingKindPasswordChange, remember)
+				if perr == nil && row != nil {
+					auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result)
+					renderPasswordChangeForm(c, deps, row.ID.String(), returnTo, remember, "")
+					return
+				}
+			}
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 				Action:    "user_session.browser_login.failure",
 				Outcome:   "denied",
@@ -168,7 +190,24 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 			c.Redirect(http.StatusSeeOther, loc)
 			return
 		}
+		finishBrowserSignIn(c, deps, result, returnTo)
+	}
+}
 
+// finishBrowserSignIn plants the session cookie for a completed sign-in and
+// redirects to return_to (or "/"). Shared by the password sign-in and the
+// D-017 change step.
+func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *service.LoginResult, returnTo string) {
+	{
+		ip := c.ClientIP()
+		ua := c.Request.UserAgent()
+		var ipPtr, uaPtr *string
+		if ip != "" {
+			ipPtr = &ip
+		}
+		if ua != "" {
+			uaPtr = &ua
+		}
 		cookieValue := result.RefreshToken
 		if deps.BrowserTokens != nil {
 			ipStr, uaStr := "", ""
@@ -305,11 +344,14 @@ const loginFormTemplate = `<!DOCTYPE html>
 // inserted as a hidden field and the error code rendered as a small
 // banner. The values are HTML-escaped to defeat injection — neither
 // is ever rendered raw.
-func renderLoginForm(w http.ResponseWriter, returnTo, errCode, csrfToken string) {
+func renderLoginForm(w http.ResponseWriter, returnTo, errCode, csrfToken string, passwordChanged bool) {
 	body := strings.ReplaceAll(loginFormTemplate, "{{RETURN_TO}}", html.EscapeString(returnTo))
 	if errCode != "" {
 		banner := `<p role="alert" data-error="` + html.EscapeString(errCode) + `">Sign-in failed. Please check your credentials and try again.</p>`
 		body = strings.ReplaceAll(body, "{{ERROR}}", banner)
+	} else if passwordChanged {
+		// D-017: the change step succeeded and a TOTP is due.
+		body = strings.ReplaceAll(body, "{{ERROR}}", `<p role="status" data-notice="password_changed">Password changed. Sign in with your new password.</p>`)
 	} else {
 		body = strings.ReplaceAll(body, "{{ERROR}}", "")
 	}

@@ -27,6 +27,8 @@ type bulkUserEntry struct {
 	Password       string          `json:"password"`
 	Name           string          `json:"name,omitempty"`
 	Role           domain.UserRole `json:"role"`
+	// D-017, as the single create: defaults to true.
+	MustChangePassword *bool `json:"must_change_password,omitempty"`
 }
 
 type bulkCreateUsersRequest struct {
@@ -117,6 +119,7 @@ func HandleBulkCreateUsers(deps UsersHandlerDeps) gin.HandlerFunc {
 				Role:                      u.Role,
 				PasswordComplexityEnabled: pce,
 				MinPasswordLength:         minLen,
+				MustChangePassword:        u.MustChangePassword,
 			})
 			if err != nil {
 				// Best-effort: record and continue; no abort, no rollback.
@@ -137,6 +140,10 @@ func HandleBulkCreateUsers(deps UsersHandlerDeps) gin.HandlerFunc {
 					"role":            string(out.Role),
 					"organization_id": out.OrganizationID,
 					"bulk":            true,
+					// D-017, as the single create: admin-vouched, and whether
+					// the password must change at first sign-in.
+					"password_set_by_admin": true,
+					"must_change_password":  out.RequiresPasswordChange,
 				},
 			})
 		}

@@ -200,7 +200,7 @@ func HandleMFAEnrollComplete(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			emitPendingFailure(c, deps, err, "user_session.login.mfa_enroll_complete_failure")
 			return
 		}
-		completeMFALogin(c, deps, out, "user_session.login.mfa_enrolled")
+		completeMFALogin(c, deps, out, "user_session.login.mfa_enrolled", true)
 	}
 }
 
@@ -242,7 +242,7 @@ func HandleMFAVerifyLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			emitPendingFailure(c, deps, err, "user_session.login.mfa_verify_failure")
 			return
 		}
-		completeMFALogin(c, deps, out, "user_session.login.mfa_verified")
+		completeMFALogin(c, deps, out, "user_session.login.mfa_verified", true)
 	}
 }
 
@@ -463,7 +463,7 @@ func emitPendingFailure(c *gin.Context, deps AuthSessionsHandlerDeps, err error,
 // success returns. Used by both HandleMFAEnrollComplete and
 // HandleMFAVerifyLogin so the post-MFA wire shape is identical
 // to the post-password wire shape (single contract for the UI).
-func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service.MFAEnrollmentCompleteResult, auditAction string) {
+func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service.MFAEnrollmentCompleteResult, auditAction string, mfaDone bool) {
 	if deps.UserSession == nil || out == nil || out.User == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 		return
@@ -482,8 +482,10 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 		maxSessions = *out.User.OrgMaxSessionsPerUser
 	}
 	// THE-HONEST-ACR: both pending-MFA paths (enroll-complete and
-	// verify-login) reach here with the password AND a TOTP code verified.
-	acr, amr := service.LoginContext(true)
+	// verify-login) reach here with the password AND a TOTP code verified
+	// (mfaDone true). The D-017 password-change step reaches here with the
+	// new password only when no MFA applies (mfaDone false).
+	acr, amr := service.LoginContext(mfaDone)
 	issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
 		UserID:             out.User.ID,
 		IPAddress:          ipPtr,

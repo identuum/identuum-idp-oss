@@ -82,6 +82,7 @@ POST /api/v1/auth/login
 POST /api/v1/auth/login/mfa
 POST /api/v1/auth/login/mfa/enroll/complete
 POST /api/v1/auth/login/mfa/enroll/initiate
+POST /api/v1/auth/login/password-change
 POST /api/v1/auth/login/webauthn/begin
 POST /api/v1/auth/login/webauthn/finish
 POST /api/v1/auth/logout

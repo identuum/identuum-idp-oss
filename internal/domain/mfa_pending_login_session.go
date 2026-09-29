@@ -73,6 +73,13 @@ const (
 	// consumes the row after verifying against the user's persisted
 	// MFASecret.
 	MFAPendingKindVerify MFAPendingKind = "verify"
+
+	// MFAPendingKindPasswordChange (OSS-FIN-1, D-017) means the user
+	// signed in with an admin-set password — and MFA when the policy asks
+	// — and must now choose their own; /api/v1/auth/login/password-change
+	// (or the browser sign-in's change step) consumes the row with the new
+	// password. Migration 0041 admits the kind.
+	MFAPendingKindPasswordChange MFAPendingKind = "password_change"
 )
 
 // MFAPendingTTL is the default lifetime of a pending row. The

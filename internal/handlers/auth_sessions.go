@@ -193,6 +193,17 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:auth=session
 		// docgen:notes=Cookies are set ONLY after TOTP verification succeeds AND the pending row's MarkConsumed UPDATE atomically claims it. 401 invalid_code on any failure.
 		router.POST("/api/v1/auth/login/mfa", HandleMFAVerifyLogin(deps))
+		if deps.ChangePassword != nil {
+			// docgen:endpoint
+			// docgen:surface=auth
+			// docgen:method=POST
+			// docgen:path=/api/v1/auth/login/password-change
+			// docgen:summary=Required password change of a sign-in (D-017). Consumes the password_change session_id from /api/v1/auth/login, sets the user's own password (organization policy; must differ from the admin-set one), clears requires_password_change, then continues the sign-in: 401 mfa_enrollment_required or mfa_required with a new session_id when the MFA policy asks, else the full session + Set-Cookie.
+			// docgen:tier=oss
+			// docgen:auth=session
+			// docgen:notes=Body {session_id, new_password}. 400 weak_password with a displayable message leaves the session_id usable; 401 invalid_session for an unknown, expired, consumed or wrong-kind handle. The change wins once (the UPDATE requires the flag still set). Passwords never appear in any response or audit row.
+			router.POST("/api/v1/auth/login/password-change", HandleLoginPasswordChange(deps))
+		}
 	}
 	if deps.MFAEnrollment != nil {
 		// Self-service MFA recovery-code regeneration. Authenticated
@@ -492,6 +503,17 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 		})
+		c.JSON(http.StatusUnauthorized, body)
+	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
+		// D-017: an admin-set password was proven; the user must choose
+		// their own first. No session, no token, no cookie — only a
+		// one-time handle for POST /api/v1/auth/login/password-change.
+		body := gin.H{"error": "password_change_required", "password_change_required": true}
+		sessionID := mintPendingMFAHandle(c, deps, result, domain.MFAPendingKindPasswordChange, rememberMe)
+		if sessionID != "" {
+			body["session_id"] = sessionID
+		}
+		auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result)
 		c.JSON(http.StatusUnauthorized, body)
 	case errors.Is(err, service.ErrLoginAccountUnverified):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account_unverified"})

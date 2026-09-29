@@ -124,3 +124,54 @@ func (s *ChangePasswordService) ChangeOwnPassword(ctx context.Context, userID uu
 	// R2 parked: NO session revocation, NO refresh-token revocation here.
 	return nil
 }
+
+// ErrRequiredChangeUnavailable covers every reason the sign-in's required
+// change cannot run: no such user, deleted, banned, non-local, or the flag
+// already cleared (a second submit). One opaque answer.
+var ErrRequiredChangeUnavailable = domainSentinel("change_password: no required change")
+
+// ChangeRequiredAtSignIn (OSS-FIN-1, D-017) sets the password of a user who
+// signed in with an admin-set password and must choose their own. The caller
+// has already proven the current password (and holds the one-time pending
+// handle that says so), so no current password is taken here. The new one
+// must satisfy the organization's policy and differ from the admin-set one.
+// The UPDATE clears requires_password_change only while it is still set, so
+// the change wins once. Returns the user re-read with its organization
+// projections, which the rest of the sign-in (MFA gate, session) needs.
+func (s *ChangePasswordService) ChangeRequiredAtSignIn(ctx context.Context, userID uuid.UUID, newPassword string) (*domain.User, error) {
+	user, err := s.users.GetByIDWithOrg(ctx, userID)
+	if err != nil || user == nil || user.DeletedAt != nil || user.Banned || !user.RequiresPasswordChange {
+		return nil, ErrRequiredChangeUnavailable
+	}
+	if user.AuthSource != "" && user.AuthSource != domain.AuthSourceLocal {
+		return nil, ErrRequiredChangeUnavailable
+	}
+	complexityEnabled := true
+	if user.OrgPasswordComplexityEnabled != nil {
+		complexityEnabled = *user.OrgPasswordComplexityEnabled
+	}
+	if err := domain.ValidatePasswordPolicy(newPassword, s.minPasswordLength, complexityEnabled); err != nil {
+		return nil, &ChangePasswordPolicyError{Detail: err.Error()}
+	}
+	if strings.TrimSpace(user.PasswordHash) != "" && s.users.VerifyPassword(ctx, newPassword, user.PasswordHash) == nil {
+		return nil, &ChangePasswordPolicyError{Detail: "choose a password different from the one you were given"}
+	}
+	hash, err := s.users.HashPassword(newPassword)
+	if err != nil {
+		return nil, domainSentinel("change_password: hash failed")
+	}
+	cleared := false
+	updated, err := s.users.Update(ctx, user.ID, user.OrganizationID, repository.UpdateUserOptions{
+		Password:                     &hash,
+		RequiresPasswordChange:       &cleared,
+		RequirePasswordChangePending: true,
+	})
+	if err != nil || updated == nil {
+		return nil, ErrRequiredChangeUnavailable
+	}
+	reloaded, err := s.users.GetByIDWithOrg(ctx, userID)
+	if err != nil || reloaded == nil {
+		return nil, ErrRequiredChangeUnavailable
+	}
+	return reloaded, nil
+}

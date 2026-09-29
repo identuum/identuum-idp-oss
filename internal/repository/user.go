@@ -44,6 +44,13 @@ type UpdateUserOptions struct {
 	// invitation consumption atomic against double-submit / replay.
 	RequireEmailVerifiedFalse bool
 
+	// RequirePasswordChangePending (OSS-FIN-1, D-017), when true, appends
+	// `AND requires_password_change = true AND deleted_at IS NULL AND
+	// banned = false` so the sign-in's required change is single-winner at
+	// the SQL layer: a second submit finds the flag cleared and updates
+	// nothing.
+	RequirePasswordChangePending bool
+
 	// KeepActiveOrgAdmin (OSS-GUARDS), when true, runs the update in one
 	// transaction that locks the organization row and refuses with
 	// domain.ErrLastOrgAdmin a change (ban, demotion) that would leave the

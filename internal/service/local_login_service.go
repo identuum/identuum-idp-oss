@@ -249,14 +249,6 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	if !user.EmailVerified {
 		return nil, ErrLoginAccountUnverified
 	}
-	if user.RequiresPasswordChange {
-		// Operator policy: force-password-change blocks login.
-		// The UI will land on a dedicated reset flow once /authorize
-		// + password reset routes ship; for OSS the safest stop
-		// here is invalid_credentials. Documented in the slice
-		// notice.
-		return nil, ErrLoginInvalidCredentials
-	}
 
 	// ── Org auth_policy enforcement gate ──────────────────────────────
 	//
@@ -286,6 +278,17 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 		// from the response. The audit + metric give the operator
 		// visibility; the response stays generic.
 		return nil, ErrLoginInvalidCredentials
+	}
+
+	// ── Required password change (OSS-FIN-1, D-017) ───────────────────
+	//
+	// A user created with an admin-set password proves it here and must
+	// then choose their own BEFORE anything else: the change comes first,
+	// then MFA enrolment or verification when the policy asks (the change
+	// step re-runs that gate), then the session. Partial-result contract
+	// as for the MFA steps: User populated, no session, no token.
+	if user.RequiresPasswordChange {
+		return &LoginResult{User: user}, ErrLoginPasswordChangeRequired
 	}
 
 	// ── MFA policy gate ───────────────────────────────────────────────

@@ -1502,13 +1502,20 @@ func mountBrowserLogin(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.LocalLogin == nil || resolved.CookieSession == nil {
 		return
 	}
-	handlers.RegisterBrowserLoginRoutes(router, handlers.BrowserLoginHandlerDeps{
+	browserDeps := handlers.BrowserLoginHandlerDeps{
 		LocalLogin:    resolved.LocalLogin,
 		CookieSession: resolved.CookieSession,
 		CSRF:          resolved.CSRF,
 		BrowserTokens: resolved.BrowserTokens,
 		Audit:         resolved.Audit,
-	})
+		// D-017: the required password change of the browser sign-in.
+		MFAEnrollment: resolved.MFAEnrollment,
+		UserSession:   resolved.UserSessionService,
+	}
+	if resolved.UserRepo != nil {
+		browserDeps.ChangePassword = service.NewChangePasswordService(resolved.UserRepo, 0)
+	}
+	handlers.RegisterBrowserLoginRoutes(router, browserDeps)
 	// THE-HONEST-ACR: the TOTP step-up ceremony /authorize refers to when
 	// acr_values asks for the password+TOTP rung. Needs the cookie session,
 	// the MFA verifier and the session store (RecordACRUplift).
