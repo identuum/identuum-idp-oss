@@ -118,7 +118,32 @@ docker exec -e IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<password>' identuum-idp-oss /ap
 ```
 
 Idempotent alternative to the browser setup wizard: ensures an active signing
-key exists and creates the `site_admin` row, then marks setup complete.
+key exists and creates the `site_admin` row, then marks setup complete. Like
+the wizard, a bootstrap that creates the `site_admin` is audited
+(`setup.completed` and `user_created`, actor `system`, metadata
+`via: bootstrap`); a re-run that finds it records nothing.
+
+## Reading the audit log
+
+The console's **Audit** page (site admin: every organization; organization
+admin: its own) reads `GET /api/v1/audit/events`, newest first, with the
+filters event type, outcome, actor, subject and a date range. Each row says:
+
+- **who** — `actor_type` (`user`, `service_account`, `client`, `setup_token`,
+  `system`, or `anonymous` when no one was signed in, such as a failed
+  sign-in), with the actor's email and role, or its id; a client's
+  `client_id` is in `metadata.actor_client_id`;
+- **which organization** — `organization_id`, the organization acted upon,
+  and `actor_organization_id`, the actor's own. A site admin who changes
+  organization A writes a row with A's `organization_id` and the system
+  organization as its own.
+
+An organization admin sees every row of its organization, whoever acted — a
+site admin included — and no row of another. Rows written before `v0.8.0`
+carry `organization_id` only where their metadata named the organization;
+the others stay visible to the organization they were filed under. The OSS
+log is plain and retention-pruned (30 days by default); it carries no hash
+chain.
 
 ## Apply database migrations
 

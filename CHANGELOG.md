@@ -48,8 +48,32 @@ follows [Semantic Versioning](https://semver.org/).
   is signed in; a wrong code asks again. The console hand-off page remains
   only for an enrolment that cannot start.
 
+- **The audit log says who did what to which organization** (OSS-FIN-3,
+  audit F4): every row carries its actor, filled centrally from the signed-in
+  principal (`user`, `service_account`, `client`; `setup_token` and `system`
+  where set; `anonymous` only without one); a client's id is in
+  `metadata.actor_client_id`. Migration `0042` adds `organization_id`, the
+  organization acted upon (the event's, else its metadata's, else an
+  organization-bound actor's), with an index; existing rows are backfilled
+  only from a metadata `organization_id` naming an existing organization.
+  `actor_organization_id` is now the actor's own organization. The read
+  API returns `organization_id`. docs/OPERATOR-GUIDE.md "Reading the audit
+  log".
+- **`identuum-idp bootstrap` is audited like the setup wizard**
+  (OSS-FIN-3): `setup.completed` and `user_created` for the `site_admin` it
+  creates, actor `system`.
+- **TOTP enrolment at the OpenID Connect browser sign-in without a password
+  change first** (OSS-FIN-3): a user whose organization requires MFA and
+  who has none enrols on the sign-in form, as after the D-017 change step.
+
 ### Changed
 
+- **An organization admin's audit view shows its organization's rows,
+  whoever acted** (OSS-FIN-3): `GET /api/v1/audit/events` for an org_admin
+  returns every row whose `organization_id` is its own — a site admin's
+  changes included — and none of another organization's; rows from before
+  `0042` keep their `actor_organization_id` visibility. It used to clamp on
+  `actor_organization_id` alone, which most call sites left empty.
 - A user flagged `requires_password_change` used to be refused as
   `invalid_credentials` after a correct password; the flag now leads to the
   change step above.
