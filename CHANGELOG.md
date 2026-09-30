@@ -7,6 +7,13 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- Embedded console (identuum-ui `ec0e2ed`): an organization created without
+  an admin email now offers **Invite the first administrator** on its Assign
+  administrator page, instead of only a re-issue that answered "already
+  active" (GitHub issue #1). The invitation uses the existing first-admin
+  rule: a site admin may invite an organization's first administrator, and
+  only while it has none.
+
 ## `v0.8.0`
 
 A user created with a password chooses their own at first sign-in (D-017),
