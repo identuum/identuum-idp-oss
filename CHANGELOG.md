@@ -7,12 +7,27 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-- Embedded console (identuum-ui `ec0e2ed`): an organization created without
-  an admin email now offers **Invite the first administrator** on its Assign
-  administrator page, instead of only a re-issue that answered "already
-  active" (GitHub issue #1). The invitation uses the existing first-admin
-  rule: a site admin may invite an organization's first administrator, and
-  only while it has none.
+## `v0.8.1`
+
+A patch: identuum-ui `v0.5.1` embedded (`4e4a637`, tree digest
+`fa82552b…659639`). Delta `v0.8.0..` (`git rev-list --count`, measured at
+`82681e4`, before this notes commit): 8 commits. No migration; no route,
+field or response shape changed. Notes: `docs/releases/v0.8.1.md`.
+
+### Fixed
+
+- Embedded console: an organization created without an admin email now
+  offers **Invite the first administrator** on its Assign administrator
+  page, instead of only a re-issue that answered "already active" (GitHub
+  issue #1). The invitation uses the existing first-admin rule: a site
+  admin may invite an organization's first administrator, and only while it
+  has none.
+
+### Security
+
+- The embedded UI's next moves to 16.3.6 (GHSA-vcvr-r3jv-pc5j). The console
+  is a static export — no Next server runs and `next/og` is not used — so
+  the vulnerable path was not reachable; the export's files are unchanged.
 
 ## `v0.8.0`
 
