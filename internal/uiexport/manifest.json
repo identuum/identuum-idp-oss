@@ -1,7 +1,7 @@
 {
   "schema": "identuum-ui-vendor.v1",
-  "ui_commit": "ec0e2edf769c149661bdc497b6e7f9d247ce7bbe",
-  "ui_lockfile_sha256": "99a3e651dbce60f6d4453b627c1c69f9e97654c7c7f511a36669fed8ba5ac4dd",
+  "ui_commit": "4e4a637e531cb65dd2d8580c57a0ada44687cb9f",
+  "ui_lockfile_sha256": "8a213c8e81d5d2eba292412e0bf7d60c56e888ce54d856bc459da56cd4a6a1e2",
   "node_version": "v26.8.1",
   "pnpm_version": "11.3.0",
   "files": {
