@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 8256a93
-started: 2026-09-29T22:45:36Z
+repo-head: ba45642
+started: 2026-09-30T06:58:54Z
 plan: tool-versions toolchain-parity ci-witness mint-decide witness-mint-test openapi-check repo-green tracked-binary-check ui-vendor-check credential-transparency workflow-yaml workflow-yaml-parity rulefloor-check ledger-diff-gate image-base-check api-surface vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck grype-scan wiki-fresh
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /Users/odemir/go/bin/staticcheck
@@ -16,31 +16,31 @@ target: tool-versions exit=0
 evidence: [toolchain-parity] check OK: toolchain-parity 9 pins agree (gate-witness.sh 651402aa7df9e76472496514aa26343f76268378ccc1c354b7762c635f448809, go 1.27.1, govulncheck 1.8.0, grype 0.119.0, lictor 0.4.2, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1, yq 4.54.1)
 elapsed: toolchain-parity 1s
 target: toolchain-parity exit=0
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 25 planned target(s) all exit=0, ties commit 5dbee40, 223 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/35402517469 attempt=1 sha=5dbee404d0f220409c96890d9af5e33e12c16c9a
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 25 planned target(s) all exit=0, ties commit 5dbee40, 226 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/35402517469 attempt=1 sha=5dbee404d0f220409c96890d9af5e33e12c16c9a
 elapsed: ci-witness 0s
 target: ci-witness exit=0
-evidence: [mint-decide] check OK: mint-reachability MINT REQUIRED — tier full (e2e-full): 1 of 3 changed path(s) reach the appliance: deployment/docker-compose.yml (since GATE-RUN.e2e-full.txt: identuum-ui 4342b37, identuum-idp-oss 4bb9375)
+evidence: [mint-decide] check OK: mint-reachability MINT REQUIRED — GATE-RUN.e2e-full.txt is not green: a red record is not a mint
 evidence: [mint-decide] check OK: mint-decide report recorded (make exit 2); only SKIPPABLE permits a witness
 elapsed: mint-decide 1s
 target: mint-decide exit=0
-evidence: [witness-mint-test] check OK: mint-reachability MINT SATISFIED by GATE-RUN.e2e-full.txt (identuum-ui 3f4f25de1879b8c3ac81f35041f1b410ef0fd240, identuum-idp-oss cb129aaa047a80dcb8ef2111d0bc3fa0775a359a) — tier none: all 2 changed path(s) are declared no-reach: GATE-RUN.txt [GATE-RUN*.txt]; identuum-ui/GATE-RUN.e2e-full.txt [GATE-RUN*.txt]
+evidence: [witness-mint-test] check OK: mint-reachability MINT SATISFIED by GATE-RUN.e2e-full.txt (identuum-ui a880aba71155bdb68e6a6334a11745085ce922d3, identuum-idp-oss 74d5e818c6980e4e1d397a972e05826192aeaeb8) — tier none: all 2 changed path(s) are declared no-reach: GATE-RUN.txt [GATE-RUN*.txt]; identuum-ui/GATE-RUN.e2e-full.txt [GATE-RUN*.txt]
 evidence: [witness-mint-test] gate-witness OK: 'fixture' green on the tree it claims (1 targets)
-evidence: [witness-mint-test] check OK: mint-reachability MINT REQUIRED — tier full (e2e-full): 2 of 4 changed path(s) reach the appliance: Makefile, witness-mint-check (since GATE-RUN.e2e-full.txt: identuum-ui 3f4f25de1879b8c3ac81f35041f1b410ef0fd240, identuum-idp-oss cb129aaa047a80dcb8ef2111d0bc3fa0775a359a)
+evidence: [witness-mint-test] check OK: mint-reachability MINT REQUIRED — tier full (e2e-full): 2 of 4 changed path(s) reach the appliance: Makefile, witness-mint-check (since GATE-RUN.e2e-full.txt: identuum-ui a880aba71155bdb68e6a6334a11745085ce922d3, identuum-idp-oss 74d5e818c6980e4e1d397a972e05826192aeaeb8)
 evidence: [witness-mint-test] SELFTEST OK: mint debt is recorded without failing verify and refuses every witness attempt
-elapsed: witness-mint-test 5s
+elapsed: witness-mint-test 4s
 target: witness-mint-test exit=0
 evidence: [openapi-check] go packages ok: 1
 elapsed: openapi-check 1s
 target: openapi-check exit=0
 elapsed: repo-green 13s
 target: repo-green exit=0
-elapsed: tracked-binary-check 6s
+elapsed: tracked-binary-check 7s
 target: tracked-binary-check exit=0
-evidence: [ui-vendor-check] check OK: ui-vendor-check the embedded export matches its manifest (bf41513457ab23b76e55159a8e0f7f05ec52804dd26e392ccda16e38f83f7000)
+evidence: [ui-vendor-check] check OK: ui-vendor-check the embedded export matches its manifest (fa82552b109f5677ae5236113670996d3ed60e96be166cd1eae68172b6659639)
 evidence: [ui-vendor-check] go packages ok: 1
-elapsed: ui-vendor-check 1s
+elapsed: ui-vendor-check 0s
 target: ui-vendor-check exit=0
-elapsed: credential-transparency 0s
+elapsed: credential-transparency 1s
 target: credential-transparency exit=0
 evidence: [workflow-yaml] check OK: workflow-yaml 3 workflow file(s) parse (yq v4.54.1)
 elapsed: workflow-yaml 0s
@@ -49,9 +49,9 @@ evidence: [workflow-yaml-parity] check OK: workflow-yaml-parity block md5 d63f3f
 elapsed: workflow-yaml-parity 0s
 target: workflow-yaml-parity exit=0
 evidence: [rulefloor-check] check OK: 257 rows (257 armed), FLOOR 257, RED-PROOFS 257 (measured 257)
-elapsed: rulefloor-check 38s
+elapsed: rulefloor-check 36s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=571c351f42c1fe8a08429c515317ba0d9bcbf97d status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=30d69a3971969b46ad9b5a8dad64d21c94b8a488ba27abdf3730bb604cff2c50
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=f80f8e6f7fb7ee89f4f27ba60b273f6f6fcb9cd9 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=1a85d7ee7412acc56be976ca573fb575ed5df63b84eaa8d481b6f5ef911b91b5
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
@@ -59,7 +59,7 @@ target: image-base-check exit=0
 evidence: [api-surface] check OK: api-surface — pkg/ holds exactly {features licenseprovider oidc pkce totp uiserve webauthn} (P-061)
 elapsed: api-surface 0s
 target: api-surface exit=0
-elapsed: vet-integration 0s
+elapsed: vet-integration 1s
 target: vet-integration exit=0
 elapsed: doccomment-check 0s
 target: doccomment-check exit=0
@@ -85,21 +85,21 @@ elapsed: integration-inventory 1s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 5s
+elapsed: gograph-build 6s
 target: gograph-build exit=0
-elapsed: gograph-boundaries 1s
+elapsed: gograph-boundaries 0s
 target: gograph-boundaries exit=0
 elapsed: go-mod-tidy-diff 0s
 target: go-mod-tidy-diff exit=0
-elapsed: staticcheck 0s
+elapsed: staticcheck 1s
 target: staticcheck exit=0
 elapsed: govulncheck 6s
 target: govulncheck exit=0
-evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0 — subject directory:identuum-idp-oss; config applied (3 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s)); re-check: 1 declared ignore(s), none lapsed on 2026-09-29; coverage: inventory 84 component(s) at 4 location(s), none under an ignored path (12 ignored path(s) read from git)
+evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0 — subject directory:identuum-idp-oss; config applied (3 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s)); re-check: 1 declared ignore(s), none lapsed on 2026-09-30; coverage: inventory 84 component(s) at 4 location(s), none under an ignored path (12 ignored path(s) read from git)
 elapsed: grype-scan 2s
 target: grype-scan exit=0
 elapsed: wiki-fresh 0s
 target: wiki-fresh exit=0
-finished: 2026-09-29T22:47:07Z
-tree: sha256=fc3dd31fa7abcdac1bf6a23117cd2d7d63396ef9bb30a183ad898916fad5e6e0
+finished: 2026-09-30T07:00:22Z
+tree: sha256=419674410d86959f6ca677fbc114f62c1f294b4e9dcab71bda5c14a30b3830e7
 result: green
