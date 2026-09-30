@@ -9,9 +9,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## `v0.8.1`
 
-A patch: identuum-ui `v0.5.1` embedded (`4e4a637`, tree digest
-`fa82552b…659639`). Delta `v0.8.0..` (`git rev-list --count`, measured at
-`82681e4`, before this notes commit): 8 commits. No migration; no route,
+A patch: identuum-ui `v0.5.2` embedded (`bbd6578`, tree digest
+`fa82552b…659639`; identuum-ui `v0.5.1` was tagged and never published).
+Delta `v0.8.0..` (`git rev-list --count`, measured at `fdb9357`, before
+this notes commit): 14 commits. No migration; no route,
 field or response shape changed. Notes: `docs/releases/v0.8.1.md`.
 
 ### Fixed
