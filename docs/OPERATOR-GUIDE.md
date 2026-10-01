@@ -256,6 +256,44 @@ POST /api/v1/organizations/<org-id>/resend-activation
 
 The response has the same shape, link included.
 
+## Hand over an organization with a claim link
+
+An organization that is active but has **no administrator** (one created
+without an admin email, or one whose administrators are gone) can be handed
+over with a **claim link**: whoever opens it sets a password and becomes the
+organization's administrator, enrolling an authenticator at their first
+sign-in. Only a site administrator issues one, and only while the
+organization is active with no active administrator; otherwise the answer is
+`409 organization_not_claimable`.
+
+```
+POST /api/v1/organizations/<org-id>/claim      {"email": "owner@example.com"}   (email optional)
+201 {"claim_url": "...", "expires_at": "...", "email_bound": true}
+```
+
+- **The link is shown once**, in this response. It works once and expires
+  after 48 hours; three refused attempts (a password the policy rejects or,
+  for a bound link, another email) retire it.
+- **Email modes.** With an email the link is bound: only that address can
+  claim it, and it is also mailed when email delivery (SMTP) is configured —
+  a failed mail does not fail the issue, you still have the link. Without an
+  email any address can claim it, and you hand it over yourself.
+- **No UI address, no link.** When `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` is not
+  set the IdP cannot build a link and issues nothing:
+  `409 {"error":"claim_url_unavailable", "claim_url_unavailable": "..."}`.
+- **Re-issuing retires the earlier link.** Issue again if a link is lost or
+  expired; every earlier link of that organization stops working at once.
+- **Audit.** `claim.generated` (who issued it, whether it was bound, how many
+  earlier links it retired) and `claim.consumed` (the new administrator);
+  no row or log line carries the token or the link.
+
+**Claim link or Assign administrator?** *Assign administrator* creates the
+administrator's account under the email you type and sends them an
+activation (or invite) for that account. A claim link creates nothing until it
+is redeemed, and the person who redeems it chooses the email (unless you bound
+one) — use it to hand an organization to someone whose address you do not
+manage, or to hand it over in person.
+
 ## Invite a user
 
 An organization admin can add a user **without choosing their password**: the

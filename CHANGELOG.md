@@ -7,6 +7,24 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **A site administrator issues organization claim links** (D-022). New
+  `POST /api/v1/organizations/:id/claim` `{email?}` answers 201
+  `{claim_url, expires_at, email_bound}` once, for an active organization
+  with no active administrator (else 409 `organization_not_claimable`);
+  without `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` it issues nothing (409
+  `claim_url_unavailable`). An email binds the link and it is also mailed
+  when SMTP is configured. A re-issue retires every earlier link of the
+  organization. Redeeming at `/claim` is unchanged on the wire; the new
+  administrator enrols MFA at first sign-in. Issue and redemption are
+  audited (`claim.generated` with the issuer and the retired count,
+  `claim.consumed` with the new administrator); no row carries the token.
+  Endpoint count 148 → 149.
+- **Claim redemption checks the organization at redemption time.** A claim
+  is redeemed only into an active organization that still has no active
+  administrator; otherwise the link is retired and the answer is the same
+  opaque `{"success":false}`. (Before, redemption required an inactive
+  organization, so no link a site administrator could issue was redeemable.)
+
 ## `v0.8.2`
 
 identuum-ui `v0.5.3` embedded (`0630183`, tree digest `f1fd1583…e0e79a`).
