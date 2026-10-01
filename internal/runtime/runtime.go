@@ -1120,7 +1120,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 			Error("INSECURE_DEV_MODE ACTIVE: server-side rate limiting DISABLED (HTTP limiter classes + login lockout). TEST/DEV ONLY — never run production with this flag")
 	}
 	localLoginSvc := service.NewLocalLoginService(report, repos.User, userSessionSvc, mfaVerifier).
-		WithLoginRiskService(loginRiskForMode(loginRiskSvc, insecureDevMode))
+		WithLoginRiskService(loginRiskForMode(loginRiskSvc, insecureDevMode)).
+		WithRegistrationStates(repos.Registration) // D-021, ruling b
 
 	mfaIssuer := "Identuum"
 	mfaEnrollmentSvc := service.NewMFAEnrollmentService(report, service.MFAEnrollmentRepoOptions{
@@ -1334,6 +1335,17 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		Logger:    serviceLogger(), // P3-12 follow-up: zero log sites today, threaded so the derived Logger-field pin holds uniformly
 		Audit:     auditSvc,        // L-2
 	})
+	// D-021: self-registration. Requiring a verified email needs working
+	// mail, so the service is told whether SMTP is configured.
+	var registrationNotifier service.RegistrationNotifier = service.UnconfiguredEmailNotifier{}
+	if smtpNotifier != nil {
+		registrationNotifier = smtpNotifier
+	}
+	registrationSvc := service.NewRegistrationService(service.RegistrationServiceConfig{
+		Repo: repos.Registration, Orgs: repos.Organization, Users: repos.User, Creator: userSvc,
+		Verifier: emailVerificationSvc, Notifier: registrationNotifier, SMTPConfigured: smtpNotifier != nil,
+		Audit: auditSvc, Logger: serviceLogger(),
+	})
 
 	fmt.Fprintln(r.cfg.Stdout,
 		"identuum-idp: serve: db pool ready; JWKS, /api/v1/keys, /api/v1/clients, /api/v1/api-resources, /api/v1/scope-templates, /api/v1/users, /api/v1/organizations (+ org domains), /api/v1/me/roles + RBAC org/user role routes + password-reset / verify-email / activation / claim lifecycle routes wired with OSS service layer")
@@ -1429,6 +1441,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		EmailVerificationService:            emailVerificationSvc,
 		OrganizationActivationService:       orgActivationSvc,
 		ClaimService:                        claimSvc,
+		RegistrationService:                 registrationSvc,
 		OrganizationProtocolSettingsService: orgProtoSettingsSvc,
 		OIDCProviderConfigService:           oidcProviderConfigSvc,
 		OIDCLoginService:                    oidcLoginSvc,

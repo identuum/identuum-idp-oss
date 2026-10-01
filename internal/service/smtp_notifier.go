@@ -48,6 +48,7 @@ const (
 	emailKindPasswordReset = "password_reset"
 	emailKindUserInvite    = "user_invite"
 	emailKindClaim         = "claim"
+	emailKindRegistration  = "registration_notice"
 )
 
 // ErrEmailDeliveryNotConfigured is returned by UnconfiguredEmailNotifier
@@ -84,6 +85,10 @@ func (UnconfiguredEmailNotifier) SendActivationEmail(context.Context, *domain.Us
 }
 
 func (UnconfiguredEmailNotifier) SendClaimEmail(context.Context, string, string, string, time.Time) error {
+	return ErrEmailDeliveryNotConfigured
+}
+
+func (UnconfiguredEmailNotifier) SendRegistrationNoticeEmail(context.Context, string, string) error {
 	return ErrEmailDeliveryNotConfigured
 }
 
@@ -234,6 +239,16 @@ func (s *SMTPNotifier) SendClaimEmail(ctx context.Context, to, organizationName,
 		"This link can be used once and expires at %s.",
 		organizationName, s.linkBaseURL+"/claim?"+params.Encode(), expiresAt.Format(time.RFC1123))
 	return s.sendEmail(ctx, emailKindClaim, to, "Administer "+organizationName, body)
+}
+
+// SendRegistrationNoticeEmail tells an address's owner that someone tried to
+// register it again (D-021): the sign-up answer said nothing, so the owner
+// learns it here. It carries no link and no credential.
+func (s *SMTPNotifier) SendRegistrationNoticeEmail(ctx context.Context, to, organizationName string) error {
+	body := fmt.Sprintf("Someone tried to create an account for %s with this email address.\n\n"+
+		"You already have an account, so nothing was created. If this was you, sign in "+
+		"or reset your password. If it was not, you can ignore this message.", organizationName)
+	return s.sendEmail(ctx, emailKindRegistration, to, "Sign-up attempt for "+organizationName, body)
 }
 
 // SendActivationEmail builds the organization-activation link from

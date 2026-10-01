@@ -555,6 +555,9 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginAccountUnverified):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account_unverified"})
+	case errors.Is(err, service.ErrLoginRegistrationPending):
+		// D-021: a correct password of a self-registrant not yet approved.
+		c.JSON(http.StatusForbidden, gin.H{"error": "registration_pending"})
 	case errors.Is(err, service.ErrLoginInvalidCredentials):
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "user_session.login.failure",

@@ -32,6 +32,9 @@ type UsersHandlerDeps struct {
 	UserService *service.UserService
 	UserRepo    repository.UserRepository
 	Audit       audit.Service
+	// Registrar (D-021) approves a held self-registrant by its
+	// registration_state; nil keeps the legacy banned-hold approval.
+	Registrar Registrar
 	// SessionRevoker is the best-effort seam consulted by the
 	// admin MFA-reset handler so a target whose MFA enrolment is
 	// cleared cannot keep authenticating through a pre-existing

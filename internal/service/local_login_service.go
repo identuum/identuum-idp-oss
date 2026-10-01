@@ -26,6 +26,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
@@ -51,6 +53,22 @@ type LocalLoginService struct {
 	sessions *UserSessionService
 	risk     *LoginRiskService
 	auditSvc audit.Service
+	// registrations reads a self-registrant's state (D-021, ruling b); nil
+	// leaves every user on today's gate.
+	registrations loginRegistrationStates
+}
+
+// loginRegistrationStates is the narrow seam of the self-registration gate:
+// a user's registration state ("" when not self-registered) and whether its
+// organization requires a verified email.
+type loginRegistrationStates interface {
+	UserState(ctx context.Context, userID uuid.UUID) (state string, verifyEmail bool, err error)
+}
+
+// WithRegistrationStates composes the self-registration gate (D-021).
+func (s *LocalLoginService) WithRegistrationStates(r loginRegistrationStates) *LocalLoginService {
+	s.registrations = r
+	return s
 }
 
 // WithLoginRiskService composes the rate-limit / lockout helper.
@@ -137,6 +155,9 @@ var (
 	ErrLoginMFARequired           = errors.New("service: login mfa required")
 	ErrLoginAccountUnverified     = errors.New("service: login account unverified")
 	ErrLoginMFAEnrollmentRequired = errors.New("service: login mfa enrollment required")
+	// ErrLoginRegistrationPending → 403 registration_pending: a correct
+	// password of a self-registrant an org_admin has not approved (D-021).
+	ErrLoginRegistrationPending = errors.New("service: login registration pending approval")
 )
 
 // orgMFAPolicyRequired is the canonical string value the OSS
@@ -246,7 +267,26 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 		s.recordLoginRisk(ctx, email, ip, LoginRiskPurposePassword, false)
 		return nil, ErrLoginInvalidCredentials
 	}
-	if !user.EmailVerified {
+	// ── Self-registration gate (D-021, ruling b) ──────────────────────
+	//
+	// Only an org_user can be a self-registrant (D-008). One held for
+	// approval is refused; an approved or unheld one may sign in unverified
+	// only while its organization does not require a verified email (its
+	// tokens then carry email_verified=false). Every other user keeps the
+	// unverified refusal exactly as it was. A state that cannot be read
+	// fails closed onto that refusal.
+	selfRegistered := false
+	if s.registrations != nil && user.Role == domain.RoleOrgUser {
+		state, verifyEmail, err := s.registrations.UserState(ctx, user.ID)
+		switch {
+		case err != nil:
+		case state == domain.RegistrationStatePendingApproval:
+			return nil, ErrLoginRegistrationPending
+		case state == domain.RegistrationStateActive && !verifyEmail:
+			selfRegistered = true
+		}
+	}
+	if !user.EmailVerified && !selfRegistered {
 		return nil, ErrLoginAccountUnverified
 	}
 

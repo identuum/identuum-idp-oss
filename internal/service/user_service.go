@@ -60,6 +60,9 @@ type CreateUserOptions struct {
 	// be changed at first sign-in. nil ⇒ true, the default; the creator
 	// may send false.
 	MustChangePassword *bool
+	// Unverified (D-021): a self-registrant's email is vouched for by no
+	// one, so the account starts unverified. Every other creator vouches.
+	Unverified bool
 }
 
 // MustChange resolves MustChangePassword (nil ⇒ true, D-017's default).
@@ -178,7 +181,7 @@ func (s *UserService) Create(ctx context.Context, opts CreateUserOptions) (*doma
 		// D-017: the admin who set the password vouches for the account —
 		// it is verified and active at once, with no mail. By default the
 		// password must be changed at first sign-in.
-		EmailVerified:          true,
+		EmailVerified:          !opts.Unverified,
 		RequiresPasswordChange: opts.MustChange(),
 		CreatedAt:              now,
 		UpdatedAt:              now,

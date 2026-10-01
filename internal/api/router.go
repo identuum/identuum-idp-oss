@@ -432,6 +432,8 @@ type OSSRouterDeps struct {
 	EmailVerificationService      *service.EmailVerificationService
 	OrganizationActivationService *service.OrganizationActivationService
 	ClaimService                  *service.ClaimService
+	// RegistrationService is self-registration (D-021); nil mounts nothing.
+	RegistrationService *service.RegistrationService
 
 	// EmailDeliveryConfigured reports whether the runtime resolved an SMTP
 	// notifier (internal/runtime/smtp_config.go resolveEmailNotifier returned
@@ -695,6 +697,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	mountServiceAccountClientBundle(router, resolved)
 	mountAgentCommunicationAuthorizations(router, resolved)
 	mountAccountLifecycle(router, resolved)
+	mountRegistration(router, resolved)
 	mountWebAuthn(router, resolved)
 	mountSessions(router, resolved)
 	mountAuthSessions(router, resolved)
@@ -1012,6 +1015,7 @@ func mountUserSurface(router gin.IRouter, resolved OSSRouterDeps) {
 		UserRepo:      resolved.UserRepo,
 		Audit:         resolved.Audit,
 		StartupReport: resolved.StartupReport,
+		Registrar:     registrarOf(resolved),
 		// Target-org password policy for the admin user paths
 		// (THE-TWO-DEBTS); nil-safe — unwired keeps the strict defaults.
 		PolicyOrgs: resolved.OrganizationRepo,
@@ -1255,6 +1259,28 @@ func mountAccountLifecycle(router gin.IRouter, resolved OSSRouterDeps) {
 		// login-class limit, per IP.
 		UserInvite:        resolved.UserService,
 		UserInviteLimiter: mw.NewRateLimitMiddleware(resolved.RateLimitConfig.LoginLimit, "user-invite"),
+	})
+}
+
+// registrarOf returns the registration service as the handlers' seam, nil
+// when it is not wired (an untyped nil, never a typed-nil interface).
+func registrarOf(resolved OSSRouterDeps) handlers.Registrar {
+	if resolved.RegistrationService == nil {
+		return nil
+	}
+	return resolved.RegistrationService
+}
+
+// mountRegistration mounts self-registration (D-021). The public POST is
+// limited per IP (an IPv6 client by its /64, D-020) and per organization,
+// both on the register class.
+func mountRegistration(router gin.IRouter, resolved OSSRouterDeps) {
+	handlers.RegisterRegistrationRoutes(router, handlers.RegistrationHandlerDeps{
+		Registrar: registrarOf(resolved),
+		Limiters: []gin.HandlerFunc{
+			mw.NewRateLimitMiddleware(resolved.RateLimitConfig.RegisterLimit, "self-registration"),
+			mw.NewRateLimitMiddlewareWithKeyFn(resolved.RateLimitConfig.RegisterLimit, "self-registration-org", handlers.RegistrationOrgKey),
+		},
 	})
 }
 

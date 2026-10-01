@@ -57,6 +57,8 @@ type Repositories struct {
 	// their authorization (agent_communication_tokens, migration 0039) so a
 	// revocation can revoke them at once (AYGHU-4).
 	AgentCommunicationToken repository.AgentCommunicationTokenRepository
+	// Registration is the self-registration state of migration 0043 (D-021).
+	Registration repository.RegistrationRepository
 	// Audit is the OSS plain persistent audit log store (L-2). Concrete
 	// type (not an interface) so the runtime can SetRetention on it after
 	// resolving the env override; it satisfies both the persistent
@@ -105,6 +107,7 @@ func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 		MFAPendingLoginSession:          NewPgxMFAPendingLoginSessionRepository(db),
 		WebAuthnCredential:              NewPgxWebAuthnCredentialRepository(db),
 		EmailVerification:               NewPgxEmailVerificationRepository(db),
+		Registration:                    NewPgRegistrationRepository(db),
 		UserProfile:                     NewPgxUserProfileRepository(db),
 		AgentCommunicationAuthorization: NewPgxAgentCommunicationAuthorizationRepository(db),
 		DPoPProofReplay:                 NewPgxDPoPProofReplayRepository(db),

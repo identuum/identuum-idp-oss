@@ -51,16 +51,23 @@ func HandleApproveUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		actor, _ := mw.PrincipalFromContext(c)
-		updated, err := deps.UserService.ApproveRegistrationForActor(c.Request.Context(), actor, id)
+		var updated *domain.User
+		if deps.Registrar != nil {
+			// D-021: a held self-registrant is registration_state
+			// pending_approval (migration 0043), approved by its org_admin.
+			updated, err = deps.Registrar.Approve(c.Request.Context(), actor, id)
+		} else {
+			updated, err = deps.UserService.ApproveRegistrationForActor(c.Request.Context(), actor, id)
+		}
 		if err != nil {
 			switch {
 			case errors.Is(err, domain.ErrUnauthorized):
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			case errors.Is(err, domain.ErrForbidden):
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-			case errors.Is(err, service.ErrUserNotFound()):
+			case errors.Is(err, service.ErrUserNotFound()), errors.Is(err, domain.ErrUserNotFound):
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
-			case errors.Is(err, service.ErrUserNotPendingApproval()):
+			case errors.Is(err, service.ErrUserNotPendingApproval()), errors.Is(err, service.ErrRegistrationNotPending):
 				c.JSON(http.StatusConflict, gin.H{"error": "user is not pending registration approval"})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})

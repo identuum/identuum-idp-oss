@@ -28,6 +28,7 @@ GET /api/v1/auth/idp/:id/login
 GET /api/v1/auth/invite/:token
 GET /api/v1/auth/organization-lookup
 GET /api/v1/auth/organizations/activate/:token
+GET /api/v1/auth/register/:org_slug
 GET /api/v1/auth/step-up
 GET /api/v1/auth/step-up/passkey
 GET /api/v1/auth/verify-email
@@ -50,6 +51,8 @@ GET /api/v1/organizations/:id/admin-recovery-candidates
 GET /api/v1/organizations/:id/domains
 GET /api/v1/organizations/:id/identity-provider
 GET /api/v1/organizations/:id/protocol-settings
+GET /api/v1/organizations/:id/registration
+GET /api/v1/organizations/:id/registrations
 GET /api/v1/organizations/:id/roles
 GET /api/v1/organizations/:id/roles/:role_id
 GET /api/v1/organizations/:id/service-accounts
@@ -60,6 +63,7 @@ GET /api/v1/scope-templates
 GET /api/v1/scope-templates/:id
 GET /api/v1/service-accounts/:id
 GET /api/v1/sessions
+GET /api/v1/settings/self-registration
 GET /api/v1/users
 GET /api/v1/users/:id
 GET /api/v1/users/:id/roles
@@ -89,6 +93,7 @@ POST /api/v1/auth/logout
 POST /api/v1/auth/organizations/activate
 POST /api/v1/auth/password/reset
 POST /api/v1/auth/password/reset-request
+POST /api/v1/auth/register/:org_slug
 POST /api/v1/auth/resend-verification
 POST /api/v1/auth/session/refresh
 POST /api/v1/auth/step-up
@@ -132,6 +137,7 @@ POST /api/v1/users
 POST /api/v1/users/:id/approve
 POST /api/v1/users/:id/invite
 POST /api/v1/users/:id/recovery/reset-mfa
+POST /api/v1/users/:id/reject
 POST /api/v1/users/:id/restore
 POST /api/v1/users/:id/roles
 POST /api/v1/users/bulk
@@ -142,8 +148,10 @@ PUT /api/v1/clients/:id
 PUT /api/v1/organizations/:id
 PUT /api/v1/organizations/:id/identity-provider
 PUT /api/v1/organizations/:id/protocol-settings
+PUT /api/v1/organizations/:id/registration
 PUT /api/v1/organizations/:id/roles/:role_id
 PUT /api/v1/profile
 PUT /api/v1/scope-templates/:id
 PUT /api/v1/service-accounts/:id
+PUT /api/v1/settings/self-registration
 PUT /api/v1/users/:id

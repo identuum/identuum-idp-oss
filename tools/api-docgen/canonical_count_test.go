@@ -96,7 +96,11 @@ import (
 // password change of a sign-in with an admin-set password (OSS-FIN-1, D-017).
 // 148 → 149: POST /api/v1/organizations/:id/claim, a site_admin issues an
 // organization claim link (OSS-CLAIM, D-022).
-const CanonicalEndpointCount = 149
+// 149 → 157: self-registration (OSS-REGISTER-API, D-021) — GET + POST
+// /api/v1/auth/register/:org_slug, GET + PUT /api/v1/settings/self-registration,
+// GET + PUT /api/v1/organizations/:id/registration, GET
+// /api/v1/organizations/:id/registrations, POST /api/v1/users/:id/reject.
+const CanonicalEndpointCount = 157
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

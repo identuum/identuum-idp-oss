@@ -118,6 +118,17 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "invite branch: no password is set at invite; RedeemInvite reads the organization's complexity policy when the invitee sets one.",
 	},
+	// D-021: Unverified marks a self-registrant, whose email no one vouches
+	// for. An admin who creates a user vouches for it (D-017), so the admin
+	// create paths never set it; only RegistrationService.Register does.
+	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.Unverified": {
+		State: "absent",
+		Why:   "admin create (D-017): the admin vouches for the account, which is verified at once; only self-registration (D-021) creates an unverified user.",
+	},
+	"internal/handlers/user_bulk_create.go:HandleBulkCreateUsers.CreateUserOptions.Unverified": {
+		State: "absent",
+		Why:   "admin bulk create (D-017): the admin vouches for every account; only self-registration (D-021) creates an unverified user.",
+	},
 	"internal/handlers/users.go:HandleCreateUser.CreateUserOptions.MustChangePassword": {
 		State: "bound-to-refuse",
 		Why:   "invite branch (D-016): there is no admin-set password to change — the invitee chooses their own at redeem; D-017's must_change_password applies to the password create literal, which feeds it.",
