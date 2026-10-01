@@ -1329,8 +1329,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		OrgsAdmin: repos.Organization.(*postgres.PgxOrganizationRepository),
 		Users:     repos.User,
 		Exists:    repos.User,
-		Admins:    repos.User,    // D-022: the first-admin predicate gates issue and consume
-		Notifier:  claimNotifier, // D-022: a bound link is also mailed when SMTP is set
+		Admins:    repos.User,      // D-022: the first-admin predicate gates issue and consume
+		Notifier:  claimNotifier,   // D-022: a bound link is also mailed when SMTP is set
 		Logger:    serviceLogger(), // P3-12 follow-up: zero log sites today, threaded so the derived Logger-field pin holds uniformly
 		Audit:     auditSvc,        // L-2
 	})

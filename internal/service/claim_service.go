@@ -144,7 +144,7 @@ type ClaimService struct {
 	// counter fails closed (nothing is claimable).
 	admins   claimAdminCounter
 	notifier ClaimNotifier
-	ttl     time.Duration
+	ttl      time.Duration
 
 	minPasswordLength int
 
