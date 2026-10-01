@@ -269,7 +269,7 @@ endpoints:
     path: "/api/v1/auth/login"
     handler: "HandleLocalLogin"
     registrar: ""
-    summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata."
+    summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
     tier: "oss"
     auth: "public"
     request_schema: ""

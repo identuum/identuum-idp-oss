@@ -7,6 +7,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Sign-in, the password step's MFA next step can answer 200** (opt-in).
+  `POST /api/v1/auth/login` still answers a correct password whose next step
+  is MFA with 401 `mfa_required` / `mfa_enrollment_required` by default. A
+  request carrying `X-Identuum-Login-Step-Status: 200` receives the same body
+  with status 200 — still no session, cookie or token. Every other answer
+  (a wrong password, a locked account, rate limiting) is unchanged with or
+  without the header, and so are the audit rows. The embedded console sends
+  it, so an MFA sign-in no longer logs a browser console error.
+
 ## `v0.8.1`
 
 A patch: identuum-ui `v0.5.2` embedded (`bbd6578`, tree digest

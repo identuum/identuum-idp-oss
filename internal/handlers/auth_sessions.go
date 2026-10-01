@@ -110,10 +110,10 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:surface=auth
 		// docgen:method=POST
 		// docgen:path=/api/v1/auth/login
-		// docgen:summary=Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata.
+		// docgen:summary=Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=Anonymous endpoint — the request body carries the credentials; the handler validates them and rate-limits brute-force attempts. Successful response also sets access_token (and refresh_token when minted) HttpOnly Lax cookies for browser consumption.
+		// docgen:notes=Anonymous endpoint — the request body carries the credentials; the handler validates them and rate-limits brute-force attempts. Successful response also sets access_token (and refresh_token when minted) HttpOnly Lax cookies for browser consumption. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (with the pending session_id, no cookie, no token); a request carrying the header X-Identuum-Login-Step-Status: 200 receives the same body with status 200 instead. Every other answer is unchanged by that header.
 		router.POST("/api/v1/auth/login", HandleLocalLogin(deps))
 	}
 	if deps.UserSession != nil {
@@ -468,6 +468,27 @@ func HandleLocalLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	}
 }
 
+// LoginStepStatusHeader is the password step's explicit opt-in (F5, owner
+// ruling 2026-10-01). When a request carries it with the value
+// LoginStepStatusOK, a correct password whose next step is MFA (mfa_required
+// or mfa_enrollment_required) answers 200 instead of 401, with the same body
+// and still no session, cookie or token, so a browser does not log the
+// expected next step as a failed resource. Every other answer, and the
+// default, are unchanged.
+const (
+	LoginStepStatusHeader = "X-Identuum-Login-Step-Status"
+	LoginStepStatusOK     = "200"
+)
+
+// mfaStepStatus is the status of a next-step-is-MFA answer: 401 unless the
+// request opted in.
+func mfaStepStatus(c *gin.Context) int {
+	if c.GetHeader(LoginStepStatusHeader) == LoginStepStatusOK {
+		return http.StatusOK
+	}
+	return http.StatusUnauthorized
+}
+
 func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, result *service.LoginResult, rememberMe bool) {
 	switch {
 	case errors.Is(err, service.ErrLoginMFARequired):
@@ -482,7 +503,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 		})
-		c.JSON(http.StatusUnauthorized, body)
+		c.JSON(mfaStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginMFAEnrollmentRequired):
 		// Policy-required MFA but the user has not yet enrolled a
 		// TOTP secret. The handler MUST NOT issue access/refresh
@@ -503,7 +524,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 		})
-		c.JSON(http.StatusUnauthorized, body)
+		c.JSON(mfaStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
 		// D-017: an admin-set password was proven; the user must choose
 		// their own first. No session, no token, no cookie — only a

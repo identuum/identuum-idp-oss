@@ -461,13 +461,13 @@ paths:
   "/api/v1/auth/login":
     post:
       operationId: "identuum-idp-oss.auth.local_login"
-      summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata."
+      summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
       tags:
         - "auth"
       security: []
       responses:
         "200":
-          description: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata."
+          description: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/login/mfa":
