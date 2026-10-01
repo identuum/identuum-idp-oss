@@ -308,6 +308,7 @@ both are **off** by default (D-021).
    ```
    PUT /api/v1/settings/self-registration   {"enabled": true}
    ```
+   In the console: **Settings → Self-registration**, *Turn on*.
 2. **The organization's policy** (its organization admin; a site admin cannot
    set a tenant's policy):
    ```
@@ -319,7 +320,15 @@ both are **off** by default (D-021).
    instance_registration_disabled`. `verify_email: true` needs working email
    delivery (SMTP); without it the answer is `400 smtp_not_configured`.
    `email_domains`, when not empty, accepts only those domains.
+   In the console: the organization admin's **Organization settings →
+   Self-registration**. It is read-only, with a note, while the instance
+   switch is off, and its email-verification switch is disabled where email
+   delivery is not configured. Once open it shows the organization's sign-up
+   link, `<console>/register/<org-slug>`, with *Copy*.
 
+The console's sign-up page is `/register/<org-slug>`: a closed and an
+unknown organization both read "Sign-up is not available", and every
+accepted sign-up reads the same message for that organization's settings.
 The sign-up endpoint is per organization, by its slug:
 `GET /api/v1/auth/register/<org-slug>` says whether it is open (and the
 password policy); `POST` the same path `{email, name, password}` signs up.
@@ -341,7 +350,9 @@ password policy); `POST` the same path `{email, name, password}` signs up.
   cannot sign in (`403 registration_pending`) until its organization admin
   approves it: `GET /api/v1/organizations/<org-id>/registrations` lists them,
   `POST /api/v1/users/<id>/approve` lets one in, `POST /api/v1/users/<id>/reject`
-  deletes it.
+  deletes it. In the console they are listed on the organization admin's
+  **Users** page under "Sign-ups waiting for approval", with *Approve* and
+  *Reject* (which asks first).
 - **Limits and audit.** Sign-ups are rate-limited per client IP (an IPv6
   client by its /64) and per organization (`IDENTUUM_IDP_RATE_LIMIT_REGISTER_*`,
   default 10 per hour). Switch changes, sign-ups, refusals, approvals and
