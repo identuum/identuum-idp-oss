@@ -110,14 +110,14 @@ func HandleLoginPasswordChange(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 				body["session_id"] = h
 			}
 			auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result)
-			c.JSON(http.StatusUnauthorized, body)
+			c.JSON(loginStepStatus(c), body)
 		case user.MFAEnabled:
 			body := gin.H{"error": "mfa_required", "mfa_required": true, "mfa_enrollment_required": false}
 			if h := mintPendingMFAHandle(c, deps, result, domain.MFAPendingKindVerify, remember); h != "" {
 				body["session_id"] = h
 			}
 			auditLoginStep(c, deps.Audit, "user_session.login.mfa_required", result)
-			c.JSON(http.StatusUnauthorized, body)
+			c.JSON(loginStepStatus(c), body)
 		default:
 			completeMFALogin(c, deps, &service.MFAEnrollmentCompleteResult{User: user, RememberMe: remember}, "user_session.login.success", false)
 		}

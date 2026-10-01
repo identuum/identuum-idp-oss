@@ -21,6 +21,12 @@ func HandleBrowserSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		}
 		raw, err := c.Cookie("refresh_token")
 		if err != nil || raw == "" {
+			if loginStepOptIn(c) {
+				// OSS-HARDEN item 4: an opted-in refresh with no credential is a
+				// signed-out caller (no session, no cookie).
+				respondSignedOut(c)
+				return
+			}
 			c.JSON(http.StatusUnauthorized, gin.H{"reason": "missing_refresh_credential"})
 			return
 		}

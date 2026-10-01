@@ -110,7 +110,7 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:surface=auth
 		// docgen:method=POST
 		// docgen:path=/api/v1/auth/login
-		// docgen:summary=Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200.
+		// docgen:summary=Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200.
 		// docgen:tier=oss
 		// docgen:auth=public
 		// docgen:notes=Anonymous endpoint — the request body carries the credentials; the handler validates them and rate-limits brute-force attempts. Successful response also sets access_token (and refresh_token when minted) HttpOnly Lax cookies for browser consumption. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (with the pending session_id, no cookie, no token); a request carrying the header X-Identuum-Login-Step-Status: 200 receives the same body with status 200 instead. Every other answer is unchanged by that header.
@@ -198,7 +198,7 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 			// docgen:surface=auth
 			// docgen:method=POST
 			// docgen:path=/api/v1/auth/login/password-change
-			// docgen:summary=Required password change of a sign-in (D-017). Consumes the password_change session_id from /api/v1/auth/login, sets the user's own password (organization policy; must differ from the admin-set one), clears requires_password_change, then continues the sign-in: 401 mfa_enrollment_required or mfa_required with a new session_id when the MFA policy asks, else the full session + Set-Cookie.
+			// docgen:summary=Required password change of a sign-in (D-017). Consumes the password_change session_id from /api/v1/auth/login, sets the user's own password (organization policy; must differ from the admin-set one), clears requires_password_change, then continues the sign-in: 401 mfa_enrollment_required or mfa_required with a new session_id when the MFA policy asks (200 with the same body when the request sends X-Identuum-Login-Step-Status: 200), else the full session + Set-Cookie.
 			// docgen:tier=oss
 			// docgen:auth=session
 			// docgen:notes=Body {session_id, new_password}. 400 weak_password with a displayable message leaves the session_id usable; 401 invalid_session for an unknown, expired, consumed or wrong-kind handle. The change wins once (the UPDATE requires the flag still set). Passwords never appear in any response or audit row.
@@ -325,7 +325,7 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:surface=auth
 		// docgen:method=GET
 		// docgen:path=/api/v1/validate
-		// docgen:summary=Validate the caller's session (access_token cookie or Authorization: Bearer). Returns the authenticated user + role for UI session-guard consumption. 401 on any verification failure.
+		// docgen:summary=Validate the caller's session (access_token cookie or Authorization: Bearer). Returns the authenticated user + role for UI session-guard consumption. 401 on any verification failure; a request that presents no credential and sends X-Identuum-Login-Step-Status: 200 receives 200 {"authenticated":false} instead (no session, no cookie).
 		// docgen:tier=oss
 		// docgen:auth=session|bearer
 		// docgen:notes=Reads access_token cookie first; falls back to Authorization: Bearer. Verifies JWT signature + claims via the OSS RepositoryVerifier, confirms the session exists + is not revoked + is not expired, and confirms the user exists + is not banned + is not deleted. Token values are never echoed in the response.
@@ -468,22 +468,39 @@ func HandleLocalLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 	}
 }
 
-// LoginStepStatusHeader is the password step's explicit opt-in (F5, owner
-// ruling 2026-10-01). When a request carries it with the value
-// LoginStepStatusOK, a correct password whose next step is MFA (mfa_required
-// or mfa_enrollment_required) answers 200 instead of 401, with the same body
-// and still no session, cookie or token, so a browser does not log the
-// expected next step as a failed resource. Every other answer, and the
-// default, are unchanged.
+// LoginStepStatusHeader is the console's explicit opt-in for expected-state
+// answers (F5 and OSS-HARDEN, owner rulings 2026-10-01). When a request
+// carries it with the value LoginStepStatusOK:
+//   - an expected next step answers 200 instead of 401, with the same body and
+//     still no session, cookie or token — the password step's mfa_required,
+//     mfa_enrollment_required and password_change_required, and the MFA
+//     continuation of POST /api/v1/auth/login/password-change;
+//   - a caller who presents NO credential to the session probe
+//     (GET /api/v1/validate) or the browser refresh answers 200
+//     {"authenticated":false} (respondSignedOut).
+//
+// So a browser does not log an expected state as a failed resource. Every
+// other answer, and the default, are unchanged.
 const (
 	LoginStepStatusHeader = "X-Identuum-Login-Step-Status"
 	LoginStepStatusOK     = "200"
 )
 
-// mfaStepStatus is the status of a next-step-is-MFA answer: 401 unless the
-// request opted in.
-func mfaStepStatus(c *gin.Context) int {
-	if c.GetHeader(LoginStepStatusHeader) == LoginStepStatusOK {
+// loginStepOptIn reports whether the request carries the exact opt-in.
+func loginStepOptIn(c *gin.Context) bool {
+	return c.GetHeader(LoginStepStatusHeader) == LoginStepStatusOK
+}
+
+// respondSignedOut is the opted-in answer to a caller with no credential.
+func respondSignedOut(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"authenticated": false})
+}
+
+// loginStepStatus is the status of an expected next-step answer: 401 unless
+// the request opted in.
+func loginStepStatus(c *gin.Context) int {
+	if loginStepOptIn(c) {
 		return http.StatusOK
 	}
 	return http.StatusUnauthorized
@@ -503,7 +520,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 		})
-		c.JSON(mfaStepStatus(c), body)
+		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginMFAEnrollmentRequired):
 		// Policy-required MFA but the user has not yet enrolled a
 		// TOTP secret. The handler MUST NOT issue access/refresh
@@ -524,7 +541,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 		})
-		c.JSON(mfaStepStatus(c), body)
+		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
 		// D-017: an admin-set password was proven; the user must choose
 		// their own first. No session, no token, no cookie — only a
@@ -535,7 +552,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 			body["session_id"] = sessionID
 		}
 		auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result)
-		c.JSON(http.StatusUnauthorized, body)
+		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginAccountUnverified):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account_unverified"})
 	case errors.Is(err, service.ErrLoginInvalidCredentials):
@@ -824,6 +841,12 @@ func HandleValidateSession(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		// devloop load: the same cookie jar validated 200 one call later.
 		token := extractValidateToken(c)
 		if token == "" {
+			if loginStepOptIn(c) {
+				// OSS-HARDEN item 4: an opted-in probe with no credential is a
+				// signed-out caller, not a failure (no session, no cookie).
+				respondSignedOut(c)
+				return
+			}
 			mw.RespondUnauthenticatedReason(c, mw.ReasonMissingCredential)
 			return
 		}

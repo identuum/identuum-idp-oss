@@ -461,13 +461,13 @@ paths:
   "/api/v1/auth/login":
     post:
       operationId: "identuum-idp-oss.auth.local_login"
-      summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
+      summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
       tags:
         - "auth"
       security: []
       responses:
         "200":
-          description: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
+          description: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/login/mfa":
@@ -512,14 +512,14 @@ paths:
   "/api/v1/auth/login/password-change":
     post:
       operationId: "identuum-idp-oss.auth.login_password_change"
-      summary: "Required password change of a sign-in (D-017). Consumes the password_change session_id from /api/v1/auth/login, sets the user's own password (organization policy; must differ from the admin-set one), clears requires_password_change, then continues the sign-in: 401 mfa_enrollment_required or mfa_required with a new session_id when the MFA policy asks, else the full session + Set-Cookie."
+      summary: "Required password change of a sign-in (D-017). Consumes the password_change session_id from /api/v1/auth/login, sets the user's own password (organization policy; must differ from the admin-set one), clears requires_password_change, then continues the sign-in: 401 mfa_enrollment_required or mfa_required with a new session_id when the MFA policy asks (200 with the same body when the request sends X-Identuum-Login-Step-Status: 200), else the full session + Set-Cookie."
       tags:
         - "auth"
       security:
         - cookieAuth: []
       responses:
         "200":
-          description: "Required password change of a sign-in (D-017). Consumes the password_change session_id from /api/v1/auth/login, sets the user's own password (organization policy; must differ from the admin-set one), clears requires_password_change, then continues the sign-in: 401 mfa_enrollment_required or mfa_required with a new session_id when the MFA policy asks, else the full session + Set-Cookie."
+          description: "Required password change of a sign-in (D-017). Consumes the password_change session_id from /api/v1/auth/login, sets the user's own password (organization policy; must differ from the admin-set one), clears requires_password_change, then continues the sign-in: 401 mfa_enrollment_required or mfa_required with a new session_id when the MFA policy asks (200 with the same body when the request sends X-Identuum-Login-Step-Status: 200), else the full session + Set-Cookie."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/login/webauthn/begin":
@@ -2401,7 +2401,7 @@ paths:
   "/api/v1/validate":
     get:
       operationId: "identuum-idp-oss.auth.validate_session"
-      summary: "Validate the caller's session (access_token cookie or Authorization: Bearer). Returns the authenticated user + role for UI session-guard consumption. 401 on any verification failure."
+      summary: "Validate the caller's session (access_token cookie or Authorization: Bearer). Returns the authenticated user + role for UI session-guard consumption. 401 on any verification failure; a request that presents no credential and sends X-Identuum-Login-Step-Status: 200 receives 200 {\"authenticated\":false} instead (no session, no cookie)."
       tags:
         - "auth"
       security:
@@ -2409,7 +2409,7 @@ paths:
         - bearerAuth: []
       responses:
         "200":
-          description: "Validate the caller's session (access_token cookie or Authorization: Bearer). Returns the authenticated user + role for UI session-guard consumption. 401 on any verification failure."
+          description: "Validate the caller's session (access_token cookie or Authorization: Bearer). Returns the authenticated user + role for UI session-guard consumption. 401 on any verification failure; a request that presents no credential and sends X-Identuum-Login-Step-Status: 200 receives 200 {\"authenticated\":false} instead (no session, no cookie)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/webauthn/credentials":
