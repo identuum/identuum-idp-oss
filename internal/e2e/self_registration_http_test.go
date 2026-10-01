@@ -123,6 +123,21 @@ func TestE2E_OSS_SelfRegistration(t *testing.T) {
 	if _, _, _, n := w.regState(reg); n != 1 {
 		t.Fatalf("existing address created a second row")
 	}
+	// OSS-REGISTER-UI item 1: no cache sits in front of the gate (the
+	// binary applies no org cache wrapper, P3-11; the policy is read from
+	// Postgres), so closing takes effect on the very next POST.
+	w.orgPolicy(w.bearers["adminA"], w.orgA.ID, strings.Replace(policy, `"allow_public_registration":true`, `"allow_public_registration":false`, 1))
+	afterClose := email("after-close")
+	if st, b := w.register(slug, afterClose); st != http.StatusAccepted || b != closedPost {
+		t.Fatalf("POST right after closing = %d %s", st, b)
+	}
+	if _, _, _, n := w.regState(afterClose); n != 0 {
+		t.Fatalf("the very next POST after closing created an account")
+	}
+	if _, b := w.raw("", http.MethodGet, "/api/v1/auth/register/"+slug, ""); b != closed {
+		t.Fatalf("GET right after closing = %s", b)
+	}
+	w.orgPolicy(w.bearers["adminA"], w.orgA.ID, policy)
 
 	// Item 4: verification on: refused as today; resend works.
 	if st, e := w.login(reg); st != http.StatusUnauthorized || e != "account_unverified" {
