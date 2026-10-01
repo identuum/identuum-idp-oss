@@ -302,14 +302,16 @@ func (s *RegistrationService) ListPending(ctx context.Context, actor *domain.Pri
 	return s.cfg.Repo.ListPending(ctx, orgID)
 }
 
-// pendingOf loads a self-registrant pending approval in the actor's org;
-// anything else is not found (G10: no cross-tenant oracle).
+// pendingOf loads a self-registrant pending approval: any organization's for
+// a site_admin (the approval authority the route always had), the actor's
+// own for an org_admin; anything else is not found (G10: no cross-tenant
+// oracle).
 func (s *RegistrationService) pendingOf(ctx context.Context, actor *domain.Principal, userID uuid.UUID) (*domain.User, error) {
-	if actor == nil || !actor.IsOrgAdminOnly() {
+	if actor == nil || (!actor.IsOrgAdminOnly() && !actor.IsSiteAdmin()) {
 		return nil, domain.ErrForbidden
 	}
 	u, err := s.cfg.Users.GetByID(ctx, userID)
-	if err != nil || u == nil || u.OrganizationID != actor.OrganizationID {
+	if err != nil || u == nil || (!actor.IsSiteAdmin() && u.OrganizationID != actor.OrganizationID) {
 		return nil, domain.ErrUserNotFound
 	}
 	state, _, err := s.cfg.Repo.UserState(ctx, u.ID)
