@@ -7,6 +7,21 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **IPv4 is the default everywhere; IPv6 is supported and opt-in.** The
+  default listen `0.0.0.0:7113` (and an empty host, `:7113`) is now IPv4
+  only. `[::]:7113` listens on IPv6 (dual-stack where the OS allows); an
+  IPv6 literal listens on that address only. The same rule applies to the
+  metrics listener (default unchanged, `127.0.0.1:9090`). The healthcheck
+  probes `[::1]` for `[::]`. The compose file's `IDENTUUM_IDP_BIND_ADDRESS`
+  takes an IPv6 address (`'[::]'`); its header shows how to publish both
+  families. Rate limits and the sign-in lockout count an IPv6 client by its
+  `/64` (IPv4 unchanged), so rotating inside a `/64` no longer reaches a
+  fresh limit; `IDENTUUM_IDP_TRUSTED_PROXIES` takes IPv6 CIDRs.
+  **Upgrading:** the bare binary's default listen was dual-stack in `v0.8.1`
+  — `0.0.0.0:7113` accepted IPv6 connections too (measured: a `[::1]` dial
+  answered). It is IPv4 only now; to keep IPv6, set
+  `IDENTUUM_IDP_LISTEN='[::]:7113'` (or `--listen '[::]:7113'`). The compose
+  install is unchanged: it already published IPv4 only.
 - **Sign-in, the password step's MFA next step can answer 200** (opt-in).
   `POST /api/v1/auth/login` still answers a correct password whose next step
   is MFA with 401 `mfa_required` / `mfa_enrollment_required` by default. A

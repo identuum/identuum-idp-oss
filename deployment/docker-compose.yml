@@ -49,6 +49,24 @@
 # 0.0.0.0 no longer publishes the [::] (IPv6) listener a bare "7113:7113"
 # mapping did.
 #
+# IPv6 is supported and opt-in (IPv4 stays the default). Give an IPv6 host
+# address, bracketed (the bare form renders the same):
+#
+#   IDENTUUM_IDP_BIND_ADDRESS='[::]' docker compose up -d     # every IPv6 interface
+#   IDENTUUM_IDP_BIND_ADDRESS='[::1]' docker compose up -d    # IPv6 loopback only
+#
+# (`docker compose config` renders the first as host_ip: '::'.) One variable
+# publishes ONE family. To publish both, keep the default and add a second
+# mapping in an override file next to this one, docker-compose.override.yml:
+#
+#   services:
+#     identuum-idp:
+#       ports:
+#         - "[::]:7113:7113"
+#
+# The container itself keeps listening on IPv4; Docker forwards the published
+# IPv6 port to it.
+#
 # WARNING: the containers and volumes below carry fixed names
 # (container_name:, volume name:). Every install of this file on one host
 # shares them, and `docker compose down -v` under ANY project name deletes

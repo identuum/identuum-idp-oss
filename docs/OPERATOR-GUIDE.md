@@ -35,6 +35,32 @@ answers a ping) both answer 200. With PostgreSQL down the container turns
 `unhealthy` within about a minute while `/healthz` stays 200; it turns
 `healthy` again once the database is back.
 
+## Listen addresses: IPv4 by default, IPv6 opt-in
+
+IPv4 is the default everywhere; IPv6 is supported and opt-in.
+
+- **The binary** listens on `IDENTUUM_IDP_LISTEN` (or `--listen`), default
+  `0.0.0.0:7113`: every IPv4 interface and **no IPv6**. An empty host
+  (`:7113`) is IPv4 too. `[::]:7113` listens on IPv6 — and on IPv4 as well
+  where the operating system gives a dual-stack socket (Linux does by
+  default). An IPv6 literal (`[::1]:7113`, `[2001:db8::5]:7113`) listens on
+  that address only. The metrics listener (`IDENTUUM_IDP_METRICS_ADDR`,
+  default `127.0.0.1:9090`) follows the same rule. The healthcheck probes
+  `127.0.0.1` for an IPv4 wildcard and `[::1]` for `[::]`.
+- **The compose file** publishes `IDENTUUM_IDP_BIND_ADDRESS`, default
+  `0.0.0.0`. `IDENTUUM_IDP_BIND_ADDRESS='[::]'` publishes on IPv6 instead;
+  one variable publishes one family. To publish both, keep the default and
+  add `"[::]:7113:7113"` in an override file (the compose file's header shows
+  it). Inside the container the IdP keeps listening on IPv4.
+- **Behind a reverse proxy**, list the proxy in `IDENTUUM_IDP_TRUSTED_PROXIES`
+  — IPv4 and IPv6 addresses or CIDRs, comma-separated, e.g.
+  `10.0.0.0/8,2001:db8:1::/48`. Only a listed proxy's `X-Forwarded-For` is
+  honoured; unset, none is.
+- **Over IPv6 nothing degrades.** The audit log and sessions record the IPv6
+  address. Rate limits and the sign-in lockout count an IPv6 client by its
+  `/64`, so rotating addresses inside one `/64` does not escape a limit; an
+  IPv4 client counts by its address, as before.
+
 ## Where data lives
 
 - **PostgreSQL** (volume `identuum-idp-oss-postgres-data`): every

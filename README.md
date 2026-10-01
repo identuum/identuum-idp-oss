@@ -103,6 +103,14 @@ interface). For a loopback-only install:
 IDENTUUM_IDP_BIND_ADDRESS=127.0.0.1 docker compose up -d
 ```
 
+IPv4 is the default everywhere; IPv6 is supported and opt-in. Publish on
+IPv6 with an IPv6 host address (`IDENTUUM_IDP_BIND_ADDRESS='[::]'`, or
+`'[::1]'` for IPv6 loopback). One variable publishes one family; to publish
+both, add a second mapping in an override file — the compose file's header
+shows it. The bare binary follows the same rule: `--listen 0.0.0.0:7113`
+(the default) is IPv4 only, `--listen '[::]:7113'` listens on IPv6 (and IPv4
+where the OS gives a dual-stack socket).
+
 Upgrading from `v0.5.x`, where the UI was a second container on `:7104`:
 see [`docs/releases/v0.6.0.md`](docs/releases/v0.6.0.md), "Upgrading".
 
@@ -336,7 +344,8 @@ Important environment variables:
 | `IDENTUUM_IDP_DATA_DIR` | Where the setup code is written while setup is incomplete (`/app/data` in the image; unset: `<user config dir>/identuum-idp`) |
 | `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` | The UI's browser-facing base URL, used to build activation and invite links (the binary's own origin, e.g. `http://localhost:7113`); unset, the IdP answers `*_url_unavailable` instead of a link |
 | `IDENTUUM_IDP_ISSUER` | Public issuer URL (e.g. `https://idp.example.com`) |
-| `IDENTUUM_IDP_LISTEN` | Serve/listen address (default `0.0.0.0:7113`; `--listen` flag overrides) |
+| `IDENTUUM_IDP_LISTEN` | Serve/listen address (default `0.0.0.0:7113`, IPv4 only; `[::]:7113` adds IPv6, an IPv6 literal binds that address; `--listen` flag overrides) |
+| `IDENTUUM_IDP_TRUSTED_PROXIES` | Comma-separated reverse-proxy addresses or CIDRs, IPv4 or IPv6 (e.g. `10.0.0.0/8,2001:db8:1::/48`), whose `X-Forwarded-For` is honoured; unset trusts none |
 
 The values in `dev.env.example` are **throwaway local-development**
 constants only. Do not use them in any environment that holds real
