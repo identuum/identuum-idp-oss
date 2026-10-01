@@ -352,6 +352,17 @@ rate-limited like sign-in. The token is stored only as a hash, works once, and
 never appears in a log line or an audit row (`user.invited`,
 `user.invite_reissued`, `user.invite_redeemed`).
 
+## Console and application sign-ins are separate
+
+Signing in to the console (`/login`) never signs a user in to an
+application. An application's `/authorize` asks for its own sign-in at
+`/api/v1/auth/browser-login`, even right after a console sign-in, and
+RP-initiated logout (`end_session`) ends that OpenID Connect sign-in, not the
+console's. Signing out of the console does not sign anyone out of an
+application either. This is deliberate (owner ruling D-023): an administration
+console is not a single sign-on session for applications, so a console session
+can never grant application access silently.
+
 ## Register an application (OpenID Connect)
 
 An organization admin registers a client in the console: **Applications →
