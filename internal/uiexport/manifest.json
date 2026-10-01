@@ -1,20 +1,20 @@
 {
   "schema": "identuum-ui-vendor.v1",
-  "ui_commit": "0630183f01d4e2a33362af0aa7ce2fe3a51a2cda",
+  "ui_commit": "e926a903c7adff0bceb61792a89fc7ae192f9d87",
   "ui_lockfile_sha256": "dfb9251e00b463e855f441f93d2aa5194b0531661b7fb0854c22ded9dca4b89e",
   "node_version": "v26.8.1",
   "pnpm_version": "11.3.0",
   "files": {
-    "assets/index-BXbUktvJ.js": "917126bbe8fb5b3e0b12b8c4b9d0d50646c8c41fca26b5db99f38aaa43d0535a",
+    "assets/index-BH6tPmr8.js": "43a5c1419a70ee51c8b55c1664c4f4b0286491543fc4e6f578d5d74b0a39472f",
     "assets/index-C6vOvGsC.css": "9ba9f5334e01610f46a673dc9445207fd937697e2770abc8c00cceafd317a17b",
     "assets/rolldown-runtime-CbXtAM7H.js": "bbf7c5086ae414dc3f33777e3eebf16ea8631325b8bb4690d25091c03567f31a",
+    "assets/vendor-B2g1jDAc.js": "e93d85d6a5aaed45dc05785eef480f59547a47e8881e5e53668009e9a2a947d4",
     "assets/vendor-B_AuP6ue.js": "3d50992d2004f7361108ded99a08d9a29e2579d9bb65c577785be3fe49cdb6cf",
     "assets/vendor-Bz7hHZhM.js": "1b5c3eb1d6a6d97a2cddd14493c7f2d3174d228ebc629dea2fadf95b085efc27",
     "assets/vendor-C5eLImm5.js": "5631e4659872cac1d067f33c4d5b5d0b4180f7c95dd7ebc6c25b9fc166f80b04",
     "assets/vendor-CZsacMJA.js": "ff7a6fae49ea1948b36abe61fe5ed87e25f7518b1f043abb3e42debdf70e232b",
-    "assets/vendor-D-nJUweu.js": "65cff6f363b7f2d9a83f58a2e371ea10f9673dc456e1914e7918a3d626823244",
     "assets/vendor-D6ptLq3w.js": "77953b16c006100a20453784265085231bdafefbc0a9470c16e2690668fcaa4f",
-    "index.html": "825506e9f1540a582c02e5d4afdab0b6fe95788aed30eddfffa11eb98a90533d"
+    "index.html": "ce83221c90b3818e07405bc924c39e324d2d146cfa2ca6f04b428b91c469b7cd"
   },
-  "tree_digest": "f1fd1583529a953841f4ca51b4d08ddf89835e3152d9a526d4e60303eee0e79a"
+  "tree_digest": "7acbb2df44311fff2f3f88e451e243d40ba7c2ac1cad3e7429f1ff4f34576bf9"
 }
