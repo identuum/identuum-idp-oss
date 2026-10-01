@@ -1283,8 +1283,10 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	var verifyNotifier service.EmailVerificationNotifier = service.UnconfiguredEmailNotifier{}
 	var activationNotifier service.OrganizationActivationNotifier = service.UnconfiguredEmailNotifier{}
 	var inviteNotifier service.UserInviteNotifier = service.UnconfiguredEmailNotifier{}
+	var claimNotifier service.ClaimNotifier = service.UnconfiguredEmailNotifier{}
 	if smtpNotifier != nil { // assign only when concrete non-nil (typed-nil-interface guard)
 		resetNotifier, verifyNotifier, activationNotifier, inviteNotifier = smtpNotifier, smtpNotifier, smtpNotifier, smtpNotifier
+		claimNotifier = smtpNotifier
 	}
 	// OSS-ONBOARD-A (D-016): the user invite — no SMTP, the admin hands the
 	// link over; SMTP, it is also mailed. Same TTL as the organization
@@ -1327,6 +1329,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		OrgsAdmin: repos.Organization.(*postgres.PgxOrganizationRepository),
 		Users:     repos.User,
 		Exists:    repos.User,
+		Admins:    repos.User,    // D-022: the first-admin predicate gates issue and consume
+		Notifier:  claimNotifier, // D-022: a bound link is also mailed when SMTP is set
 		Logger:    serviceLogger(), // P3-12 follow-up: zero log sites today, threaded so the derived Logger-field pin holds uniformly
 		Audit:     auditSvc,        // L-2
 	})

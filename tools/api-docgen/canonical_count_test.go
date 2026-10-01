@@ -94,7 +94,9 @@ import (
 // /api/v1/auth/invite/:token + POST /api/v1/auth/invite (validate, redeem).
 // 147 → 148: POST /api/v1/auth/login/password-change, the required
 // password change of a sign-in with an admin-set password (OSS-FIN-1, D-017).
-const CanonicalEndpointCount = 148
+// 148 → 149: POST /api/v1/organizations/:id/claim, a site_admin issues an
+// organization claim link (OSS-CLAIM, D-022).
+const CanonicalEndpointCount = 149
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

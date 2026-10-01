@@ -1356,6 +1356,25 @@ paths:
           description: "List the org_admin accounts of a tenant org for operator-driven recovery (reset-MFA card). site_admin only."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/organizations/{id}/claim":
+    post:
+      operationId: "identuum-idp-oss.organizations.issue_organization_claim"
+      summary: "Issue a one-time claim link for an operational organization with no active org_admin (D-022); whoever redeems it at /claim becomes its org_admin. Body {email?}: an email binds the link and it is also mailed when SMTP is configured. 201 {claim_url, expires_at, email_bound}, shown once. A re-issue retires every earlier link of the organization."
+      tags:
+        - "organizations"
+      parameters:
+        - name: "id"
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - cookieAuth: []
+      responses:
+        "201":
+          description: "Issue a one-time claim link for an operational organization with no active org_admin (D-022); whoever redeems it at /claim becomes its org_admin. Body {email?}: an email binds the link and it is also mailed when SMTP is configured. 201 {claim_url, expires_at, email_bound}, shown once. A re-issue retires every earlier link of the organization."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/organizations/{id}/domains":
     get:
       operationId: "identuum-idp-oss.organization-domains.list_organization_domains"

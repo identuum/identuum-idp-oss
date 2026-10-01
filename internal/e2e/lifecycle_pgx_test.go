@@ -313,7 +313,7 @@ func TestE2E_OSS_ClaimService_RoundTrip(t *testing.T) {
 
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 
-	// Seed a pre-active org.
+	// Seed an operational org with no admin (D-022: what a claim is for).
 	orgID, _ := uuid.NewV7()
 	suffix := uuid.NewString()[:8]
 	org := &domain.Organization{
@@ -321,7 +321,7 @@ func TestE2E_OSS_ClaimService_RoundTrip(t *testing.T) {
 		Name:      "e2e-claim-org-" + suffix,
 		Domain:    "e2e-claim-" + suffix + ".example.invalid",
 		OrgSlug:   "e2e-claim-" + suffix,
-		Active:    false,
+		Active:    true,
 		MFAPolicy: "optional",
 	}
 	createdOrg, err := repos.Organization.Create(ctx, org)
@@ -338,6 +338,7 @@ func TestE2E_OSS_ClaimService_RoundTrip(t *testing.T) {
 		OrgsAdmin: repos.Organization.(*postgres.PgxOrganizationRepository),
 		Users:     repos.User,
 		Exists:    repos.User,
+		Admins:    repos.User,
 		Audit:     audit.NoopService{},
 	})
 	raw, expiresAt, err := svc.GenerateClaimToken(ctx, createdOrg.ID, "")

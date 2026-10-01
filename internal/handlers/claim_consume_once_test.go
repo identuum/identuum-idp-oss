@@ -84,6 +84,13 @@ func (claimExistsNone) FindUsersByEmail(context.Context, string) ([]*domain.User
 	return nil, nil
 }
 
+// CountOrgAdminsByOrganization reports no admin ever, so the replay refusal
+// below rests on the burn alone (D-022 added an admin re-check that would
+// otherwise also refuse it and hide a broken burn).
+func (claimExistsNone) CountOrgAdminsByOrganization(context.Context, uuid.UUID) (int, error) {
+	return 0, nil
+}
+
 // A claim link is consumable EXACTLY ONCE: GET /claim/validate is read-only (it
 // never burns the claim, so a consume right after a validate still succeeds),
 // and POST /claim burns-before-write so a replay after a successful consume
@@ -98,9 +105,10 @@ func TestClaim_ConsumableExactlyOnce(t *testing.T) {
 	}}
 	svc := service.NewClaimService(service.ClaimServiceConfig{
 		Claims: repo,
-		Orgs:   claimOrgLookup{org: &domain.Organization{ID: orgID, Active: false, Name: "Acme"}},
+		Orgs:   claimOrgLookup{org: &domain.Organization{ID: orgID, Active: true, Name: "Acme"}}, // D-022: operational, no admin
 		Users:  users,
 		Exists: claimExistsNone{},
+		Admins: claimExistsNone{},
 	})
 
 	gin.SetMode(gin.ReleaseMode)

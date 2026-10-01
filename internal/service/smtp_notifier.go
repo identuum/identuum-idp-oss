@@ -47,6 +47,7 @@ const (
 	emailKindActivation    = "activation"
 	emailKindPasswordReset = "password_reset"
 	emailKindUserInvite    = "user_invite"
+	emailKindClaim         = "claim"
 )
 
 // ErrEmailDeliveryNotConfigured is returned by UnconfiguredEmailNotifier
@@ -79,6 +80,10 @@ func (UnconfiguredEmailNotifier) SendUserInviteEmail(context.Context, *domain.Us
 }
 
 func (UnconfiguredEmailNotifier) SendActivationEmail(context.Context, *domain.User, string, time.Time) error {
+	return ErrEmailDeliveryNotConfigured
+}
+
+func (UnconfiguredEmailNotifier) SendClaimEmail(context.Context, string, string, string, time.Time) error {
 	return ErrEmailDeliveryNotConfigured
 }
 
@@ -215,6 +220,20 @@ func (s *SMTPNotifier) SendVerificationEmail(ctx context.Context, user *domain.U
 		body = fmt.Sprintf("Hello %s,\n\n%s", *user.Name, body)
 	}
 	return s.sendEmail(ctx, emailKindVerification, user.Email, subject, body)
+}
+
+// SendClaimEmail mails an email-bound organization claim link (D-022): the
+// link to identuum-ui's /claim page with the one-time token. The issuing
+// site_admin receives the same link in the API response.
+func (s *SMTPNotifier) SendClaimEmail(ctx context.Context, to, organizationName, rawToken string, expiresAt time.Time) error {
+	params := url.Values{}
+	params.Set("token", rawToken)
+	body := fmt.Sprintf("You have been invited to administer %s.\n\n"+
+		"Set your password and become its administrator by opening the link below:\n\n"+
+		"%s\n\n"+
+		"This link can be used once and expires at %s.",
+		organizationName, s.linkBaseURL+"/claim?"+params.Encode(), expiresAt.Format(time.RFC1123))
+	return s.sendEmail(ctx, emailKindClaim, to, "Administer "+organizationName, body)
 }
 
 // SendActivationEmail builds the organization-activation link from

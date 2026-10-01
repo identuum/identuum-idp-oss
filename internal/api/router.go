@@ -1077,6 +1077,9 @@ func mountOrganizations(router gin.IRouter, resolved OSSRouterDeps) {
 	// THE-UNUSABLE-TOKEN: the UI origin, passed through verbatim. Empty
 	// stays empty — the handlers refuse to guess a link.
 	orgDeps.ActivationLinkBaseURL = resolved.UIPublicBaseURL
+	if resolved.ClaimService != nil {
+		orgDeps.ClaimIssuer = resolved.ClaimService // D-022
+	}
 	if resolved.UserRepo != nil {
 		orgDeps.AdminCounter = resolved.UserRepo
 	}

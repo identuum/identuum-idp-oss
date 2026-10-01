@@ -10,7 +10,8 @@ package service
 //   - consume: bad email / weak password / unknown token → {Success:false};
 //   - consume: email-bound mismatch → {Success:false} + attempt incremented;
 //   - consume: max-attempts → burns token, returns AttemptsExhausted;
-//   - consume: org already active → {Success:false} + burns token;
+//   - consume: org not operational, or one that gained an admin →
+//     {Success:false} + burns token (claim_issue_test.go, D-022);
 //   - consume happy path → creates org_admin + deletes claim + audit emit;
 //   - consume replay after burn → {Success:false};
 //   - audit metadata never contains the raw token.
@@ -80,6 +81,20 @@ func (r *fakeClaimRepo) Delete(_ context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *fakeClaimRepo) ReplaceForOrganization(ctx context.Context, c *domain.OrganizationClaim) (int64, error) {
+	r.mu.Lock()
+	var retired int64
+	for id, old := range r.byID {
+		if old.OrganizationID == c.OrganizationID {
+			delete(r.byHash, old.TokenHash)
+			delete(r.byID, id)
+			retired++
+		}
+	}
+	r.mu.Unlock()
+	return retired, r.Create(ctx, c)
+}
+
 func (r *fakeClaimRepo) DeleteExpired(context.Context) (int64, error) { return 0, nil }
 
 func (r *fakeClaimRepo) IncrementAttemptCount(_ context.Context, id uuid.UUID) (int, error) {
@@ -103,7 +118,7 @@ func newClaimFixture(t *testing.T) (*ClaimService, *fakeClaimRepo, *fakeOrgRepo,
 		Name:    "Acme",
 		Domain:  "acme.test",
 		OrgSlug: "acme",
-		Active:  false,
+		Active:  true, // D-022 ruling c: a claim is for an operational org with no admin
 	}
 	claims := newFakeClaimRepo()
 	orgs := newFakeOrgRepo(org)
@@ -115,6 +130,7 @@ func newClaimFixture(t *testing.T) (*ClaimService, *fakeClaimRepo, *fakeOrgRepo,
 		OrgsAdmin: orgs,
 		Users:     users,
 		Exists:    users,
+		Admins:    claimAdminsOver{users: users},
 		Audit:     rec,
 	})
 	return svc, claims, orgs, users, rec, org
@@ -290,22 +306,6 @@ func TestConsumeClaim_MaxAttemptsBurns(t *testing.T) {
 	assert.False(t, result.Success)
 	// Row deleted after the burn.
 	assert.Empty(t, claims.byHash)
-}
-
-func TestConsumeClaim_AlreadyActiveBurnsToken(t *testing.T) {
-	svc, claims, _, _, _, org := newClaimFixture(t)
-	raw, _, err := svc.GenerateClaimToken(context.Background(), org.ID, "")
-	require.NoError(t, err)
-	org.Active = true
-	result, err := svc.ConsumeClaim(context.Background(), ConsumeClaimInput{
-		Token:    raw,
-		Email:    "alice@example.test",
-		Password: "longenoughpassword",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Success)
-	assert.Empty(t, claims.byHash, "claim row must be burned when org is already active")
 }
 
 func TestConsumeClaim_HappyPathMintsOrgAdmin(t *testing.T) {

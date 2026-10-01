@@ -68,6 +68,29 @@ func (t *pgClaimConsumeTx) CreateUser(ctx context.Context, user *domain.User) (*
 	return t.users.Create(ctx, user)
 }
 
+func (t *pgClaimConsumeTx) CountOrgAdmins(ctx context.Context, orgID uuid.UUID) (int, error) {
+	return t.users.CountOrgAdminsByOrganization(ctx, orgID)
+}
+
+// ReplaceForOrganization retires every claim of the organization and stores
+// the new one in ONE transaction (D-022 ruling b): there is never a moment
+// with two live links, and a failed insert retires nothing.
+func (r *PgClaimRepository) ReplaceForOrganization(ctx context.Context, claim *domain.OrganizationClaim) (int64, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	tag, err := tx.Exec(ctx, `DELETE FROM organization_claims WHERE organization_id = $1`, claim.OrganizationID)
+	if err != nil {
+		return 0, err
+	}
+	if err := (&PgClaimRepository{db: tx}).Create(ctx, claim); err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), tx.Commit(ctx)
+}
+
 func (r *PgClaimRepository) Create(ctx context.Context, claim *domain.OrganizationClaim) error {
 	query := `
 		INSERT INTO organization_claims (id, organization_id, token_hash, expires_at, created_at, target_email, email_bound)

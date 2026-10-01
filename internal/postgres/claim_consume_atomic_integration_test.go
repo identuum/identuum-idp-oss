@@ -33,6 +33,7 @@ func claimAtomicService(pool *pgxpool.Pool) *service.ClaimService {
 		OrgsAdmin: orgs,
 		Users:     users,
 		Exists:    users,
+		Admins:    users,
 	})
 }
 
@@ -41,7 +42,7 @@ func seedClaimOrg(t *testing.T, ctx context.Context, pool *pgxpool.Pool) uuid.UU
 	orgID := uuid.New()
 	slug := "claim-" + uuid.NewString()[:8]
 	if _, err := pool.Exec(ctx,
-		`INSERT INTO organizations (id, name, domain, org_slug, active) VALUES ($1, $2, $3, $4, false)`,
+		`INSERT INTO organizations (id, name, domain, org_slug, active) VALUES ($1, $2, $3, $4, true)`, // D-022: claimable = operational, no admin
 		orgID, "Claim "+slug, slug+".example.test", slug); err != nil {
 		t.Fatalf("seed org: %v", err)
 	}

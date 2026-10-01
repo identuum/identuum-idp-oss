@@ -12,6 +12,11 @@ type ClaimRepository interface {
 	// Create stores a new organization claim
 	Create(ctx context.Context, claim *domain.OrganizationClaim) error
 
+	// ReplaceForOrganization deletes every claim of claim.OrganizationID and
+	// stores claim, in one transaction (D-022: a re-issue retires every
+	// earlier link). It returns how many claims it retired.
+	ReplaceForOrganization(ctx context.Context, claim *domain.OrganizationClaim) (int64, error)
+
 	// GetByTokenHash retrieves a claim by its token hash
 	GetByTokenHash(ctx context.Context, hash string) (*domain.OrganizationClaim, error)
 
@@ -41,6 +46,9 @@ type ClaimConsumeTx interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 	FindUsersByEmail(ctx context.Context, email string) ([]*domain.User, error)
 	CreateUser(ctx context.Context, user *domain.User) (*domain.User, error)
+	// CountOrgAdmins counts the organization's live org_admins (not
+	// deleted, not banned) inside the consume's transaction (D-022 ruling a).
+	CountOrgAdmins(ctx context.Context, orgID uuid.UUID) (int, error)
 }
 
 // ClaimConsumeTransactor runs fn in one transaction: committed when fn

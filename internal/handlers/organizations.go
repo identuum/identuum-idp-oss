@@ -80,6 +80,10 @@ type OrganizationsHandlerDeps struct {
 	// the loud direction: an admin_email request against an unwired
 	// issuer fails 503, never a silent drop.
 	ActivationIssuer OrgActivationIssuer
+
+	// ClaimIssuer issues organization claim links (D-022, POST /:id/claim).
+	// Nil-safe: when unwired the route answers 503.
+	ClaimIssuer OrgClaimIssuer
 }
 
 // OrgActivationIssuer issues the activation token for a pending
@@ -255,6 +259,17 @@ func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDe
 	// docgen:auth=site_admin
 	// docgen:notes=Only a pending (not-yet-active) org with an org_admin may be resent; an active org returns 409, a missing org or one with no org_admin returns 404. A fresh token is minted (the old is invalidated); the raw token is echoed in the response and never logged or audited.
 	siteOnly.POST("/:id/resend-activation", HandleResendActivation(deps))
+
+	// docgen:endpoint
+	// docgen:surface=organizations
+	// docgen:method=POST
+	// docgen:path=/api/v1/organizations/:id/claim
+	// docgen:summary=Issue a one-time claim link for an operational organization with no active org_admin (D-022); whoever redeems it at /claim becomes its org_admin. Body {email?}: an email binds the link and it is also mailed when SMTP is configured. 201 {claim_url, expires_at, email_bound}, shown once. A re-issue retires every earlier link of the organization.
+	// docgen:tier=oss
+	// docgen:auth=site_admin
+	// docgen:status=201
+	// docgen:notes=409 organization_not_claimable when the organization has an active org_admin, is inactive or deleted; 409 claim_url_unavailable (and nothing issued) when IDENTUUM_IDP_UI_PUBLIC_BASE_URL is not set; 404 for an unknown organization. The raw token is never stored, logged or audited; claim.generated records the actor and how many earlier links it retired.
+	siteOnly.POST("/:id/claim", HandleIssueOrganizationClaim(deps))
 
 	// docgen:endpoint
 	// docgen:surface=organizations

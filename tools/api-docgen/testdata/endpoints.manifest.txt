@@ -112,6 +112,7 @@ POST /api/v1/oauth/revoke
 POST /api/v1/oauth/token
 POST /api/v1/oidc/userinfo
 POST /api/v1/organizations
+POST /api/v1/organizations/:id/claim
 POST /api/v1/organizations/:id/domains
 POST /api/v1/organizations/:id/domains/:domain_id/primary
 POST /api/v1/organizations/:id/domains/:domain_id/verify

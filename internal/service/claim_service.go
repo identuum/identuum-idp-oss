@@ -119,8 +119,14 @@ type claimUserExistsCheck interface {
 	FindUsersByEmail(ctx context.Context, email string) ([]*domain.User, error)
 }
 
+// claimAdminCounter counts an organization's live org_admins (not deleted,
+// not banned): the predicate the first-admin exception uses.
+type claimAdminCounter interface {
+	CountOrgAdminsByOrganization(ctx context.Context, orgID uuid.UUID) (int, error)
+}
+
 // repos.User in production wiring is a single instance that
-// satisfies both seams (Create + FindUsersByEmail).
+// satisfies every user seam (Create, FindUsersByEmail, the admin count).
 
 // ClaimService orchestrates generation + validation + consumption.
 type ClaimService struct {
@@ -133,6 +139,11 @@ type ClaimService struct {
 	logger  *zap.Logger
 	now     func() time.Time
 	tokenSz int
+	// admins counts an organization's live org_admins (issue #1's
+	// predicate); notifier mails a bound link. Both optional; a missing
+	// counter fails closed (nothing is claimable).
+	admins   claimAdminCounter
+	notifier ClaimNotifier
 	ttl     time.Duration
 
 	minPasswordLength int
@@ -158,6 +169,9 @@ type ClaimServiceConfig struct {
 	Users     claimUserCreator
 	Exists    claimUserExistsCheck
 	Audit     audit.Service
+	// Admins (the org_admin count) and Notifier serve IssueClaim (D-022).
+	Admins   claimAdminCounter
+	Notifier ClaimNotifier
 
 	TTL               time.Duration
 	MinPasswordLength int
@@ -205,6 +219,8 @@ func NewClaimService(cfg ClaimServiceConfig) *ClaimService {
 		tokenSz:           32,
 		ttl:               ttl,
 		minPasswordLength: minLen,
+		admins:            cfg.Admins,
+		notifier:          cfg.Notifier,
 	}
 	// The consume runs in one transaction whenever the claim repository can
 	// open one (PgClaimRepository, the production wiring). A repository that
@@ -247,6 +263,13 @@ func (r claimReposWithoutTx) FindUsersByEmail(ctx context.Context, email string)
 
 func (r claimReposWithoutTx) CreateUser(ctx context.Context, user *domain.User) (*domain.User, error) {
 	return r.s.users.Create(ctx, user)
+}
+
+func (r claimReposWithoutTx) CountOrgAdmins(ctx context.Context, orgID uuid.UUID) (int, error) {
+	if r.s.admins == nil {
+		return 0, ErrClaimOrgNotClaimable // fail closed: an uncounted org is not claimable
+	}
+	return r.s.admins.CountOrgAdminsByOrganization(ctx, orgID)
 }
 
 // GenerateClaimToken mints a new claim token for the supplied org.
@@ -303,6 +326,101 @@ func (s *ClaimService) GenerateClaimToken(ctx context.Context, orgID uuid.UUID, 
 		},
 	})
 	return raw, claim.ExpiresAt, nil
+}
+
+// ErrClaimOrgNotClaimable: the organization is not operational or already has
+// an active org_admin (D-022 ruling a); the handler answers 409.
+var ErrClaimOrgNotClaimable = errors.New("claim: organization not claimable")
+
+// ClaimNotifier mails an email-bound claim link (D-022, as D-016: the link is
+// also shown once to the issuing site_admin).
+type ClaimNotifier interface {
+	SendClaimEmail(ctx context.Context, to, organizationName, rawToken string, expiresAt time.Time) error
+}
+
+// IssueClaimInput is one site_admin issue of a claim link.
+type IssueClaimInput struct {
+	OrganizationID uuid.UUID
+	Email          string
+	Actor          *domain.Principal
+	IPAddress      string
+	UserAgent      string
+}
+
+// IssuedClaim is the once-only result of an issue.
+type IssuedClaim struct {
+	Token      string
+	ExpiresAt  time.Time
+	EmailBound bool
+}
+
+// IssueClaim mints an organization claim link for a site_admin (D-022). The
+// organization must be operational with no active org_admin (ruling a, the
+// first-admin rule; ruling c, owner 2026-10-01), else ErrClaimOrgNotClaimable.
+// Every earlier link of the organization is retired in the same transaction
+// (ruling b). An email binds the link and is mailed when a notifier is wired;
+// a failed mail does not fail the issue. The raw token is returned once and
+// never stored, logged or audited.
+func (s *ClaimService) IssueClaim(ctx context.Context, in IssueClaimInput) (*IssuedClaim, error) {
+	org, err := s.claimableOrganization(ctx, in.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	raw, hash, err := s.generateToken()
+	if err != nil {
+		return nil, err
+	}
+	id, err := uuidgen.NewV7()
+	if err != nil {
+		return nil, err
+	}
+	now := s.now().UTC()
+	email := strings.ToLower(strings.TrimSpace(in.Email))
+	claim := &domain.OrganizationClaim{ID: id, OrganizationID: org.ID, TokenHash: hash, ExpiresAt: now.Add(s.ttl),
+		CreatedAt: now, TargetEmail: email, EmailBound: email != ""}
+	retired, err := s.claims.ReplaceForOrganization(ctx, claim)
+	if err != nil {
+		return nil, err
+	}
+	ev := audit.Event{
+		Action: domain.AuditClaimGenerated, Outcome: "success", SubjectID: org.ID, SubjectType: "organization",
+		OrganizationID: org.ID, IPAddress: in.IPAddress, UserAgent: in.UserAgent,
+		Metadata: map[string]any{"claim_id": id.String(), "target_email": email, "email_bound": claim.EmailBound, "retired_claims": retired},
+	}
+	if in.Actor != nil {
+		ev.ActorID, ev.ActorType, ev.ActorEmail, ev.ActorRole = in.Actor.UserID, "user", in.Actor.Email, string(in.Actor.Role)
+	}
+	_ = s.audit.Record(ctx, ev)
+	if claim.EmailBound && s.notifier != nil {
+		sendErr := s.notifier.SendClaimEmail(ctx, email, org.Name, raw, claim.ExpiresAt)
+		if sendErr != nil && !errors.Is(sendErr, ErrEmailDeliveryNotConfigured) {
+			s.logger.Warn("claim: send email failed", zap.String("claim_id", id.String()), zap.Error(sendErr))
+		}
+		_ = s.audit.Record(ctx, audit.Event{Action: domain.AuditClaimEmailSendAttempted, Outcome: "success",
+			SubjectID: org.ID, SubjectType: "organization", OrganizationID: org.ID,
+			Metadata: map[string]any{"claim_id": id.String(), "email_sent": sendErr == nil}})
+	}
+	return &IssuedClaim{Token: raw, ExpiresAt: claim.ExpiresAt, EmailBound: claim.EmailBound}, nil
+}
+
+// claimableOrganization loads the organization and applies D-022's predicate:
+// operational (active, not deleted) with no live org_admin.
+func (s *ClaimService) claimableOrganization(ctx context.Context, orgID uuid.UUID) (*domain.Organization, error) {
+	org, err := s.loadOrganization(ctx, orgID)
+	if err != nil {
+		return nil, err
+	}
+	if !org.IsOperational() || s.admins == nil {
+		return nil, ErrClaimOrgNotClaimable
+	}
+	n, err := s.admins.CountOrgAdminsByOrganization(ctx, org.ID)
+	if err != nil {
+		return nil, err
+	}
+	if n > 0 {
+		return nil, ErrClaimOrgNotClaimable
+	}
+	return org, nil
 }
 
 // ValidateClaimResult is the GET /claim/validate response payload.
@@ -403,6 +521,10 @@ func (s *ClaimService) ConsumeClaim(ctx context.Context, in ConsumeClaimInput) (
 		_ = s.audit.Record(ctx, audit.Event{
 			Action:         domain.AuditClaimConsumed,
 			Outcome:        "success",
+			ActorID:        created.ID, // the claimant, who becomes the org_admin
+			ActorType:      "user",
+			ActorEmail:     created.Email,
+			ActorRole:      string(created.Role),
 			SubjectID:      created.ID,
 			SubjectType:    "user",
 			OrganizationID: created.OrganizationID,
@@ -454,14 +576,15 @@ func (s *ClaimService) consumeLocked(ctx context.Context, st repository.ClaimCon
 	if len(in.Password) < s.minPasswordLength {
 		return weakPassword(ctx, st, claim), nil, uuid.Nil, nil
 	}
-	// Org must exist + be pre-active. Mirror monolith.
+	// The organization must exist and be operational (D-022 ruling c,
+	// 2026-10-01: a link is issued for an active organization with no admin,
+	// and its new org_admin must be able to sign in). A deactivated or
+	// deleted organization makes the link stale: burn it.
 	org, err := s.loadOrganization(ctx, claim.OrganizationID)
 	if err != nil || org == nil {
 		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
-	if org.Active {
-		// Org was activated through another path; the claim is now
-		// stale. Burn it.
+	if !org.IsOperational() {
 		_ = st.Delete(ctx, claim.ID)
 		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
@@ -480,6 +603,17 @@ func (s *ClaimService) consumeLocked(ctx context.Context, st repository.ClaimCon
 		if u != nil && u.OrganizationID == org.ID {
 			return &ConsumeClaimResult{Success: false, Reason: "email_exists"}, nil, uuid.Nil, nil
 		}
+	}
+	// D-022 ruling a: re-checked under the claim lock. An organization that
+	// gained an org_admin since the link was issued refuses opaquely, and
+	// the stale link is burned. A count that cannot be read rolls back.
+	admins, err := st.CountOrgAdmins(ctx, org.ID)
+	if err != nil {
+		return nil, nil, uuid.Nil, err
+	}
+	if admins > 0 {
+		_ = st.Delete(ctx, claim.ID)
+		return &ConsumeClaimResult{Success: false}, nil, uuid.Nil, nil
 	}
 	// Burn-before-write: delete the claim BEFORE the new org_admin is created.
 	// The claim row is locked (LockByTokenHash), so a parallel consume waits
