@@ -25,7 +25,7 @@ import (
 
 type offRegistrationRepo struct{}
 
-func (offRegistrationRepo) InstanceEnabled(context.Context) (bool, error) { return false, nil }
+func (offRegistrationRepo) InstanceEnabled(context.Context) (bool, error)  { return false, nil }
 func (offRegistrationRepo) SetInstanceEnabled(context.Context, bool) error { return nil }
 func (offRegistrationRepo) OrgSettings(context.Context, uuid.UUID) (*domain.OrgRegistrationSettings, error) {
 	return &domain.OrgRegistrationSettings{Allow: true}, nil
