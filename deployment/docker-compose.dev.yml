@@ -42,14 +42,22 @@
 #     attempt against PG16 failed at 0001) and is left untouched by this
 #     compose file.
 
-# THE-SHARED-VOLUME (2026-09-04): the project name is OVERRIDABLE, defaulting to
-# today's value so nothing existing moves. It has to be overridable: two
+# D-024 (owner ruling 2026-10-01): the development stack has its own names,
+# identuum-idp-oss-dev*, so it and the production compose file (project and
+# containers identuum-idp-oss, identuum-idp-oss-postgres; unchanged) can run on
+# one host. Moving the default gives a stack started before D-024 a new
+# project: its Postgres volume is project-scoped (see `volumes:` below), so the
+# first `make fast-up` after the change starts an empty dev database, and a
+# still-running pre-D-024 stack holds port 5513 until it is stopped. To keep
+# the old stack, set IDENTUUM_IDP_COMPOSE_PROJECT=identuum-idp-oss.
+#
+# THE-SHARED-VOLUME (2026-09-04): the project name is OVERRIDABLE. It has to be overridable: two
 # checkouts of this repository are both directories called identuum-idp-oss, so a
 # FIXED project name makes every clone the SAME Compose project — same container
 # names, and same scoped volumes even after a volume stops naming itself
 # explicitly. Set IDENTUUM_IDP_COMPOSE_PROJECT in a second checkout to give it
 # its own stack.
-name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}
+name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss-dev}
 
 services:
   postgres-idp-oss:
@@ -58,8 +66,9 @@ services:
     # explicit name — a fixed container_name is project-independent, so a
     # second checkout collided here even with its own project and port
     # (measured: "Conflict. The container name ... is already in use").
-    # Default unchanged, so every tool that greps for it keeps working.
-    container_name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}-postgres
+    # Default identuum-idp-oss-dev-postgres since D-024 (2026-10-01); no tool
+    # addresses it by name (they use the compose service).
+    container_name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss-dev}-postgres
     environment:
       POSTGRES_USER: idp_oss_user
       POSTGRES_PASSWORD: dev-idp_oss_user-not-a-secret
@@ -100,10 +109,11 @@ services:
       dockerfile: deployment/Dockerfile.local
     # Derived from the project like the container names: a second project
     # (the ui's e2e-full harness runs as identuum-e2e) building under a fixed
-    # tag would retag the default project's image. Default unchanged.
-    image: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}:local
+    # tag would retag the default project's image. Default
+    # identuum-idp-oss-dev:local since D-024.
+    image: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss-dev}:local
     # THE-SHARED-VOLUME: same reasoning as the postgres container above.
-    container_name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}
+    container_name: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss-dev}
     restart: unless-stopped
     depends_on:
       postgres-idp-oss:

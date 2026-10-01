@@ -2233,7 +2233,7 @@ clean:
 	rm -f identuum-idp
 
 ## oss-build: build the local-demo OSS app image (Postgres + app profile).
-##   Image: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss}:local (identuum-idp-oss:local by default).
+##   Image: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss-dev}:local (identuum-idp-oss-dev:local by default, D-024).
 ##   Source: deployment/Dockerfile.local (multi-stage golang:1.26.5-bookworm builder + debian:bookworm-slim runtime).
 ##   DB URLs are never echoed (compose env handles the URL inside the container).
 oss-build:
@@ -2377,7 +2377,7 @@ openid-conformance:
 oss-fresh:
 	@if [ "$(I_UNDERSTAND_THIS_DESTROYS_ALL_DATA)" != "1" ]; then \
 		echo "REFUSING: oss-fresh DESTROYS ALL LOCAL DEV DATA."; \
-		echo "  It removes: the identuum-idp-oss app container, the postgres-idp-oss"; \
+		echo "  It removes: the identuum-idp-oss-dev app container, the postgres-idp-oss"; \
 		echo "  container, and the named Postgres volume (every org, user, client,"; \
 		echo "  signing key and audit row in the local dev database)."; \
 		echo "  Re-run with an explicit opt-in if that is what you want:"; \
