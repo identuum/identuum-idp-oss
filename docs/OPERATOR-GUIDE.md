@@ -264,7 +264,11 @@ over with a **claim link**: whoever opens it sets a password and becomes the
 organization's administrator, enrolling an authenticator at their first
 sign-in. Only a site administrator issues one, and only while the
 organization is active with no active administrator; otherwise the answer is
-`409 organization_not_claimable`.
+`409 organization_not_claimable`. An administrator who was invited and has
+not activated yet counts as one: such an organization cannot be claimed —
+re-issue its activation instead (see "Re-issuing" above). In the console:
+**Organizations**, open the organization, **Issue claim link** (shown only
+while it is active with no administrator).
 
 ```
 POST /api/v1/organizations/<org-id>/claim      {"email": "owner@example.com"}   (email optional)
