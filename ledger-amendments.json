@@ -1,11 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "73e4ed6d60bddbfb0c52bdd943b9dc2a4162075a",
+  "base_commit": "d5b4922cd733c6e4165f217d2501d0f851dcf218",
   "changes": [
     {
       "rule_id": "CLAIM-CONSUME-ONCE-1",
       "change_class": "test_fingerprint_changed",
-      "reason": "OSS-CLAIM (D-022, owner ruling 2026-10-01): consume requires an operational organization with no active org_admin, so the fixture org is active and the service gets an admin counter that reports none, keeping the replay refusal on the burn alone; M2 re-observed red (burn neutralized: Create ran 2 times); reviewed, rehashed 03f21f99eda4 -> 777076ebabcf"
+      "reason": "OSS-CLAIM (D-022, owner ruling 2026-10-01): consume requires an operational organization with no active org_admin, so the fixture org is active and the service gets an admin counter that reports none, keeping the replay refusal on the burn alone; M2 re-observed red (burn neutralized: Create ran 2 times); reviewed, rehashed 03f21f99eda4 -\u003e 777076ebabcf"
     }
   ]
 }
