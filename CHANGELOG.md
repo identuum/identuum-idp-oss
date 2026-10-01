@@ -5,8 +5,23 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.0`
 
+Organization claim links (D-022) and self-registration (D-021), both off
+until an administrator uses them; identuum-ui `v0.6.0` embedded (`36a3827`,
+tree digest
+`4e2f073c04be1dbd43e31526b885220306b2f8d1e19331cea71c528a27f63db5`). Delta `v0.8.2..` (`git rev-list --count`, measured at
+`172757e`, before the vendor and notes commits): 29 commits, 50 files,
++2579/−188. Migration `0043` (additive; applied on boot by the image, run
+`identuum-idp migrate` for the bare binary); `go.mod`/`go.sum` unchanged.
+The canonical endpoint count 148 → 157. No route, field or response shape
+removed or renamed; the behaviour changes are listed in
+`docs/releases/v0.9.0.md`, "Upgrading".
+
+- **The embedded UI is identuum-ui `v0.6.0`** (next 16.3.8): Issue claim
+  link on an organization's page, the self-registration switches and page,
+  sign-ups waiting for approval, and an archived organization's page that
+  offers only Restore.
 - **Self-registration** (D-021), off by default behind two switches: the
   instance switch (`PUT /api/v1/settings/self-registration`, site admin) and
   each organization's policy (`PUT /api/v1/organizations/:id/registration`,
