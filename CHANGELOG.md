@@ -7,6 +7,18 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.8.2`
+
+identuum-ui `v0.5.3` embedded (`0630183`, tree digest `f1fd1583…e0e79a`).
+Delta `v0.8.1..` (`git rev-list --count`, measured at `8efe9cb`, before the
+vendor and notes commits): 21 commits. No migration; no route, field or
+response shape removed or renamed; one default changed (the bare binary's
+listen is IPv4 only, see Upgrading in `docs/releases/v0.8.2.md`). Notes:
+`docs/releases/v0.8.2.md`.
+
+- **The embedded UI's next moves to 16.3.7**, the newest stable that clears
+  pnpm's release age without an exclude list. The export's files are
+  byte-identical to the previous build's (same tree digest).
 - **The remaining expected-state answers honour the step-status opt-in.**
   With `X-Identuum-Login-Step-Status: 200`, `password_change_required` at
   `POST /api/v1/auth/login` and the MFA continuation of
