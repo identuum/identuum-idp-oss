@@ -55,7 +55,13 @@ func TestHealthcheckTarget_FollowsTheApplianceListenAddress(t *testing.T) {
 		{"", "0.0.0.0:7113", "http://127.0.0.1:7113/healthz"},
 		{"0.0.0.0:8000", "0.0.0.0:7113", "http://127.0.0.1:8000/healthz"},
 		{"127.0.0.1:9000", "", "http://127.0.0.1:9000/healthz"},
-		{"[::]:7113", "", "http://127.0.0.1:7113/healthz"},
+		{":7113", "", "http://127.0.0.1:7113/healthz"},
+		// IPv6 (D-020): "[::]" listens on IPv6 and is IPv4-reachable only
+		// where the OS gives a dual-stack socket, so the probe uses [::1],
+		// which an IPv6 wildcard always answers; a literal is dialled as is.
+		{"[::]:7113", "", "http://[::1]:7113/healthz"},
+		{"[::1]:7113", "", "http://[::1]:7113/healthz"},
+		{"[2001:db8::5]:7113", "", "http://[2001:db8::5]:7113/healthz"},
 	} {
 		t.Setenv("IDENTUUM_IDP_LISTEN", tc.listen)
 		t.Setenv("IDENTUUM_IDP_OSS_LISTEN", tc.oss)

@@ -485,7 +485,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 		}
 	}
 
-	listener, err := net.Listen("tcp", r.cfg.Addr)
+	listener, err := net.Listen(listenNetwork(r.cfg.Addr), r.cfg.Addr)
 	if err != nil {
 		if r.pool != nil {
 			r.pool.Close()
@@ -572,11 +572,32 @@ func (r *Runtime) Start(ctx context.Context) error {
 // simply not served; it must NEVER panic, Fatal, or Exit, and must
 // NEVER prevent the primary IdP listener (already serving by the time
 // this runs) from continuing to serve normal traffic.
+// listenNetwork is the network a listen address binds on (owner ruling
+// 2026-10-01, D-020: IPv4 is the default everywhere, IPv6 is supported and
+// opt-in). An empty host, 0.0.0.0 or any IPv4 literal binds IPv4 only
+// ("tcp4"); Go's "tcp" would make the empty and 0.0.0.0 forms a dual-stack
+// socket that also accepts IPv6. "[::]" binds IPv6, dual-stack where the OS
+// allows, and an IPv6 literal binds that address only ("tcp"); a host name, or
+// an address that does not parse, keeps "tcp" and net.Listen's own answer.
+func listenNetwork(addr string) string {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "tcp"
+	}
+	if host == "" {
+		return "tcp4"
+	}
+	if ip := net.ParseIP(host); ip != nil && ip.To4() != nil {
+		return "tcp4"
+	}
+	return "tcp"
+}
+
 func (r *Runtime) startMetricsListener() {
 	if r.cfg.MetricsAddr == "" {
 		return
 	}
-	metricsListener, err := net.Listen("tcp", r.cfg.MetricsAddr)
+	metricsListener, err := net.Listen(listenNetwork(r.cfg.MetricsAddr), r.cfg.MetricsAddr)
 	if err != nil {
 		fmt.Fprintf(r.cfg.Stderr,
 			"identuum-idp: serve: metrics listener bind failed on %s: %v (metrics endpoint will not be served; the IdP continues serving normally)\n",

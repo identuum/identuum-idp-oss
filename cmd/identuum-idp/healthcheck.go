@@ -61,8 +61,13 @@ func healthcheckTarget(base string) string {
 	if err != nil {
 		host, port = "", "7113"
 	}
-	if host == "" || host == "0.0.0.0" || host == "::" {
+	switch host {
+	case "", "0.0.0.0":
 		host = "127.0.0.1"
+	case "::":
+		// IPv6 wildcard (D-020): reachable on IPv4 only where the OS gives a
+		// dual-stack socket; [::1] always is.
+		host = "::1"
 	}
 	return "http://" + net.JoinHostPort(host, port) + "/healthz"
 }

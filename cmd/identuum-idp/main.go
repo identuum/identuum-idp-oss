@@ -161,11 +161,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		metricsAddr               string
 	)
 	fs.BoolVar(&showVersion, "version", false, "Print the OSS IdP version and exit.")
-	fs.StringVar(&listenAddr, "listen", "", "Listen address (default $IDENTUUM_IDP_LISTEN, then 0.0.0.0:7113).")
+	fs.StringVar(&listenAddr, "listen", "", "Listen address (default $IDENTUUM_IDP_LISTEN, then 0.0.0.0:7113 = IPv4 only). IPv6 is opt-in: \"[::]:7113\" listens on IPv6 (and IPv4 where the OS gives a dual-stack socket); an IPv6 literal such as \"[::1]:7113\" listens on that address only.")
 	fs.StringVar(&issuer, "issuer", "", "Issuer base URL advertised in OIDC discovery (default $IDENTUUM_IDP_ISSUER).")
 	fs.StringVar(&databaseURL, "database-url", "", "Postgres URL (default $IDENTUUM_IDP_DATABASE_URL). REQUIRED to serve. Never printed, even on failure.")
 	fs.DurationVar(&revocationCleanupInterval, "revocation-cleanup-interval", time.Hour, "Interval at which expired rows are pruned from oauth_token_revocations. Set to 0 to disable. Default 1h.")
-	fs.StringVar(&metricsAddr, "metrics-addr", "", "Prometheus /metrics listen address — SEPARATE from --listen, internal-only, unauthenticated (default $IDENTUUM_IDP_METRICS_ADDR, then 127.0.0.1:9090 = LOOPBACK; labels carry org/provider IDs, so set a routable address e.g. 0.0.0.0:9090 only to deliberately expose it). Set to \"-\" to disable the metrics listener entirely.")
+	fs.StringVar(&metricsAddr, "metrics-addr", "", "Prometheus /metrics listen address — SEPARATE from --listen, internal-only, unauthenticated (default $IDENTUUM_IDP_METRICS_ADDR, then 127.0.0.1:9090 = LOOPBACK; labels carry org/provider IDs, so set a routable address e.g. 0.0.0.0:9090 only to deliberately expose it). The same address rule as --listen: an IPv4 address or an empty host is IPv4 only, \"[::1]:9090\" or \"[::]:9090\" is IPv6. Set to \"-\" to disable the metrics listener entirely.")
 
 	if err := fs.Parse(args); err != nil {
 		// flag.ContinueOnError already wrote the error message to stderr.
@@ -275,7 +275,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  Configuration is read from the environment:")
 	fmt.Fprintln(w, "    IDENTUUM_IDP_DATABASE_URL   Postgres URL (REQUIRED to serve; never printed)")
 	fmt.Fprintln(w, "    IDENTUUM_IDP_ISSUER         public issuer base URL")
-	fmt.Fprintln(w, "    IDENTUUM_IDP_LISTEN         listen address (default 0.0.0.0:7113)")
+	fmt.Fprintln(w, "    IDENTUUM_IDP_LISTEN         listen address (default 0.0.0.0:7113 = IPv4 only;")
+	fmt.Fprintln(w, "                                \"[::]:7113\" adds IPv6, an IPv6 literal binds that address)")
 	fmt.Fprintln(w, "    IDENTUUM_IDP_METRICS_ADDR   Prometheus /metrics listen address, SEPARATE listener,")
 	fmt.Fprintln(w, "                                internal-only + unauthenticated (default 127.0.0.1:9090 =")
 	fmt.Fprintln(w, "                                LOOPBACK; labels carry org/provider IDs — set a routable")
