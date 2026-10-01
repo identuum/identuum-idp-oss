@@ -161,7 +161,8 @@ var (
 // "wrong password"), and ErrLoginRiskBackendUnavailable to a 503.
 func (s *LoginRiskService) Check(ctx context.Context, email, ip string, purpose LoginRiskPurpose) error {
 	emailHash := hashLoginID(email)
-	ipHash := hashLoginID(ip)
+	// D-020: an IPv6 client counts by its /64; IPv4 keys are the address.
+	ipHash := hashLoginID(domain.ClientIPKey(ip))
 	since := s.now().UTC().Add(-s.window)
 
 	// Account counter: the (email AND ip) pair. Self-consistent even when
@@ -216,7 +217,7 @@ func (s *LoginRiskService) Record(ctx context.Context, email, ip string, purpose
 	row := &domain.LoginAttempt{
 		ID:        id,
 		EmailHash: hashLoginID(email),
-		IPHash:    hashLoginID(ip),
+		IPHash:    hashLoginID(domain.ClientIPKey(ip)),
 		Purpose:   string(purpose),
 		Success:   success,
 		CreatedAt: s.now().UTC(),

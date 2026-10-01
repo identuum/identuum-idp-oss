@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/metrics"
 	"github.com/identuum/identuum-idp-oss/logger"
 	"github.com/identuum/identuum-idp-oss/ratelimit"
@@ -30,9 +31,13 @@ import (
 // suitable for OSS single-replica deployments; a distributed
 // (e.g. Redis-backed) cross-replica limiter is a CE concern and is not
 // wired here.
+//
+// The bucket key is domain.ClientIPKey of that IP (D-020): an IPv4 address is
+// its own key, as before; an IPv6 client is counted by its /64, so rotating
+// addresses inside one /64 does not reach a fresh bucket.
 func NewRateLimitMiddleware(limit ratelimit.RateLimit, limitType string) gin.HandlerFunc {
 	return NewRateLimitMiddlewareWithKeyFn(limit, limitType, func(c *gin.Context) string {
-		return c.ClientIP()
+		return domain.ClientIPKey(c.ClientIP())
 	})
 }
 
