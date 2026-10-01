@@ -7,6 +7,29 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **The remaining expected-state answers honour the step-status opt-in.**
+  With `X-Identuum-Login-Step-Status: 200`, `password_change_required` at
+  `POST /api/v1/auth/login` and the MFA continuation of
+  `POST /api/v1/auth/login/password-change` answer 200 with the same body
+  (still no session, cookie or token); `GET /api/v1/validate` and the browser
+  refresh answer a caller who presents no credential 200
+  `{"authenticated":false}` (no session, no cookie). Without the header every
+  answer is unchanged; a credential that does not verify is still a 401. The
+  embedded console sends it, so a signed-out visit to `/` and a sign-in that
+  must change its password no longer log a browser console error.
+- **Console and application sign-ins are separate** (D-023), now written in
+  the operator guide.
+- **Development compose stack has its own names** (D-024):
+  `deployment/docker-compose.dev.yml` defaults to the project
+  `identuum-idp-oss-dev` (containers `identuum-idp-oss-dev`,
+  `identuum-idp-oss-dev-postgres`, image `identuum-idp-oss-dev:local`), so it
+  and the production compose file can run on one host. The production
+  compose file is unchanged. For a developer: the dev database volume is
+  project-scoped, so the first `make fast-up` after this change starts an
+  empty dev database, and a still-running pre-change dev stack keeps port 5513
+  until it is stopped; `IDENTUUM_IDP_COMPOSE_PROJECT=identuum-idp-oss` keeps
+  the old stack.
+
 - **IPv4 is the default everywhere; IPv6 is supported and opt-in.** The
   default listen `0.0.0.0:7113` (and an empty host, `:7113`) is now IPv4
   only. `[::]:7113` listens on IPv6 (dual-stack where the OS allows); an
