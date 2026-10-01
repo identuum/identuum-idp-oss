@@ -7,6 +7,23 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Self-registration** (D-021), off by default behind two switches: the
+  instance switch (`PUT /api/v1/settings/self-registration`, site admin) and
+  each organization's policy (`PUT /api/v1/organizations/:id/registration`,
+  its organization admin: open, approval, verify email, email domains).
+  `GET`/`POST /api/v1/auth/register/:org_slug` answer a closed, unknown or
+  `idp_only` organization, and a new or existing address, identically (202);
+  a self-registrant is always `org_user`, verifies its email when the
+  organization requires it (refused without SMTP), and with approval on
+  waits for its organization admin (`GET .../registrations`,
+  `POST /api/v1/users/:id/approve` / `reject`; `403 registration_pending`
+  until then). Rate-limited per IP (/64) and per organization; audited.
+  Accounts that were not self-registered keep their sign-in gate.
+  Migration `0043` (additive). Endpoint count 149 → 157.
+- **Approval reads the registration state.** `POST /api/v1/users/:id/approve`
+  approves a self-registrant held for approval (organization admin, own
+  organization); it no longer clears an `org_user`'s `banned` flag.
+
 - **A site administrator issues organization claim links** (D-022). New
   `POST /api/v1/organizations/:id/claim` `{email?}` answers 201
   `{claim_url, expires_at, email_bound}` once, for an active organization

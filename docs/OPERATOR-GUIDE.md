@@ -298,6 +298,55 @@ is redeemed, and the person who redeems it chooses the email (unless you bound
 one) — use it to hand an organization to someone whose address you do not
 manage, or to hand it over in person.
 
+## Self-registration
+
+Strangers can sign up for an organization only when **two switches** are on;
+both are **off** by default (D-021).
+
+1. **The instance switch** (site admin) is the ceiling. While it is off no
+   organization accepts sign-ups, whatever its own setting:
+   ```
+   PUT /api/v1/settings/self-registration   {"enabled": true}
+   ```
+2. **The organization's policy** (its organization admin; a site admin cannot
+   set a tenant's policy):
+   ```
+   PUT /api/v1/organizations/<org-id>/registration
+   {"allow_public_registration": true, "require_registration_approval": false,
+    "verify_email": false, "email_domains": ["example.com"]}
+   ```
+   Opening an organization while the instance switch is off answers `409
+   instance_registration_disabled`. `verify_email: true` needs working email
+   delivery (SMTP); without it the answer is `400 smtp_not_configured`.
+   `email_domains`, when not empty, accepts only those domains.
+
+The sign-up endpoint is per organization, by its slug:
+`GET /api/v1/auth/register/<org-slug>` says whether it is open (and the
+password policy); `POST` the same path `{email, name, password}` signs up.
+
+- **It discloses nothing.** A closed, unknown or `idp_only` organization, an
+  address that already has an account and a refused domain all get the same
+  `202 {"accepted": true}`; only a password the open organization's policy
+  refuses answers `400 weak_password`. When an existing address is tried and
+  SMTP is set, its owner gets a short notice by mail.
+- **What is created:** always an `org_user`, never an admin. The account
+  enrols an authenticator at its first sign-in when the organization's MFA
+  policy requires one.
+- **Email verification.** With `verify_email` on, the verification link is
+  mailed and the account signs in only after it is used (resend:
+  `POST /api/v1/auth/resend-verification`). With it off, the account signs
+  in at once with `email_verified=false`. Accounts that were not
+  self-registered keep the sign-in rule they always had.
+- **Approval.** With `require_registration_approval` on, a new account
+  cannot sign in (`403 registration_pending`) until its organization admin
+  approves it: `GET /api/v1/organizations/<org-id>/registrations` lists them,
+  `POST /api/v1/users/<id>/approve` lets one in, `POST /api/v1/users/<id>/reject`
+  deletes it.
+- **Limits and audit.** Sign-ups are rate-limited per client IP (an IPv6
+  client by its /64) and per organization (`IDENTUUM_IDP_RATE_LIMIT_REGISTER_*`,
+  default 10 per hour). Switch changes, sign-ups, refusals, approvals and
+  rejections are audited.
+
 ## Invite a user
 
 An organization admin can add a user **without choosing their password**: the
