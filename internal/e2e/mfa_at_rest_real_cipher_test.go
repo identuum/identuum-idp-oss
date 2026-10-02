@@ -342,8 +342,7 @@ func TestE2E_OSS_MFAAtRestRealCipher(t *testing.T) {
 
 	t.Run("b_totp_verify_real_decrypt_succeeds", func(t *testing.T) {
 		// Keep a current-code success case, using the next unused real step.
-		waitForNextTOTPStep(enrollStep)
-		verifyCode := computeTOTPCodeForTest(t, rawSeed, uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds))
+		verifyCode := computeTOTPCodeForTest(t, rawSeed, nextTOTPStepAfter(enrollStep))
 		verifyBody := fmt.Sprintf(`{"session_id":%q,"code":%q}`, pendingVerifyIDStr, verifyCode)
 		verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa", strings.NewReader(verifyBody))
 		verifyReq.Header.Set("Content-Type", "application/json")

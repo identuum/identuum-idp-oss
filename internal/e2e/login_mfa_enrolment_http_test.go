@@ -307,8 +307,7 @@ func TestE2E_OSS_MFAEnrolment_FullRoundTrip(t *testing.T) {
 	// ---------- Step 6: /login/mfa with correct code completes login ----------
 
 	// Enrollment consumed counter; this successful login needs an unused step.
-	waitForNextTOTPStep(counter)
-	verifyCode := computeTOTPCodeForTest(t, *persisted.MFASecret, uint64(time.Now().Unix())/uint64(service.TOTPPeriodSeconds))
+	verifyCode := computeTOTPCodeForTest(t, *persisted.MFASecret, nextTOTPStepAfter(counter))
 	verifyBody := `{"session_id":"` + verifyPendingID + `","code":"` + verifyCode + `"}`
 	verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa", strings.NewReader(verifyBody))
 	verifyReq.Header.Set("Content-Type", "application/json")
@@ -360,11 +359,25 @@ func replayEnrolledTOTP(r http.Handler, loginBody, consumedHandle, code string) 
 	return w, freshPending
 }
 
-// The production enrollment service has no exported clock seam. Wait at most
-// one real period instead of asking it to accept the enrollment step twice.
-func waitForNextTOTPStep(used uint64) {
-	next := time.Unix(int64(used+1)*int64(service.TOTPPeriodSeconds), 0)
-	time.Sleep(time.Until(next))
+// nextTOTPStepAfter waits until the WALL clock is in a step after used and
+// returns that step, for a code the replay guard has not claimed. The
+// production enrollment service has no exported clock seam, so it waits at
+// most one real period.
+//
+// It reads the wall clock in a loop rather than sleeping until the boundary:
+// a sleep of time.Until(boundary) is measured on the monotonic clock, and a
+// wall clock that reads even a millisecond short on waking yields the CLAIMED
+// step — the replay guard then answers 401, correctly (the TOTP flake of
+// OSS-MIGRATE-COUNT and OSS-REGISTER-API, both failures 20-43 ms after a step
+// boundary).
+func nextTOTPStepAfter(used uint64) uint64 {
+	period := uint64(service.TOTPPeriodSeconds)
+	for {
+		if step := uint64(time.Now().Unix()) / period; step > used {
+			return step
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // computeTOTPCodeForTest mirrors the service-internal computeHOTP
