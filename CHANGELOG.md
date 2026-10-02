@@ -7,6 +7,20 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.9.1`
+
+Fixes; identuum-ui `v0.6.1` embedded (`1f743e9`, tree digest
+`8c2232e0a1f190d5f90b1242920fce119245d07a0c1dd62ee97c4aedade02bf6`). Delta
+`v0.9.0..` (`git rev-list --count`, measured at `c805b46`, before the ledger,
+vendor and notes commits): 12 commits, 17 files, +263/−54. No migration;
+`go.mod`/`go.sum` unchanged. The canonical endpoint count stays 157. No
+route, field or response shape removed or renamed.
+
+- **The embedded UI is identuum-ui `v0.6.1`**: the sign-in no longer logs
+  the organization-lookup miss or a pending self-registrant's refusal as a
+  failed request, and the pending refusal reads "Your account is waiting for
+  an administrator's approval.". Its identuum-idp-ce console changes key on
+  capabilities this binary does not send, so nothing changes here.
 - **The step-status opt-in covers two more expected answers.** With
   `X-Identuum-Login-Step-Status: 200`, a pending self-registrant's correct
   password (`403 registration_pending` at `POST /api/v1/auth/login`) and an
