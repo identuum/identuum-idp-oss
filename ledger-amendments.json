@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "4eefa1f5a34dac389c5593686171a84c089e9b8d",
-  "changes": [
-    {
-      "rule_id": "MINT-REACHABILITY-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "OSS-LICTOR-ADOPT-B (owner brief 2026-10-02): ci-fetch now also commits the Integration job's record as CI-WITNESS.integration.txt, so the no-reach subtest names it beside CI-WITNESS.txt; observed red before its NoReachSet entry (a documentation/CI/test-only change demanded a mint: [CI-WITNESS.integration.txt]), green after; reviewed, rehashed 3ff4ddd68ba6 -> 6bd357509808"
-    }
-  ]
+  "base_commit": "3718772b3820f8eea09a8e62f6436c060d28bd73",
+  "changes": []
 }
