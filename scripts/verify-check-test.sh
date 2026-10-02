@@ -58,6 +58,16 @@ for pair in CI_VERIFY_SUBTRACTS:-23 CI_VERIFY_ADDS:-13; do
 	echo "PASS: $variable matches the plans ($(wc -l < "$scratch/declared" | tr -d ' ') names)"
 done
 
+# OSS-CI-ENV: lictor runs every plan entry with its environment allowlist, so
+# the verify job's DB settings reach go-test-race only as arguments the outer
+# make expands before lictor starts. Without them its 17 DB-backed tests skip
+# under a green record and the REQUIRE guard can never fire.
+entry=$(awk '$0 == "define CI_VERIFY_PLAN" { inside=1; next } inside && $0 == "endef" { inside=0 } inside && /^\t\t\047go-test-race=/' "$root/Makefile")
+for variable in IDENTUUM_IDP_TEST_DATABASE_URL IDENTUUM_IDP_REQUIRE_DB_TESTS IDENTUUM_IDP_ALLOW_MULTI_REPLICA; do
+	case "$entry" in *"$variable=\$($variable)"*) ;; *) echo "FAIL: ci-verify's go-test-race does not forward $variable past lictor's environment allowlist: $entry"; exit 1;; esac
+done
+echo 'PASS: go-test-race forwards the job DB settings (3)'
+
 # Both recorder forms the wrapper accepts are proved here, because both are
 # driven by a recipe: `verify` still drives the Bash complete-run recorder,
 # and ci-verify and verify-integration drive the pinned judge. The fixture

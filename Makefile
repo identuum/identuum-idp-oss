@@ -998,10 +998,21 @@ define CI_VERIFY_PLAN
 		'integration-inventory=$(MAKE) --no-print-directory integration-inventory' \
 		'go-mod-tidy-diff=go mod tidy -diff' \
 		'go-build=go build ./...' \
-		'go-test-race=go test ./... -count=1 -race -timeout=300s' \
+		'go-test-race=$(MAKE) --no-print-directory go-test-race IDENTUUM_IDP_TEST_DATABASE_URL=$(IDENTUUM_IDP_TEST_DATABASE_URL) IDENTUUM_IDP_REQUIRE_DB_TESTS=$(IDENTUUM_IDP_REQUIRE_DB_TESTS) IDENTUUM_IDP_ALLOW_MULTI_REPLICA=$(IDENTUUM_IDP_ALLOW_MULTI_REPLICA)' \
 		'staticcheck=staticcheck ./...' \
 		'grype-scan=$(MAKE) grype-scan'
 endef
+
+## go-test-race (OSS-CI-ENV, 2026-10-03): ci-verify's test floor. lictor runs
+## each plan entry with its environment allowlist, so the CI job's DB settings
+## (IDENTUUM_IDP_TEST_DATABASE_URL, IDENTUUM_IDP_REQUIRE_DB_TESTS,
+## IDENTUUM_IDP_ALLOW_MULTI_REPLICA) arrive as command-line variables the
+## outer make expanded from the job's environment; make exports them to this
+## recipe. Measured before: through lictor 17 DB-backed tests skipped under a
+## green record. Unset where the caller has none, so a local run skips as before.
+.PHONY: go-test-race
+go-test-race:
+	@go test ./... -count=1 -race -timeout=300s
 
 # What ci-verify subtracts from verify and adds to it, declared ONCE
 # (OSS-TIDY-3, 2026-10-02). script-tests (scripts/verify-check-test.sh) fails
