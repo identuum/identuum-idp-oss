@@ -72,7 +72,7 @@ func startMNARuntime(t *testing.T) *gin.Engine {
 	t.Setenv("IDENTUUM_IDP_ALLOW_MULTI_REPLICA", "true")
 	rt, err := New(Config{
 		Addr:               "127.0.0.1:0",
-		Issuer:             "http://127.0.0.1:7113",
+		Issuer:             "http://localhost:7113", // a domain: go-webauthn mounts the passkey routes
 		JWKSDBURL:          dbURL,
 		DataDir:            t.TempDir(),
 		CORSAllowedOrigins: []string{mnaOrigin},
@@ -207,8 +207,20 @@ func TestMethodNotAllowed_EveryRegisteredRoute(t *testing.T) {
 			mnaWant405(t, mnaDo(e, m, p, nil), m+" "+p, strings.Join(allow, ", "))
 		}
 	}
-	t.Logf("covered %d registered paths (%d routes, the %s catch-all excluded) with %d wrong-method requests",
-		len(paths), len(routes), mnaBFF, requests)
+	// OSS-QUEUE-TRIAGE: the passkey routes are part of the sweep. go-webauthn
+	// refuses an IP as RP ID, so the runtime mounts them only on a domain
+	// issuer (startMNARuntime uses localhost); an IP issuer skipped all of them.
+	passkey := 0
+	for _, pattern := range paths {
+		if strings.Contains(pattern, "webauthn") || strings.Contains(pattern, "passkey") {
+			passkey++
+		}
+	}
+	if passkey == 0 {
+		t.Fatalf("no WebAuthn/passkey route among the %d swept paths: the 405 sweep does not cover them", len(paths))
+	}
+	t.Logf("covered %d registered paths (%d routes, %d passkey, the %s catch-all excluded) with %d wrong-method requests",
+		len(paths), len(routes), passkey, mnaBFF, requests)
 }
 
 // TestMethodNotAllowed_TheMeasuredCases are the cases measured on b4c90df:
