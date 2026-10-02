@@ -707,6 +707,17 @@ mint-report:
 witness-mint-test:
 	@bash scripts/witness-mint-test.sh
 
+## script-tests (OSS-QUEUE-TRIAGE, 2026-10-02): the three script proofs no
+## plan or CI job ran — verify-check-test.sh pinned VERIFY_PLAN at 34 against
+## a 35-entry plan, red and unseen. Each builds its own throwaway repository.
+.PHONY: script-tests
+script-tests:
+	@bash scripts/verify-check-test.sh
+	@bash scripts/ci-integration-record-test.sh
+	@bin=$$(mktemp "$${TMPDIR:-/tmp}/ci-witness.XXXXXX"); \
+	go build -o "$$bin" ./tools/ci-witness || { rm -f "$$bin"; exit 1; }; \
+	bash scripts/ci-witness-expectation-test.sh "$$bin"; rc=$$?; rm -f "$$bin"; exit $$rc
+
 .PHONY: witness witness-parity
 
 ## witness-check (THE-UNEARNED-WITNESS, 2026-09-04): has this tree earned a
@@ -758,6 +769,7 @@ define VERIFY_PLAN
 		'ci-witness=$(MAKE) --no-print-directory ci-witness' \
 		'mint-decide=$(MAKE) --no-print-directory mint-report' \
 		'witness-mint-test=$(MAKE) --no-print-directory witness-mint-test' \
+		'script-tests=$(MAKE) --no-print-directory script-tests' \
 		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
@@ -937,6 +949,7 @@ ci-verify:
 
 # One authoritative argument vector; drivers enter through the target above.
 define CI_VERIFY_PLAN
+		'script-tests=$(MAKE) --no-print-directory script-tests' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
 		'workflow-yaml=$(MAKE) --no-print-directory workflow-yaml' \

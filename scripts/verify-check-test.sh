@@ -21,7 +21,7 @@ git add work.txt GATE-RUN.txt .gitignore exit-with gen
 git -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm fixture
 printf 'prior record\n' > "$scratch/prior"
 
-for declaration in VERIFY_PLAN:34 CI_VERIFY_PLAN:25 VERIFY_INTEGRATION_PLAN:4; do
+for declaration in VERIFY_PLAN:36 CI_VERIFY_PLAN:26 VERIFY_INTEGRATION_PLAN:4; do
 	variable=${declaration%:*}; count=${declaration#*:}
 	measured=$(awk -v variable="$variable" '
 		$0 == "define " variable { definitions++; inside=1; next }
