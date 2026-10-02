@@ -4,40 +4,13 @@
 # Every job drives the SAME Makefile targets developers run locally, so CI
 # cannot silently drift from `make verify` / `make integration-test`:
 #
-#   1. verify       — `make ci-verify` (= `make verify` minus the two
-#                     LOCAL-ONLY gograph lines, minus govulncheck which has
-#                     its own job, and minus THREE local-only targets — two
-#                     wiki-coupled ones that cannot fire here because CI
-#                     checks out one repo and the ../wiki sibling is absent,
-#                     and one kept out BY CHOICE — enumerated, and this list
-#                     must stay equal to what the Makefile subtracts:
-#                       - repo-green      (`lictor green --repo .` since
-#                                          THE-GREEN-CONSUMERS, 2026-09-21 —
-#                                          it COULD run here now; it does not
-#                                          because its four floors — fmt,
-#                                          build, test, vet — are explicit
-#                                          ci-verify steps already, so CI
-#                                          loses nothing and runs nothing
-#                                          twice)
-#                       - clock-fuse-gate ($(WIKI_TOOLS)/clockfuse-gate.sh;
-#                                          the snapshot comparison is
-#                                          local-only — recorded residue,
-#                                          REL-CI-WIKI-COUPLING —
-#                                          clock-fuse-report still runs and
-#                                          hard-fails on tool error and the
-#                                          deadline arm)
-#                       - wiki-fresh      (self-skips when ../wiki is absent;
-#                                          the call could only ever print
-#                                          SKIPPED)
-#                       - ledger-diff-gate (THE-LEDGER-DIFF-GATE: its base is
-#                                          the previous ACCEPTED witness commit,
-#                                          measured from the local witness
-#                                          chain that CI's single-commit
-#                                          checkout does not carry — see the
-#                                          gate-witness tie-note; the same
-#                                          reconciliation runs in every local
-#                                          `make verify` and its evidence line
-#                                          is in the committed GATE-RUN.txt)
+#   1. verify       — `make ci-verify` (= `make verify` minus
+#                     CI_VERIFY_SUBTRACTS plus CI_VERIFY_ADDS, both declared
+#                     ONCE in the Makefile below CI_VERIFY_PLAN and held to the
+#                     two plans by script-tests, which runs in this job; the
+#                     reasons are in the Makefile ci-verify header. This
+#                     header enumerated them until OSS-TIDY-3, 2026-10-02,
+#                     and read three where the plans differed by eighteen.)
 #                     rulefloor-check is NO LONGER subtracted: since
 #                     THE-TOOLING-UPGRADE the verify job installs the real
 #                     rulefloor binary (built from the workflow-env-pinned

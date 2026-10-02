@@ -78,7 +78,7 @@ cp "$scratch/green" "$record"
 GITHUB_RUN_ID=124 check_case wrong-run refuse
 cp "$scratch/green" "$record"
 echo 'GREEN RECORD: local fixture commands only, not a CI integration run'
-cat "$record"
+sed 's/^/  fixture| /' "$record"
 rm "$record"
 : > "$TRACE"
 run init > "$scratch/red.log" 2>&1
@@ -95,6 +95,9 @@ run finalize >> "$scratch/red.log" 2>&1 || result=$?
 assert 'incomplete plan finalizes red' test "$result" -ne 0
 assert 'failed target recorded' grep -qx 'target: ci-integration-test exit=2' "$record"
 assert 'red verdict recorded' grep -qx 'result: red' "$record"
-assert 'red record retains current provenance' bash scripts/ci-record.sh check "$record"
+result=0
+bash scripts/ci-record.sh check "$record" > "$scratch/provenance.log" 2>&1 || result=$?
+sed 's/^/  fixture| /' "$scratch/provenance.log"
+assert 'red record retains current provenance' test "$result" -eq 0
 [ "$failures" -eq 0 ] || { echo "ci-integration record tests: $failures failure(s)"; exit 1; }
 echo 'check OK: CI integration record contract tests'

@@ -21,8 +21,10 @@ git add work.txt GATE-RUN.txt .gitignore exit-with gen
 git -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm fixture
 printf 'prior record\n' > "$scratch/prior"
 
+counts=
 for declaration in VERIFY_PLAN:36 CI_VERIFY_PLAN:26 VERIFY_INTEGRATION_PLAN:4; do
 	variable=${declaration%:*}; count=${declaration#*:}
+	counts=$counts${counts:+/}$count
 	measured=$(awk -v variable="$variable" '
 		$0 == "define " variable { definitions++; inside=1; next }
 		inside && $0 == "endef" { inside=0 }
@@ -31,6 +33,29 @@ for declaration in VERIFY_PLAN:36 CI_VERIFY_PLAN:26 VERIFY_INTEGRATION_PLAN:4; d
 	' "$root/Makefile")
 	[ "$measured" = "1 $count" ] || { echo "FAIL: $variable definition/count: $measured"; exit 1; }
 	[ "$(grep -Fc "\$($variable)" "$root/Makefile")" = 1 ] || { echo "FAIL: $variable must have one recipe consumer"; exit 1; }
+done
+
+# OSS-TIDY-3: what ci-verify subtracts from verify, and adds, is declared once
+# (CI_VERIFY_SUBTRACTS, CI_VERIFY_ADDS); the two plans may differ by nothing else.
+plan_names() {
+	awk -v variable="$1" '
+		$0 == "define " variable { inside=1; next }
+		inside && $0 == "endef" { inside=0 }
+		inside && /^\t\t\047[^=]+=/ { name=$0; sub(/^\t\t\047/, "", name); sub(/=.*/, "", name); print name }
+	' "$root/Makefile" | sort
+}
+declared() { sed -n "s/^$1 := //p" "$root/Makefile" | tr ' ' '\n' | sed '/^$/d' | sort; }
+plan_names VERIFY_PLAN > "$scratch/verify.names"
+plan_names CI_VERIFY_PLAN > "$scratch/ci.names"
+for pair in CI_VERIFY_SUBTRACTS:-23 CI_VERIFY_ADDS:-13; do
+	variable=${pair%:*}; flag=${pair#*:}
+	comm "$flag" "$scratch/verify.names" "$scratch/ci.names" > "$scratch/measured"
+	declared "$variable" > "$scratch/declared"
+	cmp -s "$scratch/measured" "$scratch/declared" || {
+		echo "FAIL: $variable does not match the plans — measured: $(tr '\n' ' ' < "$scratch/measured")— declared: $(tr '\n' ' ' < "$scratch/declared")"
+		exit 1
+	}
+	echo "PASS: $variable matches the plans ($(wc -l < "$scratch/declared" | tr -d ' ') names)"
 done
 
 # Both recorder forms the wrapper accepts are proved here, because both are
@@ -77,4 +102,4 @@ grep -qx 'result: green' "$scratch/linked.log"
 cmp -s "$scratch/prior" GATE-RUN.txt
 [ -z "$(git status --porcelain)" ] || exit 1
 echo 'PASS: linked worktree — green, record and status unchanged'
-echo 'SELFTEST OK: one definition per plan (34/25/4); external records preserve all-target and fail-fast verdicts'
+echo "SELFTEST OK: one definition per plan ($counts); ci-verify differs from verify only by its declared subtractions and additions; external records preserve all-target and fail-fast verdicts"

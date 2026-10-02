@@ -167,8 +167,12 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 ## banked before new work is verified" — zero commits of allowed drift. It does
 ## NOT and cannot check the commit you are about to make; the §F-bis append for
 ## THIS slice is still on you, and the gate will catch its absence on the NEXT
-## slice's verify. A missing wiki dir (fresh clone / CI) prints one loud SKIPPED
-## line and continues — visible, never silent. The old typo guard ("--repo
+## slice's verify. A missing wiki dir (fresh clone / CI / a Legattus
+## materialized tree) prints one loud SKIPPED line and continues — visible,
+## never silent — and a `wiki freshness: NOT JUDGED` line, which the recorder
+## captures as evidence, so a record reads "not judged" there and never a bare
+## exit=0 that looks like a judged green (owner ruling, OSS-TIDY-3,
+## 2026-10-02). The old typo guard ("--repo
 ## matches no page exits 2") is gone with the --repo flag; what replaces it is
 ## --wiki-dir's own refusal of any directory that is not a workspace's direct
 ## wiki child, so a mistyped WIKI_DIR fails here rather than checking nothing.
@@ -177,6 +181,7 @@ WIKI_DIR ?= ../wiki
 wiki-fresh:
 	@if [ ! -d "$(WIKI_DIR)" ]; then \
 		echo "WIKI FRESHNESS SKIPPED: no wiki at $(WIKI_DIR)"; \
+		echo "wiki freshness: NOT JUDGED — no wiki at $(WIKI_DIR); exit 0 here is not a freshness verdict"; \
 	else \
 		command -v achta >/dev/null 2>&1 || { echo "wiki-fresh: achta is not installed — this gate needs achta >= v0.4.1 (wiki check --only freshness)" >&2; exit 2; }; \
 		out=$$(achta --wiki-dir "$(WIKI_DIR)" wiki check --only freshness 2>&1); rc=$$?; \
@@ -802,12 +807,18 @@ define VERIFY_PLAN
 		'wiki-fresh=$(MAKE) --no-print-directory wiki-fresh'
 endef
 
-## ci-verify: CI mirror of `make verify` MINUS the two gograph lines, MINUS
-## govulncheck, and MINUS wiki-fresh. THREE omissions, all deliberate and all
-## documented below; none is silent drift. (This lead sentence said "the two
-## gograph lines and govulncheck ... Both omissions" until 2026-08-04 while a
-## THIRD was spelled out twenty lines down — a count that did not match its own
-## enumeration, agent-rules.md SS G-bis:313, in the file that lists the gates.)
+## ci-verify: CI mirror of `make verify` MINUS CI_VERIFY_SUBTRACTS and PLUS
+## CI_VERIFY_ADDS, both declared once below CI_VERIFY_PLAN and held to the two
+## plans by script-tests. This lead sentence enumerated them twice and was
+## wrong both times: "Both omissions" against a third (2026-08-04), then "THREE
+## omissions" against fourteen subtracted and four added (re-measured
+## OSS-QUEUE-TRIAGE, 2026-10-02). The reasons follow; a name declared there is
+## never silent drift.
+##
+## ledger-diff-gate: its base is the previous ACCEPTED witness commit, measured
+## from the local witness chain that CI's single-commit checkout does not carry
+## (see the gate-witness tie-note); the same reconciliation runs in every local
+## `make verify` and its evidence line is in the committed GATE-RUN.txt.
 ##
 ## gograph stays a LOCAL-ONLY developer tool by decision (owner-distributed
 ## via the brew cask; CI does not install it), so its `capabilities` +
@@ -976,6 +987,14 @@ define CI_VERIFY_PLAN
 		'staticcheck=staticcheck ./...' \
 		'grype-scan=$(MAKE) grype-scan'
 endef
+
+# What ci-verify subtracts from verify and adds to it, declared ONCE
+# (OSS-TIDY-3, 2026-10-02). script-tests (scripts/verify-check-test.sh) fails
+# when the two plans above differ by anything else, so no comment here or in
+# .github/workflows/ci.yml enumerates them; the reasons are in the ci-verify
+# header.
+CI_VERIFY_SUBTRACTS := ci-witness clock-fuse-gate gograph-boundaries gograph-build gograph-capabilities govulncheck ledger-diff-gate mint-decide repo-green tool-versions toolchain-parity ui-vendor-check wiki-fresh witness-mint-test
+CI_VERIFY_ADDS := fmt-check vet go-build go-test-race
 
 ## fmt-check: HARD gofmt gate (CE-GATES-3). Fails on drifted files AND on a
 ## non-zero gofmt exit status — gofmt walks files `go build` never compiles
@@ -2615,18 +2634,31 @@ test-full:
 	@# sibling's tree digest — and nothing else. MINT-STATE.json, the marker
 	@# only this target wrote, is retired: three mints paid from the sibling
 	@# had moved the record and never the marker.
-	@if go run ./tools/mint-reachability --repo .; then \
+	@# OSS-TIDY-3: the tier is the classifier's own line. `go run` collapses
+	@# exit 10 to 1, so the line, not the code, says "e2e-quick owed"; any
+	@# other non-zero answer — the full tier, undecidable, an unknown line —
+	@# pays e2e-full. Fail closed: quick only when quick is named.
+	@out=$$(go run ./tools/mint-reachability --repo . 2>&1); rc=$$?; \
+	printf '%s\n' "$$out"; \
+	if [ $$rc -eq 0 ]; then \
 		echo "test-full: MINT SATISFIED by the e2e record in ../identuum-ui; every path since its heads is declared no-reach."; \
 		echo "test-full: every mint floor stands; the next mint that runs still holds them."; \
 	else \
-		$(MAKE) --no-print-directory test-full-mint; \
+		tier=full; \
+		case "$$out" in *"e2e-quick owed"*) tier=quick;; esac; \
+		echo "test-full: MINT REQUIRED — tier $$tier (e2e-$$tier)"; \
+		$(MAKE) --no-print-directory test-full-mint E2E_TIER=$$tier; \
 	fi
 
 ## test-full-mint: the mint itself. Never invoke directly to dodge the
 ## reachability check — test-full is the entry point, and this target exists
 ## only so the skip can be a branch instead of an early exit.
 .PHONY: test-full-mint
+## E2E_TIER: full (default) or quick — test-full passes the classifier's tier;
+## the tier the sibling runs is the record this target checks.
+E2E_TIER ?= full
 test-full-mint:
+	@case "$(E2E_TIER)" in full|quick) ;; *) echo "test-full-mint: E2E_TIER must be full or quick, got '$(E2E_TIER)'"; exit 2;; esac
 	@# THE-UNRUN-SUITE (P-041): the integration profile runs HERE, before the
 	@# appliance phases, because the mint is the one place a database is a
 	@# given. fast-up is bounded and idempotent; the e2e harness tears the
@@ -2634,8 +2666,8 @@ test-full-mint:
 	$(MAKE) --no-print-directory fast-up
 	$(MAKE) --no-print-directory verify-integration
 	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
-	$(MAKE) -C ../identuum-ui e2e-full
-	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-full.txt
+	$(MAKE) -C ../identuum-ui e2e-$(E2E_TIER)
+	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-$(E2E_TIER).txt
 	@# The mint ran and both halves checked out. The record it wrote IS the
 	@# marker: the next decision reads its heads (THE-ONE-MINT-RECORD).
-	@echo "test-full: MINT PAID — ../identuum-ui/GATE-RUN.e2e-full.txt is the record of record for this pair."
+	@echo "test-full: MINT PAID — ../identuum-ui/GATE-RUN.e2e-$(E2E_TIER).txt is the record of record for this pair."

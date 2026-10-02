@@ -59,7 +59,7 @@ case_run() {
 	if [ "$baseline" != --baseline ]; then args+=(--expect-gate "$gate" --expect-plan "$expected_plan"); fi
 	"$binary" "${args[@]}" > "$scratch/verdict" 2>&1 || actual=$?
 	echo "$name: exit=$actual"
-	cat "$scratch/verdict"
+	sed 's/^/  fixture| /' "$scratch/verdict"
 	check "$name exit" test "$actual" -eq "$expected_exit"
 }
 case_run right-green CI-WITNESS.txt 0 "$plan"

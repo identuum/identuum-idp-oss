@@ -437,10 +437,29 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 			t.Errorf("mint-decide runs the classifier through `go run`, which collapses exit 10 to 1:\n%s", recipe)
 		}
 		// test-full's own branch is the fail-closed 0-versus-non-zero one, and
-		// must stay that way: only an explicit 0 skips.
+		// must stay that way: only an explicit 0 skips. OSS-TIDY-3: a required
+		// mint pays e2e-quick only when the classifier's line says the quick
+		// tier is owed; every other non-zero answer pays e2e-full.
 		testFull := makefileRecipe(t, makefile, "test-full")
-		if !strings.Contains(testFull, "if go run ./tools/mint-reachability --repo .; then") {
-			t.Errorf("test-full no longer branches on the classifier's 0-versus-non-zero exit:\n%s", testFull)
+		for _, want := range []string{
+			"out=$$(go run ./tools/mint-reachability --repo . 2>&1); rc=$$?",
+			"if [ $$rc -eq 0 ]; then",
+			"tier=full",
+			`*"e2e-quick owed"*) tier=quick`,
+			"test-full-mint E2E_TIER=$$tier",
+		} {
+			if !strings.Contains(testFull, want) {
+				t.Errorf("test-full lacks %q — it must skip only on 0 and pay quick only when the quick tier is owed:\n%s", want, testFull)
+			}
+		}
+		mint := makefileRecipe(t, makefile, "test-full-mint")
+		for _, want := range []string{
+			"$(MAKE) -C ../identuum-ui e2e-$(E2E_TIER)",
+			"gate-witness.sh check ../identuum-ui GATE-RUN.e2e-$(E2E_TIER).txt",
+		} {
+			if !strings.Contains(mint, want) {
+				t.Errorf("test-full-mint lacks %q — the tier it runs is the tier it checks:\n%s", want, mint)
+			}
 		}
 	})
 
