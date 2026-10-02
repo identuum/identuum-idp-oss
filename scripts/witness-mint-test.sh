@@ -58,6 +58,9 @@ assert() {
 	local label=$1; shift
 	if "$@"; then echo "PASS $label"; else echo "FAIL $label"; exit 1; fi
 }
+# The fixture's record and logs are shown for diagnosis, prefixed so a plan
+# log never carries a synthetic `target:` or `result:` line as its own.
+fixture_show() { sed 's/^/  fixture| /' "$1"; }
 # No change reaches the appliance: only the sibling's record was committed.
 bash scripts/verify-all.sh GATE-RUN.txt fixture -- 'mint-decide=make --no-print-directory mint-report' > "$scratch/not-owed.log" 2>&1
 assert 'not owed: reported mint satisfied' grep -q 'MINT SATISFIED' GATE-RUN.txt
@@ -65,7 +68,7 @@ assert 'not owed: verify green' grep -qx 'result: green' GATE-RUN.txt
 make --no-print-directory witness > "$scratch/witness.log" 2>&1
 assert 'not owed: shared witness committed' test "$(git log -1 --format=%s)" = "Witness: make verify green at ${oss_base:0:7}"
 assert 'not owed: commit contains only the record' test "$(git diff-tree --no-commit-id --name-only -r HEAD)" = GATE-RUN.txt
-cat "$scratch/witness.log"
+fixture_show "$scratch/witness.log"
 # Makefile is explicitly reaching in the real classifier. Commit a change
 # after the synthetic mint baseline, then generate a clean-head gate record.
 printf '\n# synthetic change after mint\n' >> Makefile
@@ -76,7 +79,7 @@ bash scripts/verify-all.sh GATE-RUN.txt fixture -- 'mint-decide=make --no-print-
 assert 'owed: verdict recorded' grep -q 'MINT REQUIRED' GATE-RUN.txt
 assert 'owed: report target passes' grep -qx 'target: mint-decide exit=0' GATE-RUN.txt
 assert 'owed: verify green' grep -qx 'result: green' GATE-RUN.txt
-cat GATE-RUN.txt
+fixture_show GATE-RUN.txt
 for attempt in 1 2; do
 	# A file named after the prerequisite must not cache approval or refusal.
 	if [ "$attempt" = 2 ]; then touch witness-mint-check; fi
@@ -86,7 +89,7 @@ for attempt in 1 2; do
 	assert "owed: witness attempt $attempt explains debt" grep -q 'witness: REFUSED — the e2e mint is owed' "$scratch/refused.log"
 	assert "owed: witness attempt $attempt commits nothing" test "$(git rev-parse HEAD)" = "$head_before"
 done
-cat "$scratch/refused.log"
+fixture_show "$scratch/refused.log"
 rm witness-mint-check
 result=0
 bash scripts/verify-all.sh GATE-RUN.txt fixture -- 'failure=exit 23' 'mint-decide=make --no-print-directory mint-report' > "$scratch/red.log" 2>&1 || result=$?
@@ -94,5 +97,5 @@ assert 'red target: run fails' test "$result" -ne 0
 assert 'red target: exact target exit recorded' grep -qx 'target: failure exit=23' GATE-RUN.txt
 assert 'red target: later report still runs' grep -qx 'target: mint-decide exit=0' GATE-RUN.txt
 assert 'red target: record remains red' grep -qx 'result: red' GATE-RUN.txt
-cat GATE-RUN.txt
+fixture_show GATE-RUN.txt
 echo 'SELFTEST OK: mint debt is recorded without failing verify and refuses every witness attempt'
