@@ -751,8 +751,11 @@ witness-check:
 	@go run ./tools/witness-earns --repo .
 
 verify:
-	# THE-UNWITNESSED-GREEN: the declared targets are driven by verify-all
-	# through scripts/gate-witness.sh so a committed-head run leaves a record
+	# OSS-LICTOR-VERIFY (2026-10-02): driven by `lictor witness run --all`
+	# (lictor v0.4.4), byte-equal to the scripts/verify-all.sh it replaces on
+	# records, exits and dirty-tree streams; on a clean tree its console differs
+	# only as lictor declares (routing to stderr, a repository line, a summary).
+	# THE-UNWITNESSED-GREEN: the declared targets are recorded so a committed-head run leaves a record
 	# (GATE-RUN.txt): per-target exit codes, the five tool versions with
 	# paths, the tools' own count lines, and a digest of the tree the run
 	# saw (minus the record itself). An interrupted run reads
@@ -773,7 +776,9 @@ verify:
 	# graph reports stale imports. Red-proved: internal/crypto importing
 	# internal/api fails with [boundary_violation]. Local-only like the other
 	# gograph lines; ci-verify documents the omission.
-	+@$(GATE_RECORD_DRIVER) bash scripts/verify-all.sh GATE-RUN.txt "identuum-idp-oss make verify" \
+	+@$(call LICTOR_ASSERT,verify); \
+	$(GATE_RECORD_DRIVER) "$(LICTOR)" witness run --all --repo "$(CURDIR)" \
+		--record GATE-RUN.txt --label "identuum-idp-oss make verify" \
 		--requires gograph-boundaries:gograph-build -- \
 		$(VERIFY_PLAN)
 

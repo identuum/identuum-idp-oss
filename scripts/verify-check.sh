@@ -3,11 +3,12 @@
 # The Make recipe still owns the plan, label, dependencies and failure mode.
 set -u
 
-# TWO recorder forms reach here since THE-RUN-HALF (2026-09-21), one per
-# recipe that drives one. `verify` still drives the Bash complete-run
-# recorder, which names its record POSITIONALLY; `ci-verify` and
-# `verify-integration` drive the pinned judge, `lictor witness run --repo ABS
-# --record PATH ...`, which names it with a FLAG. Nothing else differs: each
+# TWO recorder forms reach here since THE-RUN-HALF (2026-09-21). Every recipe
+# now drives the pinned judge, `lictor witness run [--all] --repo ABS --record
+# PATH ...`, which names its record with a FLAG (`verify` moved to it in
+# OSS-LICTOR-VERIFY, 2026-10-02). The Bash complete-run recorder, which names
+# its record POSITIONALLY, remains for scripts/verify-check-test.sh's
+# transport proofs of scripts/verify-all.sh. Nothing else differs: each
 # form's plan, label, ordering and failure mode stay the recipe's. The
 # gate-witness.sh run form this wrapper also took until THE-RUN-HALF is gone
 # with the two recipes that drove it: a branch no recipe enters is a branch

@@ -99,8 +99,8 @@ env:
   # verified against LICTOR_SHA256 (the linux_amd64 line of the release's
   # checksums.txt), the version printed and asserted — and held to the
   # locally installed lictor by `make toolchain-parity`. Bump both together.
-  LICTOR_VERSION: v0.4.3
-  LICTOR_SHA256: 9a2142d3abc326e9461cea5a09f158de2c84e6853f1233fbf13b7ddc0dd5fc72
+  LICTOR_VERSION: v0.4.4
+  LICTOR_SHA256: d2c3e29ee8a9942eb9c82f595d6702bb52bc5673f9787dbba17c1de5bfed8c85
   # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): yq for the workflow-yaml
   # gate, which parses every file under .github/workflows the way GitHub
   # will. Pinned the rulefloor way — an immutable release artifact plus its
@@ -527,9 +527,11 @@ jobs:
 
       # Drives the Makefile target verbatim (e2e + DB-backed runtime +
       # internal/pkg/runtime teeth, the former pkg/runtime — P-061). The DSN is
-      # supplied via env and is NOT echoed —
-      # the recipe is @-prefixed and the Makefile respects
-      # IDENTUUM_IDP_TEST_DATABASE_URL when set. ci-integration-test, not
+      # the Makefile's OSS_TEST_DB_URL default, which names this service's
+      # database: lictor runs each step with its environment allowlist, so a
+      # step-level IDENTUUM_IDP_TEST_DATABASE_URL never reached make and is
+      # gone (OSS-LICTOR-VERIFY). It is NOT echoed — the recipe is @-prefixed.
+      # ci-integration-test, not
       # integration-test: the developer target additionally runs test-db
       # (createdb — the service container already provides the database).
       - name: Migrate the integration database
@@ -552,8 +554,6 @@ jobs:
         run: bash scripts/ci-integration-record.sh step test-db
 
       - name: make ci-integration-test
-        env:
-          IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss_test?sslmode=disable
         run: bash scripts/ci-integration-record.sh step ci-integration-test
 
       # THE-CI-TEETH: the DB-profile ledger teeth now run in CI too, then
@@ -577,8 +577,6 @@ jobs:
           rulefloor version --json | grep -F "\"version\":\"${RULEFLOOR_VERSION}\""
 
       - name: make rulefloor-integration
-        env:
-          IDENTUUM_IDP_TEST_DATABASE_URL: postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@localhost:5513/identuum_idp_oss_test?sslmode=disable
         run: bash scripts/ci-integration-record.sh step rulefloor-integration
 
       - name: Finalize the integration target record
