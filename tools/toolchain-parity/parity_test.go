@@ -188,3 +188,30 @@ func TestRuleCILocalParity1_MismatchFails_MissingFails_EmptyListFails(t *testing
 		}
 	})
 }
+
+// OSS-LICTOR-ADOPT-B: with two installs of one tool the verdict follows PATH,
+// so every executed tool names the binary that answered — never a refusal,
+// and never in a line the gate recorder captures as evidence.
+func TestResolvedLinesNameEveryExecutedTool(t *testing.T) {
+	pins := []Pin{
+		{Tool: "staticcheck", Path: "/opt/a/staticcheck", Executed: true},
+		{Tool: "lictor", Path: "", Executed: true},
+		{Tool: "gate-witness.sh"},
+	}
+	got := ResolvedLines(pins)
+	want := []string{
+		"toolchain-parity: staticcheck resolves to /opt/a/staticcheck",
+		"toolchain-parity: lictor resolves to (not found on PATH)",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("ResolvedLines = %q, want %q", got, want)
+	}
+	for _, line := range got {
+		if strings.HasPrefix(line, "check OK:") || strings.HasPrefix(line, "check FAILED:") {
+			t.Fatalf("a path line has the evidence shape the recorder captures: %q", line)
+		}
+	}
+	if _, _, ok := Decide([]Pin{{Tool: "a", Declared: "1", Observed: "1", Path: "/x/a", Executed: true}, {Tool: "b", Declared: "1", Observed: "1", Path: "/y/b", Executed: true}}); !ok {
+		t.Fatal("a resolved path changed the verdict; it is reported, never judged")
+	}
+}

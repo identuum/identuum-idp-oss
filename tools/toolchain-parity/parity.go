@@ -58,6 +58,28 @@ type Pin struct {
 	// are already normalized when they reach Decide.
 	Declared string
 	Observed string
+	// Executed marks a pin observed by running a tool; Path is the binary
+	// PATH resolved for it ("" when none). Reported, never judged.
+	Executed bool
+	Path     string
+}
+
+// ResolvedLines names the binary that answered for every executed pin, so a
+// second install shadowing the first is visible. The lines do not carry the
+// recorder's evidence prefix: the path is console output, not record.
+func ResolvedLines(pins []Pin) []string {
+	var lines []string
+	for _, p := range pins {
+		if !p.Executed {
+			continue
+		}
+		path := p.Path
+		if path == "" {
+			path = "(not found on PATH)"
+		}
+		lines = append(lines, fmt.Sprintf("toolchain-parity: %s resolves to %s", p.Tool, path))
+	}
+	return lines
 }
 
 // Decide is the gate's judgement: every pin must agree, and a pin whose

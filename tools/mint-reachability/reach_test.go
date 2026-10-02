@@ -27,6 +27,7 @@ func TestRuleMintReachability1_OnlyDeclaredNoReachSkips_EverythingElseMints(t *t
 			"GATE-RUN.txt",
 			"MINT-STATE.json",
 			"cmd/identuum-idp/gate_witness_clean_head_test.go",
+			"CI-WITNESS.integration.txt",
 		}
 		d := Decide(changed, NoReachSet)
 		if d.Required {

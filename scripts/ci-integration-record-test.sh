@@ -18,19 +18,26 @@ checks = [s['run'] for s in job['steps'] if s.get('name') == "Require this run's
 Path(sys.argv[2]).write_text('\n'.join(checks) + '\n')
 print('workflow record-check steps:', len(checks))
 PY
-mkdir -p "$scratch/repo/scripts"
-cp "$root/scripts/ci-integration-record.sh" "$root/scripts/ci-record.sh" "$root/scripts/gate-witness.sh" "$scratch/repo/scripts/"
+mkdir -p "$scratch/repo/scripts" "$scratch/repo/.github/workflows"
+# OSS-LICTOR-ADOPT-B: the stepwise record is lictor's, so the fixture ships no
+# gate-witness.sh and declares the workflow's own LICTOR_VERSION pin.
+cp "$root/scripts/ci-integration-record.sh" "$root/scripts/ci-record.sh" "$scratch/repo/scripts/"
+{ echo 'env:'; grep '^  LICTOR_VERSION: ' "$root/.github/workflows/ci.yml"; } > "$scratch/repo/.github/workflows/ci.yml"
 cd "$scratch/repo"
+# lictor runs targets with its declared environment allowlist (PROJECT_SPEC
+# §witness), so the trace and the failure marker are absolute paths baked in
+# here, not environment the fixture would have to smuggle through.
 cat > Makefile <<'MAKE'
 .PHONY: test-db ci-integration-test rulefloor-integration
 test-db ci-integration-test rulefloor-integration:
-	@printf '%s\n' '$@' >> "$$TRACE"
+	@printf '%s\n' '$@' >> "@SCRATCH@/trace"
 	@echo 'check OK: fixture $@'
-	@if [ "$${FAIL_TARGET:-}" = '$@' ]; then exit 7; fi
+	@if [ -e "@SCRATCH@/fail-$@" ]; then exit 7; fi
 MAKE
+sed -i.orig "s#@SCRATCH@#$scratch#g" Makefile && rm -f Makefile.orig
 printf '/GATE-RUN.ci-integration.txt\n' > .gitignore
 git -c init.defaultBranch=main init -q
-git add -- Makefile .gitignore scripts
+git add -- Makefile .gitignore scripts .github
 git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm fixture
 export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=identuum/fixture
 export GITHUB_RUN_ID=123 GITHUB_RUN_ATTEMPT=2 GITHUB_JOB=integration
@@ -84,7 +91,8 @@ rm "$record"
 run init > "$scratch/red.log" 2>&1
 run step test-db >> "$scratch/red.log" 2>&1
 result=0
-FAIL_TARGET=ci-integration-test run step ci-integration-test >> "$scratch/red.log" 2>&1 || result=$?
+: > "$scratch/fail-ci-integration-test"
+run step ci-integration-test >> "$scratch/red.log" 2>&1 || result=$?
 assert 'failed Make target propagates' test "$result" -eq 2
 result=0
 run step rulefloor-integration >> "$scratch/red.log" 2>&1 || result=$?

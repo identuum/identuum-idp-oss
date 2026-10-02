@@ -15,8 +15,11 @@ test-db ci-integration-test rulefloor-integration:
 	@true
 MAKE
 printf '/GATE-RUN.ci.txt\n/GATE-RUN.ci-integration.txt\n/GATE-RUN.red.txt\n' > .gitignore
+# The integration record is lictor's (OSS-LICTOR-ADOPT-B): declare its pin.
+mkdir -p .github/workflows
+{ echo 'env:'; grep '^  LICTOR_VERSION: ' "$root/.github/workflows/ci.yml"; } > .github/workflows/ci.yml
 git -c init.defaultBranch=main init -q
-git add -- Makefile .gitignore
+git add -- Makefile .gitignore .github
 commit() { git -c user.name=Fixture -c user.email=fixture@example.invalid -c commit.gpgsign=false commit -qm "$1"; }
 commit fixture
 export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=identuum/fixture

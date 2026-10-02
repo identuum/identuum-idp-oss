@@ -196,6 +196,7 @@ var baseNoReachSet = []NoReachEntry{
 	{Pattern: "wiki/**", Why: "a sibling repository's prose"},
 	{Pattern: "**/*_test.go", Why: "the Go toolchain excludes *_test.go from every non-test build"},
 	{Pattern: "CI-WITNESS.txt", Why: "the committed CI claim: fetched from a CI artifact, judged by ci-witness at verify time, never compiled or served"},
+	{Pattern: "CI-WITNESS.integration.txt", Why: "the committed Integration-job claim: fetched by ci-fetch from the gate-run-ci-integration artifact, judged by ci-witness, never compiled or served"},
 	{Pattern: "conformance/**", Why: "the OpenID harness and its floors; nothing under it ships: the runner, the plan fixtures and the expected-failure files drive a disposable appliance the harness builds and destroys itself, and none of it is compiled into the binary or served (owner decision, THE-HONEST-HARNESS-AND-THE-PUSH, 2026-09-07)"},
 	// THE-SIX-SMALL-ONES (2026-09-16): the gate scripts. PROVED, not
 	// trusted, and re-measured on every test run (reach_test.go): the image

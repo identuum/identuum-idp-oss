@@ -613,9 +613,18 @@ toolchain-parity:
 # The caller owns this gate identity, shared with its producer below. Read
 # target names from the unexpanded plan: inspection must not execute its commands.
 CI_VERIFY_GATE := identuum-idp-oss make ci-verify
+# OSS-LICTOR-ADOPT-B: the Integration job's record, fetched by ci-fetch into
+# CI-WITNESS.integration.txt, is judged the same way. Its gate label and plan
+# are read from scripts/ci-integration-record.sh, the one place that declares
+# them; absent, it is NO CLAIM, exactly as CI-WITNESS.txt is.
+CI_INTEGRATION_RECORD := CI-WITNESS.integration.txt
 ci-witness:
 	@plan=$$(printf '%s\n' $(value CI_VERIFY_PLAN) | cut -d= -f1 | paste -sd ' ' -); \
-	go run ./tools/ci-witness --repo . --expect-gate "$(CI_VERIFY_GATE)" --expect-plan "$$plan"
+	go run ./tools/ci-witness --repo . --expect-gate "$(CI_VERIFY_GATE)" --expect-plan "$$plan" || exit $$?; \
+	gate=$$(sed -n "s/^		--label '\(.*\)' --tie commit .*/\1/p" scripts/ci-integration-record.sh); \
+	plan=$$(sed -n "s/^	'\([a-z-]*\)=.*/\1/p" scripts/ci-integration-record.sh | paste -sd ' ' -); \
+	[ -n "$$gate" ] && [ -n "$$plan" ] || { echo "check FAILED: ci-witness — scripts/ci-integration-record.sh declares no integration gate or plan"; exit 1; }; \
+	go run ./tools/ci-witness --repo . --record $(CI_INTEGRATION_RECORD) --expect-gate "$$gate" --expect-plan "$$plan"
 
 ## ci-fetch (THE-GREEN-CI-BASELINE, 2026-09-04): the OPERATOR STEP that
 ## downloads a CI run's record so ci-witness has something to judge.
@@ -632,7 +641,7 @@ ci-witness:
 ## (SHELL := /bin/bash, line 38), and the guard below was observed to fire.
 ##
 ##   make ci-fetch RUN=33875886668
-##   git add CI-WITNESS.txt && git commit
+##   git add CI-WITNESS.txt CI-WITNESS.integration.txt && git commit
 ci-fetch:
 	@if [ -z "$(RUN)" ]; then \
 		echo "ci-fetch: name the run — make ci-fetch RUN=<id>"; \
@@ -642,8 +651,9 @@ ci-fetch:
 	fi
 	@rm -rf .ci-fetch && mkdir -p .ci-fetch
 	gh run download $(RUN) -n gate-run-ci-verify -D .ci-fetch
-	@cp .ci-fetch/GATE-RUN.ci.txt CI-WITNESS.txt && rm -rf .ci-fetch
-	@echo "ci-fetch: wrote CI-WITNESS.txt from run $(RUN) — READ IT, then commit it."
+	gh run download $(RUN) -n gate-run-ci-integration -D .ci-fetch
+	@cp .ci-fetch/GATE-RUN.ci.txt CI-WITNESS.txt && cp .ci-fetch/GATE-RUN.ci-integration.txt $(CI_INTEGRATION_RECORD) && rm -rf .ci-fetch
+	@echo "ci-fetch: wrote CI-WITNESS.txt and $(CI_INTEGRATION_RECORD) from run $(RUN) — READ THEM, then commit them."
 	@$(MAKE) --no-print-directory ci-witness || true
 
 ## mint-check (THE-UNMINTED-DIFF, 2026-09-04): does the diff since the last

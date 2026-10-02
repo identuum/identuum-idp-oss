@@ -471,6 +471,26 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Install lictor (release archive)
+        # OSS-LICTOR-ADOPT-B: the integration record's init/step/finalize are
+        # lictor's stepwise witness. Same pin as the verify job — the workflow
+        # env LICTOR_VERSION and LICTOR_SHA256 — verified before unpacking.
+        # It runs before setup-go (the record opens first), so it installs to
+        # the runner's temp directory and puts that on PATH.
+        run: |
+          curl -sSfL -o lictor.tar.gz "https://github.com/ozgurcd/lictor/releases/download/${LICTOR_VERSION}/lictor_${LICTOR_VERSION#v}_linux_amd64.tar.gz"
+          echo "${LICTOR_SHA256}  lictor.tar.gz" | sha256sum -c -
+          tar -xzf lictor.tar.gz lictor
+          mkdir -p "${RUNNER_TEMP}/lictor-bin"
+          install -m 0755 lictor "${RUNNER_TEMP}/lictor-bin/lictor"
+          rm -f lictor.tar.gz lictor
+          echo "${RUNNER_TEMP}/lictor-bin" >> "$GITHUB_PATH"
+
+      - name: Prove the lictor version
+        run: |
+          lictor version --json
+          lictor version --json | grep -F "\"version\":\"${LICTOR_VERSION}\""
+
       - name: Open the integration target record
         # Scope: the existing Make targets only. Service/setup/install steps
         # remain in their original positions and are not claimed by this record.

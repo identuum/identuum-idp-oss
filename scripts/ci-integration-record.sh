@@ -13,12 +13,22 @@ plan=(
 names=()
 for entry in "${plan[@]}"; do names+=("${entry%%=*}"); done
 refuse() { echo "ci-integration-record: REFUSED — $*" >&2; exit 1; }
-export GATE_WITNESS_TIE=commit
+# OSS-LICTOR-ADOPT-B: the recorder is lictor's stepwise witness (PROJECT_DESC
+# §4 row 5), pinned by the workflow's LICTOR_VERSION; its records are
+# byte-identical to gate-witness.sh's for this shape. Its provenance is argv
+# (--cites, --tie), never GATE_WITNESS_* environment.
+lictor=${LICTOR:-lictor}
+# The record is the CALLER's, as it was with gate-witness.sh: the repository
+# the job (or a fixture) runs in, not the directory this script lives in.
+repo=$(git rev-parse --show-toplevel)
+witness() { "$lictor" witness "$1" --repo "$repo" --record "$record" --tie commit "${@:2}"; }
 case "${1:-}" in
 init)
 	[ "$#" -eq 1 ] || refuse 'expected init'
-	export GATE_WITNESS_CITES='scripts/ci-integration-record.sh declares only the three Make targets in the Integration Tests job; excludes service provisioning, checkout, Go setup, cache actions, PostgreSQL readiness wait, rulefloor installation/version checks, and artifact delivery; green is not a whole-job verdict'
-	exec bash "$root/scripts/ci-record.sh" produce bash "$root/scripts/gate-witness.sh" init "$record" 'identuum-idp-oss CI integration targets (partial job record)' "${names[@]}"
+	exec bash "$root/scripts/ci-record.sh" produce "$lictor" witness init --repo "$repo" --record "$record" \
+		--label 'identuum-idp-oss CI integration targets (partial job record)' --tie commit \
+		--cites 'scripts/ci-integration-record.sh declares only the three Make targets in the Integration Tests job; excludes service provisioning, checkout, Go setup, cache actions, PostgreSQL readiness wait, rulefloor installation/version checks, and artifact delivery; green is not a whole-job verdict' \
+		-- "${names[@]}"
 	;;
 step|finalize)
 	bash "$root/scripts/ci-record.sh" check "$record"
@@ -26,14 +36,14 @@ step|finalize)
 	! grep -q '^result:' "$record" || refuse 'record is already finalized'
 	if [ "$1" = finalize ]; then
 		[ "$#" -eq 1 ] || refuse 'expected finalize'
-		exec bash "$root/scripts/gate-witness.sh" finalize "$record"
+		witness finalize; exit $?
 	fi
 	[ "$#" -eq 2 ] || refuse 'expected step <target>'
 	completed=$(grep -c '^target:' "$record" || true)
 	[ "$completed" -lt "${#plan[@]}" ] || refuse 'all planned targets have already run'
 	[ "$2" = "${names[$completed]}" ] || refuse "next target is ${names[$completed]}, not $2"
 	if grep '^target:' "$record" | grep -v ' exit=0$' >/dev/null; then refuse 'a previous target failed'; fi
-	exec bash "$root/scripts/gate-witness.sh" step "$record" "${plan[$completed]}"
+	witness step -- "${plan[$completed]}"; exit $?
 	;;
 *) refuse 'expected init, step or finalize';;
 esac

@@ -25,6 +25,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "toolchain-parity: FAIL —", err)
 		os.Exit(1)
 	}
+	for _, line := range ResolvedLines(pins) {
+		fmt.Println(line)
+	}
 	_, summary, ok := Decide(pins)
 	if !ok {
 		fmt.Fprintln(os.Stderr, summary)
@@ -92,6 +95,8 @@ func collect(repo, workflow string) ([]Pin, error) {
 			Source:   "workflow env " + s.envKey,
 			Declared: Normalize(KindPin, env[s.envKey]),
 			Observed: Normalize(s.kind, run(s.cmd)),
+			Executed: true,
+			Path:     resolve(s.cmd[0]),
 		})
 	}
 
@@ -107,6 +112,8 @@ func collect(repo, workflow string) ([]Pin, error) {
 		Source:   "go.mod go directive",
 		Declared: Normalize(KindPin, goDirective(string(gomod))),
 		Observed: Normalize("go", run([]string{"go", "version"})),
+		Executed: true,
+		Path:     resolve("go"),
 	})
 
 	for _, d := range digestSpecs {
@@ -142,6 +149,16 @@ func run(argv []string) string {
 		return ""
 	}
 	return string(out)
+}
+
+// resolve returns the binary PATH selects for name — the one run executes —
+// or "" when there is none.
+func resolve(name string) string {
+	path, err := exec.LookPath(name)
+	if err != nil {
+		return ""
+	}
+	return path
 }
 
 func fileSHA256(path string) (string, error) {
