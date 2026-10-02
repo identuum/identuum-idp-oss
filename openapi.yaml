@@ -461,13 +461,13 @@ paths:
   "/api/v1/auth/login":
     post:
       operationId: "identuum-idp-oss.auth.local_login"
-      summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
+      summary: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200; a pending self-registrant's correct password answers 403 registration_pending, or 200 with the same body under that header."
       tags:
         - "auth"
       security: []
       responses:
         "200":
-          description: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200."
+          description: "Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200; a pending self-registrant's correct password answers 403 registration_pending, or 200 with the same body under that header."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/login/mfa":
@@ -562,13 +562,13 @@ paths:
   "/api/v1/auth/organization-lookup":
     get:
       operationId: "identuum-idp-oss.auth.organization_lookup"
-      summary: "Public organization-lookup. Returns a safe projection of the organization's wire-visible auth configuration (slug, name, domain, auth_policy, login_url, identity_providers) for the pre-authentication UI email step. 404 on unknown / inactive / soft-deleted organizations. Never carries IdP secrets, internal URLs, or signing-key material."
+      summary: "Public organization-lookup. Returns a safe projection of the organization's wire-visible auth configuration (slug, name, domain, auth_policy, login_url, identity_providers) for the pre-authentication UI email step. 404 on unknown / inactive / soft-deleted organizations, or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200. Never carries IdP secrets, internal URLs, or signing-key material."
       tags:
         - "auth"
       security: []
       responses:
         "200":
-          description: "Public organization-lookup. Returns a safe projection of the organization's wire-visible auth configuration (slug, name, domain, auth_policy, login_url, identity_providers) for the pre-authentication UI email step. 404 on unknown / inactive / soft-deleted organizations. Never carries IdP secrets, internal URLs, or signing-key material."
+          description: "Public organization-lookup. Returns a safe projection of the organization's wire-visible auth configuration (slug, name, domain, auth_policy, login_url, identity_providers) for the pre-authentication UI email step. 404 on unknown / inactive / soft-deleted organizations, or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200. Never carries IdP secrets, internal URLs, or signing-key material."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/organizations/activate":

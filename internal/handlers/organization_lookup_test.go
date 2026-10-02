@@ -330,6 +330,59 @@ func TestOrgLookup_SoftDeletedOrg_404(t *testing.T) {
 	}
 }
 
+// OSS-TIDY-2: under the console's exact opt-in (X-Identuum-Login-Step-Status:
+// 200) a miss — unknown, inactive and soft-deleted alike — answers 200 with
+// the byte-identical body, so the sign-in page's lookup of a domain that is no
+// organization's is not logged as a failed resource. Without it, or with any
+// other value, the default 404 stands.
+func TestOrgLookup_Miss_StepStatusOptIn(t *testing.T) {
+	_, inactive := seedActiveOrg()
+	inactive.Active = false
+	_, deleted := seedActiveOrg()
+	now := time.Now()
+	deleted.DeletedAt = &now
+	repo := &stubOrgRepo{
+		byID: map[uuid.UUID]*domain.Organization{},
+		byDomain: map[string]*domain.Organization{
+			"inactive.example.invalid": inactive,
+			"deleted.example.invalid":  deleted,
+		},
+	}
+	r := newLookupHarness(t, OrganizationLookupHandlerDeps{OrganizationRepo: repo})
+	get := func(domainParam, stepStatus string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/organization-lookup?domain="+domainParam, nil)
+		if stepStatus != "" {
+			req.Header.Set(LoginStepStatusHeader, stepStatus)
+		}
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	const want = `{"error":"organization_not_found"}`
+	for _, d := range []string{"nobody.example.invalid", "inactive.example.invalid", "deleted.example.invalid"} {
+		def := get(d, "")
+		if def.Code != http.StatusNotFound || def.Body.String() != want {
+			t.Fatalf("%s default: status %d body %q, want 404 %q", d, def.Code, def.Body.String(), want)
+		}
+		opt := get(d, LoginStepStatusOK)
+		if opt.Code != http.StatusOK || opt.Body.String() != def.Body.String() {
+			t.Fatalf("%s opt-in: status %d body %q, want 200 and the default body", d, opt.Code, opt.Body.String())
+		}
+		if len(opt.Result().Cookies()) != 0 {
+			t.Fatalf("%s opt-in: Set-Cookie present", d)
+		}
+		for _, v := range []string{"1", "true", " 200", "201"} {
+			if w := get(d, v); w.Code != http.StatusNotFound {
+				t.Fatalf("%s header value %q: status %d, want the default 404", d, v, w.Code)
+			}
+		}
+	}
+	// The other answers are not expected states: unchanged under the opt-in.
+	if w := get("", LoginStepStatusOK); w.Code != http.StatusBadRequest {
+		t.Fatalf("missing params under the opt-in: status %d, want 400", w.Code)
+	}
+}
+
 func TestOrgLookup_RepoError_500NotLeaking(t *testing.T) {
 	repo := &stubOrgRepo{err: errors.New("internal-db-fault")}
 	r := newLookupHarness(t, OrganizationLookupHandlerDeps{OrganizationRepo: repo})

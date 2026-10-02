@@ -110,7 +110,7 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:surface=auth
 		// docgen:method=POST
 		// docgen:path=/api/v1/auth/login
-		// docgen:summary=Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200.
+		// docgen:summary=Local email/password login. Verifies credentials + optional TOTP and returns a session/user-token; password is never echoed in the response or any audit metadata. A correct password whose next step is MFA or a required password change answers 401 mfa_required, mfa_enrollment_required or password_change_required (pending session_id, no cookie, no token), or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200; a pending self-registrant's correct password answers 403 registration_pending, or 200 with the same body under that header.
 		// docgen:tier=oss
 		// docgen:auth=public
 		// docgen:notes=Anonymous endpoint — the request body carries the credentials; the handler validates them and rate-limits brute-force attempts. Successful response also sets access_token (and refresh_token when minted) HttpOnly Lax cookies for browser consumption. A correct password whose next step is MFA answers 401 mfa_required or mfa_enrollment_required (with the pending session_id, no cookie, no token); a request carrying the header X-Identuum-Login-Step-Status: 200 receives the same body with status 200 instead. Every other answer is unchanged by that header.
@@ -477,7 +477,10 @@ func HandleLocalLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 //     continuation of POST /api/v1/auth/login/password-change;
 //   - a caller who presents NO credential to the session probe
 //     (GET /api/v1/validate) or the browser refresh answers 200
-//     {"authenticated":false} (respondSignedOut).
+//     {"authenticated":false} (respondSignedOut);
+//   - a pending self-registrant's correct password (403 registration_pending)
+//     and an organization-lookup miss (404 organization_not_found) answer 200
+//     with the same body (OSS-TIDY-2).
 //
 // So a browser does not log an expected state as a failed resource. Every
 // other answer, and the default, are unchanged.
@@ -500,10 +503,17 @@ func respondSignedOut(c *gin.Context) {
 // loginStepStatus is the status of an expected next-step answer: 401 unless
 // the request opted in.
 func loginStepStatus(c *gin.Context) int {
+	return stepStatusOr(c, http.StatusUnauthorized)
+}
+
+// stepStatusOr is the status of an expected-state answer whose default is def:
+// 200 when the request opted in, def otherwise. The body is the caller's and
+// is the same either way.
+func stepStatusOr(c *gin.Context, def int) int {
 	if loginStepOptIn(c) {
 		return http.StatusOK
 	}
-	return http.StatusUnauthorized
+	return def
 }
 
 func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, result *service.LoginResult, rememberMe bool) {
@@ -556,8 +566,9 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 	case errors.Is(err, service.ErrLoginAccountUnverified):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account_unverified"})
 	case errors.Is(err, service.ErrLoginRegistrationPending):
-		// D-021: a correct password of a self-registrant not yet approved.
-		c.JSON(http.StatusForbidden, gin.H{"error": "registration_pending"})
+		// D-021: a correct password of a self-registrant not yet approved —
+		// an expected state the console shows, so it honours the opt-in.
+		c.JSON(stepStatusOr(c, http.StatusForbidden), gin.H{"error": "registration_pending"})
 	case errors.Is(err, service.ErrLoginInvalidCredentials):
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "user_session.login.failure",

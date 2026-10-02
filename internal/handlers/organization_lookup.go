@@ -152,7 +152,7 @@ func RegisterOrganizationLookupRoute(router gin.IRouter, deps OrganizationLookup
 	// docgen:surface=auth
 	// docgen:method=GET
 	// docgen:path=/api/v1/auth/organization-lookup
-	// docgen:summary=Public organization-lookup. Returns a safe projection of the organization's wire-visible auth configuration (slug, name, domain, auth_policy, login_url, identity_providers) for the pre-authentication UI email step. 404 on unknown / inactive / soft-deleted organizations. Never carries IdP secrets, internal URLs, or signing-key material.
+	// docgen:summary=Public organization-lookup. Returns a safe projection of the organization's wire-visible auth configuration (slug, name, domain, auth_policy, login_url, identity_providers) for the pre-authentication UI email step. 404 on unknown / inactive / soft-deleted organizations, or 200 with the same body when the request sends X-Identuum-Login-Step-Status: 200. Never carries IdP secrets, internal URLs, or signing-key material.
 	// docgen:tier=oss
 	// docgen:auth=public
 	// docgen:notes=Accepts either ?domain=<host> or ?slug=<org-slug>. Tries the verified-domain global index first when OrganizationDomainRepo is wired; falls back to the organizations.domain column. IdentityProvider projection includes only (id, type, name, login_url, email_domains); for an active oidc provider login_url is the OSS login-initiation route /api/v1/auth/idp/{id}/login (same-origin relative path, no provider internals). Empty list when no IdPs are configured.
@@ -205,20 +205,22 @@ func HandleOrganizationLookup(deps OrganizationLookupHandlerDeps) gin.HandlerFun
 		// Lookup failures + inactive / soft-deleted collapse to 404 so
 		// the public surface does not enumerate which orgs exist in
 		// any state other than "active".
+		// A miss is an expected state on the sign-in page, so it honours the
+		// console's step-status opt-in (200, the same body).
 		if err != nil {
 			if errors.Is(err, domain.ErrOrganizationNotFound) {
-				c.JSON(http.StatusNotFound, gin.H{"error": "organization_not_found"})
+				c.JSON(stepStatusOr(c, http.StatusNotFound), gin.H{"error": "organization_not_found"})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		if org == nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "organization_not_found"})
+			c.JSON(stepStatusOr(c, http.StatusNotFound), gin.H{"error": "organization_not_found"})
 			return
 		}
 		if !org.Active || org.DeletedAt != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "organization_not_found"})
+			c.JSON(stepStatusOr(c, http.StatusNotFound), gin.H{"error": "organization_not_found"})
 			return
 		}
 

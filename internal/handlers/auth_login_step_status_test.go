@@ -9,15 +9,19 @@ package handlers
 // Password values are sentinel placeholders and never echoed by an assertion.
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
 func loginStepEngine(t *testing.T) *gin.Engine {
@@ -115,6 +119,61 @@ func TestLoginStepStatus_OnlyTheExactValueOptsIn(t *testing.T) {
 		if w := loginStep(r, "enrolled@example.invalid", "correct", v); w.Code != http.StatusUnauthorized {
 			t.Fatalf("header value %q: status %d, want the default 401", v, w.Code)
 		}
+	}
+}
+
+// pendingRegistration answers the self-registration gate: held is a
+// self-registrant waiting for approval (D-021); everyone else is not
+// self-registered.
+type pendingRegistration struct{ held uuid.UUID }
+
+func (p pendingRegistration) UserState(_ context.Context, id uuid.UUID) (string, bool, error) {
+	if id == p.held {
+		return domain.RegistrationStatePendingApproval, false, nil
+	}
+	return "", false, nil
+}
+
+// OSS-TIDY-2: a pending self-registrant's correct password is an expected
+// state the console shows ("waiting for approval"), so under the exact opt-in
+// it answers 200 with the byte-identical body — still no session, cookie or
+// token. Without it, or with any other value, the default 403 stands.
+func TestLoginStepStatus_RegistrationPending(t *testing.T) {
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	held := uuid.New()
+	users := &inMemoryUserLookupForHandlers{byEmail: map[string][]*domain.User{
+		"held@example.invalid": {{
+			ID:           held,
+			Email:        "held@example.invalid",
+			PasswordHash: hashPasswordForHandlers(t, "correct"),
+			Role:         domain.RoleOrgUser,
+		}},
+	}}
+	sessions := service.NewUserSessionService(nil, newSessionRepoForHandlers(), service.UserSessionServiceOptions{DefaultTTL: time.Hour})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: testReplayGuardForHandlers()})
+	login := service.NewLocalLoginService(nil, users, sessions, mfa).WithRegistrationStates(pendingRegistration{held: held})
+	RegisterAuthSessionRoutes(r, AuthSessionsHandlerDeps{LocalLogin: login, UserSession: sessions, Audit: &audit.Recorder{}})
+
+	const want = `{"error":"registration_pending"}`
+	def := loginStep(r, "held@example.invalid", "correct", "")
+	if def.Code != http.StatusForbidden || def.Body.String() != want {
+		t.Fatalf("default: status %d body %q, want 403 %q", def.Code, def.Body.String(), want)
+	}
+	assertNoCredentialMaterial(t, def)
+	opt := loginStep(r, "held@example.invalid", "correct", LoginStepStatusOK)
+	if opt.Code != http.StatusOK || opt.Body.String() != want {
+		t.Fatalf("opt-in: status %d body %q, want 200 %q", opt.Code, opt.Body.String(), want)
+	}
+	assertNoCredentialMaterial(t, opt)
+	for _, v := range []string{"1", "true", " 200", "201"} {
+		if w := loginStep(r, "held@example.invalid", "correct", v); w.Code != http.StatusForbidden {
+			t.Fatalf("header value %q: status %d, want the default 403", v, w.Code)
+		}
+	}
+	// A wrong password of the same account stays the default refusal.
+	if w := loginStep(r, "held@example.invalid", "wrong", LoginStepStatusOK); w.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password under the opt-in: status %d, want 401", w.Code)
 	}
 }
 
