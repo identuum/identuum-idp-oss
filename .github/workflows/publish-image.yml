@@ -158,6 +158,60 @@ jobs:
             *) echo "::error::binary version '${BIN_VERSION}' does not match tag '${VERSION_TAG}'"; exit 1 ;;
           esac
 
+      - name: Canonical verification — the image serves against a real Postgres
+        # The loaded amd64 image, started the way an operator starts it (its
+        # own entrypoint: migrate, then serve) against a throwaway Postgres.
+        # /readyz must answer 200, the schema must reach the newest migration
+        # in this checkout, and `version` must name the tag and the commit.
+        # Nothing is published until this passes. postgres:18-alpine: Postgres
+        # service images are exempt under IMG-NONALPINE, as in ci.yml.
+        env:
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          docker network create idp-verify >/dev/null
+          docker run -d --name idp-verify-pg --network idp-verify \
+            -e POSTGRES_USER=identuum_idp -e POSTGRES_PASSWORD=verify-not-a-secret -e POSTGRES_DB=identuum_idp \
+            postgres:18-alpine >/dev/null
+          for _ in $(seq 1 60); do
+            docker exec idp-verify-pg pg_isready -U identuum_idp -d identuum_idp >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker run -d --name idp-verify --network idp-verify -p 127.0.0.1:7113:7113 \
+            -e IDENTUUM_IDP_DATABASE_URL="postgres://identuum_idp:verify-not-a-secret@idp-verify-pg:5432/identuum_idp?sslmode=disable" \
+            -e IDENTUUM_IDP_OSS_LISTEN=0.0.0.0:7113 \
+            -e IDENTUUM_IDP_DATA_DIR=/app/data \
+            -e IDENTUUM_IDP_OSS_ISSUER=http://localhost:7113 \
+            -e IDENTUUM_IDP_UI_PUBLIC_BASE_URL=http://localhost:7113 \
+            "${LOCAL_IMAGE}" >/dev/null
+          code=000
+          for _ in $(seq 1 90); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7113/readyz || true)"
+            [ "${code}" = 200 ] && break
+            sleep 1
+          done
+          if [ "${code}" != 200 ]; then
+            echo "::error::/readyz answered ${code} after 90s"
+            docker logs idp-verify 2>&1 | tail -40
+            exit 1
+          fi
+          newest="$(find migrations -maxdepth 1 -name '[0-9]*.sql' | sed -E 's#.*/0*([0-9]+)_.*#\1#' | sort -n | tail -1)"
+          schema="$(docker exec idp-verify-pg psql -tA -U identuum_idp -d identuum_idp -c 'SELECT max(version_id) FROM goose_db_version')"
+          echo "migrated schema: ${schema}; newest migration in this checkout: ${newest}"
+          [ "${schema}" = "${newest}" ] || { echo "::error::schema ${schema} is not the newest migration ${newest}"; exit 1; }
+          ver="$(docker exec idp-verify /app/identuum-idp version)"
+          echo "the serving image reports: '${ver}'"
+          case "${ver}" in
+            *"${VERSION_TAG#v} (commit ${SHORT_SHA})"*) echo "serving verified: /readyz 200, schema ${schema}, version ${VERSION_TAG}" ;;
+            *) echo "::error::the serving image reports '${ver}', not ${VERSION_TAG#v} (commit ${SHORT_SHA})"; exit 1 ;;
+          esac
+
+      - name: Remove the serving verification's containers
+        if: always()
+        run: |
+          docker rm -f idp-verify idp-verify-pg >/dev/null 2>&1 || true
+          docker network rm idp-verify >/dev/null 2>&1 || true
+
       - name: Vulnerability scan (Trivy) — fail on HIGH/CRITICAL
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
