@@ -5,6 +5,22 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **The step-status opt-in covers two more expected answers.** With
+  `X-Identuum-Login-Step-Status: 200`, a pending self-registrant's correct
+  password (`403 registration_pending` at `POST /api/v1/auth/login`) and an
+  organization-lookup miss (`404 organization_not_found` at
+  `GET /api/v1/auth/organization-lookup`) answer 200 with the same body — no
+  session, cookie or token. Without the header every answer is unchanged. The
+  embedded console sends it on both calls, so neither is logged as a failed
+  resource.
+- **The image publish proves the image serves before pushing it.**
+  `publish-image.yml` starts the loaded amd64 image against a throwaway
+  Postgres (its own entrypoint: migrate, then serve) and requires `/readyz`
+  200, the newest migration applied and `version` naming the tag and commit,
+  before the scan and the push.
+
 ## `v0.9.0`
 
 Organization claim links (D-022) and self-registration (D-021), both off

@@ -47,8 +47,10 @@ administrator password — that is created during the wizard.
     `identuum-idp healthcheck`, image pulled from
     `ghcr.io/identuum/identuum-idp-oss` at the current release tag
 - Until `v0.6.0` the UI was a third service, `identuum-ui` on
-  `localhost:7104`; upgrading is described in
-  [`../docs/releases/v0.6.0.md`](../docs/releases/v0.6.0.md), "Upgrading"
+  `localhost:7104`. An install still on `v0.5.x` merges it once, as
+  [`../docs/releases/v0.6.0.md`](../docs/releases/v0.6.0.md), "Upgrading
+  from v0.5.x", describes; for any later upgrade, read the "Upgrading"
+  section of the release you are installing, in `../docs/releases/`
 - No `.env.example`, no `openssl`, no `Makefile`, no manual database
   URL, no manual issuer URL, no manual signing-key generation, no
   manual bootstrap, no source checkout
