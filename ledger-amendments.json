@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "c714d1f5088bed32f3b998084354f29dc8519ab0",
-  "changes": [
-    {
-      "rule_id": "MINT-REACHABILITY-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "OSS-TIDY-3 (owner brief 2026-10-02): test-full pays e2e-quick when the classifier names the quick tier, so the recipe pin moves from the single 0-versus-non-zero line to the captured-line dispatch and test-full-mint's tier-matched run and record check; observed red against the old recipe (7 missing pins), green after; reviewed, rehashed 4b69a1aa7499 -> 3ff4ddd68ba6"
-    }
-  ]
+  "base_commit": "4eefa1f5a34dac389c5593686171a84c089e9b8d",
+  "changes": []
 }
