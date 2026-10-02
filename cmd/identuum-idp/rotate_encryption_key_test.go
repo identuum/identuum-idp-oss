@@ -21,6 +21,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	"github.com/identuum/identuum-idp-oss/internal/testsupport"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -56,6 +57,25 @@ func sealUnder(t *testing.T, hexKey, plaintext string) string {
 		t.Fatalf("encrypt: %v", err)
 	}
 	return ct
+}
+
+// rotTestSchema are the tables the DB-backed rotation tests read or write.
+var rotTestSchema = []string{"goose_db_version", "instance_lease", "users", "signing_keys",
+	"identity_providers", "oidc_states", "mfa_pending_login_sessions"}
+
+// requireRotationSchema fails with the precondition, not a 42P01 from the
+// first statement, when the test database has not been migrated.
+func requireRotationSchema(t *testing.T, pool *pgxpool.Pool) {
+	t.Helper()
+	var missing string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT coalesce(string_agg(t, ', '), '') FROM unnest($1::text[]) AS t WHERE to_regclass('public.' || t) IS NULL`,
+		rotTestSchema).Scan(&missing); err != nil {
+		t.Fatalf("schema precondition query: %v", err)
+	}
+	if missing != "" {
+		t.Fatalf("the test database is not migrated (missing: %s); run `make test-db` or point IDENTUUM_IDP_TEST_DATABASE_URL at a migrated *_test database", missing)
+	}
 }
 
 // newOnlyDecrypt proves a rotated value needs ONLY the new key — the old
@@ -227,6 +247,7 @@ func TestRotateEncryptionKeyCore_LiveSchema_ConvertsIdempotentlyAndAbortsOnPoiso
 		t.Fatalf("pool: %v", err)
 	}
 	defer pool.Close()
+	requireRotationSchema(t, pool)
 
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -467,6 +488,7 @@ func TestDispatchRotateEncryptionKey_RefusesUnknownSchemaByName(t *testing.T) {
 		t.Fatalf("pool: %v", err)
 	}
 	defer pool.Close()
+	requireRotationSchema(t, pool)
 
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS rot_guard_dispatch_fixture (id int PRIMARY KEY, sealed text)`); err != nil {
 		t.Fatalf("create fixture: %v", err)
