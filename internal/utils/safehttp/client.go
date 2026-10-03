@@ -68,9 +68,37 @@ func NewSafeClient() *http.Client {
 	}
 
 	return &http.Client{
-		Transport: transport,
-		Timeout:   10 * time.Second,
+		Transport:     transport,
+		Timeout:       10 * time.Second,
+		CheckRedirect: safeRedirectPolicy,
 	}
+}
+
+// maxSafeRedirects bounds how many redirects a GET may follow.
+const maxSafeRedirects = 3
+
+// ErrRedirectRefused is returned for a redirect the safe client will not follow.
+var ErrRedirectRefused = errors.New("safehttp: redirect refused")
+
+// safeRedirectPolicy lets a GET (discovery, JWKS) follow at most
+// maxSafeRedirects redirects, each to https on the same host and port with no
+// userinfo. Anything that started as a POST (token exchange, back-channel
+// logout) follows none, so its body never reaches a second URL. Every hop is
+// still dialed through SafeDialer.
+func safeRedirectPolicy(next *http.Request, via []*http.Request) error {
+	if len(via) == 0 || len(via) >= maxSafeRedirects {
+		return ErrRedirectRefused
+	}
+	if via[0].Method != http.MethodGet || next.Method != http.MethodGet {
+		return ErrRedirectRefused
+	}
+	if next.URL.Scheme != "https" || next.URL.User != nil {
+		return ErrRedirectRefused
+	}
+	if !strings.EqualFold(next.URL.Host, via[len(via)-1].URL.Host) {
+		return ErrRedirectRefused
+	}
+	return nil
 }
 
 // NewInternalClient returns an http.Client for controlled internal

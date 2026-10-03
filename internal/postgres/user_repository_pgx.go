@@ -336,8 +336,10 @@ func (r *PgxUserRepository) Create(ctx context.Context, user *domain.User) (*dom
 		}
 	}
 
+	// The user id identifies the row; the email address is personal data and
+	// stays out of the log.
 	logger.InfoContext(ctx, "Created user",
-		zap.String("email", user.Email),
+		zap.String("user_id", created.ID.String()),
 		zap.String("role", string(user.Role)),
 		zap.String("org_id", user.OrganizationID.String()),
 	)

@@ -315,8 +315,18 @@ func validateReturnTo(raw string) string {
 	if strings.HasPrefix(s, "//") {
 		return ""
 	}
-	// Reject embedded CR/LF — header-injection defence.
-	if strings.ContainsAny(s, "\r\n") {
+	// Browsers read a backslash as a slash and drop tab, CR and LF inside a
+	// URL, so any of them (or another control character) could turn a value
+	// that passed the prefix checks into a protocol-relative one. Refuse them
+	// outright; this also covers the CR/LF header-injection case.
+	for _, r := range s {
+		if r == '\\' || r < 0x20 || r == 0x7f {
+			return ""
+		}
+	}
+	// The parsed value must stay a local path: no scheme, no host.
+	u, err := url.Parse(s)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.User != nil {
 		return ""
 	}
 	return s

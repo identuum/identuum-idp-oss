@@ -124,8 +124,10 @@ services:
   postgres:
     # Postgres 18 is required: migration 0001 calls the built-in uuidv7()
     # function added in PG18, so PG17 and earlier reject the schema at
-    # migrate time.
-    image: postgres:18-alpine
+    # migrate time. Pinned by digest (the multi-arch index) like the IdP
+    # image below, so every install runs the image this release was tested
+    # with; a release bumps it.
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     container_name: identuum-idp-oss-postgres
     restart: unless-stopped
     environment:

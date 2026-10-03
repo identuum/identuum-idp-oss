@@ -177,6 +177,12 @@ func ResolveEncryptionKey(env Env, cfg *Config, uid, gid int, isRoot bool, chown
 	}
 
 	keyFile := filepath.Join(cfg.DataDir, "encryption-key")
+	// The key file must be a regular file. This runs as root before the
+	// privilege drop, so a link planted in the data volume must never be
+	// read through or written through.
+	if fi, err := os.Lstat(keyFile); err == nil && !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("appliance: %s is not a regular file — refusing to read or replace it", keyFile)
+	}
 	switch raw, err := os.ReadFile(keyFile); {
 	case err == nil:
 		key := strings.TrimSpace(string(raw))
@@ -201,9 +207,18 @@ func ResolveEncryptionKey(env Env, cfg *Config, uid, gid int, isRoot bool, chown
 	}
 	key := hex.EncodeToString(buf)
 
-	// 0600 from the moment it exists — WriteFile's perm applies at creation, so
-	// there is no window where the secret is group-readable.
-	if err := os.WriteFile(keyFile, []byte(key), 0o600); err != nil {
+	// 0600 from the moment it exists, and created exclusively: O_EXCL refuses
+	// any existing path, a symbolic link included, so the write can never land
+	// somewhere else.
+	f, err := os.OpenFile(keyFile, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return "", fmt.Errorf("appliance: persist encryption key: %w", err)
+	}
+	if _, err := f.WriteString(key); err != nil {
+		_ = f.Close()
+		return "", fmt.Errorf("appliance: persist encryption key: %w", err)
+	}
+	if err := f.Close(); err != nil {
 		return "", fmt.Errorf("appliance: persist encryption key: %w", err)
 	}
 	if isRoot && chownFn != nil {

@@ -72,6 +72,11 @@ on:
   pull_request:
     branches: [main, master]
 
+# Read-only token for every job: CI checks out and tests, it writes nothing to
+# the repository. Caches and artifacts use the runner's own token.
+permissions:
+  contents: read
+
 env:
   # Well-known public dev AES key — not a real secret. Safe ONLY for CI.
   IDENTUUM_IDP_DATA_ENCRYPTION_KEY: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
@@ -91,6 +96,9 @@ env:
   # re-declared). Latest-stable owner rule applies to all of them.
   STATICCHECK_VERSION: v0.8.1
   GRYPE_VERSION: v0.120.0
+  # sha256 of grype_<version>_linux_amd64.tar.gz from the release's own
+  # checksums file; bumped together with GRYPE_VERSION.
+  GRYPE_SHA256: a5a1218dce63acdac152a6b3b5bb366e7267e36f4069848cf455543b3fa5700e
   GOVULNCHECK_VERSION: v1.8.0
   # THE-LAST-BORROWER (2026-09-21): lictor is the judge `make grype-scan`
   # runs (`lictor grype --repo …`, the port of this repository's retired
@@ -287,15 +295,19 @@ jobs:
           rulefloor version --json | grep -F "\"version\":\"${RULEFLOOR_VERSION}\""
 
       - name: Install grype (and prove its version)
-        # Pinned to a tagged release — BOTH the install script ref and the
-        # installed version — so the supply chain cannot move under CI. `main`
-        # is a rolling branch with no checksum; a tag is immutable. (Severity /
-        # fail-on policy is owner-controlled and lives in the Makefile
-        # grype-scan target, not here.) THE-UNWATCHED-FOUR: both version
-        # uses derive from the workflow-env declaration and the printed
+        # The release archive, verified against GRYPE_SHA256 before anything
+        # is unpacked — the lictor and rulefloor way. No install script is
+        # piped to a shell: a git tag can be moved, a checksum cannot.
+        # (Severity / fail-on policy is owner-controlled and lives in the
+        # Makefile grype-scan target, not here.) THE-UNWATCHED-FOUR: the
+        # version derives from the workflow-env declaration and the printed
         # version is asserted.
         run: |
-          curl -sSfL "https://raw.githubusercontent.com/anchore/grype/${GRYPE_VERSION}/install.sh" | sh -s -- -b "$(go env GOPATH)/bin" "${GRYPE_VERSION}"
+          curl -sSfL -o grype.tar.gz "https://github.com/anchore/grype/releases/download/${GRYPE_VERSION}/grype_${GRYPE_VERSION#v}_linux_amd64.tar.gz"
+          echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c -
+          tar -xzf grype.tar.gz grype
+          install -m 0755 grype "$(go env GOPATH)/bin/grype"
+          rm -f grype.tar.gz grype
           grype --version
           grype --version | grep -F "grype ${GRYPE_VERSION#v}"
 

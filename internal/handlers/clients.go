@@ -704,8 +704,18 @@ func HandleRegenerateClientSecret(deps ClientsHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		client, plaintext, err := deps.ClientService.RegenerateClientSecret(c.Request.Context(), id)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		switch {
+		case err == nil:
+		case errors.Is(err, service.ErrClientNotFound()):
+			c.JSON(http.StatusNotFound, gin.H{"error": "client not found"})
+			return
+		case errors.Is(err, service.ErrClientSecretPublicClient):
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot regenerate secret for a public client"})
+			return
+		default:
+			// Never echo the underlying error: it can carry storage detail.
+			_ = c.Error(err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{

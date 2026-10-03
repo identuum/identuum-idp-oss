@@ -158,6 +158,9 @@ type UpdateClientOptions struct {
 // it to 404; service callers may errors.Is it.
 var errClientNotFound = errors.New("service: client not found")
 
+// ErrClientSecretPublicClient: a public client has no secret to regenerate.
+var ErrClientSecretPublicClient = errors.New("service: cannot regenerate secret for a public client")
+
 // RegisterClient creates a new OAuth client.
 //
 // Returns the persisted client and (for confidential clients) the
@@ -471,7 +474,7 @@ func (s *ClientService) RegenerateClientSecret(ctx context.Context, id uuid.UUID
 	// A client is "public" when it has no secret hash on file. The
 	// monolith carries the same invariant.
 	if client.ClientSecretHash == "" {
-		return nil, "", fmt.Errorf("cannot regenerate secret for a public client")
+		return nil, "", ErrClientSecretPublicClient
 	}
 	plaintext, err := crypto.GenerateRandomString(32)
 	if err != nil {
