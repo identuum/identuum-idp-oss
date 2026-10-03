@@ -741,7 +741,16 @@ func (r *PgxUserRepository) ConsumeActivationToken(ctx context.Context, activati
 		    updated_at = NOW()
 		WHERE activation_token_hash = $1
 		  AND deleted_at IS NULL
+		  AND role = 'org_admin'
+		  AND banned = false
+		  AND email_verified = false
+		  AND EXISTS (SELECT 1 FROM organizations o
+		              WHERE o.id = users.organization_id AND NOT o.active AND o.deleted_at IS NULL)
 		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`
+	// Only an activation token claims here: the pending, unbanned, not yet
+	// verified org_admin of an inactive organization. A user-invite token
+	// (org_user) or the token of an admin who already activated claims
+	// nothing, so neither can set a password or reactivate the organization.
 	user, err := r.scanUser(tx.QueryRow(ctx, claim, activationTokenHash, newPasswordHash))
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
