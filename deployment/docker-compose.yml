@@ -99,8 +99,8 @@
 # Postgres is NOT published on the host — it is reachable only on the
 # default Compose project network, so the credential never crosses the
 # host boundary. Generated-on-first-boot DB credentials are a documented
-# follow-up hardening item; replacing this default is the operator's
-# documented advanced override path until that lands.
+# follow-up hardening item; until that lands, deployment/README.md
+# ("Changing the database password") says how to replace this default.
 #
 # Production hardening that is intentionally out of scope for this
 # foundation slice (each is its own future slice per
@@ -152,9 +152,9 @@ services:
 
   identuum-idp:
     # Customer-facing image. Pulled from the official registry by
-    # `docker compose up -d`. The image tag matches the current published
-    # release (v0.6.1, publish run 36200767001, built from f1de6ee), PINNED BY
-    # DIGEST so the tag cannot be silently retargeted. Maintainers who need
+    # `docker compose up -d`. The image tag is the release this file ships
+    # with, PINNED BY DIGEST so the tag cannot be silently retargeted; each
+    # release bumps both (deployment/README.md). Maintainers who need
     # to rebuild from local source use deployment/docker-compose.build.yml
     # as an overlay. (v0.3.4 was tagged but its image never published —
     # stopped by the publish workflow's Trivy gate.)
@@ -181,11 +181,11 @@ services:
       retries: 5
       start_period: 30s
     environment:
-      # ── Existing entrypoint contract (deployment/entrypoint.sh) ────────
-      # These three are read by entrypoint.sh: the DB URL is passed to
-      # `identuum-idp migrate` (one-shot), and all three are mapped onto
-      # the CLI's serve env names for the no-arg default serve
-      # (long-running). The DB URL is never echoed.
+      # ── Entrypoint contract (`identuum-idp appliance`) ─────────────────
+      # These three are read by the image's entrypoint, the appliance
+      # command: the DB URL drives the one-shot migrate, and all three are
+      # mapped onto the serve names before the server starts. The DB URL
+      # is never echoed.
       IDENTUUM_IDP_OSS_DB: "postgres://identuum_idp:dev-identuum_idp-not-a-secret@postgres:5432/identuum_idp?sslmode=disable"
       IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
       IDENTUUM_IDP_OSS_ISSUER: "http://localhost:7113"

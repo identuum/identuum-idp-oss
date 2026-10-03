@@ -55,6 +55,28 @@ administrator password — that is created during the wizard.
   URL, no manual issuer URL, no manual signing-key generation, no
   manual bootstrap, no source checkout
 
+### Changing the database password
+
+The compose file ships a fixed Postgres password for a single node.
+Postgres is not published on the host, so it is reachable only on the
+Compose project network, but you can use your own password:
+
+- **Before the first `docker compose up`:** in `docker-compose.yml`, set
+  the same new password in all three places: `POSTGRES_PASSWORD`, and the
+  password part of both `IDENTUUM_IDP_OSS_DB` and
+  `IDENTUUM_IDP_DATABASE_URL`.
+- **On an install that already ran:** Postgres keeps the password it was
+  created with; changing `POSTGRES_PASSWORD` alone does not change it.
+  First change it inside the database:
+
+  ```bash
+  docker compose exec postgres psql -U identuum_idp -d identuum_idp \
+      -c "ALTER ROLE identuum_idp PASSWORD 'your-new-password'"
+  ```
+
+  then set the same value in the three places above and run
+  `docker compose up -d` to restart the IdP with it.
+
 ### What is intentionally out of scope
 
 Each of these is its own follow-up slice tracked under
