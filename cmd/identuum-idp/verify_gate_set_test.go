@@ -38,7 +38,9 @@ func TestVerifyGateSetBoundaryContract(t *testing.T) {
 		t.Fatal("verify must run rulefloor-check before ledger-diff-gate")
 	}
 
-	readme := readGateContractFile(t, "../../README.md")
+	// OSS-NOTICES-TIDY: the validation matrix moved with the other maintainer
+	// gate material from README.md to docs/maintainers/README.md.
+	readme := readGateContractFile(t, "../../docs/maintainers/README.md")
 	for _, required := range []string{
 		"The repo-local close gate is `make verify`.",
 		"`gograph boundaries --config boundaries.json`",

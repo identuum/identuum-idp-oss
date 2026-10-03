@@ -2,7 +2,7 @@
 
 The requirements this infrastructure answers to live in the owner's spec
 (`TEST-spec.MD`, untracked at the repo root); measured compliance and the
-recorded deferrals live in [`TEST-spec-status.md`](TEST-spec-status.md).
+recorded deferrals live in [`TEST-spec-status.md`](maintainers/TEST-spec-status.md).
 This file is the technical tier of the spec's two-tier documentation
 requirement: what runs, where it lives, what every floor means, and how the
 evidence chain works. The operator tier is
@@ -97,7 +97,7 @@ quality is not mechanically knowable, and browser-cookie traffic doesn't pass
 through `api()`; the census window is the API-driving phases (fresh-appliance
 through static-rows). UI-side coverage has its own floor. Uncovered today:
 none of the 312 committed cells (all observed in the last mint, 2026-09-05);
-the committed set grew in tranches (see TEST-spec-status.md).
+the committed set grew in tranches (see maintainers/TEST-spec-status.md).
 
 ## Tooling
 

@@ -7,6 +7,12 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Third-party notices ship.** `THIRD_PARTY_NOTICES` lists every Go module
+  the binary is built from and every npm package of the embedded UI, with
+  version, SPDX id and licence text; the binary prints it (`identuum-idp
+  licenses`) and the image carries it at `/app/THIRD_PARTY_NOTICES`.
+  Maintainer-only material moved to `docs/maintainers/`.
+
 - **Docs:** the README names no version that can go stale (it points to the
   Releases page and `CHANGELOG.md`; the bare-binary example reads the latest
   release), states Go 1.27.1 as `go.mod` does, and `SECURITY.md` covers the

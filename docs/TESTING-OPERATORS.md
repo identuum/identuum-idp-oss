@@ -859,7 +859,7 @@ SESSION-REJECTION second-probe diagnostics are gone.
 ## What the suite does NOT cover (known, recorded — not forgotten)
 
 - **Backup / restore** — there is no product backup procedure yet to test;
-  deferred until one is decided (see `TEST-spec-status.md`).
+  deferred until one is decided (see `maintainers/TEST-spec-status.md`).
 - **Commercial-edition (CE) features** — out of scope for this repository's
   suite by rule; the affected tests are skipped by name and counted, and
   the count may not grow.

@@ -142,6 +142,10 @@ COPY --from=prep /etc/group /etc/group
 # The binary.
 COPY --from=builder /out/identuum-idp /app/identuum-idp
 
+# The third-party notices. The binary embeds and prints them (`identuum-idp
+# licenses`); the plain file is for readers and scanners of the image.
+COPY --from=builder /src/THIRD_PARTY_NOTICES /app/THIRD_PARTY_NOTICES
+
 # Persistent data directory, 0700 owned by 10001, carried from prep with its
 # ownership intact. A named volume mounted here masks it — which is exactly why
 # the binary re-applies ownership at start.

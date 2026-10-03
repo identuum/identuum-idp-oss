@@ -372,6 +372,20 @@ ui-vendor-check:
 	@go test ./internal/uiexport -run '^TestVendoredTreeMatchesManifest$$' -count=1
 	@echo "check OK: ui-vendor-check the embedded export matches its manifest ($$(sed -n 's/.*"tree_digest": "\([0-9a-f]*\)".*/\1/p' $(UI_VENDOR_DIR)/manifest.json))"
 
+## notices-check (OSS-NOTICES-TIDY): THIRD_PARTY_NOTICES records the inputs it
+## was generated from — a digest of ./cmd/identuum-idp's build list and the
+## vendored identuum-ui commit — and this refuses a tree where either moved
+## without the file being regenerated (`make notices`). It needs only go list
+## and the manifest, so it runs in verify and in ci-verify.
+.PHONY: notices notices-check
+notices-check:
+	@go run ./tools/notices -check
+
+## notices: regenerate THIRD_PARTY_NOTICES (the module cache, pnpm, and an
+## identuum-ui checkout at the vendored commit: UI_DIR, default ../identuum-ui).
+notices:
+	@go run ./tools/notices -write -ui "$(or $(UI_DIR),../identuum-ui)"
+
 ## tracked-binary-check: no compiled binary and no oversized blob may be
 ## TRACKED (THE-STRAY-BINARY, 2026-08-07). A 3.8 MB Mach-O named `notrun` —
 ## a stray `go build ./tools/notrun` artifact swept up by a broad `git add`
@@ -551,7 +565,7 @@ workflow-yaml-parity:
 # reason in the record. Boundaries requires this run's gograph-build, so a
 # failed rebuild cannot let it judge a stale graph. The plan and that edge
 # live here; the shared, byte-pinned recorder is not forked or weakened.
-# This recipe is the canonical repo-local close gate. README.md's Validation
+# This recipe is the canonical repo-local close gate. docs/maintainers/README.md's Validation
 # matrix mirrors its ordered coverage and omissions; the focused
 # TestVerifyGateSetBoundaryContract pin makes removing the boundary step fail
 # inside repo-green before a misleading green aggregate can be reported.
@@ -794,6 +808,7 @@ define VERIFY_PLAN
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
 		'ui-vendor-check=$(MAKE) --no-print-directory ui-vendor-check' \
+		'notices-check=$(MAKE) --no-print-directory notices-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
 		'workflow-yaml=$(MAKE) --no-print-directory workflow-yaml' \
 		'workflow-yaml-parity=$(MAKE) --no-print-directory workflow-yaml-parity' \
@@ -996,6 +1011,7 @@ define CI_VERIFY_PLAN
 		'clock-fuse-report=$(MAKE) --no-print-directory clock-fuse-report' \
 		'tagged-vet=$(MAKE) --no-print-directory tagged-vet' \
 		'integration-inventory=$(MAKE) --no-print-directory integration-inventory' \
+		'notices-check=$(MAKE) --no-print-directory notices-check' \
 		'go-mod-tidy-diff=go mod tidy -diff' \
 		'go-build=go build ./...' \
 		'go-test-race=$(MAKE) --no-print-directory go-test-race IDENTUUM_IDP_TEST_DATABASE_URL=$(IDENTUUM_IDP_TEST_DATABASE_URL) IDENTUUM_IDP_REQUIRE_DB_TESTS=$(IDENTUUM_IDP_REQUIRE_DB_TESTS) IDENTUUM_IDP_ALLOW_MULTI_REPLICA=$(IDENTUUM_IDP_ALLOW_MULTI_REPLICA)' \
@@ -2633,7 +2649,7 @@ verify-oss-contract:
 
 ## test-full: the TEST-spec anchor — one command in THIS repo runs the full
 ## disposable-appliance behavior suite (T2 of the plan in
-## docs/TEST-spec-status.md).
+## docs/maintainers/TEST-spec-status.md).
 ##
 ## The ORCHESTRATOR BODY deliberately stays in the sibling checkout
 ## (identuum-ui/e2e-full/scripts/full-run.sh) — measured 2026-08-30: four ui

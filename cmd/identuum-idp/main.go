@@ -53,6 +53,7 @@ import (
 	"syscall"
 	"time"
 
+	identuumidposs "github.com/identuum/identuum-idp-oss"
 	"github.com/identuum/identuum-idp-oss/internal/buildinfo"
 	pkgruntime "github.com/identuum/identuum-idp-oss/internal/pkg/runtime"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
@@ -135,6 +136,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runHealthcheck(rest, stdout, stderr)
 		case "version":
 			fmt.Fprintln(stdout, version+" (commit "+buildinfo.Commit+")")
+			return 0
+		case "licenses":
+			// The third-party notices the binary carries (THIRD_PARTY_NOTICES).
+			fmt.Fprint(stdout, identuumidposs.ThirdPartyNotices)
 			return 0
 		case "help", "-h", "--help":
 			printUsage(stdout)
@@ -294,6 +299,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "                                     print the setup code while setup_required")
 	fmt.Fprintln(w, "                                     (flags BEFORE the positional — Go's parser")
 	fmt.Fprintln(w, "                                     stops at the first non-flag argument)")
+	fmt.Fprintln(w, "  licenses                           print the third-party notices this binary carries")
 	fmt.Fprintln(w, "  healthcheck [base-url]             exit 0 when this server's /healthz and /readyz")
 	fmt.Fprintln(w, "                                     (its database answers) both answer 200")
 	fmt.Fprintln(w, "                                     (the Docker HEALTHCHECK; default: the listen address)")

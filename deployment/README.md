@@ -169,7 +169,7 @@ customer-facing instruction set.
 
 The Postgres-only and `oss-up` dev stack is documented in the repo
 root [`Makefile`](../Makefile) (`make dev-reset`, `make fast-up`) and
-[`MANUAL-TEST.md`](../MANUAL-TEST.md). None of the
+[`MANUAL-TEST.md`](../docs/maintainers/MANUAL-TEST.md). None of the
 customer-facing install assumes the dev stack is running, and the
 customer-facing stack does not collide with dev container names,
 volume names, or networks.

@@ -39,7 +39,8 @@
         "internal/service/**",
         "internal/setup/**",
         "internal/testsupport/**",
-        "internal/pkg/runtime/**"
+        "internal/pkg/runtime/**",
+        "."
       ]
     },
     {
@@ -561,6 +562,7 @@
         "tools/**"
       ],
       "may_import": [
+        "github.com/google/licensecheck/**",
         "github.com/stretchr/**",
         "gopkg.in/yaml.v3/**",
         "internal/domain/**",

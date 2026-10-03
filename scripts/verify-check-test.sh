@@ -22,7 +22,7 @@ git -c user.name=fixture -c user.email=fixture@example.invalid -c commit.gpgsign
 printf 'prior record\n' > "$scratch/prior"
 
 counts=
-for declaration in VERIFY_PLAN:36 CI_VERIFY_PLAN:26 VERIFY_INTEGRATION_PLAN:4; do
+for declaration in VERIFY_PLAN:37 CI_VERIFY_PLAN:27 VERIFY_INTEGRATION_PLAN:4; do
 	variable=${declaration%:*}; count=${declaration#*:}
 	counts=$counts${counts:+/}$count
 	measured=$(awk -v variable="$variable" '

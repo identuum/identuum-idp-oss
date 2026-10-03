@@ -54,7 +54,8 @@ import (
 	"github.com/identuum/identuum-idp-oss/pkg/totp"
 )
 
-// Seeded test credentials. Fixed, not random: a human re-reads MANUAL-TEST.md
+// Seeded test credentials. Fixed, not random: a human re-reads
+// docs/maintainers/MANUAL-TEST.md
 // and a test re-runs, and both need the same values every time. These are only
 // ever valid in a database someone explicitly declared disposable.
 const (
