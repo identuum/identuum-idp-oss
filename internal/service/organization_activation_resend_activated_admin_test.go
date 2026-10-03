@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -18,8 +19,10 @@ func TestResendActivationToken_AdminAlreadyActivatedRefused(t *testing.T) {
 	orgID := uuid.New()
 	org := &domain.Organization{ID: orgID, Name: "Deactivated", Active: false}
 	admin := &domain.User{ID: uuid.New(), OrganizationID: orgID, Email: "admin@x.test", Role: domain.RoleOrgAdmin, EmailVerified: true}
+	fixed := time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC)
 	svc := NewOrganizationActivationService(OrganizationActivationServiceConfig{
 		Users: newFakeUserRepo(admin), Orgs: newFakeOrgRepo(org), OrgsAdmin: newFakeOrgRepo(org), Audit: audit.NoopService{},
+		Now: func() time.Time { return fixed },
 	})
 	if _, _, _, err := svc.ResendActivationToken(context.Background(), orgID); !errors.Is(err, ErrOrganizationActivationAdminActivated) {
 		t.Errorf("resend for an already-activated admin: err=%v, want ErrOrganizationActivationAdminActivated", err)
