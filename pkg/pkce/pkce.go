@@ -30,10 +30,28 @@ const MethodS256 = "S256"
 // crypto/subtle.ConstantTimeCompare (which also yields a non-match on any
 // length difference). The verifier and challenge are never logged.
 func Verify(codeVerifier, codeChallenge string) bool {
-	if codeVerifier == "" || codeChallenge == "" {
+	if !ValidVerifier(codeVerifier) || codeChallenge == "" {
 		return false
 	}
 	sum := sha256.Sum256([]byte(codeVerifier))
 	expected := base64.RawURLEncoding.EncodeToString(sum[:])
 	return subtle.ConstantTimeCompare([]byte(expected), []byte(codeChallenge)) == 1
+}
+
+// ValidVerifier reports whether v has the RFC 7636 §4.1 shape: 43 to 128
+// characters, each from the unreserved set [A-Z] [a-z] [0-9] "-" "." "_" "~".
+func ValidVerifier(v string) bool {
+	if len(v) < 43 || len(v) > 128 {
+		return false
+	}
+	for i := 0; i < len(v); i++ {
+		c := v[i]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z', c >= '0' && c <= '9':
+		case c == '-' || c == '.' || c == '_' || c == '~':
+		default:
+			return false
+		}
+	}
+	return true
 }
