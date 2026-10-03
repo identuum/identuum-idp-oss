@@ -32,13 +32,13 @@ func TestSafeClient_RedirectPolicy(t *testing.T) {
 		next *http.Request
 		via  []*http.Request
 	}{
-		"https to http":     {redirectReq(t, http.MethodGet, "http://idp.example/x"), []*http.Request{get}},
-		"other host":        {redirectReq(t, http.MethodGet, "https://other.example/x"), []*http.Request{get}},
-		"after POST":        {redirectReq(t, http.MethodPost, "https://idp.example/x"), []*http.Request{post}},
-		"POST turned GET":   {redirectReq(t, http.MethodGet, "https://idp.example/x"), []*http.Request{post}},
-		"fourth redirect":   {redirectReq(t, http.MethodGet, "https://idp.example/x"), []*http.Request{get, get, get}},
-		"userinfo in URL":   {redirectReq(t, http.MethodGet, "https://u:p@idp.example/x"), []*http.Request{get}},
-		"different port":    {redirectReq(t, http.MethodGet, "https://idp.example:8443/x"), []*http.Request{get}},
+		"https to http":   {redirectReq(t, http.MethodGet, "http://idp.example/x"), []*http.Request{get}},
+		"other host":      {redirectReq(t, http.MethodGet, "https://other.example/x"), []*http.Request{get}},
+		"after POST":      {redirectReq(t, http.MethodPost, "https://idp.example/x"), []*http.Request{post}},
+		"POST turned GET": {redirectReq(t, http.MethodGet, "https://idp.example/x"), []*http.Request{post}},
+		"fourth redirect": {redirectReq(t, http.MethodGet, "https://idp.example/x"), []*http.Request{get, get, get}},
+		"userinfo in URL": {redirectReq(t, http.MethodGet, "https://u:p@idp.example/x"), []*http.Request{get}},
+		"different port":  {redirectReq(t, http.MethodGet, "https://idp.example:8443/x"), []*http.Request{get}},
 	} {
 		if err := c.CheckRedirect(tc.next, tc.via); err == nil {
 			t.Errorf("%s: redirect must be refused", name)
