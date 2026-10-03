@@ -66,13 +66,9 @@ func RegisterEndSessionRoutes(router gin.IRouter, deps EndSessionHandlerDeps) {
 //     validated. The wire shape mirrors monolith's behavior of
 //     silently no-redirect when validation fails.
 //
-// `id_token_hint` is currently parsed only to extract `client_id`
-// from the `aud` claim — full signature verification is deferred to
-// a future slice (the bearer-token verifier path already does
-// signature verification when a bearer is presented). Operators
-// requiring id_token_hint verification MUST front the IDP with a
-// reverse proxy that strips unsigned hints, or wait for the
-// follow-up slice.
+// `id_token_hint` is verified before use — signature, kid, algorithm
+// and issuer, with client_id required in `aud` — and an unverifiable
+// hint is refused with invalid_request.
 func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		state := c.Query("state")

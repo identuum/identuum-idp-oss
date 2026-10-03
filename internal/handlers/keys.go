@@ -52,7 +52,8 @@ type KeysHandlerDeps struct {
 // RegisterKeysRoutes wires the signing-keys admin group onto the
 // given Gin router. Registers under "/api/v1/keys".
 //
-// Endpoints (all currently UNAUTHENTICATED — see the package doc):
+// Endpoints (site_admin only — the group is mounted behind
+// mw.RequireSiteAdmin below):
 //
 //	GET    /api/v1/keys              — list signing keys (public fields only)
 //	POST   /api/v1/keys/generate     — generate a new EdDSA or ES256 key
