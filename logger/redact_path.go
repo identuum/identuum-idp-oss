@@ -19,9 +19,14 @@ var credentialPathPrefixes = []string{
 // log, the rate-limit and auth-refusal lines and the denial audit rows.
 func RedactPath(p string) string {
 	clean := path.Clean(p)
+	// The console reaches the same routes through the /bff boundary.
+	mount := ""
+	if rest, ok := strings.CutPrefix(clean, "/bff"); ok && strings.HasPrefix(rest, "/") {
+		mount, clean = "/bff", rest
+	}
 	for _, prefix := range credentialPathPrefixes {
 		if rest, ok := strings.CutPrefix(clean, prefix); ok && rest != "" {
-			return prefix + ":token"
+			return mount + prefix + ":token"
 		}
 	}
 	return p
