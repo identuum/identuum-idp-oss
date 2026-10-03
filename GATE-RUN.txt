@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: b684909
-started: 2026-10-03T10:39:22Z
+repo-head: 1be0f63
+started: 2026-10-03T11:21:14Z
 plan: tool-versions toolchain-parity ci-witness mint-decide witness-mint-test script-tests openapi-check repo-green tracked-binary-check ui-vendor-check credential-transparency workflow-yaml workflow-yaml-parity rulefloor-check ledger-diff-gate image-base-check api-surface vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck grype-scan wiki-fresh
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /Users/odemir/go/bin/staticcheck
@@ -11,40 +11,40 @@ tool: govulncheck govulncheck@v1.8.0  /opt/homebrew/bin/govulncheck
 tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.9.1","toolchain_version":"v0.9.1","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
 tool: yq          v4.54.1  /opt/homebrew/bin/yq
 tool: gograph     v1.7.5  /opt/homebrew/bin/gograph
-elapsed: tool-versions 1s
+elapsed: tool-versions 2s
 target: tool-versions exit=0
 evidence: [toolchain-parity] check OK: toolchain-parity 9 pins agree (gate-witness.sh 651402aa7df9e76472496514aa26343f76268378ccc1c354b7762c635f448809, go 1.27.1, govulncheck 1.8.0, grype 0.120.0, lictor 0.4.4, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1, yq 4.54.1)
 elapsed: toolchain-parity 1s
 target: toolchain-parity exit=0
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 26 planned target(s) all exit=0, ties commit 4eefa1f, 17 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss CI integration targets (partial job record) green, 3 planned target(s) all exit=0, ties commit 4eefa1f, 17 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 26 planned target(s) all exit=0, ties commit 4eefa1f, 20 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss CI integration targets (partial job record) green, 3 planned target(s) all exit=0, ties commit 4eefa1f, 20 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d
 elapsed: ci-witness 0s
 target: ci-witness exit=0
-evidence: [mint-decide] check OK: mint-reachability MINT REQUIRED — tier full (e2e-full): 1 of 3 changed path(s) reach the appliance: deployment/docker-compose.yml (since GATE-RUN.e2e-full.txt: identuum-ui 9cfd09b, identuum-idp-oss a46ea93)
-evidence: [mint-decide] check OK: mint-decide report recorded (make exit 2); only SKIPPABLE permits a witness
+evidence: [mint-decide] check OK: mint-reachability MINT SATISFIED by GATE-RUN.e2e-full.txt (identuum-ui 9cfd09b, identuum-idp-oss b684909) — tier none: all 7 changed path(s) are declared no-reach: .github/workflows/publish-binaries.yml [.github/**]; .github/workflows/publish-image.yml [.github/**]; CHANGELOG.md [**/*.md]; GATE-RUN.txt [GATE-RUN*.txt]; cmd/identuum-idp/release_ref_check_test.go [**/*_test.go]; deployment/README.md [**/*.md]; ledger-amendments.json [ledger-amendments.json]
+evidence: [mint-decide] check OK: mint-decide report recorded (make exit 0); only SKIPPABLE permits a witness
 elapsed: mint-decide 1s
 target: mint-decide exit=0
 evidence: [witness-mint-test]   fixture| gate-witness OK: 'fixture' green on the tree it claims (1 targets)
 evidence: [witness-mint-test] SELFTEST OK: mint debt is recorded without failing verify and refuses every witness attempt
-elapsed: witness-mint-test 5s
+elapsed: witness-mint-test 6s
 target: witness-mint-test exit=0
 evidence: [script-tests] SELFTEST OK: one definition per plan (36/26/4); ci-verify differs from verify only by its declared subtractions and additions; external records preserve all-target and fail-fast verdicts
 evidence: [script-tests] check OK: CI integration record contract tests
 evidence: [script-tests] check OK: CI witness caller expectation proofs
-elapsed: script-tests 5s
+elapsed: script-tests 4s
 target: script-tests exit=0
 evidence: [openapi-check] go packages ok: 1
 elapsed: openapi-check 1s
 target: openapi-check exit=0
 elapsed: repo-green 14s
 target: repo-green exit=0
-elapsed: tracked-binary-check 6s
+elapsed: tracked-binary-check 7s
 target: tracked-binary-check exit=0
 evidence: [ui-vendor-check] check OK: ui-vendor-check the embedded export matches its manifest (a90ba076fed87eb95fadb6c2d3691e1a802ce9c5c6f4c35ecd86b2bf6436947c)
 evidence: [ui-vendor-check] go packages ok: 1
-elapsed: ui-vendor-check 1s
+elapsed: ui-vendor-check 0s
 target: ui-vendor-check exit=0
-elapsed: credential-transparency 0s
+elapsed: credential-transparency 1s
 target: credential-transparency exit=0
 evidence: [workflow-yaml] check OK: workflow-yaml 3 workflow file(s) parse (yq v4.54.1)
 elapsed: workflow-yaml 0s
@@ -53,9 +53,9 @@ evidence: [workflow-yaml-parity] check OK: workflow-yaml-parity block md5 d63f3f
 elapsed: workflow-yaml-parity 0s
 target: workflow-yaml-parity exit=0
 evidence: [rulefloor-check] check OK: 257 rows (257 armed), FLOOR 257, RED-PROOFS 257 (measured 257)
-elapsed: rulefloor-check 39s
+elapsed: rulefloor-check 40s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=fe9b2546d98826489095f174100c6d33d1d863fd status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=1fb9b09f592c81c4849d9fed0be504b1dcea76d5f31adc1e8e830809e2d0df1e
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=43acc4efd6ad3794cb798f704582f54ce889b820 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=ef93568f5a420dded1a41cb6af68773112a852f9094c83c1d2d326e4b8f584f5
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
@@ -85,25 +85,25 @@ elapsed: clock-fuse-gate 1s
 target: clock-fuse-gate exit=0
 elapsed: tagged-vet 1s
 target: tagged-vet exit=0
-elapsed: integration-inventory 1s
+elapsed: integration-inventory 0s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 7s
+elapsed: gograph-build 6s
 target: gograph-build exit=0
-elapsed: gograph-boundaries 0s
+elapsed: gograph-boundaries 1s
 target: gograph-boundaries exit=0
 elapsed: go-mod-tidy-diff 0s
 target: go-mod-tidy-diff exit=0
-elapsed: staticcheck 1s
+elapsed: staticcheck 0s
 target: staticcheck exit=0
-elapsed: govulncheck 5s
+elapsed: govulncheck 7s
 target: govulncheck exit=0
 evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0 — subject directory:identuum-idp-oss; config applied (3 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s)); re-check: 1 declared ignore(s), none lapsed on 2026-10-03; coverage: inventory 84 component(s) at 4 location(s), none under an ignored path (12 ignored path(s) read from git)
-elapsed: grype-scan 2s
+elapsed: grype-scan 1s
 target: grype-scan exit=0
 elapsed: wiki-fresh 0s
 target: wiki-fresh exit=0
-finished: 2026-10-03T10:40:59Z
-tree: sha256=61052f384bc32a69ad678bf0c6f252207e8f91299b7a89e1ea38795f981eb9d4
+finished: 2026-10-03T11:22:53Z
+tree: sha256=6792939adbd0dab7e055384fd980e8b8334e783263c3a6a4063a8490afbabd0c
 result: green
