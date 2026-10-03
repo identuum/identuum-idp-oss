@@ -659,8 +659,9 @@ func (s *UserService) UpdateUserForActorRevokingFirst(ctx context.Context, actor
 	return s.update(ctx, targetUserID, scopedOrgID, opts, false, revokeBeforeWrite(target, opts, revoke))
 }
 
-// revokeBeforeWrite is the revocation an update owes: a disable, or a role
-// other than the target's current one. Nil when none is owed.
+// revokeBeforeWrite is the revocation an update owes: a disable, a role other
+// than the target's current one, or a password set by an admin (whoever held
+// the old password must not keep a session). Nil when none is owed.
 func revokeBeforeWrite(target *domain.User, opts UpdateUserOptions, revoke UserCredentialRevoker) func(context.Context) error {
 	if revoke == nil {
 		return nil
@@ -671,6 +672,8 @@ func revokeBeforeWrite(target *domain.User, opts UpdateUserOptions, revoke UserC
 		reason = "user_banned"
 	case opts.Role != nil && *opts.Role != target.Role:
 		reason = "user_role_changed"
+	case opts.Password != nil:
+		reason = "user_password_set"
 	default:
 		return nil
 	}
