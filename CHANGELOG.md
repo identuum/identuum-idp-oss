@@ -7,6 +7,40 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.9.3`
+
+identuum-ui `9cfd09b` embedded, unchanged since `v0.9.2`. The delta since
+`v0.9.2` (`git rev-list --count`, measured at `e4be7d6`, before the notes
+commit) is 41 commits, 78 files, +8024/−609. `THIRD_PARTY_NOTICES` is most
+of the added lines. There is no migration, and the endpoint count stays
+157. `go.sum` gains `github.com/google/licensecheck`, which only the
+notices tool uses.
+
+- **Security hardening** (each change has a test that failed first):
+  - the sign-in and step-up `return_to` target is a local path only;
+  - consent "deny" redirects only to a registered URI;
+  - registered redirect URIs carry no fragment or userinfo and use https
+    off loopback;
+  - the PKCE `code_verifier` has the RFC 7636 shape;
+  - `private_key_jwt` assertions are bounded from now, and the replay
+    record outlives them;
+  - an admin-set password revokes the user's sessions and refresh tokens;
+  - a completed password reset retires the user's other links;
+  - the activation link redeems only for a pending org admin, and resend
+    refuses an activated one (`409`);
+  - passkey sign-in fails closed (`503`) when the org policy cannot be
+    read;
+  - outbound redirects are limited (GET only, https, same host, at most
+    three);
+  - the encryption-key file must be a regular file;
+  - client-secret regeneration returns fixed messages;
+  - logs carry user ids instead of email addresses, and redact `/bff`
+    token paths.
+- **Deployment:** the compose file pins PostgreSQL by digest;
+  `deployment/README.md` documents changing the database password; stale
+  compose comments are corrected.
+- **CI:** read-only `permissions`; grype is installed from a
+  checksum-verified release archive.
 - **Contributing guide and issue forms.** `CONTRIBUTING.md` says how to
   report a bug or request a feature (pull requests are not accepted yet);
   the bug and feature templates are now issue forms that ask for the
