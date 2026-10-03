@@ -73,6 +73,20 @@ jobs:
       LATEST_TAG: ${{ inputs.latest_tag }}
       LOCAL_IMAGE: identuum-idp-oss:verify
     steps:
+      # OSS-RELEASE-REF: the image's SLSA provenance records the DISPATCH ref
+      # (github_ref, github_workflow_ref), not the tag checked out below;
+      # v0.9.2's image, dispatched on main, records refs/heads/main. A publish
+      # is refused here, before anything is built or pushed, unless it was
+      # dispatched on its own tag. cmd/identuum-idp/release_ref_check_test.go
+      # runs this step's script.
+      - name: Check the dispatch ref
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/tags/${VERSION_TAG}" ]; then
+            echo "::error::a release must be dispatched on its tag so its attestations name it: expected refs/tags/${VERSION_TAG}, got ${GITHUB_REF} (gh workflow run publish-image.yml --ref ${VERSION_TAG} -f version_tag=${VERSION_TAG} -f latest_tag=false)"
+            exit 1
+          fi
+
       - name: Checkout the requested version tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -7,6 +7,12 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Release publishes run only on their tag.** `publish-binaries.yml`
+  (release mode) and `publish-image.yml` refuse, before anything is built,
+  a dispatch ref other than `refs/tags/<version_tag>`, since GitHub's
+  attestations and the image's provenance record the dispatch ref (v0.9.2's
+  name `refs/heads/main`).
+
 ## `v0.9.2`
 
 identuum-ui `v0.6.2` embedded (`9cfd09b`, tree digest

@@ -75,7 +75,10 @@ The customer command flow above pulls the current release tag of
 file. The manual `workflow_dispatch` publish workflow lives at
 `identuum-idp-oss/.github/workflows/publish-image.yml`. It accepts a `version_tag` input plus an opt-in `latest_tag` toggle;
 it never pushes `latest` automatically. The workflow is intentionally
-manual so a release is always an explicit maintainer act.
+manual so a release is always an explicit maintainer act. Dispatch it on the
+tag (`gh workflow run publish-image.yml --ref vX.Y.Z -f version_tag=vX.Y.Z
+-f latest_tag=false`): any other dispatch ref is refused before anything is
+built, because the image's provenance records the dispatch ref.
 
 ### Releasing: the compose asset
 
@@ -127,7 +130,9 @@ manual workflow `.github/workflows/publish-binaries.yml`:
    gh workflow run publish-binaries.yml --ref vX.Y.Z -f version_tag=vX.Y.Z -f dry_run=false
    ```
 
-   It refuses a tag that does not point at the checked-out commit, and
+   It refuses a dispatch ref other than the tag (`refs/tags/vX.Y.Z`) before
+   anything is built, since the attestations record the dispatch ref; it
+   refuses a tag that does not point at the checked-out commit, and
    uploads `identuum-idp-oss_X.Y.Z_linux_amd64`, `…_linux_arm64` and
    `SHA256SUMS` to the existing release without `--clobber`, so an asset of
    the same name (the compose file included) is never replaced.
