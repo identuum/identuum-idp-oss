@@ -41,13 +41,14 @@ on severity.
 
 ## Supported versions
 
-This repository is **pre-release**: `identuum-idp-oss` is the
-Starter-tier extraction of the Identuum identity provider, currently
-published for viewing and evaluation only (see `LICENSE`). There is no
-versioned release yet.
+`identuum-idp-oss` is the Starter-tier extraction of the Identuum identity
+provider, currently published for viewing and evaluation only (see
+`LICENSE`).
 
-Security fixes are applied to the `main` branch. There is no backport
-policy until a stable release is tagged.
+The latest release (`v0.9.x`) receives security fixes: they land on `main`
+and ship in its next patch release. Older releases are not patched; upgrade
+to the latest release (see the
+[Releases](https://github.com/identuum/identuum-idp-oss/releases) page).
 
 ## Scope
 
@@ -58,12 +59,11 @@ This policy covers:
 
 Out of scope:
 
-- The production monolith at `identuum-idp/` (separate disclosure channel)
-- The commercial edition at `identuum-idp-ce/` (covered by the Identuum
-  CE license; report CE-only issues to the Identuum security team
-  through the same contact above)
-- The agentic governor at `identuum-ag*/` (separate workstream)
-- The `identuum-ui` Next.js frontend (separate workstream)
+- The commercial edition, Identuum CE, a separate product (report CE-only
+  issues through the same contact above)
+- The `identuum-ui` operator UI embedded in this binary: report its issues
+  at https://github.com/identuum/identuum-ui (if unsure which one an issue
+  belongs to, report it through this policy)
 - Third-party dependencies (report to their respective maintainers)
 
 ## Disclosure timeline
@@ -72,6 +72,5 @@ After a fix is available:
 
 1. Patch is merged to `main`.
 2. We notify the reporter with the fix details.
-3. We publish a security advisory on the GitHub repository when the
-   repository is public.
+3. We publish a security advisory on this repository.
 4. A CVE may be requested for significant vulnerabilities.

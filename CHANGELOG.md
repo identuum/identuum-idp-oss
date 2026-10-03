@@ -7,6 +7,11 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Docs:** the README names no version that can go stale (it points to the
+  Releases page and `CHANGELOG.md`; the bare-binary example reads the latest
+  release), states Go 1.27.1 as `go.mod` does, and `SECURITY.md` covers the
+  latest release line and drops pre-release and internal-path wording.
+
 - **Release publishes run only on their tag.** `publish-binaries.yml`
   (release mode) and `publish-image.yml` refuse, before anything is built,
   a dispatch ref other than `refs/tags/<version_tag>`, since GitHub's

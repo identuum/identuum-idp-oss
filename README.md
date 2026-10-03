@@ -23,11 +23,12 @@ provider. `identuum-idp-oss` ships the Starter-tier OAuth 2.1 /
 OpenID Connect surface as a self-contained Go module that you can run
 on your own infrastructure.
 
-> **Status:** this README describes `v0.7.0` (release notes:
-> `docs/releases/v0.7.0.md`, a draft until the tag is cut); the latest
-> published release is `v0.6.3`. See Project Status above for the current
-> license. The binary's version and commit are STAMPED at build time
-> (`identuum-idp version` prints both; un-stamped builds report `dev` and
+> **Status:** this README describes `main`. Published releases are on the
+> [Releases](https://github.com/identuum/identuum-idp-oss/releases) page,
+> with each release's changes in [`CHANGELOG.md`](CHANGELOG.md) and its
+> notes in [`docs/releases/`](docs/releases/). See Project Status above for
+> the current license. The binary's version and commit are STAMPED at build
+> time (`identuum-idp version` prints both; un-stamped builds report `dev` and
 > `commit unknown`). The tag is cut by the owner, not by CI.
 
 ---
@@ -237,7 +238,7 @@ never a silent bypass.
 
 | Requirement | Notes |
 |-------------|-------|
-| Go | 1.26 or newer (the repo's `go.mod` is the source of truth); only needed for building from source |
+| Go | 1.27.1 or newer — `go.mod`'s `go 1.27.1` line is authoritative; only needed for building from source |
 | PostgreSQL | **18 or newer** — migration 0001 uses the built-in `uuidv7()` introduced in PG 18 |
 | Docker + Compose plugin | Used by the customer-facing single-node install AND the developer `dev-*` / `fast-*` Make targets |
 | `staticcheck` | `go install honnef.co/go/tools/cmd/staticcheck@latest` |
@@ -245,12 +246,6 @@ never a silent bypass.
 | `grype` | Anchore Grype — install with `brew install grype` or the upstream installer at https://github.com/anchore/grype#installation. `make verify` runs `grype dir:. --fail-on high`. |
 | `rulefloor` | Only for `make verify` / `make rulefloor-check`. Resolved as `$RULEFLOOR_BIN`, then `rulefloor` on PATH, then a sibling `../rulefloor` checkout — see "Rule ledger" below. |
 | `gograph` | Only for `make verify`, which runs `gograph capabilities`, `gograph build . --precise` and `gograph boundaries`. Not needed for `make fast-up`, `make integration-test`, or running the service. |
-
-Both rows above were missing until 2026-09-04: `make verify` has invoked
-`rulefloor` and `gograph` for months while this table listed neither, so a
-newcomer reading only the Prerequisites could not have assembled the toolchain
-that section asks for. `make verify` also needs the private maintainers' wiki as
-a sibling — see the note under "Developer quickstart".
 
 ## Developer quickstart
 
@@ -382,7 +377,8 @@ build-provenance attestation per binary. Download, check and install it
 (`ARCH=arm64` on an ARM host):
 
 ```bash
-VERSION=0.7.0
+# The latest release (set VERSION yourself to install another one).
+VERSION=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/identuum/identuum-idp-oss/releases/latest | sed 's#.*/tag/v##')
 ARCH=amd64
 BASE=https://github.com/identuum/identuum-idp-oss/releases/download/v${VERSION}
 curl -fsSLO "${BASE}/identuum-idp-oss_${VERSION}_linux_${ARCH}"
