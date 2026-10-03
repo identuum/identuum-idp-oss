@@ -62,25 +62,33 @@ func fail(msg string) {
 	os.Exit(2)
 }
 
-// inputs returns the build list (path@version), each module's directory and
-// the vendored identuum-ui commit.
+// releaseTargets are the platforms the binary and the image ship for; the
+// build list is theirs, never the host's.
+var releaseTargets = []string{"linux/amd64", "linux/arm64"}
+
+// inputs returns the build list (path@version) of every release target,
+// united, each module's directory and the vendored identuum-ui commit.
 func inputs(repo string) (Inputs, map[string]string, error) {
-	cmd := exec.Command("go", "list", "-deps", "-f",
-		"{{if .Module}}{{if not .Standard}}{{if .Module.Version}}{{.Module.Path}}@{{.Module.Version}} {{.Module.Dir}}{{end}}{{end}}{{end}}",
-		"./cmd/identuum-idp")
-	cmd.Dir = repo
-	raw, err := cmd.Output()
-	if err != nil {
-		return Inputs{}, nil, fmt.Errorf("go list: %w", err)
-	}
 	dirs := map[string]string{}
-	for _, l := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		if f := strings.Fields(l); len(f) >= 1 {
-			dir := ""
-			if len(f) == 2 {
-				dir = f[1]
+	for _, target := range releaseTargets {
+		goos, goarch, _ := strings.Cut(target, "/")
+		cmd := exec.Command("go", "list", "-deps", "-f",
+			"{{if .Module}}{{if not .Standard}}{{if .Module.Version}}{{.Module.Path}}@{{.Module.Version}} {{.Module.Dir}}{{end}}{{end}}{{end}}",
+			"./cmd/identuum-idp")
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
+		raw, err := cmd.Output()
+		if err != nil {
+			return Inputs{}, nil, fmt.Errorf("go list (%s): %w", target, err)
+		}
+		for _, l := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+			if f := strings.Fields(l); len(f) >= 1 {
+				dir := ""
+				if len(f) == 2 {
+					dir = f[1]
+				}
+				dirs[f[0]] = dir
 			}
-			dirs[f[0]] = dir
 		}
 	}
 	list := make([]string, 0, len(dirs))

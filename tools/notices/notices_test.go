@@ -47,6 +47,27 @@ func TestCheckRefusesMovedInputs(t *testing.T) {
 	}
 }
 
+// The build list is the shipped targets' (linux/amd64 and linux/arm64), so the
+// file and its check come out the same whatever host runs them.
+func TestBuildListIsHostIndependent(t *testing.T) {
+	var want []string
+	for i, host := range [][2]string{{"darwin", "arm64"}, {"linux", "amd64"}, {"linux", "arm64"}, {"freebsd", "amd64"}} {
+		t.Setenv("GOOS", host[0])
+		t.Setenv("GOARCH", host[1])
+		in, _, err := inputs("../..")
+		if err != nil {
+			t.Fatalf("%s/%s: %v", host[0], host[1], err)
+		}
+		if i == 0 {
+			want = in.BuildList
+			continue
+		}
+		if BuildListDigest(in.BuildList) != BuildListDigest(want) {
+			t.Fatalf("the build list on a %s/%s host (%d modules) differs from a darwin/arm64 host's (%d)", host[0], host[1], len(in.BuildList), len(want))
+		}
+	}
+}
+
 // The file is deterministic: component order does not depend on the order
 // the generator found them in.
 func TestRenderIsDeterministic(t *testing.T) {
