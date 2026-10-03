@@ -7,6 +7,32 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+## `v0.9.2`
+
+identuum-ui `v0.6.2` embedded (`9cfd09b`, tree digest
+`a90ba076fed87eb95fadb6c2d3691e1a802ce9c5c6f4c35ecd86b2bf6436947c`). Delta
+`v0.9.1..` (`git rev-list --count`, measured at `f803824`, before the notes
+commit): 27 commits, 26 files, +513/−185 — the re-vendor is the product
+change, the rest is gate and CI tooling. No migration; `go.mod`/`go.sum`
+unchanged. The canonical endpoint count stays 157. No route, field or
+response shape removed or renamed.
+
+- **The embedded UI is identuum-ui `v0.6.2`**: /platform-status shows the
+  commit the IdP serves after its version ("0.9.2 (commit <short>)"), read
+  from the public `/system/info` `build_commit`.
+- **CI's verify job runs its DB-backed tests under `-race` again.** Since
+  `ci-verify` moved to `lictor witness run`, the job's database settings
+  never reached `go test -race` (lictor's environment allowlist), so 17
+  DB-backed tests skipped there under a green record; the Integration job
+  still ran them. `go-test-race` now receives the settings as make
+  command-line variables, and `IDENTUUM_IDP_REQUIRE_DB_TESTS` turns a
+  missing database into a failure.
+- **Gate tooling**: `make verify` runs through `lictor witness run --all`
+  (v0.4.4); the Integration job's record is lictor's and `make ci-fetch`
+  fetches it; toolchain-parity prints each tool's resolved path; the
+  ci-verify subtractions are declared once and held to the plans; grype
+  0.120.0. None of it is in the binary.
+
 ## `v0.9.1`
 
 Fixes; identuum-ui `v0.6.1` embedded (`1f743e9`, tree digest
