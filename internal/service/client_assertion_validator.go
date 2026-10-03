@@ -290,6 +290,15 @@ func (v *ClientAssertionValidator) Validate(ctx context.Context, client *domain.
 	if now.Sub(*iat) > v.cfg.MaxIATAge+v.cfg.ClockSkew {
 		return nil, ErrClientAssertionInvalid
 	}
+	// An assertion is not issued in the future, and it expires within the
+	// maximum lifetime from NOW, so a pre-dated assertion cannot stay valid
+	// longer than its replay record.
+	if iat.After(now.Add(v.cfg.ClockSkew)) {
+		return nil, ErrClientAssertionInvalid
+	}
+	if exp.After(now.Add(clientAssertionMaxLifetime + v.cfg.ClockSkew)) {
+		return nil, ErrClientAssertionInvalid
+	}
 
 	// nbf: optional, respected if present.
 	nbf, err := extractAssertionTime(verified, "nbf", false)
@@ -321,7 +330,9 @@ func (v *ClientAssertionValidator) Validate(ctx context.Context, client *domain.
 	// lifetime is the only replay window (the pre-replay-store
 	// posture documented in prior slice notes).
 	if v.replay != nil {
-		firstUse, replayErr := v.replay.Mark(ctx, client.ClientID, jti, *exp)
+		// Keep the record for as long as the assertion can still be
+		// accepted: its exp plus the clock skew the exp check allows.
+		firstUse, replayErr := v.replay.Mark(ctx, client.ClientID, jti, exp.Add(v.cfg.ClockSkew))
 		if replayErr != nil || !firstUse {
 			return nil, ErrClientAssertionInvalid
 		}

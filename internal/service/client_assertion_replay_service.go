@@ -39,9 +39,9 @@ type ClientAssertionReplayService struct {
 // TTLMin defaults to 1 minute. Lower bound prevents clock-skew
 // races on very-short-lived assertions.
 //
-// TTLMax defaults to 5 minutes. Upper bound matches the validator's
-// max-lifetime clamp on assertions — the replay window can never
-// exceed what the assertion itself permits.
+// TTLMax defaults to 10 minutes: the validator's 5-minute maximum
+// assertion lifetime plus clock skew on both sides, so a record never
+// expires while the assertion it records can still be accepted.
 type ClientAssertionReplayServiceOptions struct {
 	TTLMin time.Duration
 	TTLMax time.Duration
@@ -49,7 +49,7 @@ type ClientAssertionReplayServiceOptions struct {
 
 const (
 	defaultReplayTTLMin = 1 * time.Minute
-	defaultReplayTTLMax = 5 * time.Minute
+	defaultReplayTTLMax = 10 * time.Minute
 )
 
 // NewClientAssertionReplayService constructs the service.
