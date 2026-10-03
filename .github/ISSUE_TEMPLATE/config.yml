@@ -6,3 +6,8 @@ contact_links:
       Do NOT open a public issue for security vulnerabilities.
       Follow the private disclosure process in SECURITY.md and email
       contact@identuum.ai.
+  - name: Contributing guide
+    url: https://github.com/identuum/identuum-idp-oss/blob/main/CONTRIBUTING.md
+    about: >-
+      How to report a bug or request a feature. Pull requests are not
+      accepted yet.

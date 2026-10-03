@@ -459,6 +459,7 @@ time.
 
 - [`CHANGELOG.md`](CHANGELOG.md) — per-release changes
 - [`SECURITY.md`](SECURITY.md) — vulnerability disclosure
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — bug reports, feature requests and pull requests
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — community standards
 - [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES) — third-party licences
 - [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — extended

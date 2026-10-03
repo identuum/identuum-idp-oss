@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a new feature or an improvement
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report security issues here.** Follow [SECURITY.md](https://github.com/identuum/identuum-idp-oss/security/policy).
+
+        This repository is the open edition of Identuum. Some features (for example SCIM, LDAP, webhooks, reports and federation) belong to the separate commercial edition. We may close a request for one of those here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem do you want to solve? Who does it affect?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What do you want to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: What else did you consider, and why not that?

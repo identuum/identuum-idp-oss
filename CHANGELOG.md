@@ -7,6 +7,10 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Contributing guide and issue forms.** `CONTRIBUTING.md` says how to
+  report a bug or request a feature (pull requests are not accepted yet);
+  the bug and feature templates are now issue forms that ask for the
+  version, install method and PostgreSQL version.
 - **Third-party notices ship.** `THIRD_PARTY_NOTICES` lists every Go module
   the binary is built from and every npm package of the embedded UI, with
   version, SPDX id and licence text; the binary prints it (`identuum-idp
