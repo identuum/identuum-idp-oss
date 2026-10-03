@@ -532,10 +532,16 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		// for the policy gates below. FinishLogin already verified the
 		// assertion AND that the user is active/non-banned; this reload
 		// only adds org-policy fields (the WebAuthn user-resolution uses
-		// the org-less GetByID). Best-effort: nil seam or error leaves
-		// the org policy at its permissive default.
+		// the org-less GetByID). A store error fails CLOSED (503, AUTH-503):
+		// the policy gates below must never run on permissive defaults
+		// because the policy could not be read.
 		if deps.UserOrgLookup != nil {
-			if orgUser, lookupErr := deps.UserOrgLookup.GetByIDWithOrg(c.Request.Context(), user.ID); lookupErr == nil && orgUser != nil {
+			orgUser, lookupErr := deps.UserOrgLookup.GetByIDWithOrg(c.Request.Context(), user.ID)
+			if lookupErr != nil {
+				respondAuthStoreUnavailable(c, "webauthn.org-policy", lookupErr)
+				return
+			}
+			if orgUser != nil {
 				user = orgUser
 			}
 		}
