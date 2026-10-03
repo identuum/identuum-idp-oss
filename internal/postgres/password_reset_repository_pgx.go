@@ -137,6 +137,11 @@ func (r *PgxPasswordResetRepository) ClaimPasswordReset(ctx context.Context, tok
 		// the claim so the (still-valid) link is not burned.
 		return uuid.Nil, false, fmt.Errorf("password reset write: user not found or deleted")
 	}
+	// The password is now set: retire every other unused link of this user
+	// in the same transaction, so an older link cannot set it again.
+	if _, err := tx.Exec(ctx, `UPDATE password_resets SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`, userID); err != nil {
+		return uuid.Nil, false, fmt.Errorf("retire other password reset links: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return uuid.Nil, false, fmt.Errorf("commit password reset transaction: %w", err)
 	}
