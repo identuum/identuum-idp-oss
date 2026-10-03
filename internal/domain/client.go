@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -75,8 +76,36 @@ func ValidateRedirectURIs(uris []string) error {
 				return fmt.Errorf("%w: redirect_uri scheme %q is not permitted (dangerous scheme)", ErrInvalidRequest, u.Scheme)
 			}
 		}
+		// RFC 6749 §3.1.2: a redirection endpoint carries no fragment.
+		if u.Fragment != "" || strings.Contains(raw, "#") {
+			return fmt.Errorf("%w: redirect_uri %q must not contain a fragment", ErrInvalidRequest, raw)
+		}
+		if u.User != nil {
+			return fmt.Errorf("%w: redirect_uri %q must not contain userinfo", ErrInvalidRequest, raw)
+		}
+		switch strings.ToLower(u.Scheme) {
+		case "https":
+			if u.Hostname() == "" {
+				return fmt.Errorf("%w: redirect_uri %q must name a host", ErrInvalidRequest, raw)
+			}
+		case "http":
+			// Plain http only where the code never crosses a network:
+			// a loopback host (RFC 8252 §7.3).
+			if !isLoopbackRedirectHost(u.Hostname()) {
+				return fmt.Errorf("%w: redirect_uri %q must use https unless the host is loopback", ErrInvalidRequest, raw)
+			}
+		}
 	}
 	return nil
+}
+
+// isLoopbackRedirectHost reports whether host is localhost or a loopback IP.
+func isLoopbackRedirectHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // ValidateLogoutURI enforces the OSS-side admin policy for the
