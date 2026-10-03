@@ -89,6 +89,10 @@ var (
 	// requested for an org that has no org_admin to receive the token.
 	// The HTTP boundary maps it to 404 (nothing to resend).
 	ErrOrganizationActivationNoAdmin = errors.New("activation: no org_admin for organization")
+	// ErrOrganizationActivationAdminActivated is returned when the org's
+	// org_admin already activated (verified): an activation link is only for
+	// an admin who never did. The HTTP boundary maps it to 409.
+	ErrOrganizationActivationAdminActivated = errors.New("activation: org_admin already activated")
 )
 
 // orgRepoActivationSurface is the narrow seam this service consumes
@@ -289,8 +293,11 @@ func (s *OrganizationActivationService) ResendActivationToken(ctx context.Contex
 	return raw, expiresAt, admin.Email, nil
 }
 
-// findResendOrgAdmin returns the org's active org_admin — the recipient
-// of the re-issued activation token. Missing → ErrOrganizationActivationNoAdmin.
+// findResendOrgAdmin returns the org's org_admin who has not activated yet —
+// the recipient of the re-issued activation token. An admin who already
+// activated (verified) or is banned never receives one:
+// ErrOrganizationActivationAdminActivated. None at all →
+// ErrOrganizationActivationNoAdmin.
 func (s *OrganizationActivationService) findResendOrgAdmin(ctx context.Context, orgID uuid.UUID) (*domain.User, error) {
 	users, _, err := s.users.ListByOrganization(ctx, orgID, repository.ListUserOptions{
 		Pagination: repository.NewPagination(1, 50),
@@ -298,10 +305,19 @@ func (s *OrganizationActivationService) findResendOrgAdmin(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
+	activated := false
 	for _, u := range users {
-		if u != nil && u.Role == domain.RoleOrgAdmin && u.DeletedAt == nil {
-			return u, nil
+		if u == nil || u.Role != domain.RoleOrgAdmin || u.DeletedAt != nil {
+			continue
 		}
+		if u.EmailVerified || u.Banned {
+			activated = true
+			continue
+		}
+		return u, nil
+	}
+	if activated {
+		return nil, ErrOrganizationActivationAdminActivated
 	}
 	return nil, ErrOrganizationActivationNoAdmin
 }

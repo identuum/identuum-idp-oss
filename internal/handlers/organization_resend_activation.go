@@ -76,6 +76,8 @@ func HandleResendActivation(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusConflict, gin.H{"error": "organization already active"})
 			case errors.Is(err, service.ErrOrganizationActivationNoAdmin):
 				c.JSON(http.StatusNotFound, gin.H{"error": "no org_admin to resend activation to"})
+			case errors.Is(err, service.ErrOrganizationActivationAdminActivated):
+				c.JSON(http.StatusConflict, gin.H{"error": "org_admin already activated"})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			}
