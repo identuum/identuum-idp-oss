@@ -218,6 +218,13 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 // AuthorizeService URL builder so the URL construction stays in one
 // place.
 func handleConsentDeny(c *gin.Context, deps ConsentHandlerDeps, req service.AuthorizeRequest) {
+	// The deny redirect goes only to a URI registered for this client, the
+	// same check the consent form and the approve path apply.
+	client, cerr := deps.Clients.GetClientByClientID(c.Request.Context(), req.ClientID)
+	if cerr != nil || client == nil || !client.IsRedirectURIAllowed(req.RedirectURI) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+		return
+	}
 	location, err := deps.AuthorizeService.BuildErrorRedirect(req.RedirectURI, "access_denied", req.State)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
