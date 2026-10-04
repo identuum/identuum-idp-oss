@@ -70,3 +70,48 @@ func TestIntrospect_SessionBoundTokenIsActiveOnlyWhileTheSubjectIsLive(t *testin
 		}
 	})
 }
+
+// A service-account token has no session, so the subject verdict above never
+// judges it. Introspection applies the same account check the bearer
+// middleware applies: a disabled or expired account, or a deactivated
+// organization, reads inactive at once; a check that cannot run is a store
+// error, never an admission. Other tokens are not judged by it.
+func TestIntrospect_ServiceAccountTokenIsActiveOnlyWhileTheAccountIs(t *testing.T) {
+	saID := uuid.New()
+	saToken := &IntrospectionClaims{Sub: saID.String(), ClientID: "sa-cli", ActorType: ActorTypeServiceAccount, Jti: "jti-sa"}
+	appToken := &IntrospectionClaims{Sub: "cli-1", ClientID: "cli-1", Jti: "jti-cc"}
+
+	check := func(live bool, err error, seen *string) func(context.Context, string) (bool, error) {
+		return func(_ context.Context, subject string) (bool, error) {
+			*seen = subject
+			return live, err
+		}
+	}
+	cases := []struct {
+		name       string
+		claims     *IntrospectionClaims
+		live       bool
+		err        error
+		wantActive bool
+		wantStore  bool
+		wantAsked  string
+	}{
+		{"live account", saToken, true, nil, true, false, saID.String()},
+		{"disabled account or inactive organization", saToken, false, nil, false, false, saID.String()},
+		{"the check cannot run: fails closed as a store error", saToken, false, domain.AuthStoreUnavailable("sa", errors.New("db down")), false, true, saID.String()},
+		{"not a service-account token: not judged", appToken, false, nil, true, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var asked string
+			svc := NewIntrospectionService(nil, &fakeIntrospector{claims: tc.claims}, nil).WithServiceAccountLiveness(check(tc.live, tc.err, &asked))
+			resp, err := svc.IntrospectVerdict(context.Background(), "ANY")
+			if resp.Active != tc.wantActive || domain.IsAuthStoreUnavailable(err) != tc.wantStore {
+				t.Errorf("IntrospectVerdict = active %v, store-unavailable %v; want %v, %v", resp.Active, domain.IsAuthStoreUnavailable(err), tc.wantActive, tc.wantStore)
+			}
+			if asked != tc.wantAsked {
+				t.Errorf("liveness asked about %q, want %q", asked, tc.wantAsked)
+			}
+		})
+	}
+}

@@ -169,6 +169,30 @@ func introspectJSON(t *testing.T, rec *httptest.ResponseRecorder) map[string]any
 
 // ── tests ─────────────────────────────────────────────────────────────────
 
+// A relay authenticates with its own registered client and checks the
+// participant token it was handed (docs/AGENT-COMMUNICATION-AUTHORIZATION.md):
+// the token names the participant's client, not the relay's, and must still
+// read active to the relay.
+func TestIntrospectAgentComm_RelayWithItsOwnClientSeesTheParticipantToken(t *testing.T) {
+	w := newACIntrospectWorld(t)
+	tokenA := w.issueFor(t, w.clA1, w.keyA, w.aci(domain.AgentCommunicationRoleInitiator))
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(mw.CorrelationIDMiddleware())
+	r.Use(func(c *gin.Context) {
+		mw.SetAuthenticatedClientForTest(c, &service.AuthenticatedClient{Kind: service.AuthenticatedClientKindOAuth, ClientID: "relay-cli", AuthRecordID: uuid.New()})
+		c.Next()
+	})
+	r.POST("/api/v1/oauth/introspection", HandleIntrospection(IntrospectionHandlerDeps{IntrospectionService: w.intro, Audit: w.audit}))
+
+	rec := postIntrospect(t, r, tokenA)
+	require.Equal(t, http.StatusOK, rec.Code)
+	body := introspectJSON(t, rec)
+	assert.Equal(t, true, body["active"], "a relay's own client introspecting a live participant token")
+	assert.NotNil(t, body["agent_communication"])
+}
+
 func TestIntrospectAgentComm_TruthTableOnTheWire(t *testing.T) {
 	w := newACIntrospectWorld(t)
 	r := w.introspectEngine()

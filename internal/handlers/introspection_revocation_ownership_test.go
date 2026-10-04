@@ -66,6 +66,58 @@ func TestIntrospection_ClientJudgesOnlyItsOwnTokens(t *testing.T) {
 	}
 }
 
+// resourceClientAuth authenticates every caller as an API resource (a
+// resource server's own credential).
+type resourceClientAuth struct{}
+
+func (resourceClientAuth) Authenticate(_ context.Context, id, _, _ string) (*service.AuthenticatedClient, error) {
+	return &service.AuthenticatedClient{Kind: service.AuthenticatedClientKindAPIResource, ClientID: id, AuthRecordID: uuid.New()}, nil
+}
+
+// A resource server is who introspection is for (RFC 7662 §1): an API
+// resource's credential may judge a user's token whatever app it was issued
+// to, while an app's own credential still sees only its own tokens.
+func TestIntrospection_ResourceServerJudgesTokensPresentedToIt(t *testing.T) {
+	sub := uuid.New()
+	issuedToSPA := &service.IntrospectionClaims{Sub: sub.String(), UserID: sub, ClientID: "spa-1", Aud: []string{"https://idp.test"}}
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	RegisterIntrospectionRoutes(r, IntrospectionHandlerDeps{
+		IntrospectionService: service.NewIntrospectionService(nil, &revFakeVerifier{claims: issuedToSPA}, nil),
+		ClientAuth:           resourceClientAuth{},
+	})
+	form := url.Values{"token": {"opaque-token"}, "client_id": {"https://api.a"}, "client_secret": {"S"}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/oauth/introspection", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	var got map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &got)
+	if w.Code != http.StatusOK || got["active"] != true {
+		t.Errorf("an API resource introspecting a user's token issued to an app = %d %v; want 200 active", w.Code, got["active"])
+	}
+	if got := introspectAs(t, issuedToSPA, "cli-other"); got["active"] != false {
+		t.Errorf("another app's credential introspecting it = %v; want active:false", got["active"])
+	}
+}
+
+// Revocation stays the issuing client's alone (RFC 7009 §2.1): an API
+// resource's credential cannot revoke a token issued to an app.
+func TestRevoke_ResourceServerCannotRevokeAnAppsToken(t *testing.T) {
+	sub := uuid.New()
+	verifier := &revFakeVerifier{claims: &service.IntrospectionClaims{
+		Sub: sub.String(), UserID: sub, ClientID: "cli-ISSUER", Jti: "jti-app", Exp: time.Now().Add(time.Hour).Unix(),
+	}}
+	r, repo, _ := newRevocationEngineWithJTI(t, verifier, &service.RecorderSessionRevoker{}, resourceClientAuth{})
+	if w := postRevoke(t, r, "token=app-access&client_id=https://api.a&client_secret=S"); w.Code != http.StatusOK {
+		t.Fatalf("revoke = %d; want the opaque 200", w.Code)
+	}
+	if len(repo.inserts) != 0 {
+		t.Errorf("an API resource revoked an app's token: %+v", repo.inserts)
+	}
+}
+
 // A cross-client revoke is the same opaque 200, but the token is NOT revoked:
 // no jti is recorded (the session fan-out half is pinned by
 // REVOKE-CLIENT-BINDING-1).

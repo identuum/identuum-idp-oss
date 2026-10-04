@@ -153,6 +153,19 @@ type IntrospectionService struct {
 	// the bearer middleware and userinfo apply — so introspection does not
 	// call active a token whose session was revoked or whose user was banned.
 	subjects oidc.SubjectResolver
+
+	// saLive, when set, judges a service-account token (no session) at use:
+	// the account is active and unexpired and its organization operational —
+	// the check the bearer middleware applies.
+	saLive func(ctx context.Context, subject string) (bool, error)
+}
+
+// WithServiceAccountLiveness wires the check applied to a service-account
+// token, whose `sub` is the account's id (ServiceAccountTokenLiveness). nil
+// leaves it off.
+func (s *IntrospectionService) WithServiceAccountLiveness(check func(ctx context.Context, subject string) (bool, error)) *IntrospectionService {
+	s.saLive = check
+	return s
 }
 
 // WithSubjectResolver wires the liveness verdict introspection applies to a
@@ -177,20 +190,49 @@ func (s *IntrospectionService) subjectLive(ctx context.Context, claims *Introspe
 	return live, nil
 }
 
-// IntrospectVerdictFor is IntrospectVerdict for an AUTHENTICATED CALLER: a
-// client may judge only a token that is its own — issued to it (client_id) or
-// addressed to it (aud) — and gets {"active":false} for any other, exactly as
-// for an unknown token (RFC 7662 §2.2). A nil caller is the site-administrator
-// authority path and is not narrowed.
-func (s *IntrospectionService) IntrospectVerdictFor(ctx context.Context, rawToken string, caller *AuthenticatedClient) (IntrospectionResponse, error) {
+// IntrospectVerdictAs is the introspection endpoint's verdict for an
+// AUTHENTICATED CALLER. Introspection exists for resource servers (RFC 7662
+// §1), so an API resource's credential judges any token presented to it; a
+// participant token is answered to any authenticated relay holding it
+// (docs/AGENT-COMMUNICATION-AUTHORIZATION.md). An app's own client credential
+// judges only its own tokens (IntrospectVerdictFor), so one app cannot read
+// another app's tokens. A nil caller is the site-administrator authority path
+// and is not narrowed.
+func (s *IntrospectionService) IntrospectVerdictAs(ctx context.Context, rawToken string, caller *AuthenticatedClient) (IntrospectionResponse, error) {
 	resp, err := s.IntrospectVerdict(ctx, rawToken)
-	if err != nil || !resp.Active || caller == nil {
+	if err != nil || !resp.Active {
 		return resp, err
 	}
-	if caller.ClientID == "" || (resp.ClientID != caller.ClientID && !slices.Contains(resp.Aud, caller.ClientID)) {
-		return IntrospectionResponse{Active: false}, nil
+	if (caller != nil && caller.Kind == AuthenticatedClientKindAPIResource) || resp.AgentCommunication != nil {
+		return resp, nil
 	}
-	return resp, nil
+	return ownTokenVerdict(resp, caller), nil
+}
+
+// IntrospectVerdictFor is IntrospectVerdict narrowed to the caller's OWN
+// tokens — issued to it (client_id) or addressed to it (aud) — with
+// {"active":false} for any other, exactly as for an unknown token (RFC 7662
+// §2.2). Revocation uses it: only the client a token was issued to may revoke
+// it (RFC 7009 §2.1). A nil caller is the site-administrator authority path
+// and is not narrowed.
+func (s *IntrospectionService) IntrospectVerdictFor(ctx context.Context, rawToken string, caller *AuthenticatedClient) (IntrospectionResponse, error) {
+	resp, err := s.IntrospectVerdict(ctx, rawToken)
+	if err != nil || !resp.Active {
+		return resp, err
+	}
+	return ownTokenVerdict(resp, caller), nil
+}
+
+// ownTokenVerdict keeps resp only when the token is the caller's own: issued
+// to it (client_id) or addressed to it (aud). A nil caller is not narrowed.
+func ownTokenVerdict(resp IntrospectionResponse, caller *AuthenticatedClient) IntrospectionResponse {
+	if caller == nil {
+		return resp
+	}
+	if caller.ClientID == "" || (resp.ClientID != caller.ClientID && !slices.Contains(resp.Aud, caller.ClientID)) {
+		return IntrospectionResponse{Active: false}
+	}
+	return resp
 }
 
 // WithAgentCommunication enables participant-token introspection: a token
@@ -437,6 +479,11 @@ func (s *IntrospectionService) IntrospectVerdict(ctx context.Context, rawToken s
 	}
 	if live, liveErr := s.subjectLive(ctx, claims); liveErr != nil || !live {
 		return IntrospectionResponse{Active: false}, liveErr
+	}
+	if s.saLive != nil && claims.ActorType == ActorTypeServiceAccount {
+		if live, liveErr := s.saLive(ctx, claims.Sub); liveErr != nil || !live {
+			return IntrospectionResponse{Active: false}, liveErr
+		}
 	}
 	resp := IntrospectionResponse{
 		Active:    true,

@@ -1480,6 +1480,12 @@ func mountIntrospectionAndRevocation(router gin.IRouter, resolved OSSRouterDeps)
 	if resolved.SessionLookup != nil {
 		resolved.IntrospectionService.WithSubjectResolver(mw.NewSessionSubjectResolver(resolved.SessionLookup))
 	}
+	// A service-account token has no session: its account and organization are
+	// checked at introspection exactly as the bearer middleware checks them.
+	if resolved.ServiceAccountService != nil && resolved.OrganizationRepo != nil {
+		resolved.IntrospectionService.WithServiceAccountLiveness(
+			service.ServiceAccountTokenLiveness(resolved.ServiceAccountService, resolved.OrganizationRepo))
+	}
 	handlers.RegisterIntrospectionRoutes(router, handlers.IntrospectionHandlerDeps{
 		IntrospectionService: resolved.IntrospectionService,
 		Audit:                resolved.Audit,
