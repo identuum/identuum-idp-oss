@@ -73,9 +73,9 @@ the endpoint count stays 157.
 - **An RFC 7592 client update keeps the limits of the initial access token
   that registered it** (migration `0049`). The registration stores the
   token's allowed grant types and auth methods with the client, and an
-  update that asks for more answers `403 invalid_client_metadata`. The
-  client-management route is not mounted in this edition; the table is
-  shared.
+  update that asks for more answers `403 invalid_client_metadata`. No
+  shipped binary mounts the client-management route yet; the limits are
+  kept so that it is right when one does.
 - **A deleted organization releases its API resources' audiences**
   (migration `0050`). Deleting an organization marks its API resources
   deleted, and the installation-wide audience rule counts only resources
