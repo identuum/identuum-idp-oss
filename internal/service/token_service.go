@@ -45,6 +45,7 @@ type TokenService struct {
 	keys            SigningKeyProvider
 	audiences       AudienceLookup
 	refresh         *RefreshTokenService
+	refreshSubjects RefreshSubjectLookup
 	serviceAccounts ServiceAccountLookup
 	clients         ClientByClientIDLookup
 	issuer          string
@@ -180,6 +181,20 @@ func (s *TokenService) HasServiceAccountLookup() bool {
 // Returns the receiver so the call composes with construction.
 func (s *TokenService) WithRefreshTokenService(rts *RefreshTokenService) *TokenService {
 	s.refresh = rts
+	return s
+}
+
+// RefreshSubjectLookup resolves the user a refresh token was issued for.
+type RefreshSubjectLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+}
+
+// WithRefreshSubjectLookup wires the D-027 check at the refresh grant: an app
+// of an organization refreshes only for a user of that organization, so a
+// refresh token issued before the rule to another organization's app stops at
+// its next use. nil leaves it off.
+func (s *TokenService) WithRefreshSubjectLookup(users RefreshSubjectLookup) *TokenService {
+	s.refreshSubjects = users
 	return s
 }
 
@@ -522,6 +537,22 @@ func (s *TokenService) IssueRefresh(ctx context.Context, client *AuthenticatedCl
 			return nil, ErrTokenServiceInvalidGrant
 		}
 		return nil, err
+	}
+	// D-027: a refresh continues a sign-in, and a user signs in only to apps of
+	// their own organization. An app with no organization stays available to
+	// every organization. The token is already consumed, so a refusal ends it.
+	if s.refreshSubjects != nil && client.Kind == AuthenticatedClientKindOAuth && client.OrganizationID != uuid.Nil {
+		subject, parseErr := uuid.Parse(consumed.Subject)
+		if parseErr != nil {
+			return nil, ErrTokenServiceInvalidGrant
+		}
+		user, lookupErr := s.refreshSubjects.GetByID(ctx, subject)
+		if lookupErr != nil && !errors.Is(lookupErr, domain.ErrUserNotFound) {
+			return nil, domain.AuthStoreUnavailable("user", lookupErr)
+		}
+		if lookupErr != nil || user == nil || user.OrganizationID != client.OrganizationID {
+			return nil, ErrTokenServiceInvalidGrant
+		}
 	}
 	now := s.now().UTC()
 	exp := now.Add(s.accessTokenTTL)

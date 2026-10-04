@@ -1226,6 +1226,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	}).
 		WithAudienceLookup(apiResourceSvc).
 		WithServiceAccountLookup(serviceAccountSvc, clientSvc).
+		// D-027 at the refresh grant: an app of an organization refreshes
+		// only for a user of that organization.
+		WithRefreshSubjectLookup(repos.User).
 		WithAgentCommunication(service.AgentCommunicationIssuanceDeps{
 			Authorizations:   repos.AgentCommunicationAuthorization,
 			ServiceAccounts:  repos.ServiceAccount,
