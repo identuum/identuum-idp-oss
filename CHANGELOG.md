@@ -5,6 +5,101 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## `v0.9.5`
+
+identuum-ui `4ff1270` embedded (`v0.9.4` embedded `5627ba2`): a site
+administrator's organization form edits only the name and whether the
+organization is active, an org admin's settings page sets the organization's
+name and MFA policy, and the sign-in form asks the user to wait during the
+account-wide slow-down. The delta since `v0.9.4` (`git rev-list --count` and
+`git diff --shortstat`, measured at `cace374`, before the notes commit) is
+25 commits, 114 files, +3239/−260. Three migrations (`0048` to `0050`), and
+the endpoint count stays 157.
+
+- **A tenant organization's policy belongs to its org admin** (owner
+  ruling). `PUT /api/v1/organizations/:id` is open to the organization's own
+  org admin (scope `orgs:update`). A site administrator changes only
+  `active` and `name` of a tenant organization; any other field answers
+  `403 forbidden_field` and names the fields, before any value is read or
+  written. The org admin changes `name`, `domain`, `local_admin_only` and
+  every policy field, and never `active` (`403 forbidden_field`). The System
+  organization is unchanged: the site administrator edits it as before. The
+  audit event names the actor and the fields. **An organization with no org
+  admin keeps its policy until one is appointed.**
+- **An org admin restores its own organization's deleted users.**
+  `POST /api/v1/users/:id/restore` admits an org admin (scope
+  `users:delete`) for a user of its own organization; another
+  organization's user answers `404`. A site administrator is still refused
+  for a tenant user (`403`, D-025). The audit event names the actor and the
+  organization.
+- **An org admin reaches its own apps' back-channel logout deliveries.** The
+  list, read and replay routes under
+  `/api/v1/admin/backchannel-logout-deliveries` admit an org admin for the
+  apps of its own organization (`clients:read` to read, `clients:update` to
+  replay); another organization's delivery answers `404`. A site
+  administrator still lists every delivery, but sees `user_id` and
+  `session_id` only for apps of the System organization, and replays only
+  those and apps with no organization (`403` otherwise).
+- **`reset-org-admin-mfa`, a host-only operator command.** An organization
+  whose only org admin lost every second factor gets that admin back:
+  `identuum-idp reset-org-admin-mfa --org <id> --email <address> [db-url]`
+  removes the admin's authenticator, recovery codes and passkeys, revokes the
+  admin's sessions and refresh tokens, and records `org_admin_mfa_reset`
+  (actor `system`, `via=cli`). It refuses the System organization and any
+  user who is not an org admin. It needs the database, so it runs on the host
+  (`docker exec`, or `docker run --entrypoint`); see
+  `docs/OPERATOR-GUIDE.md`.
+- **Repeated failed sign-ins slow one account down, from any address; it is
+  never locked.** After 5 failed password sign-ins for one account in 15
+  minutes, from any number of addresses, the next attempt must wait 1 second
+  after the last failure, then 2, 4 and so on up to 60 seconds. Inside the
+  wait the password is not checked and the answer is
+  `429 {"error":"login_throttled","retry_after_seconds":n}` with
+  `Retry-After`; the browser sign-in page says to wait. A successful sign-in
+  resets the count. The per-address rules are unchanged.
+- **An app's access token no longer carries the user's role.** A token
+  issued to an app (it carries the app's `client_id`) has no `role` claim,
+  and `userinfo` answers it without `role`. Console session tokens are
+  unchanged.
+- **`/authorize` refuses an app not registered for the code grant.** An app
+  whose registered grant types do not include `authorization_code` gets
+  `unauthorized_client` at its redirect URI, and no code. An app with no
+  grant types recorded keeps working.
+- **The proof routes' wrong-code budget survives a restart** (migration
+  `0048`). The per-user count of wrong second-factor codes at step-up, MFA
+  disable, recovery-code regeneration and turning skip consent on (5 in 15
+  minutes) is kept in the database; when it cannot be read, the code is
+  refused. Old rows are swept by the cleanup job.
+- **An RFC 7592 client update keeps the limits of the initial access token
+  that registered it** (migration `0049`). The registration stores the
+  token's allowed grant types and auth methods with the client, and an
+  update that asks for more answers `403 invalid_client_metadata`. The
+  client-management route is not mounted in this edition; the table is
+  shared.
+- **A deleted organization releases its API resources' audiences**
+  (migration `0050`). Deleting an organization marks its API resources
+  deleted, and the installation-wide audience rule counts only resources
+  that are not. Restoring the organization brings back each resource whose
+  audience is still free. The migration marks the resources of
+  organizations already deleted.
+- **Sign-in through an upstream identity provider keeps one binding cookie per
+  sign-in**, so a second sign-in started in the same browser no longer
+  voids the first. A sign-in in progress during the upgrade starts again.
+- **Smaller fixes.**
+  - Every public self-registration answer takes at least 300 ms, so the
+    answer time does not show whether an address has an account (a policy
+    refusal is not delayed).
+  - A request that ends while it waits for an Argon2id slot frees its place
+    in the queue; a cancelled sign-in is not counted as a failure.
+  - Shutdown waits for the mail sent after a response before it closes the
+    database, and says so when the shutdown deadline cuts it off.
+  - The untrusted-proxy warning (`forwarded_header_ignored`) remembers the
+    last 64 peers and logs at most 10 warnings a minute, so a new peer is
+    still named after the first 64.
+  - The setup banner's command to show the setup code names the running
+    binary's path (`/app/identuum-idp` in the image); the deployment README,
+    the compose comments and the manual test guide say the same.
+
 ## `v0.9.4`
 
 identuum-ui `5627ba2` embedded (`v0.9.3` embedded `9cfd09b`): the
