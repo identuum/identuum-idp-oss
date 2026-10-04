@@ -203,14 +203,14 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 			c.Redirect(http.StatusSeeOther, loc)
 			return
 		}
-		finishBrowserSignIn(c, deps, result, returnTo)
+		finishBrowserSignIn(c, deps, result, returnTo, remember)
 	}
 }
 
 // finishBrowserSignIn plants the session cookie for a completed sign-in and
 // redirects to return_to (or "/"). Shared by the password sign-in and the
 // D-017 change step.
-func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *service.LoginResult, returnTo string) {
+func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *service.LoginResult, returnTo string, remember bool) {
 	{
 		ip := c.ClientIP()
 		ua := c.Request.UserAgent()
@@ -277,7 +277,7 @@ func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *s
 			}
 			cookieValue = issued.Token
 		}
-		cookie := deps.CookieSession.Issue(cookieValue, result.Session.ExpiresAt)
+		cookie := deps.CookieSession.IssueForSignIn(cookieValue, result.Session.ExpiresAt, remember)
 		writeSessionCookie(c, cookie)
 
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{

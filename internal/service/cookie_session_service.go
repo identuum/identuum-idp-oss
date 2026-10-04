@@ -175,6 +175,19 @@ func (s *CookieSessionService) Issue(refreshToken string, expiresAt time.Time) *
 	}
 }
 
+// IssueForSignIn returns the session cookie of a new sign-in: persistent until
+// expiresAt when the user chose "remember me", otherwise a browser-session
+// cookie with no expiry, which the browser drops when it closes (the
+// server-side session still ends at expiresAt).
+func (s *CookieSessionService) IssueForSignIn(refreshToken string, expiresAt time.Time, remember bool) *http.Cookie {
+	c := s.Issue(refreshToken, expiresAt)
+	if !remember {
+		c.Expires = time.Time{}
+		c.MaxAge = 0
+	}
+	return c
+}
+
 // Clear returns the cookie that should be planted on the logout
 // response. Empty value + MaxAge=-1 instructs the user-agent to
 // delete the cookie. Same flag posture as Issue so the user-agent's

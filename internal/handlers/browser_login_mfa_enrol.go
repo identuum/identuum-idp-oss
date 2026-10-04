@@ -154,5 +154,5 @@ func startBrowserSession(c *gin.Context, deps BrowserLoginHandlerDeps, user *dom
 			Metadata:  map[string]any{"user_id": user.ID.String(), "session_id": issued.Session.ID.String()},
 		})
 	}
-	finishBrowserSignIn(c, deps, &service.LoginResult{UserID: user.ID.String(), User: user, Session: issued.Session, RefreshToken: issued.RefreshToken}, returnTo)
+	finishBrowserSignIn(c, deps, &service.LoginResult{UserID: user.ID.String(), User: user, Session: issued.Session, RefreshToken: issued.RefreshToken}, returnTo, remember)
 }

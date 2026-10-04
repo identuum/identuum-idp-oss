@@ -142,6 +142,11 @@ follows [Semantic Versioning](https://semver.org/).
   send is logged, not seen by the caller (it never was). What still differs
   between a new and a taken address is a few database writes, a millisecond or
   two.
+- **The session cookie is persistent only when "remember me" is ticked.** The
+  browser-login session cookie carried an expiry whether or not the box was
+  ticked, so it outlived the browser. Unticked, it now has no expiry and ends
+  with the browser session; a sign-in through an upstream provider, which has
+  no such box, gets the same. The server-side session lifetime is unchanged.
 
 ## `v0.9.3`
 
