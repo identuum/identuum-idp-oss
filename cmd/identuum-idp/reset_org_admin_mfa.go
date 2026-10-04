@@ -29,7 +29,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
@@ -46,7 +45,7 @@ type resetOrgAdminMFADeps struct {
 	Refresh interface {
 		RevokeAllBySubject(ctx context.Context, subject string, at time.Time) (int64, error)
 	}
-	Audit audit.Service
+	Audit *service.OperatorAuditor
 	Now   func() time.Time
 }
 
@@ -99,7 +98,7 @@ func runResetOrgAdminMFA(ctx context.Context, databaseURL string, orgID uuid.UUI
 		Passkeys: repos.WebAuthnCredential,
 		Sessions: repos.Session,
 		Refresh:  repos.RefreshToken,
-		Audit:    service.NewPersistentAuditService(repos.Audit),
+		Audit:    service.NewOperatorAuditor(repos.Audit),
 		Now:      time.Now,
 	}, orgID, email, stdout, stderr)
 }
@@ -131,20 +130,11 @@ func resetOrgAdminMFACore(ctx context.Context, deps resetOrgAdminMFADeps, orgID 
 	}
 	sessionsRevoked := deps.Sessions.RevokeByUserID(ctx, user.ID, "mfa_reset_by_operator") == nil
 	refreshRevoked, refreshErr := deps.Refresh.RevokeAllBySubject(ctx, user.ID.String(), deps.Now().UTC())
-	meta := map[string]any{"via": "cli", "user_id": user.ID, "organization_id": orgID, "sessions_revoked": sessionsRevoked}
+	var revokedCount *int64
 	if refreshErr == nil {
-		meta["refresh_tokens_revoked_count"] = refreshRevoked
+		revokedCount = &refreshRevoked
 	}
-	_ = deps.Audit.Record(ctx, audit.Event{
-		Action:         string(domain.AuditOrgAdminMFAReset),
-		Outcome:        "success",
-		ActorType:      audit.ActorTypeSystem,
-		OrganizationID: orgID,
-		SubjectID:      user.ID,
-		SubjectType:    "user",
-		SubjectEmail:   user.Email,
-		Metadata:       meta,
-	})
+	deps.Audit.OrgAdminMFAReset(ctx, user, sessionsRevoked, revokedCount)
 	fmt.Fprintf(stdout, "identuum-idp: reset-org-admin-mfa: the second factor and passkeys of %s (organization %s) are removed; sessions revoked=%t, refresh tokens revoked=%t. Sign in with the password and enroll a new factor.\n",
 		user.Email, orgID, sessionsRevoked, refreshErr == nil)
 	if !sessionsRevoked || refreshErr != nil {

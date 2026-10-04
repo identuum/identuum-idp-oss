@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
 // Owner ruling (v0.9.5): an organization whose org_admin lost every factor
@@ -52,13 +52,21 @@ func (f *fakeRefreshRevoker) RevokeAllBySubject(_ context.Context, subject strin
 	return 2, nil
 }
 
+// auditRows keeps the rows the persistent audit service would insert.
+type auditRows struct{ rows []domain.AuditEvent }
+
+func (a *auditRows) Insert(_ context.Context, e domain.AuditEvent) error {
+	a.rows = append(a.rows, e)
+	return nil
+}
+
 type resetHarness struct {
 	deps     resetOrgAdminMFADeps
 	users    *memUserRepo
 	passkeys *fakePasskeys
 	sessions *fakeSessionRevoker
 	refresh  *fakeRefreshRevoker
-	rec      *audit.Recorder
+	rec      *auditRows
 	org      uuid.UUID
 	admin    *domain.User
 	member   *domain.User
@@ -76,13 +84,13 @@ func newResetHarness(t *testing.T) resetHarness {
 		passkeys: &fakePasskeys{creds: []*domain.WebAuthnCredential{{ID: uuid.New(), UserID: admin.ID}}},
 		sessions: &fakeSessionRevoker{},
 		refresh:  &fakeRefreshRevoker{},
-		rec:      &audit.Recorder{},
+		rec:      &auditRows{},
 		org:      org,
 		admin:    admin,
 		member:   member,
 	}
 	h.deps = resetOrgAdminMFADeps{
-		Users: h.users, Passkeys: h.passkeys, Sessions: h.sessions, Refresh: h.refresh, Audit: h.rec,
+		Users: h.users, Passkeys: h.passkeys, Sessions: h.sessions, Refresh: h.refresh, Audit: service.NewOperatorAuditor(h.rec),
 		Now: func() time.Time { return time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC) },
 	}
 	return h
@@ -107,13 +115,13 @@ func TestResetOrgAdminMFA_RemovesEveryFactorRevokesAndAudits(t *testing.T) {
 	if len(h.refresh.subjects) != 1 || h.refresh.subjects[0] != h.admin.ID.String() {
 		t.Errorf("refresh tokens revoked for %v, want the org_admin", h.refresh.subjects)
 	}
-	events := h.rec.Events()
-	if len(events) != 1 {
-		t.Fatalf("audit events = %d, want 1", len(events))
+	if len(h.rec.rows) != 1 {
+		t.Fatalf("audit rows = %d, want 1", len(h.rec.rows))
 	}
-	e := events[0]
-	if e.Action != string(domain.AuditOrgAdminMFAReset) || e.ActorType != audit.ActorTypeSystem || e.OrganizationID != h.org || e.SubjectID != h.admin.ID || e.Metadata["via"] != "cli" {
-		t.Errorf("audit event = %+v, want org_admin_mfa_reset by the system actor via cli", e)
+	e := h.rec.rows[0]
+	if e.EventType != domain.AuditOrgAdminMFAReset || e.ActorType != "system" || e.OrganizationID == nil || *e.OrganizationID != h.org ||
+		e.SubjectID == nil || *e.SubjectID != h.admin.ID || e.Metadata["via"] != "cli" || e.Metadata["refresh_tokens_revoked_count"] != int64(2) {
+		t.Errorf("audit row = %+v, want org_admin_mfa_reset by the system actor via cli, 2 refresh tokens revoked", e)
 	}
 	if strings.Contains(stdout.String()+stderr.String(), "SEED-MUST-NOT-SURVIVE") {
 		t.Error("the MFA secret reached the output")
@@ -136,7 +144,7 @@ func TestResetOrgAdminMFA_RefusesWhatItIsNotFor(t *testing.T) {
 			if rc := resetOrgAdminMFACore(context.Background(), h.deps, tc.org(h), tc.email, &stdout, &stderr); rc == 0 {
 				t.Fatalf("rc = 0, want a refusal")
 			}
-			if !h.users.users[0].MFAEnabled || !h.users.users[1].MFAEnabled || len(h.passkeys.deleted) != 0 || len(h.sessions.users) != 0 || len(h.rec.Events()) != 0 {
+			if !h.users.users[0].MFAEnabled || !h.users.users[1].MFAEnabled || len(h.passkeys.deleted) != 0 || len(h.sessions.users) != 0 || len(h.rec.rows) != 0 {
 				t.Error("a refusal changed something")
 			}
 		})
