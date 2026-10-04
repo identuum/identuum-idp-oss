@@ -3,6 +3,11 @@
   "base_commit": "1e95e6efe61a41a4fe87b0469c343514c4b1fc34",
   "changes": [
     {
+      "rule_id": "LOGOUT-UNCONFIRMED-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "End session now asks before ending a session no id_token_hint vouches for (RP-Initiated Logout 1.0 section 2): the end-session requests of this test carry the confirm value the confirmation page's link carries. Every assertion is unchanged: the store error is logged, audited, marked and the cookie is cleared; a healthy store emits none of that."
+    },
+    {
       "rule_id": "MODEL-SA-NODELETE-1",
       "change_class": "test_fingerprint_changed",
       "reason": "D-025 (owner ruling 2026-10-03): the CONTROL half of TestModel_SiteAdminCannotBeDeletedByAnyActor deleted a tenant org_admin as a site_admin; it now deletes it as another org_admin of that organization. The assertion that no actor deletes the site_admin is unchanged."
