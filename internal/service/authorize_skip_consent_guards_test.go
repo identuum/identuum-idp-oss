@@ -45,9 +45,13 @@ func TestAuthorize_SkipConsentCoversOnlyIdentity(t *testing.T) {
 		mutate       func(*domain.Client)
 		scope        string
 		audience     string
+		claims       string // the OIDC Core §5.5 claims parameter
 		wantSkipped  bool
 		wantConsentD bool // consent screen expected
 	}{
+		{name: "a claims request for profile and email claims is silent", mutate: func(*domain.Client) {}, scope: "openid", claims: `{"userinfo":{"name":null,"email":null},"id_token":{"email_verified":null}}`, wantSkipped: true},
+		{name: "a claims request for the phone number shows consent", mutate: func(*domain.Client) {}, scope: "openid", claims: `{"userinfo":{"phone_number":null}}`, wantConsentD: true},
+		{name: "a claims request for the address in the id_token shows consent", mutate: func(*domain.Client) {}, scope: "openid profile", claims: `{"id_token":{"address":null}}`, wantConsentD: true},
 		{name: "identity scopes are silent", mutate: func(*domain.Client) {}, scope: "openid profile email", wantSkipped: true},
 		{name: "openid alone is silent", mutate: func(*domain.Client) {}, scope: "openid", wantSkipped: true},
 		{name: "offline_access shows consent", mutate: func(*domain.Client) {}, scope: "openid offline_access", wantConsentD: true},
@@ -63,6 +67,7 @@ func TestAuthorize_SkipConsentCoversOnlyIdentity(t *testing.T) {
 			req := newAuthorizeRequest(challenge, principal)
 			req.Scope = tc.scope
 			req.Audience = tc.audience
+			req.Claims = tc.claims
 			res, err := svc.Authorize(context.Background(), req)
 			if tc.wantConsentD {
 				if !errors.Is(err, ErrAuthorizeConsentRequired) {

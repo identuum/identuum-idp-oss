@@ -442,11 +442,17 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	}
 
 	// Audience validation. Only when both an audience is supplied
-	// AND a lookup is wired. Otherwise we leave the audience for
-	// the token endpoint to police (it already does).
+	// AND a lookup is wired. The audience rides on the code and on the
+	// refresh token minted from it, so it is judged here as client
+	// credentials judges it (H8): an active resource of the app's own
+	// organization — an app of one tenant, or of none, never reaches another
+	// tenant's API.
 	if s.audiences != nil && strings.TrimSpace(req.Audience) != "" {
 		res, lookupErr := s.audiences.LookupAudience(ctx, req.Audience)
-		if lookupErr != nil || res == nil {
+		if lookupErr != nil || res == nil || !res.Active {
+			return nil, ErrAuthorizeInvalidTarget
+		}
+		if client.OrganizationID == nil || *client.OrganizationID != res.OrganizationID {
 			return nil, ErrAuthorizeInvalidTarget
 		}
 	}
@@ -475,7 +481,7 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	// answer as an unknown client, so nothing about the other tenant leaks
 	// and no redirect goes to its URI. An app with no organization was
 	// registered by the site administrator and is not tenant-owned.
-	if client.OrganizationID != nil && *client.OrganizationID != req.Principal.OrganizationID {
+	if !client.OpenTo(req.Principal.OrganizationID) {
 		return nil, ErrAuthorizeInvalidClient
 	}
 
@@ -581,8 +587,9 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		return nil, ErrAuthorizeConsentRequired
 	}
 	// D-026: skip_consent covers a confidential console-created app asking
-	// for identity only; anything else goes through the consent lookup.
-	skipsConsent := client.SkipsConsentFor(req.Scope, req.Audience)
+	// for identity only — by scope and by the claims request alike; anything
+	// else goes through the consent lookup.
+	skipsConsent := client.SkipsConsentFor(req.Scope, req.Audience) && requestedClaims.IdentityOnly()
 	if !skipsConsent {
 		if s.consent == nil {
 			return nil, ErrAuthorizeConsentRequired

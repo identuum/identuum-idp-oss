@@ -48,6 +48,22 @@ type ClaimsRequest struct {
 // IsEmpty reports whether nothing emittable was requested.
 func (c ClaimsRequest) IsEmpty() bool { return len(c.UserInfo) == 0 && len(c.IDToken) == 0 }
 
+// beyondIdentityClaims are the emittable claims the profile and email scopes do
+// not cover (OIDC Core §5.4): the address and phone scopes' claims.
+var beyondIdentityClaims = map[string]bool{"address": true, "phone_number": true, "phone_number_verified": true}
+
+// IdentityOnly reports whether every requested claim is one the profile and
+// email scopes cover — what a skip-consent sign-in may release without the
+// consent screen (D-026). An address or phone claim needs consent.
+func (c ClaimsRequest) IdentityOnly() bool {
+	for _, n := range append(append([]string(nil), c.UserInfo...), c.IDToken...) {
+		if beyondIdentityClaims[n] {
+			return false
+		}
+	}
+	return true
+}
+
 // Tokens renders the request as consent tokens — "userinfo:name",
 // "id_token:email" — the unit a consent row stores and covers.
 func (c ClaimsRequest) Tokens() []string {

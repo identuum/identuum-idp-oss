@@ -99,7 +99,9 @@ func HandleConsentForm(deps ConsentHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		client, err := deps.Clients.GetClientByClientID(c.Request.Context(), clientID)
-		if err != nil || client == nil {
+		// D-027: another organization's app is an unknown client to this
+		// user, as /authorize answers; its name is not shown.
+		if err != nil || client == nil || !client.OpenTo(principal.OrganizationID) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client"})
 			return
 		}
@@ -157,6 +159,13 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 		action := strings.ToLower(c.PostForm("action"))
 		req := readConsentForm(c)
 		req.Principal = principal
+
+		// D-027: another organization's app is an unknown client to this
+		// user — no consent is stored for it and no redirect goes to it.
+		if client, cerr := deps.Clients.GetClientByClientID(c.Request.Context(), req.ClientID); cerr == nil && client != nil && !client.OpenTo(principal.OrganizationID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_client"})
+			return
+		}
 
 		if action == "deny" {
 			handleConsentDeny(c, deps, req)

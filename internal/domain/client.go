@@ -498,6 +498,14 @@ func (c *Client) SkipsConsentFor(scope, audience string) bool {
 	return true
 }
 
+// OpenTo reports whether a user of organization orgID may sign in to this app
+// (D-027): an app of an organization is open only to that organization's
+// users; an app with no organization was registered by the site administrator
+// and is open to every organization.
+func (c *Client) OpenTo(orgID uuid.UUID) bool {
+	return c.OrganizationID == nil || *c.OrganizationID == orgID
+}
+
 // IsRedirectURIAllowed checks if the provided URI is in the allowed list
 func (c *Client) IsRedirectURIAllowed(uri string) bool {
 	for _, allowed := range c.RedirectURIs {
