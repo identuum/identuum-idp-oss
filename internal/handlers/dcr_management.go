@@ -199,6 +199,11 @@ func HandleDCRManagementPut(deps DCRManagementHandlerDeps) gin.HandlerFunc {
 			respondDCRError(c, http.StatusBadRequest, "invalid_client_metadata", "grant_types contains an unsupported value")
 			return
 		}
+		// A list that names no grant type would be stored as "registered
+		// none", which is unrestricted: it changes nothing instead.
+		if len(grantTypes) == 0 {
+			grantTypes = nil
+		}
 		responseTypes, ok := normalizeAllowedSet(req.ResponseTypes, dcrAllowedResponseTypes)
 		if !ok {
 			respondDCRError(c, http.StatusBadRequest, "invalid_client_metadata", "response_types contains an unsupported value")

@@ -84,3 +84,20 @@ func TestRFC7592_GrantTypesAreReadAndUpdated(t *testing.T) {
 		t.Errorf("a PUT without grant_types changed them: %v", eng.clientRepo.rows[id].GrantTypes)
 	}
 }
+
+// An empty grant_types list names no grant type. Stored, it would read as
+// "registered none", which is unrestricted; so it changes nothing.
+func TestRFC7592_AnEmptyGrantTypesListDoesNotLiftTheRestriction(t *testing.T) {
+	eng := newDCRMgmtEngine(t, siteAdminPrincipal())
+	id, raw := registerDCRClient(t, eng)
+	before := slices.Clone(eng.clientRepo.rows[id].GrantTypes)
+	if len(before) == 0 {
+		t.Fatalf("PREMISE: the registered client carries a grant set, got %v", before)
+	}
+	for _, empty := range [][]string{{""}, {}, {" "}} {
+		rec := dcrMgmtJSON(t, eng, http.MethodPut, "/api/v1/oauth/register/"+id.String(), map[string]any{"grant_types": empty}, raw)
+		if rec.Code != http.StatusOK || !slices.Equal(eng.clientRepo.rows[id].GrantTypes, before) {
+			t.Errorf("PUT grant_types %q = %d, stored %v; want 200 and %v unchanged", empty, rec.Code, eng.clientRepo.rows[id].GrantTypes, before)
+		}
+	}
+}

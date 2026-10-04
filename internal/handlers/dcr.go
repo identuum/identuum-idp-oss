@@ -309,7 +309,9 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 		// handler-wide allowlists above).
 		var orgIDForRegistration *uuid.UUID
 		if iatPolicy != nil {
-			if len(iatPolicy.AllowedGrantTypes) > 0 && !isSubset(grantTypes, iatPolicy.AllowedGrantTypes) {
+			// Judged on what the registration records: a request that names
+			// no grant type records authorization_code (RFC 7591 §2).
+			if len(iatPolicy.AllowedGrantTypes) > 0 && !isSubset(registeredGrantTypes(grantTypes), iatPolicy.AllowedGrantTypes) {
 				respondDCRError(c, http.StatusForbidden, "invalid_client_metadata", "requested grant_types are not permitted by this initial access token")
 				return
 			}

@@ -203,8 +203,10 @@ func HandleToken(deps TokenHandlerDeps) gin.HandlerFunc {
 		}
 		grantType := c.PostForm("grant_type")
 		// RFC 7591: a client uses only the grant types it registered. One that
-		// registered none is unrestricted.
-		if !client.AllowsGrant(grantType) {
+		// registered none is unrestricted. Only a grant type a registration can
+		// name is judged here: a missing grant_type stays invalid_request and an
+		// unknown one unsupported_grant_type (RFC 6749 §5.2), answered below.
+		if _, nameable := dcrAllowedGrantTypes[grantType]; nameable && !client.AllowsGrant(grantType) {
 			emitTokenError(c, service.ErrTokenServiceUnauthorizedClient)
 			return
 		}
@@ -503,7 +505,9 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 	// compositions without RefreshTokenService: the session-based
 	// token, redeemable at /api/v1/auth/session/refresh only.
 	var issuedRefreshID *uuid.UUID
-	if hasOfflineAccessScope(consumed.Scope) {
+	// A client registered without the refresh_token grant could never redeem
+	// the token, so it is not handed one.
+	if hasOfflineAccessScope(consumed.Scope) && client.AllowsGrant("refresh_token") {
 		switch {
 		case deps.RefreshTokens != nil:
 			issued, refreshErr := deps.RefreshTokens.Issue(c.Request.Context(), service.IssueRefreshTokenInput{

@@ -435,6 +435,26 @@ func TestDCR_IATGrantTypeConstraintEnforced(t *testing.T) {
 	}
 }
 
+// A registration that names no grant_types records authorization_code (RFC
+// 7591 §2), so an initial access token that does not allow authorization_code
+// refuses it: the token's limit is judged on what is recorded, not on what was
+// sent.
+func TestDCR_IATGrantTypeConstraintJudgesTheDefault(t *testing.T) {
+	eng := newDCRIATEngine(t, nil)
+	raw := issueIATViaService(t, eng, service.IssueOptions{
+		TTL:               time.Hour,
+		MaxUses:           1,
+		AllowedGrantTypes: []string{"client_credentials"},
+	})
+	rec := dcrIATJSON(t, eng, http.MethodPost, "/api/v1/oauth/register", map[string]any{
+		"client_name":   "No Grant Named",
+		"redirect_uris": []string{"https://x.example.com/cb"},
+	}, raw)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%q", rec.Code, rec.Body.String())
+	}
+}
+
 // TestDCR_IATTokenEndpointAuthMethodConstraintEnforced pins
 // that an IAT with allowed_token_endpoint_auth_methods=
 // ["client_secret_basic"] rejects token_endpoint_auth_method=
