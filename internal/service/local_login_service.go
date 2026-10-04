@@ -234,16 +234,22 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	// same wire response as "wrong password" so the surface
 	// cannot enumerate locked accounts.
 	if s.risk != nil {
-		// The lockout counts RECORDED failures; hold this account-and-address
-		// pair until this attempt's outcome is recorded.
-		defer s.attempts.lock(email + "\x00" + domain.ClientIPKey(ip))()
+		// The bounds count RECORDED failures; hold this account, whatever
+		// the address, until this attempt's outcome is recorded — the
+		// account-wide slow-down needs every address's attempts in order.
+		defer s.attempts.lock(email)()
 		if err := s.risk.Check(ctx, email, ip, LoginRiskPurposePassword); err != nil {
 			// Backend unavailable → propagate the DISTINCT sentinel so
-			// the handler returns 503 (fail-closed). A genuine lockout
-			// (ErrLoginRateLimited) collapses to invalid_credentials so
-			// a locked account is not enumerable.
+			// the handler returns 503 (fail-closed). The account-wide
+			// slow-down propagates with its wait (429; it is applied to
+			// unknown addresses alike, so it enumerates nothing). A
+			// genuine lockout (ErrLoginRateLimited) collapses to
+			// invalid_credentials so a locked account is not enumerable.
 			if errors.Is(err, ErrLoginRiskBackendUnavailable) {
 				return nil, ErrLoginRiskBackendUnavailable
+			}
+			if errors.Is(err, ErrLoginThrottled) {
+				return nil, err
 			}
 			return nil, ErrLoginInvalidCredentials
 		}

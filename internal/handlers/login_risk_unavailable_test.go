@@ -25,6 +25,7 @@ import (
 // the genuine-lockout path is the account lock (P2-10).
 type scriptedLoginAttemptRepo struct {
 	count int
+	anyIP int // account-wide failures from any address (the slow-down)
 	err   error
 }
 
@@ -34,6 +35,12 @@ func (r scriptedLoginAttemptRepo) CountAccountFailuresSince(context.Context, str
 }
 func (r scriptedLoginAttemptRepo) CountDistinctAccountsFromIPSince(context.Context, string, string, time.Time) (int, error) {
 	return 0, r.err
+}
+
+// AccountFailuresAnyIPSince reports throttled failures as of now: the
+// scripted count with the newest failure just recorded.
+func (r scriptedLoginAttemptRepo) AccountFailuresAnyIPSince(context.Context, string, string, time.Time) (int, time.Time, error) {
+	return r.anyIP, time.Now(), r.err
 }
 func (r scriptedLoginAttemptRepo) DeleteOlderThan(context.Context, time.Time) (int64, error) {
 	return 0, nil

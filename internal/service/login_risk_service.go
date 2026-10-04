@@ -78,6 +78,10 @@ type LoginRiskServiceOptions struct {
 	// of 5, but higher because a single shared IP legitimately serves
 	// several failing users). <=0 → default.
 	IPThreshold int
+	// AccountThreshold is where the account-wide slow-down starts: password
+	// failures for one account from ANY address since its last success.
+	// Default 5 (owner ruling, v0.9.5). <=0 → default.
+	AccountThreshold int
 	// Logger receives the operator-visible ERROR emitted on the
 	// fail-CLOSED path when the risk backend is unavailable. Defaults
 	// to zap.NewNop() when nil, matching the sibling services'
@@ -87,12 +91,13 @@ type LoginRiskServiceOptions struct {
 
 // LoginRiskService is the rate-limit/lockout helper.
 type LoginRiskService struct {
-	repo        repository.LoginAttemptRepository
-	window      time.Duration
-	threshold   int
-	ipThreshold int
-	now         func() time.Time
-	logger      *zap.Logger
+	repo             repository.LoginAttemptRepository
+	window           time.Duration
+	threshold        int
+	ipThreshold      int
+	accountThreshold int
+	now              func() time.Time
+	logger           *zap.Logger
 }
 
 // NewLoginRiskService constructs the service.
@@ -112,12 +117,43 @@ func NewLoginRiskService(report *lifecycle.StartupReport, repo repository.LoginA
 	if ipT <= 0 {
 		ipT = 10
 	}
+	accT := opts.AccountThreshold
+	if accT <= 0 {
+		accT = 5
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &LoginRiskService{repo: repo, window: w, threshold: t, ipThreshold: ipT, now: time.Now, logger: logger}
+	return &LoginRiskService{repo: repo, window: w, threshold: t, ipThreshold: ipT, accountThreshold: accT, now: time.Now, logger: logger}
 }
+
+// maxAccountSlowDown caps the account-wide wait (owner ruling, v0.9.5): a
+// victim of spread-out guessing waits at most this long between attempts.
+const maxAccountSlowDown = time.Minute
+
+// accountSlowDown is the wait after n failures at a threshold of t:
+// 1 s at n == t, doubling per further failure, capped at a minute.
+func accountSlowDown(n, t int) time.Duration {
+	if n < t {
+		return 0
+	}
+	steps := n - t
+	if steps >= 6 { // 2^6 s already exceeds the cap
+		return maxAccountSlowDown
+	}
+	return min(time.Duration(1<<steps)*time.Second, maxAccountSlowDown)
+}
+
+// LoginThrottledError is ErrLoginThrottled with the wait that remains.
+type LoginThrottledError struct {
+	RetryAfter time.Duration
+}
+
+func (e *LoginThrottledError) Error() string { return ErrLoginThrottled.Error() }
+
+// Is makes errors.Is(err, ErrLoginThrottled) true.
+func (e *LoginThrottledError) Is(target error) bool { return target == ErrLoginThrottled }
 
 // Sentinels.
 //
@@ -131,9 +167,16 @@ func NewLoginRiskService(report *lifecycle.StartupReport, repo repository.LoginA
 //     the handler maps it to HTTP 503. This reveals only DB state, never
 //     account state — the check runs before (and independently of) any
 //     account lookup on the password gate.
+//   - ErrLoginThrottled: the account-wide slow-down (owner ruling, v0.9.5):
+//     the account has failed often enough, from any address, that the next
+//     attempt must wait; the error is a *LoginThrottledError carrying the
+//     wait. It says nothing about whether the account exists — a failure for
+//     an unknown address is recorded the same way — and the handler maps it
+//     to 429 with Retry-After.
 var (
 	ErrLoginRateLimited            = errors.New("service: login rate-limited")
 	ErrLoginRiskBackendUnavailable = errors.New("service: login risk backend unavailable")
+	ErrLoginThrottled              = errors.New("service: login throttled; try again later")
 )
 
 // Check enforces the TWO INDEPENDENT counters (P2-10):
@@ -186,6 +229,22 @@ func (s *LoginRiskService) Check(ctx context.Context, email, ip string, purpose 
 		}
 		if d >= s.ipThreshold {
 			return ErrLoginRateLimited
+		}
+	}
+
+	// Account-wide slow-down (owner ruling, v0.9.5), password sign-in only:
+	// failures for this account from ANY address since its last success. It
+	// delays the next attempt and never locks; the MFA step keeps its own
+	// per-user bounds.
+	if purpose == LoginRiskPurposePassword && emailHash != "" {
+		n, last, aErr := s.repo.AccountFailuresAnyIPSince(ctx, emailHash, string(purpose), since)
+		if aErr != nil {
+			return s.failClosed(purpose, aErr)
+		}
+		if wait := accountSlowDown(n, s.accountThreshold); wait > 0 {
+			if remaining := last.Add(wait).Sub(s.now().UTC()); remaining > 0 {
+				return &LoginThrottledError{RetryAfter: remaining}
+			}
 		}
 	}
 

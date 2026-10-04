@@ -84,6 +84,31 @@ WHERE success = false
 	return n, nil
 }
 
+// AccountFailuresAnyIPSince counts the email's failures from any IP after the
+// later of since and its last success, with the newest failure's time. Served
+// by idx_login_attempts_email_purpose_time.
+func (r *PgxLoginAttemptRepository) AccountFailuresAnyIPSince(ctx context.Context, emailHash, purpose string, since time.Time) (int, time.Time, error) {
+	const q = `
+SELECT COUNT(*), MAX(created_at) FROM login_attempts
+WHERE success = false
+  AND purpose = $1
+  AND email_hash = $2
+  AND created_at >= $3
+  AND created_at > COALESCE(
+        (SELECT MAX(created_at) FROM login_attempts WHERE success AND purpose = $1 AND email_hash = $2),
+        '-infinity'::timestamptz)
+`
+	var n int
+	var last *time.Time
+	if err := r.db.QueryRow(ctx, q, purpose, emailHash, since).Scan(&n, &last); err != nil {
+		return 0, time.Time{}, err
+	}
+	if last == nil {
+		return n, time.Time{}, nil
+	}
+	return n, *last, nil
+}
+
 func (r *PgxLoginAttemptRepository) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {
 	const q = `DELETE FROM login_attempts WHERE created_at < $1`
 	cmd, err := r.db.Exec(ctx, q, cutoff)

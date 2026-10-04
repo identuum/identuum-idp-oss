@@ -63,6 +63,10 @@ func (failingLoginAttemptStore) CountDistinctAccountsFromIPSince(context.Context
 	return 0, errors.New("risk backend down")
 }
 
+func (failingLoginAttemptStore) AccountFailuresAnyIPSince(context.Context, string, string, time.Time) (int, time.Time, error) {
+	return 0, time.Time{}, errors.New("risk backend down")
+}
+
 func (failingLoginAttemptStore) Insert(context.Context, *domain.LoginAttempt) error {
 	return nil
 }

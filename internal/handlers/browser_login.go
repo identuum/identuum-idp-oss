@@ -5,6 +5,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -166,6 +167,17 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 				// backend state (the password gate runs Check before any
 				// user lookup), never account state.
 				c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
+				return
+			}
+			if errors.Is(err, service.ErrLoginThrottled) {
+				// The account-wide slow-down (owner ruling, v0.9.5): the
+				// form says to wait; known and unknown accounts alike.
+				loc := "/api/v1/auth/browser-login?error=login_throttled"
+				if returnTo != "" {
+					loc += "&return_to=" + url.QueryEscape(returnTo)
+				}
+				c.Header("Retry-After", strconv.Itoa(loginRetryAfterSeconds(err)))
+				c.Redirect(http.StatusSeeOther, loc)
 				return
 			}
 			if errors.Is(err, service.ErrLoginPasswordChangeRequired) && deps.changeStepWired() && result != nil && result.User != nil {
@@ -370,7 +382,11 @@ const loginFormTemplate = `<!DOCTYPE html>
 func renderLoginForm(w http.ResponseWriter, returnTo, errCode, csrfToken string, passwordChanged bool) {
 	body := strings.ReplaceAll(loginFormTemplate, "{{RETURN_TO}}", html.EscapeString(returnTo))
 	if errCode != "" {
-		banner := `<p role="alert" data-error="` + html.EscapeString(errCode) + `">Sign-in failed. Please check your credentials and try again.</p>`
+		text := "Sign-in failed. Please check your credentials and try again."
+		if errCode == "login_throttled" {
+			text = "Too many failed sign-ins for this account. Wait up to a minute, then try again."
+		}
+		banner := `<p role="alert" data-error="` + html.EscapeString(errCode) + `">` + text + `</p>`
 		body = strings.ReplaceAll(body, "{{ERROR}}", banner)
 	} else if passwordChanged {
 		// D-017: the change step succeeded and a TOTP is due.

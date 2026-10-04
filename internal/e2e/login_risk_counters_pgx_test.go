@@ -88,3 +88,47 @@ func TestLoginRiskCounters_AccountAndDistinctIP(t *testing.T) {
 		t.Fatalf("distinct-accounts(ipX) after success+old = %d, err=%v; want 3", n, err)
 	}
 }
+
+// The account-wide slow-down's query (owner ruling, v0.9.5) at the SQL level:
+// failures for one email from ANY address, counted only after its last
+// success, with the newest failure's time; another email is not counted.
+func TestLoginRiskCounters_AccountFailuresFromAnyAddress(t *testing.T) {
+	dbURL := testDBURL(t)
+	applyMigrations(t, dbURL)
+	ctx := context.Background()
+	pool, err := postgres.NewPool(ctx, dbURL, nil)
+	if err != nil {
+		t.Fatalf("open pool: %v", classifyOpenError(err))
+	}
+	defer pool.Close()
+	repo := postgres.NewPgxLoginAttemptRepository(pool)
+
+	sfx := uuid.NewString()[:8]
+	const purpose = "password"
+	since := time.Now().Add(-time.Hour).UTC()
+	victim := "anyip-victim-" + sfx
+	base := time.Now().Add(-10 * time.Minute).UTC().Truncate(time.Microsecond)
+	seed := func(email, ip string, success bool, at time.Time) {
+		t.Helper()
+		id, _ := uuid.NewV7()
+		if err := repo.Insert(ctx, &domain.LoginAttempt{ID: id, EmailHash: email, IPHash: ip, Purpose: purpose, Success: success, CreatedAt: at}); err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	for i := 0; i < 3; i++ {
+		seed(victim, "ip-a-"+sfx+uuid.NewString()[:4], false, base.Add(time.Duration(i)*time.Second))
+	}
+	seed(victim, "ip-owner-"+sfx, true, base.Add(5*time.Second)) // the owner signs in
+	newest := base.Add(8 * time.Second)
+	seed(victim, "ip-b-"+sfx, false, base.Add(7*time.Second))
+	seed(victim, "ip-c-"+sfx, false, newest)
+	seed("anyip-other-"+sfx, "ip-b-"+sfx, false, newest)
+
+	n, last, err := repo.AccountFailuresAnyIPSince(ctx, victim, purpose, since)
+	if err != nil || n != 2 || !last.Equal(newest) {
+		t.Fatalf("account failures from any address = %d, last %s, err=%v; want 2 after the success, last %s", n, last, err, newest)
+	}
+	if n, last, err := repo.AccountFailuresAnyIPSince(ctx, "anyip-nobody-"+sfx, purpose, since); err != nil || n != 0 || !last.IsZero() {
+		t.Fatalf("an email with no rows = %d, %s, %v; want 0 and a zero time", n, last, err)
+	}
+}

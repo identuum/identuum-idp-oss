@@ -62,6 +62,35 @@ func (r *inMemoryLoginAttemptRepo) CountDistinctAccountsFromIPSince(_ context.Co
 	return len(seen), nil
 }
 
+// AccountFailuresAnyIPSince — failures for email from any ip after the later
+// of since and its last success.
+func (r *inMemoryLoginAttemptRepo) AccountFailuresAnyIPSince(_ context.Context, emailHash, purpose string, since time.Time) (int, time.Time, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var lastSuccess time.Time
+	succeeded := false
+	for _, row := range r.rows {
+		if row.Success && row.Purpose == purpose && row.EmailHash == emailHash && (!succeeded || row.CreatedAt.After(lastSuccess)) {
+			lastSuccess, succeeded = row.CreatedAt, true
+		}
+	}
+	var n int
+	var last time.Time
+	for _, row := range r.rows {
+		if row.Success || row.Purpose != purpose || row.EmailHash != emailHash || row.CreatedAt.Before(since) {
+			continue
+		}
+		if succeeded && !row.CreatedAt.After(lastSuccess) {
+			continue
+		}
+		n++
+		if row.CreatedAt.After(last) {
+			last = row.CreatedAt
+		}
+	}
+	return n, last, nil
+}
+
 func (r *inMemoryLoginAttemptRepo) DeleteOlderThan(_ context.Context, cutoff time.Time) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -144,21 +173,32 @@ func TestLoginRisk_DifferentPurposeNotCounted(t *testing.T) {
 // dead. 5 failures against a victim email, all from the ATTACKER's IP, must
 // NOT lock the victim from their OWN IP — the account counter is keyed on
 // the (email AND ip) pair, so an attacker's IP can never build a per-account
-// lockout. The attacker's OWN pair (victim, attackerIP) IS locked (a single
-// host hammering one account is still bounded). TEETH: revert the pgx/mock
-// account counter to OR and Check(victim, victimIP) locks → test fails.
+// lockout. The account-wide slow-down (owner ruling, v0.9.5) may make the
+// victim wait — 1 s after 5 failures, never more than a minute — and then
+// lets them in. The attacker's OWN pair (victim, attackerIP) IS locked (a
+// single host hammering one account is still bounded). TEETH: revert the
+// pgx/mock account counter to OR and Check(victim, victimIP) locks → test
+// fails.
 func TestLoginRisk_V1_AccountDoSDead(t *testing.T) {
 	repo := newLoginAttemptRepo()
 	// IPThreshold high so only the account counter is in play here.
 	svc := NewLoginRiskService(nil, repo, LoginRiskServiceOptions{Threshold: 5, IPThreshold: 1000, Window: time.Minute})
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	svc.now = func() time.Time { return now }
 	const victim = "victim@example.com"
 	const attackerIP = "198.51.100.9"
 	const victimIP = "203.0.113.7"
 	for i := 0; i < 5; i++ {
 		_ = svc.Record(context.Background(), victim, attackerIP, LoginRiskPurposePassword, false)
 	}
-	if err := svc.Check(context.Background(), victim, victimIP, LoginRiskPurposePassword); err != nil {
+	err := svc.Check(context.Background(), victim, victimIP, LoginRiskPurposePassword)
+	var th *LoginThrottledError
+	if errors.Is(err, ErrLoginRateLimited) || (err != nil && (!errors.As(err, &th) || th.RetryAfter > time.Second)) {
 		t.Errorf("V1: victim locked from their OWN IP — account-DoS NOT dead: %v", err)
+	}
+	now = now.Add(time.Second)
+	if err := svc.Check(context.Background(), victim, victimIP, LoginRiskPurposePassword); err != nil {
+		t.Errorf("V1: victim refused from their OWN IP after the slow-down: %v", err)
 	}
 	if err := svc.Check(context.Background(), victim, attackerIP, LoginRiskPurposePassword); !errors.Is(err, ErrLoginRateLimited) {
 		t.Errorf("V1: attacker's own (victim, attackerIP) pair must be locked: %v", err)
@@ -273,6 +313,13 @@ func (r erroringLoginAttemptRepo) CountDistinctAccountsFromIPSince(_ context.Con
 	return 0, nil
 }
 
+func (r erroringLoginAttemptRepo) AccountFailuresAnyIPSince(_ context.Context, _, purpose string, _ time.Time) (int, time.Time, error) {
+	if !r.ipOnly && r.errs(purpose) {
+		return 0, time.Time{}, errors.New("simulated login_attempts store outage")
+	}
+	return 0, time.Time{}, nil
+}
+
 func (r erroringLoginAttemptRepo) DeleteOlderThan(context.Context, time.Time) (int64, error) {
 	return 0, nil
 }
@@ -326,7 +373,7 @@ func TestLoginRisk_ConcurrentInsertCheckRace(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
-	if err := svc.Check(context.Background(), "u0@example.com", "10.0.0.0", LoginRiskPurposePassword); err != nil && !errors.Is(err, ErrLoginRateLimited) {
+	if err := svc.Check(context.Background(), "u0@example.com", "10.0.0.0", LoginRiskPurposePassword); err != nil && !errors.Is(err, ErrLoginRateLimited) && !errors.Is(err, ErrLoginThrottled) {
 		t.Fatalf("unexpected err after concurrent storm: %v", err)
 	}
 }

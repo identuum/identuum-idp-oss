@@ -38,6 +38,14 @@ type LoginAttemptRepository interface {
 	// stuffing run spraying MANY distinct accounts from one IP does.
 	CountDistinctAccountsFromIPSince(ctx context.Context, ipHash, purpose string, since time.Time) (int, error)
 
+	// AccountFailuresAnyIPSince returns the failures for emailHash from any
+	// ip_hash after the later of since and the account's last success for
+	// purpose, and the time of the newest of them (zero when none). It
+	// drives the account-wide slow-down (owner ruling, v0.9.5), which delays
+	// and never locks: an attacker rotating addresses is slowed, and the
+	// owner's success starts the count again.
+	AccountFailuresAnyIPSince(ctx context.Context, emailHash, purpose string, since time.Time) (int, time.Time, error)
+
 	// DeleteOlderThan prunes rows older than cutoff.
 	DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
 }

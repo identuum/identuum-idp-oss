@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -584,9 +585,26 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		// of whether the account exists (the password gate runs Check
 		// before any user lookup), so it never enumerates accounts.
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "temporarily_unavailable"})
+	case errors.Is(err, service.ErrLoginThrottled):
+		// The account-wide slow-down (owner ruling, v0.9.5): the account
+		// failed often enough from any address that this attempt must wait.
+		// Known and unknown addresses get the same answer.
+		secs := loginRetryAfterSeconds(err)
+		c.Header("Retry-After", strconv.Itoa(secs))
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "login_throttled", "retry_after_seconds": secs})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 	}
+}
+
+// loginRetryAfterSeconds is the slow-down's remaining wait in whole seconds,
+// rounded up (at least 1).
+func loginRetryAfterSeconds(err error) int {
+	var th *service.LoginThrottledError
+	if !errors.As(err, &th) || th.RetryAfter <= 0 {
+		return 1
+	}
+	return int((th.RetryAfter + time.Second - 1) / time.Second)
 }
 
 // ---------- Session refresh ----------
