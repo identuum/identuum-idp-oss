@@ -60,6 +60,14 @@ IPv4 is the default everywhere; IPv6 is supported and opt-in.
   address. Rate limits and the sign-in lockout count an IPv6 client by its
   `/64`, so rotating addresses inside one `/64` does not escape a limit; an
   IPv4 client counts by its address, as before.
+- **Sign-in requests per address.** The routes where a caller proves a secret
+  (password sign-in, the second factor, the required password change, step-up,
+  claim and organization activation) share one limit of 120 requests a minute
+  per client address; the 121st answers `429`. Raise or lower it with
+  `IDENTUUM_IDP_RATE_LIMIT_CREDENTIAL_REQUESTS` and
+  `IDENTUUM_IDP_RATE_LIMIT_CREDENTIAL_WINDOW`. Behind a reverse proxy that is
+  not listed in `IDENTUUM_IDP_TRUSTED_PROXIES`, every user shares the proxy's
+  address and therefore one budget.
 
 ## Where data lives
 

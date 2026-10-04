@@ -120,6 +120,18 @@ follows [Semantic Versioning](https://semver.org/).
   not consumed) a request without it. A callback link handed to another person
   no longer signs them in as the person who began it. The login link and the
   callback must be on the same host.
+- **Sign-in is harder to brute-force and to exhaust.**
+  - The attempts of one account from one address are serialized, so a burst of
+    parallel wrong passwords is stopped at the failure threshold instead of
+    all being checked before the first failure is recorded.
+  - The routes where a caller proves a secret share a per-address limit of
+    120 requests a minute (`IDENTUUM_IDP_RATE_LIMIT_CREDENTIAL_REQUESTS` and
+    `_WINDOW`); the next request answers `429`.
+  - Argon2id runs in flight are capped between 2 and 8 (by CPU count), so a
+    burst of sign-ins queues instead of holding 64 MiB each at once.
+  - A sign-in for an email with no account compares against a dummy hash with
+    the same Argon2id cost as a real one (it used 2 lanes against 4), so the
+    response time no longer tells whether an account exists.
 
 ## `v0.9.3`
 

@@ -675,6 +675,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	// fault has been recorded, every normal route is refused with 503
 	// while the health/liveness probes remain reachable.
 	mountNotServingGuard(router, resolved)
+	mountCredentialLimiter(router, resolved)
 	mountBearerAuth(router, resolved)
 	mountPublicSurface(router, resolved)
 	mountSetup(router, resolved)
@@ -801,6 +802,40 @@ func NotServingGuard(report *lifecycle.StartupReport) gin.HandlerFunc {
 			"faults": report.Faults(),
 		})
 	}
+}
+
+// credentialPostRoutes are the routes where a caller proves a secret: password
+// sign-in, the second factor at sign-in, the required password change, step-up,
+// and the claim and activation passwords. They share one per-address bucket
+// (RateLimitConfig.CredentialLimit) beside the per-account lockout, which only
+// counts failures that are already recorded.
+var credentialPostRoutes = map[string]struct{}{
+	"/api/v1/auth/login":                     {},
+	"/api/v1/auth/browser-login":             {},
+	"/api/v1/auth/login/mfa":                 {},
+	"/api/v1/auth/login/mfa/enroll/initiate": {},
+	"/api/v1/auth/login/mfa/enroll/complete": {},
+	"/api/v1/auth/login/password-change":     {},
+	"/api/v1/auth/change-password":           {},
+	"/api/v1/auth/step-up":                   {},
+	"/api/v1/auth/claim":                     {},
+	"/api/v1/auth/organizations/activate":    {},
+}
+
+// mountCredentialLimiter bounds credentialPostRoutes per client address. It is
+// mounted before the bearer populator so a flood is refused before any token
+// is verified, and a zero CredentialLimit (tests, insecure dev mode) is a no-op.
+func mountCredentialLimiter(router gin.IRouter, resolved OSSRouterDeps) {
+	limit := mw.NewRateLimitMiddleware(resolved.RateLimitConfig.CredentialLimit, "credential")
+	router.Use(func(c *gin.Context) {
+		if c.Request.Method == http.MethodPost {
+			if _, ok := credentialPostRoutes[c.FullPath()]; ok {
+				limit(c)
+				return
+			}
+		}
+		c.Next()
+	})
 }
 
 // mountBearerAuth attaches the bearer-token populator BEFORE any

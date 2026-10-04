@@ -105,6 +105,16 @@ type RateLimitConfig struct {
 	// minutes per IP (OSS-SEC).
 	EmailVerifyLimit RateLimit
 
+	// CredentialLimit governs the POST routes where a caller proves a secret
+	// (password sign-in, the second factor at sign-in, the required password
+	// change, step-up, claim and organization activation), keyed per IP, one
+	// bucket shared by all of them so alternating routes does not buy a fresh
+	// budget. It sits beside the per-account lockout, which counts recorded
+	// failures: this bounds how fast an address may try at all. Generous —
+	// a sign-in is several requests and an office shares one address.
+	// Default: 120 requests per minute per IP.
+	CredentialLimit RateLimit
+
 	RedisAddr     string
 	RedisPassword string
 }

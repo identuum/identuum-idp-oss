@@ -26,13 +26,25 @@ func GenerateHash(password []byte) (string, error) {
 		return "", err
 	}
 
-	hash := argon2.IDKey(password, salt, domain.Argon2Time, domain.Argon2Memory, domain.Argon2Threads, domain.Argon2KeyLen)
+	hash := hashGate.run(func() []byte {
+		return argon2.IDKey(password, salt, domain.Argon2Time, domain.Argon2Memory, domain.Argon2Threads, domain.Argon2KeyLen)
+	})
 
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
 	b64Hash := base64.RawStdEncoding.EncodeToString(hash)
 
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, domain.Argon2Memory, domain.Argon2Time, domain.Argon2Threads, b64Salt, b64Hash), nil
+}
+
+// DummyPasswordHash is a well-formed hash no password matches, which the sign-in
+// path compares against when the account does not exist so that case costs what
+// a real one does.
+func DummyPasswordHash() string {
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+		argon2.Version, domain.Argon2Memory, domain.Argon2Time, domain.Argon2Threads,
+		base64.RawStdEncoding.EncodeToString(make([]byte, domain.Argon2SaltLen)),
+		base64.RawStdEncoding.EncodeToString(make([]byte, domain.Argon2KeyLen)))
 }
 
 // CompareHashAndPassword compares a PHC-formatted argon2id hash with a password.
@@ -108,7 +120,9 @@ func CompareHashAndPassword(encodedHash []byte, password []byte) error {
 	}
 	keyLen := uint32(len(decodedHash)) //nolint:gosec // G115: bounds checked above
 
-	computedHash := argon2.IDKey(password, salt, time, memory, threads, keyLen)
+	computedHash := hashGate.run(func() []byte {
+		return argon2.IDKey(password, salt, time, memory, threads, keyLen)
+	})
 
 	if subtle.ConstantTimeCompare(decodedHash, computedHash) == 1 {
 		return nil
