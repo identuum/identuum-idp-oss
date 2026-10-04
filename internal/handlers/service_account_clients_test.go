@@ -189,6 +189,35 @@ func TestBundleRoute_CrossOrgOrgAdminNotFound(t *testing.T) {
 	}
 }
 
+// The bundle's client is an app like any other: its scope is capped at what
+// the creating admin holds, as POST /api/v1/clients caps it. A scope of the
+// IdP's catalogue the admin does not hold is refused and nothing is created.
+func TestBundleRoute_ClientScopeIsCappedAtTheCreatorsOwn(t *testing.T) {
+	create := func(t *testing.T, scope string) (int, int) {
+		t.Helper()
+		orgID := uuid.New()
+		admin := bundleOrgAdmin(orgID)
+		admin.Scope = "users:read m2m:create"
+		r, saRepo, _, _ := newBundleEngine(t, admin, nil)
+		body := strings.NewReader(`{"service_account":{"name":"deploy-bot","role":"org_user"},"client":{"scope":"` + scope + `"}}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/"+orgID.String()+"/service-accounts/with-client", body)
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w.Code, len(saRepo.byID)
+	}
+	for _, scope := range []string{"keys:rotate", "mcp:access_admin", "identuum-admin:admin users:read"} {
+		if st, rows := create(t, scope); st != http.StatusBadRequest || rows != 0 {
+			t.Errorf("bundle client scope %q = %d, %d service accounts; want 400 and nothing created", scope, st, rows)
+		}
+	}
+	for _, scope := range []string{"users:read", "connector:litellm", "orders:read"} {
+		if st, _ := create(t, scope); st != http.StatusCreated {
+			t.Errorf("bundle client scope %q = %d; want 201", scope, st)
+		}
+	}
+}
+
 // ---------- Happy path: site_admin ----------
 
 // THE-REMAINING-FOUR: the SA+client bundle is created by the org's own

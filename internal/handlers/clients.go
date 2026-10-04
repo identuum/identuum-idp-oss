@@ -63,9 +63,11 @@ func requireSkipConsentProof(c *gin.Context, deps ClientsHandlerDeps, code strin
 // org_admin cannot hand an application a scope of the IdP's catalogue that the
 // admin does not hold (keys:rotate, orgs:create, ...). Identity scopes, the
 // connector tag and any scope outside the catalogue (an organization's own API
-// scopes) are not the IdP's to cap. It answers 400 invalid_scope and returns
-// false on a refusal.
-func requireClientScopeWithinActor(c *gin.Context, scope string) bool {
+// scopes) are not the IdP's to cap. A scope the app already holds (prior, its
+// stored scope on an edit) is not granted by this request and is not judged, so
+// an app created before the cap can still be renamed or trimmed. It answers 400
+// invalid_scope and returns false on a refusal.
+func requireClientScopeWithinActor(c *gin.Context, scope, prior string) bool {
 	principal, _ := mw.PrincipalFromContext(c)
 	held := map[string]struct{}{}
 	if principal != nil {
@@ -73,6 +75,9 @@ func requireClientScopeWithinActor(c *gin.Context, scope string) bool {
 	}
 	free := map[string]struct{}{domain.ScopeConnectorLiteLLM: {}}
 	for _, s := range domain.OIDCIdentityScopes {
+		free[s] = struct{}{}
+	}
+	for _, s := range strings.Fields(prior) {
 		free[s] = struct{}{}
 	}
 	for _, s := range strings.Fields(scope) {
@@ -520,7 +525,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			}
 			req.OrganizationID = orgFilter
 		}
-		if !requireClientScopeWithinActor(c, req.Scope) {
+		if !requireClientScopeWithinActor(c, req.Scope, "") {
 			return
 		}
 		// D-026: marking an app "skip consent" needs the admin's MFA code.
@@ -633,22 +638,26 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		if !requireClientInActorOrg(c, deps, id) {
 			return
 		}
-		if req.Scope != nil && !requireClientScopeWithinActor(c, *req.Scope) {
-			return
-		}
-		// Prior state, read ONLY when this update touches the SA binding or
-		// skip_consent — it decides whether the SA-subject link/unlink audit
-		// event below fires and which SA an unbind names, and gives the
-		// skip_consent change its before value (D-018(b)).
+		// Prior state, read ONLY when this update touches the scope, the SA
+		// binding or skip_consent — it gives the scope cap the scopes the app
+		// already holds, decides whether the SA-subject link/unlink audit event
+		// below fires and which SA an unbind names, and gives the skip_consent
+		// change its before value (D-018(b)). An unreadable prior judges every
+		// scope, never fewer.
 		var priorSA *uuid.UUID
 		var priorSkip, priorDynamic, priorPublic bool
-		if req.ServiceAccountID != nil || req.SkipConsent != nil {
+		var priorScope string
+		if req.Scope != nil || req.ServiceAccountID != nil || req.SkipConsent != nil {
 			if prior, perr := deps.ClientService.GetClient(c.Request.Context(), id); perr == nil && prior != nil {
 				priorSA = prior.ServiceAccountID
 				priorSkip = prior.SkipConsent
 				priorDynamic = prior.DynamicallyRegistered
 				priorPublic = prior.IsPublic
+				priorScope = prior.Scope
 			}
+		}
+		if req.Scope != nil && !requireClientScopeWithinActor(c, *req.Scope, priorScope) {
+			return
 		}
 		// D-026: turning "skip consent" ON needs the admin's MFA code; a public
 		// app or one created through dynamic registration can never have it,

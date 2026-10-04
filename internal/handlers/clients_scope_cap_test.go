@@ -51,6 +51,23 @@ func TestUpdateClient_ScopeIsCappedAtTheCreatorsOwn(t *testing.T) {
 			t.Errorf("= %d %v scope=%q; want 200 and stored", st, m, e.repo.rows[id].Scope)
 		}
 	})
+	// The console re-sends the whole scope on every save. Scopes the app already
+	// holds are not granted by the edit, so an app created before the cap can
+	// still be saved; a scope the edit adds is still judged.
+	t.Run("re-sending the stored scope is accepted; adding to it is judged", func(t *testing.T) {
+		e := newSkipConsentEngine(t, &fakeSkipConsentProver{})
+		id := e.seedClient(false, false)
+		e.repo.rows[id].Scope = "openid keys:rotate"
+		if st, m := e.do(t, http.MethodPut, "/api/v1/clients/"+id.String(), `{"name":"renamed","scope":"openid keys:rotate"}`); st != http.StatusOK {
+			t.Errorf("a save that re-sends the stored scope = %d %v; want 200", st, m)
+		}
+		if st, m := e.do(t, http.MethodPut, "/api/v1/clients/"+id.String(), `{"scope":"openid keys:rotate orgs:delete"}`); st != http.StatusBadRequest || m["error"] != "invalid_scope" {
+			t.Errorf("adding a scope the admin does not hold = %d %v; want 400 invalid_scope", st, m)
+		}
+		if st, m := e.do(t, http.MethodPut, "/api/v1/clients/"+id.String(), `{"scope":"openid"}`); st != http.StatusOK || e.repo.rows[id].Scope != "openid" {
+			t.Errorf("trimming the scope = %d %v scope=%q; want 200 and stored", st, m, e.repo.rows[id].Scope)
+		}
+	})
 	t.Run("an update that leaves the scope alone is not judged on it", func(t *testing.T) {
 		e := newSkipConsentEngine(t, &fakeSkipConsentProver{})
 		id := e.seedClient(false, false)

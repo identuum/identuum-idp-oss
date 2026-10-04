@@ -99,6 +99,11 @@ func HandleCreateServiceAccountWithClient(deps ServiceAccountClientBundleHandler
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
+		// The bundle's client is an app like any other: its scope is capped
+		// at what the creating admin holds, as POST /api/v1/clients caps it.
+		if !requireClientScopeWithinActor(c, req.Client.Scope, "") {
+			return
+		}
 		result, err := deps.BundleService.CreateServiceAccountWithClientForActor(
 			c.Request.Context(), actor, orgID, service.BundleInput{
 				SAName:           req.ServiceAccount.Name,
