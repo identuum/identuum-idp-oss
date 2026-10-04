@@ -42,11 +42,14 @@ func TestOrganizationFieldsWireContract(t *testing.T) {
 		return id
 	}
 
+	// The policy fields are the organization's own org_admin's (owner ruling,
+	// v0.9.5), so the binding is asserted as that actor; a site_admin sending
+	// them for a tenant is refused before the repository is reached.
 	t.Run("update binds the five repository-supported fields", func(t *testing.T) {
 		repo := &wireOrgRepo{memOrgRepo: newMemOrgRepo()}
 		id := seed(repo.memOrgRepo)
 		body := `{"service_account_expiry_days":90,"m2m_anomaly_limit":50,"m2m_anomaly_window_seconds":300,"require_strict_reauth":true,"local_admin_only":true}`
-		code := runHandler(t, http.MethodPut, "/o/:id", "/o/"+id.String(), body, HandleUpdateOrganization(newDeps(repo)))
+		code := runHandlerActing(t, orgAdminOf(id, "orgs:update"), http.MethodPut, "/o/:id", "/o/"+id.String(), body, HandleUpdateOrganization(newDeps(repo)))
 		if code != http.StatusOK {
 			t.Fatalf("update status = %d, want 200", code)
 		}
@@ -65,6 +68,18 @@ func TestOrganizationFieldsWireContract(t *testing.T) {
 		}
 		if o.LocalAdminOnly == nil || !*o.LocalAdminOnly {
 			t.Errorf("local_admin_only did not reach the repository (silent drop)")
+		}
+	})
+
+	t.Run("a site_admin sending those fields for a tenant is refused before any write", func(t *testing.T) {
+		repo := &wireOrgRepo{memOrgRepo: newMemOrgRepo()}
+		id := seed(repo.memOrgRepo)
+		code := runHandler(t, http.MethodPut, "/o/:id", "/o/"+id.String(), `{"require_strict_reauth":true}`, HandleUpdateOrganization(newDeps(repo)))
+		if code != http.StatusForbidden {
+			t.Fatalf("site_admin policy update status = %d, want 403", code)
+		}
+		if repo.updateCalls != 0 {
+			t.Errorf("the refusal must happen before any repository write (calls=%d)", repo.updateCalls)
 		}
 	})
 
@@ -92,7 +107,7 @@ func TestOrganizationFieldsWireContract(t *testing.T) {
 		}
 	})
 
-	t.Run("compliance_contact_email stays deliberately unbound (tenant-owned; endpoint is site_admin-only)", func(t *testing.T) {
+	t.Run("compliance_contact_email stays deliberately unbound (tenant-owned; no ruling writes it here)", func(t *testing.T) {
 		repo := &wireOrgRepo{memOrgRepo: newMemOrgRepo()}
 		id := seed(repo.memOrgRepo)
 		code := runHandler(t, http.MethodPut, "/o/:id", "/o/"+id.String(), `{"name":"Renamed","compliance_contact_email":"cc@acme.test"}`, HandleUpdateOrganization(newDeps(repo)))
@@ -100,7 +115,7 @@ func TestOrganizationFieldsWireContract(t *testing.T) {
 			t.Fatalf("update status = %d, want 200", code)
 		}
 		if repo.lastOpts.ComplianceContactEmail != nil {
-			t.Errorf("compliance_contact_email must not be settable on the site_admin infra endpoint")
+			t.Errorf("compliance_contact_email must not be settable through this endpoint")
 		}
 	})
 

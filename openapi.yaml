@@ -1334,7 +1334,7 @@ paths:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
     put:
       operationId: "identuum-idp-oss.organizations.update_organization"
-      summary: "Update an organization (lifecycle + policy fields)."
+      summary: "Update an organization. A site_admin changes the lifecycle fields of a tenant organization (active, name) and every field of the system organization; the organization's own org_admin changes its name, domain, local_admin_only and policy fields."
       tags:
         - "organizations"
       parameters:
@@ -1347,7 +1347,7 @@ paths:
         - cookieAuth: []
       responses:
         "200":
-          description: "Update an organization (lifecycle + policy fields)."
+          description: "Update an organization. A site_admin changes the lifecycle fields of a tenant organization (active, name) and every field of the system organization; the organization's own org_admin changes its name, domain, local_admin_only and policy fields."
           content:
             application/json:
               schema:

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -215,15 +216,22 @@ func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDe
 		// docgen:status=201
 		siteOnly.POST("", HandleCreateOrganization(deps))
 
+		// PUT /:id: a site_admin, or the organization's own org_admin with
+		// orgs:update. HandleUpdateOrganization splits the fields between
+		// them (owner ruling, v0.9.5).
+		update := g.Group("")
+		update.Use(mw.RequireSiteAdminOrSameOrgAdminWithScopesAudit(deps.StartupReport, deps.Audit, "id", domain.ScopeOrgsUpdate))
+
 		// docgen:endpoint
 		// docgen:surface=organizations
 		// docgen:method=PUT
 		// docgen:path=/api/v1/organizations/:id
-		// docgen:summary=Update an organization (lifecycle + policy fields).
+		// docgen:summary=Update an organization. A site_admin changes the lifecycle fields of a tenant organization (active, name) and every field of the system organization; the organization's own org_admin changes its name, domain, local_admin_only and policy fields.
 		// docgen:tier=oss
-		// docgen:auth=site_admin
+		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeOrganization
-		siteOnly.PUT("/:id", HandleUpdateOrganization(deps))
+		// docgen:notes=org_admin additionally requires the orgs:update scope and reaches only its own organization (another organization is 403). A field the caller may not change answers 403 {error: forbidden_field, fields: [...]} before anything is written: a site_admin sending a policy field for a tenant, an org_admin sending active. slug and tier are refused with 400 for everyone.
+		update.PUT("/:id", HandleUpdateOrganization(deps))
 
 		// docgen:endpoint
 		// docgen:surface=organizations
@@ -833,9 +841,8 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			// tier is the LICENSING control and must never be settable
 			// through the API by anyone, site_admin included.
 			// ComplianceContactEmail stays deliberately unbound: it is
-			// tenant-owned data and this endpoint is site_admin-only —
-			// binding it here would hand tenant data to infrastructure
-			// authority (AdminPermissionsModel).
+			// tenant-owned data that no route of this endpoint has been
+			// ruled to write (AdminPermissionsModel).
 			Slug *string `json:"slug,omitempty"`
 			Tier *string `json:"tier,omitempty"`
 		}
@@ -849,6 +856,32 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 		}
 		if req.Tier != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "tier_not_settable", "message": "tier is a licensing attribute and is not settable via the API"})
+			return
+		}
+		fields := presentOrgFields(map[string]bool{
+			"name": req.Name != nil, "domain": req.Domain != nil, "active": req.Active != nil,
+			"max_sessions_per_user": req.MaxSessionsPerUser != nil, "password_complexity_enabled": req.PasswordComplexityEnabled != nil,
+			"mfa_policy": req.MFAPolicy != nil, "auth_policy": req.AuthPolicy != nil, "api_authorization_policy": req.ApiAuthorizationPolicy != nil,
+			"allow_public_registration": req.AllowPublicRegistration != nil, "require_registration_approval": req.RequireRegistrationApproval != nil,
+			"service_account_expiry_days": req.ServiceAccountExpiryDays != nil, "m2m_anomaly_limit": req.M2MAnomalyLimit != nil,
+			"m2m_anomaly_window_seconds": req.M2MAnomalyWindowSeconds != nil, "require_strict_reauth": req.RequireStrictReauth != nil,
+			"local_admin_only": req.LocalAdminOnly != nil,
+		})
+		actor, ok := mw.PrincipalFromContext(c)
+		if !ok || actor == nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		if !actor.IsSiteAdmin() && actor.OrganizationID != id {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		if refused := refusedOrgFields(actor, id, fields); len(refused) > 0 {
+			c.JSON(http.StatusForbidden, gin.H{
+				"error":   "forbidden_field",
+				"fields":  refused,
+				"message": "a site administrator changes only active and name of a tenant organization; its policy belongs to the organization's administrator, who does not change active",
+			})
 			return
 		}
 		// OSS-BINARIES: an organization whose administrators have never
@@ -913,13 +946,52 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, toSafeOrganization(updated))
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "organization.updated",
-			Outcome:   "success",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
-			Metadata:  map[string]any{"organization_id": updated.ID},
+			Action:         "organization.updated",
+			Outcome:        "success",
+			ActorID:        actor.UserID,
+			ActorRole:      string(actor.Role),
+			OrganizationID: updated.ID,
+			IPAddress:      c.ClientIP(),
+			UserAgent:      c.Request.UserAgent(),
+			Metadata:       map[string]any{"organization_id": updated.ID, "fields": fields},
 		})
 	}
+}
+
+// orgLifecycleFields are the fields a site_admin changes on a tenant
+// organization. Every other field is the organization's own policy, set by
+// its org_admin, who never changes active (owner ruling, v0.9.5). The system
+// organization is the site_admin's own and stays editable in full.
+var orgLifecycleFields = map[string]bool{"active": true, "name": true}
+
+// presentOrgFields returns the sorted names of the fields a request sets.
+func presentOrgFields(set map[string]bool) []string {
+	var fields []string
+	for name, present := range set {
+		if present {
+			fields = append(fields, name)
+		}
+	}
+	sort.Strings(fields)
+	return fields
+}
+
+// refusedOrgFields returns, sorted, the fields the actor may not change on
+// the organization orgID.
+func refusedOrgFields(actor *domain.Principal, orgID uuid.UUID, fields []string) []string {
+	var refused []string
+	for _, f := range fields {
+		if actor.IsSiteAdmin() {
+			if orgID.String() != domain.SystemOrgID && !orgLifecycleFields[f] {
+				refused = append(refused, f)
+			}
+			continue
+		}
+		if f == "active" {
+			refused = append(refused, f)
+		}
+	}
+	return refused
 }
 
 // HandleDeleteOrganization soft-deletes an organization.

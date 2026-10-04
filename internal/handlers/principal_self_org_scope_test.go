@@ -280,8 +280,9 @@ func TestGetOrgByID_SiteAdminAcrossOrgsAllowed(t *testing.T) {
 	}
 }
 
-// PUT /:id must still be site_admin-only (loosening was for GET only).
-func TestPutOrgByID_SameOrgAdminForbidden(t *testing.T) {
+// PUT /:id admits the organization's own org_admin only with orgs:update
+// (owner ruling, v0.9.5); this principal holds no scope.
+func TestPutOrgByID_SameOrgAdminWithoutUpdateScopeForbidden(t *testing.T) {
 	orgID := uuid.New()
 	p := &domain.Principal{
 		UserID:         uuid.New(),

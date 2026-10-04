@@ -207,6 +207,21 @@ func (r *memOrgRepo) Update(_ context.Context, id uuid.UUID, opts repository.Upd
 	if opts.Active != nil {
 		o.Active = *opts.Active
 	}
+	if opts.Domain != nil {
+		o.Domain = *opts.Domain
+	}
+	if opts.LocalAdminOnly != nil {
+		o.LocalAdminOnly = *opts.LocalAdminOnly
+	}
+	if opts.MFAPolicy != nil {
+		o.MFAPolicy = *opts.MFAPolicy
+	}
+	if opts.MaxSessionsPerUser != nil {
+		o.MaxSessionsPerUser = *opts.MaxSessionsPerUser
+	}
+	if opts.RequireStrictReauth != nil {
+		o.RequireStrictReauth = *opts.RequireStrictReauth
+	}
 	return o, nil
 }
 
