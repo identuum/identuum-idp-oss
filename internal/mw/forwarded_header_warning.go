@@ -1,4 +1,4 @@
-package api
+package mw
 
 import (
 	"context"
@@ -24,15 +24,23 @@ var warnForwardedHeaderIgnored = func(ctx context.Context, peer string) {
 	)
 }
 
-// mountForwardedHeaderWarning warns, once per peer, when a request carries a
+// SetForwardedHeaderWarnForTest replaces the warning sink and returns the
+// function that restores it. For tests only.
+func SetForwardedHeaderWarnForTest(f func(ctx context.Context, peer string)) (restore func()) {
+	prev := warnForwardedHeaderIgnored
+	warnForwardedHeaderIgnored = f
+	return func() { warnForwardedHeaderIgnored = prev }
+}
+
+// ForwardedHeaderWarning warns, once per peer, when a request carries a
 // forwarding header that gin ignored because the peer is not a trusted proxy. The
 // default (trust no proxy) is right against a forged header; it is wrong for a
 // deployment behind a reverse proxy the operator forgot to list, and nothing else
 // says why every sign-in appears to come from one address.
-func mountForwardedHeaderWarning(router gin.IRouter) {
+func ForwardedHeaderWarning() gin.HandlerFunc {
 	var mu sync.Mutex
 	seen := make(map[string]struct{})
-	router.Use(func(c *gin.Context) {
+	return func(c *gin.Context) {
 		if c.GetHeader("X-Forwarded-For") != "" || c.GetHeader("X-Real-IP") != "" {
 			peer, _, err := net.SplitHostPort(c.Request.RemoteAddr)
 			if err == nil && c.ClientIP() == peer {
@@ -49,5 +57,5 @@ func mountForwardedHeaderWarning(router gin.IRouter) {
 			}
 		}
 		c.Next()
-	})
+	}
 }

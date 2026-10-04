@@ -682,7 +682,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	// fault has been recorded, every normal route is refused with 503
 	// while the health/liveness probes remain reachable.
 	mountNotServingGuard(router, resolved)
-	mountForwardedHeaderWarning(router)
+	router.Use(mw.ForwardedHeaderWarning())
 	mountAuthPageCSP(router)
 	mountCredentialLimiter(router, resolved)
 	mountBearerAuth(router, resolved)
