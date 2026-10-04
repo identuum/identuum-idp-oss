@@ -371,10 +371,14 @@ func TestUsersDelete_OrgAdminSameOrgAllowed(t *testing.T) {
 	}
 }
 
-func TestUsersRestore_OrgAdminForbiddenAtHTTPLayer(t *testing.T) {
+// Owner ruling (v0.9.5): an org_admin restores deleted users of its own
+// organization, under the users:delete scope; another organization's user is
+// the anti-enumeration 404, and the scope is still required.
+func TestUsersRestore_OrgAdminRestoresItsOwnOrganizationsUser(t *testing.T) {
 	org := uuid.New()
+	actor := uuid.New()
 	eng := newTenantEngine(t, &domain.Principal{
-		UserID:         uuid.New(),
+		UserID:         actor,
 		OrganizationID: org,
 		Role:           domain.RoleOrgAdmin,
 		Scope:          "users:delete",
@@ -382,8 +386,52 @@ func TestUsersRestore_OrgAdminForbiddenAtHTTPLayer(t *testing.T) {
 	target := uuid.New()
 	seedTenantUser(eng, target, org, domain.RoleOrgUser, "u@own.test")
 	rec := tenantReq(t, eng, http.MethodPost, "/api/v1/users/"+target.String()+"/restore", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restore by the same org's org_admin = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var restored *audit.Event
+	for _, e := range eng.rec.Events() {
+		if e.Action == "user.restored" {
+			e := e
+			restored = &e
+		}
+	}
+	if restored == nil {
+		t.Fatal("no user.restored audit event")
+	}
+	if restored.ActorID != actor || restored.OrganizationID != org || restored.SubjectID != target {
+		t.Errorf("audit actor=%s org=%s subject=%s, want the org_admin, its organization and the user", restored.ActorID, restored.OrganizationID, restored.SubjectID)
+	}
+}
+
+func TestUsersRestore_OrgAdminOtherOrganizationIsNotFound(t *testing.T) {
+	eng := newTenantEngine(t, &domain.Principal{
+		UserID:         uuid.New(),
+		OrganizationID: uuid.New(),
+		Role:           domain.RoleOrgAdmin,
+		Scope:          "users:delete",
+	})
+	target := uuid.New()
+	seedTenantUser(eng, target, uuid.New(), domain.RoleOrgUser, "u@other.test")
+	rec := tenantReq(t, eng, http.MethodPost, "/api/v1/users/"+target.String()+"/restore", nil)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("restore of another organization's user = %d, want 404", rec.Code)
+	}
+}
+
+func TestUsersRestore_OrgAdminNeedsTheDeleteScope(t *testing.T) {
+	org := uuid.New()
+	eng := newTenantEngine(t, &domain.Principal{
+		UserID:         uuid.New(),
+		OrganizationID: org,
+		Role:           domain.RoleOrgAdmin,
+		Scope:          "users:update",
+	})
+	target := uuid.New()
+	seedTenantUser(eng, target, org, domain.RoleOrgUser, "u@own.test")
+	rec := tenantReq(t, eng, http.MethodPost, "/api/v1/users/"+target.String()+"/restore", nil)
 	if rec.Code != http.StatusForbidden {
-		t.Errorf("restore by org_admin = %d, want 403", rec.Code)
+		t.Errorf("restore without users:delete = %d, want 403", rec.Code)
 	}
 }
 

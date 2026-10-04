@@ -339,20 +339,20 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:notes=site_admin deletes only users of the system organization; a tenant user answers 403 (D-025). org_admin additionally requires the users:delete scope and may only delete users in their own organization; cross-org and site_admin targets get the anti-enumeration 404.
 		del.DELETE("/:id", HandleDeleteUser(deps))
 
-		// Restore remains site_admin-only at the HTTP layer (infrastructure
-		// recovery, not day-to-day tenant management).
-		siteOnly := g.Group("")
-		siteOnly.Use(mw.RequireSiteAdmin())
-
+		// Restore is the inverse of delete and carries its guard (owner
+		// ruling, v0.9.5): an org_admin restores its own organization's
+		// users; RestoreUserForActor confines it and keeps D-025 for a
+		// site_admin.
+		//
 		// docgen:endpoint
 		// docgen:surface=users
 		// docgen:method=POST
 		// docgen:path=/api/v1/users/:id/restore
 		// docgen:summary=Restore a previously soft-deleted user.
 		// docgen:tier=oss
-		// docgen:auth=site_admin
-		// docgen:response=oss.handlers.safeUser
-		siteOnly.POST("/:id/restore", HandleRestoreUser(deps))
+		// docgen:auth=site_admin|org_admin
+		// docgen:notes=site_admin restores only users of the system organization; a tenant user answers 403 (D-025). org_admin additionally requires the users:delete scope and may only restore users in its own organization; cross-org and site_admin targets get the anti-enumeration 404.
+		del.POST("/:id/restore", HandleRestoreUser(deps))
 
 		// Reset-MFA: site_admin OR org_admin with users:mfa:revoke.
 		// Authority decision is delegated to UserService.ResetMFAForActor
@@ -1028,7 +1028,10 @@ func HandleDeleteUser(deps UsersHandlerDeps) gin.HandlerFunc {
 	}
 }
 
-// HandleRestoreUser un-deletes a soft-deleted user.
+// HandleRestoreUser un-deletes a soft-deleted user. The actor is a site_admin
+// (system-organization users only, D-025) or an org_admin of the user's own
+// organization; RestoreUserForActor decides, and the errors map as on
+// reset-mfa so a store failure is a 500, not a 404.
 func HandleRestoreUser(deps UsersHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := uuid.Parse(c.Param("id"))
@@ -1038,21 +1041,34 @@ func HandleRestoreUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		}
 		actor, _ := mw.PrincipalFromContext(c)
 		if err := deps.UserService.RestoreUserForActor(c.Request.Context(), actor, id); err != nil {
-			if errors.Is(err, domain.ErrForbidden) {
+			switch {
+			case errors.Is(err, domain.ErrUnauthorized):
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			case errors.Is(err, domain.ErrForbidden):
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
-				return
+			case errors.Is(err, service.ErrUserNotFound()):
+				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			}
-			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"restored": id})
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user.restored",
-			Outcome:   "success",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
-			Metadata:  map[string]any{"user_id": id},
-		})
+		ev := audit.Event{
+			Action:      "user.restored",
+			Outcome:     "success",
+			SubjectID:   id,
+			SubjectType: "user",
+			IPAddress:   c.ClientIP(),
+			UserAgent:   c.Request.UserAgent(),
+			Metadata:    map[string]any{"user_id": id},
+		}
+		if actor != nil {
+			ev.ActorID = actor.UserID
+			ev.ActorRole = string(actor.Role)
+			ev.OrganizationID = actor.OrganizationID
+		}
+		_ = deps.Audit.Record(c.Request.Context(), ev)
 	}
 }
 

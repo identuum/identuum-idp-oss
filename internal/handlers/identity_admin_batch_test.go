@@ -98,6 +98,25 @@ func (r *memUserRepo) Delete(_ context.Context, id, _ uuid.UUID) error {
 	return nil
 }
 func (r *memUserRepo) Undelete(_ context.Context, _, _ uuid.UUID) error { return nil }
+
+// GetByIDAdmin makes memUserRepo a repository.AdminUserRepository, so the
+// restore route reaches RestoreUserForActor's authorization instead of its
+// errRestoreRequiresAdminRepo refusal.
+func (r *memUserRepo) GetByIDAdmin(_ context.Context, id uuid.UUID) (*domain.User, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rows[id], nil
+}
+func (r *memUserRepo) GetByEmailAdmin(_ context.Context, _ string) (*domain.User, error) {
+	panic("not used")
+}
+func (r *memUserRepo) ListDeleted(_ context.Context, _ repository.Pagination) ([]*domain.User, int, error) {
+	panic("not used")
+}
+func (r *memUserRepo) ListAll(_ context.Context, _ repository.ListUserOptions) ([]*domain.User, int, error) {
+	panic("not used")
+}
+func (r *memUserRepo) HardDelete(_ context.Context, _ uuid.UUID) error { panic("not used") }
 func (r *memUserRepo) List(_ context.Context, _ repository.ListUserOptions) ([]*domain.User, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

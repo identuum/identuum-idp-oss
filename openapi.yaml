@@ -2485,10 +2485,6 @@ paths:
       responses:
         "200":
           description: "Restore a previously soft-deleted user."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/oss_handlers_safeUser"
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/users/{id}/roles":
