@@ -335,6 +335,10 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			case errors.Is(err, service.ErrAPIResourceInvalid()):
 				// H7: an audience the issuer or an application owns.
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
+			case errors.Is(err, service.ErrAPIResourceAudienceCheckUnavailable):
+				// The reservation check could not run: a server failure, as
+				// the update answers it.
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			default:
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			}

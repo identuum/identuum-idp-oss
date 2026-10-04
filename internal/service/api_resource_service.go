@@ -42,6 +42,11 @@ func (s *APIResourceService) WithReservedAudiences(reserved func(ctx context.Con
 	return s
 }
 
+// ErrAPIResourceAudienceCheckUnavailable reports that the reservation check
+// could not run (its store did not answer): a server failure, not a fault in
+// the request.
+var ErrAPIResourceAudienceCheckUnavailable = errors.New("service: api resource audience check unavailable")
+
 // checkAudience applies the reservation check; it is a no-op when none is wired.
 func (s *APIResourceService) checkAudience(ctx context.Context, audience string) error {
 	if s.reserved == nil {
@@ -49,7 +54,7 @@ func (s *APIResourceService) checkAudience(ctx context.Context, audience string)
 	}
 	taken, err := s.reserved(ctx, audience)
 	if err != nil {
-		return fmt.Errorf("service: api resource audience check: %w", err)
+		return fmt.Errorf("%w: %w", ErrAPIResourceAudienceCheckUnavailable, err)
 	}
 	if taken {
 		return fmt.Errorf("%w: audience is reserved", errAPIResourceInvalid)

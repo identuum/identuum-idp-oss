@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,6 +47,17 @@ func TestCreateAPIResource_TakenAudienceIs409(t *testing.T) {
 	svc := service.NewAPIResourceService(nil, takenAudienceRepo{newMemAPIResourceRepo()})
 	if st, m := createResourceBody(t, svc); st != http.StatusConflict || m["error"] != "audience_exists" {
 		t.Errorf("= %d %v; want 409 audience_exists", st, m)
+	}
+}
+
+// A reservation check that cannot run (the client store did not answer) is a
+// server failure, as the update answers it — never a 400 that blames the
+// caller's request.
+func TestCreateAPIResource_AReservationCheckThatCannotRunIs500(t *testing.T) {
+	svc := service.NewAPIResourceService(nil, newMemAPIResourceRepo()).
+		WithReservedAudiences(func(context.Context, string) (bool, error) { return false, errors.New("client store down") })
+	if st, m := createResourceBody(t, svc); st != http.StatusInternalServerError || m["error"] != "internal_error" {
+		t.Errorf("= %d %v; want 500 internal_error", st, m)
 	}
 }
 
