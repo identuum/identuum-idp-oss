@@ -260,7 +260,7 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 	// one.
 	release := s.failures.Hold(user.ID)
 	defer release()
-	if s.failures.Exhausted(user.ID) {
+	if s.failures.Exhausted(ctx, user.ID) {
 		return ErrMFAInvalid
 	}
 	secret, err := s.resolver.Resolve(ctx, user)
@@ -268,7 +268,7 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 		return ErrMFASecretUnavailable
 	}
 	if len(trimmed) != s.digits {
-		s.failures.Record(user.ID)
+		s.failures.Record(ctx, user.ID)
 		return ErrMFAInvalid
 	}
 	// Decode the base32 secret once, then delegate the RFC 6238 window
@@ -285,7 +285,7 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 		Window: s.window,
 	})
 	if !ok {
-		s.failures.Record(user.ID)
+		s.failures.Record(ctx, user.ID)
 		return ErrMFAInvalid
 	}
 	// The match says the code is genuine; the guard says whether it is
@@ -296,7 +296,7 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 		return err
 	}
 	if !first {
-		s.failures.Record(user.ID)
+		s.failures.Record(ctx, user.ID)
 		return ErrMFAInvalid
 	}
 	return nil

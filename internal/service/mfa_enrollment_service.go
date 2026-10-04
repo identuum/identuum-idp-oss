@@ -825,7 +825,7 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 	if trimmedCode != "" {
 		// The recovery-code leg below has no budget of its own, so the
 		// shared one gates the whole proof: past it, nothing is accepted.
-		if s.proofFailures.Exhausted(user.ID) {
+		if s.proofFailures.Exhausted(ctx, user.ID) {
 			return "", ErrMFADisableInvalidCode
 		}
 		// The TOTP leg is totpProofOK (shared with the recovery-code
@@ -1054,7 +1054,7 @@ func (s *MFAEnrollmentService) totpProofOK(ctx context.Context, user *domain.Use
 	// one.
 	release := s.proofFailures.Hold(user.ID)
 	defer release()
-	if s.proofFailures.Exhausted(user.ID) {
+	if s.proofFailures.Exhausted(ctx, user.ID) {
 		return false
 	}
 	plaintextSeed, err := s.decryptSeed(*user.MFASecret)
@@ -1064,7 +1064,7 @@ func (s *MFAEnrollmentService) totpProofOK(ctx context.Context, user *domain.Use
 	if s.totpAccept(ctx, user.ID, plaintextSeed, trimmedCode) {
 		return true
 	}
-	s.proofFailures.Record(user.ID)
+	s.proofFailures.Record(ctx, user.ID)
 	return false
 }
 

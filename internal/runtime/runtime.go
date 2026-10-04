@@ -246,6 +246,11 @@ type Runtime struct {
 	// cleanup is disabled.
 	cleanupCancel context.CancelFunc
 
+	// proofBudget is the per-user wrong-code budget of the TOTP proof routes,
+	// kept in mfa_proof_failures; built in buildDeps, swept by the cleanup
+	// ticker in Start.
+	proofBudget *service.TOTPFailureBudget
+
 	// detached runs the mail that password reset, verification resend and
 	// self-registration send after answering; Shutdown waits for it before
 	// the pool closes. Built in buildDeps.
@@ -534,6 +539,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			WithClientAssertionReplayService(replaySvc).
 			WithDPoPProofReplayService(r.dpopReplaySvc).
 			WithTOTPReplayGuard(r.totpReplayGuard).
+			WithProofFailureSweeper(r.proofBudget).
 			WithAgentCommunicationTokenSweeper(r.agentCommTokenSweeper).
 			WithUserSessionService(userSessionSvc).
 			WithAuthorizationCodeService(authCodeSvc).
@@ -1123,8 +1129,11 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// One per-user budget of wrong codes for every route that proves the second
 	// factor to an authenticated caller: step-up (the verifier) and self-service
 	// disable, recovery-code regenerate and skip-consent (the enrollment
-	// service). A miss on one spends from all.
-	totpProofBudget := service.NewTOTPFailureBudget(service.DefaultTOTPFailureBudgetMax, service.DefaultTOTPFailureBudgetWindow, nil)
+	// service). A miss on one spends from all. The misses are kept in
+	// mfa_proof_failures, so a restart does not reset them, and the cleanup
+	// ticker sweeps the rows that left the window (Start).
+	totpProofBudget := service.NewTOTPFailureBudget(service.DefaultTOTPFailureBudgetMax, service.DefaultTOTPFailureBudgetWindow, nil).WithStore(repos.MFAProofFailure)
+	r.proofBudget = totpProofBudget
 	mfaVerifier := service.NewMFAVerifierService(report, service.EncryptedTOTPSecretResolver{Cipher: mfaCipher}, service.MFAVerifierOptions{Replay: r.totpReplayGuard, Failures: totpProofBudget})
 	loginRiskSvc := service.NewLoginRiskService(report, repos.LoginAttempt, service.LoginRiskServiceOptions{Logger: serviceLogger()})
 	// TEST-ONLY escape hatch (insecure_dev_mode.go): under

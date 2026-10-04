@@ -19,32 +19,111 @@ func TestTOTPFailureBudget(t *testing.T) {
 	clock := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	b := NewTOTPFailureBudget(3, 15*time.Minute, func() time.Time { return clock })
 	alice, bob := uuid.New(), uuid.New()
+	ctx := context.Background()
 
-	if b.Exhausted(alice) {
+	if b.Exhausted(ctx, alice) {
 		t.Fatal("a fresh budget is not exhausted")
 	}
-	b.Record(alice)
-	b.Record(alice)
-	if b.Exhausted(alice) {
+	b.Record(ctx, alice)
+	b.Record(ctx, alice)
+	if b.Exhausted(ctx, alice) {
 		t.Error("two misses of three are not yet the bound")
 	}
-	b.Record(alice)
-	if !b.Exhausted(alice) {
+	b.Record(ctx, alice)
+	if !b.Exhausted(ctx, alice) {
 		t.Error("three misses reach the bound")
 	}
-	if b.Exhausted(bob) {
+	if b.Exhausted(ctx, bob) {
 		t.Error("one user's misses must not count against another")
 	}
 	clock = clock.Add(15*time.Minute + time.Second)
-	if b.Exhausted(alice) {
+	if b.Exhausted(ctx, alice) {
 		t.Error("the misses age out of the window")
 	}
 
 	var nilBudget *TOTPFailureBudget
-	if nilBudget.Exhausted(alice) {
+	if nilBudget.Exhausted(ctx, alice) {
 		t.Error("no budget wired means no bound, as before")
 	}
-	nilBudget.Record(alice) // must not panic
+	nilBudget.Record(ctx, alice) // must not panic
+}
+
+// The misses are kept in the database when a store is wired, so a restart does
+// not reset them and every replica counts the same ones. A store that cannot
+// answer refuses (the same cause-neutral answer), and the sweep drops the
+// misses that have left the window.
+
+type memProofFailures struct {
+	rows map[uuid.UUID][]time.Time
+	err  error
+}
+
+func (m *memProofFailures) RecordProofFailure(_ context.Context, user uuid.UUID, at time.Time) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.rows[user] = append(m.rows[user], at)
+	return nil
+}
+
+func (m *memProofFailures) CountProofFailuresSince(_ context.Context, user uuid.UUID, since time.Time) (int, error) {
+	if m.err != nil {
+		return 0, m.err
+	}
+	n := 0
+	for _, at := range m.rows[user] {
+		if !at.Before(since) {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (m *memProofFailures) DeleteProofFailuresBefore(_ context.Context, cutoff time.Time) (int64, error) {
+	var gone int64
+	for user, ats := range m.rows {
+		kept := ats[:0]
+		for _, at := range ats {
+			if at.Before(cutoff) {
+				gone++
+				continue
+			}
+			kept = append(kept, at)
+		}
+		m.rows[user] = kept
+	}
+	return gone, nil
+}
+
+func TestTOTPFailureBudget_TheStoreKeepsTheMissesAcrossARestart(t *testing.T) {
+	ctx := context.Background()
+	clock := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	store := &memProofFailures{rows: map[uuid.UUID][]time.Time{}}
+	alice := uuid.New()
+
+	before := NewTOTPFailureBudget(3, 15*time.Minute, func() time.Time { return clock }).WithStore(store)
+	for i := 0; i < 3; i++ {
+		before.Record(ctx, alice)
+	}
+	after := NewTOTPFailureBudget(3, 15*time.Minute, func() time.Time { return clock }).WithStore(store)
+	if !after.Exhausted(ctx, alice) {
+		t.Fatal("a new process (the same store) forgot the misses")
+	}
+
+	clock = clock.Add(16 * time.Minute)
+	if after.Exhausted(ctx, alice) {
+		t.Error("the misses age out of the window")
+	}
+	if gone, err := after.DeleteExpired(ctx); err != nil || gone != 3 {
+		t.Errorf("sweep = %d, %v; want the 3 misses past the window dropped", gone, err)
+	}
+}
+
+func TestTOTPFailureBudget_AStoreThatCannotAnswerRefuses(t *testing.T) {
+	b := NewTOTPFailureBudget(3, 15*time.Minute, nil).WithStore(&memProofFailures{rows: map[uuid.UUID][]time.Time{}, err: errors.New("store down")})
+	if !b.Exhausted(context.Background(), uuid.New()) {
+		t.Error("a store that cannot be read must refuse the proof, not lift the bound")
+	}
 }
 
 func TestMFAVerifierVerify_PastTheBudgetEvenTheRightCodeIsRefused(t *testing.T) {

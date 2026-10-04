@@ -35,6 +35,7 @@ type TokenRevocationCleanup struct {
 	emailVerifications ExpiredRowSweeper
 	claims             ExpiredRowSweeper
 	mfaPending         ExpiredRowSweeper
+	proofFailures      ExpiredRowSweeper
 	auditEvents        ExpiredRowSweeper
 	interval           time.Duration
 	logger             CleanupLogger
@@ -226,6 +227,17 @@ func (c *TokenRevocationCleanup) WithTOTPReplayGuard(g *TOTPReplayGuard) *TokenR
 	return c
 }
 
+// WithProofFailureSweeper adds the proof routes' wrong-code rows
+// (mfa_proof_failures) to the sweep; the budget drops the rows that have left
+// its window.
+func (c *TokenRevocationCleanup) WithProofFailureSweeper(s ExpiredRowSweeper) *TokenRevocationCleanup {
+	if c == nil {
+		return nil
+	}
+	c.proofFailures = s
+	return c
+}
+
 // WithAgentCommunicationTokenSweeper adds the AYGHU-4 issued-token table
 // to the sweep.
 func (c *TokenRevocationCleanup) WithAgentCommunicationTokenSweeper(s *AgentCommunicationTokenSweeper) *TokenRevocationCleanup {
@@ -388,6 +400,14 @@ func (c *TokenRevocationCleanup) tick(ctx context.Context) {
 			c.logger.Warn("totp_used_steps_cleanup: delete failed")
 		} else if sn > 0 {
 			c.logger.Info("totp_used_steps_cleanup: deleted expired rows", "count", sn)
+		}
+	}
+	if c.proofFailures != nil {
+		pn, perr := c.proofFailures.DeleteExpired(ctx)
+		if perr != nil {
+			c.logger.Warn("mfa_proof_failures_cleanup: delete failed")
+		} else if pn > 0 {
+			c.logger.Info("mfa_proof_failures_cleanup: deleted expired rows", "count", pn)
 		}
 	}
 	if c.agentCommTokens != nil {

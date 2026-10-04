@@ -63,6 +63,9 @@ type Repositories struct {
 	// session (session_relying_parties, migration 0047), so ending a session
 	// can notify all of them.
 	SessionRelyingParty repository.SessionRelyingPartyRepository
+	// MFAProofFailure keeps the proof routes' wrong second-factor codes
+	// (mfa_proof_failures, migration 0048) for the per-user budget.
+	MFAProofFailure *PgxMFAProofFailureRepository
 	// Audit is the OSS plain persistent audit log store (L-2). Concrete
 	// type (not an interface) so the runtime can SetRetention on it after
 	// resolving the env override; it satisfies both the persistent
@@ -113,6 +116,7 @@ func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 		EmailVerification:               NewPgxEmailVerificationRepository(db),
 		Registration:                    NewPgRegistrationRepository(db),
 		SessionRelyingParty:             NewPgxSessionRelyingPartyRepository(db),
+		MFAProofFailure:                 NewPgxMFAProofFailureRepository(db),
 		UserProfile:                     NewPgxUserProfileRepository(db),
 		AgentCommunicationAuthorization: NewPgxAgentCommunicationAuthorizationRepository(db),
 		DPoPProofReplay:                 NewPgxDPoPProofReplayRepository(db),
