@@ -8,6 +8,8 @@
 //	identuum-idp migrate [url]       # apply embedded migrations, then a sanity check
 //	identuum-idp bootstrap [url]     # one-shot: ensure a signing key + create site_admin
 //	identuum-idp recover-site-admin [url]  # one-shot: reset the site_admin password + MFA
+//	identuum-idp reset-org-admin-mfa --org <id> --email <address> [url]
+//	                                 # one-shot: remove an org_admin's factors and passkeys
 //	identuum-idp show-setup-code <data-dir># print the appliance setup code while setup_required
 //	identuum-idp doctor [url]        # READ-ONLY diagnosis with named states (exit 0 healthy)
 //	identuum-idp factory-reset --i-understand-this-destroys-all-data [url]
@@ -122,6 +124,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return runAuditPreupgrade(context.Background(), url, stdout, stderr)
 		case "factory-reset":
 			return dispatchFactoryReset(context.Background(), rest, stdout, stderr)
+		case "reset-org-admin-mfa":
+			return dispatchResetOrgAdminMFA(context.Background(), rest, stdout, stderr)
 		case "rotate-encryption-key":
 			return dispatchRotateEncryptionKey(context.Background(), rest, stdout, stderr)
 		case "appliance":
@@ -295,6 +299,10 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "                                     (reads IDENTUUM_IDP_BOOTSTRAP_PASSWORD)")
 	fmt.Fprintln(w, "  recover-site-admin <database-url>  reset the site_admin password + MFA")
 	fmt.Fprintln(w, "                                     (reads IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD)")
+	fmt.Fprintln(w, "  reset-org-admin-mfa --org <organization-id> --email <address> [database-url]")
+	fmt.Fprintln(w, "                                     remove an org_admin's authenticator, recovery")
+	fmt.Fprintln(w, "                                     codes and passkeys, revoke its sessions; for an")
+	fmt.Fprintln(w, "                                     organization whose administrator lost every factor")
 	fmt.Fprintln(w, "  show-setup-code [--database-url <url>] <data-dir>")
 	fmt.Fprintln(w, "                                     print the setup code while setup_required")
 	fmt.Fprintln(w, "                                     (flags BEFORE the positional — Go's parser")

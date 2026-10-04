@@ -107,7 +107,7 @@ func TestRun_HelpListsSubcommands(t *testing.T) {
 		t.Fatalf("help exit = %d, want 0", code)
 	}
 	out := stdout.String()
-	for _, want := range []string{"migrate", "bootstrap", "recover-site-admin", "show-setup-code", "serve the full OSS IdP"} {
+	for _, want := range []string{"migrate", "bootstrap", "recover-site-admin", "reset-org-admin-mfa", "show-setup-code", "serve the full OSS IdP"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("usage must mention %q; got %q", want, out)
 		}

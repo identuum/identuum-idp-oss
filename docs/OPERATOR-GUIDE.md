@@ -144,6 +144,34 @@ following are stale:
   `identuum-ui/docs/LOCAL_ORG_ADMIN_PLAYWRIGHT_FIXTURE.md`.
 - **Any password manager entry** for site_admin, obviously.
 
+## An organization's administrator lost every factor (break-glass)
+
+A site administrator does not reset a tenant user's authenticator (D-025),
+so when an organization's org_admin has lost the authenticator, the
+recovery codes and every passkey, the operator resets it from the host:
+
+```
+docker exec identuum-idp-oss /app/identuum-idp reset-org-admin-mfa --org <organization-id> --email <admin-email>
+```
+
+or, without a running appliance, a one-shot container from the same image
+on the appliance's network (the image's entrypoint is the appliance, so
+name the binary as the entrypoint):
+
+```
+docker run --rm --network identuum-idp-oss_default --entrypoint /app/identuum-idp <image> reset-org-admin-mfa --org <organization-id> --email <admin-email> <database-url>
+```
+
+The organization id is on the organization's page in the console. The
+command removes the org_admin's authenticator, recovery codes and passkeys,
+revokes its sessions and refresh tokens, and records `org_admin_mfa_reset`
+(actor `system`, `via: cli`). The password is unchanged: the administrator
+signs in with it and enrolls a new factor. It refuses the system
+organization (use `recover-site-admin`) and any user who is not exactly an
+org_admin. The database URL comes from the argument, else
+`IDENTUUM_IDP_DATABASE_URL`, else `IDENTUUM_IDP_OSS_DB`, and is never
+printed.
+
 ## Rotate the at-rest encryption key
 
 Offline, atomic, both directions proven — the full ceremony (backup,

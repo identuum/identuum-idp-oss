@@ -102,6 +102,7 @@ func TestOSSContract_SubcommandsRegistered(t *testing.T) {
 		`"migrate"`,
 		`"bootstrap"`,
 		`"recover-site-admin"`,
+		`"reset-org-admin-mfa"`,
 		`"show-setup-code"`,
 	}
 	for _, sub := range required {
