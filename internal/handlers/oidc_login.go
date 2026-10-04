@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"net/url"
@@ -15,8 +17,17 @@ import (
 )
 
 // upstreamLoginCookie binds an upstream sign-in to the browser that started it:
-// initiation plants it holding the state, the callback requires it.
+// initiation plants it holding the state, the callback requires it. Each
+// sign-in has its own cookie, named from its state (upstreamLoginCookieName),
+// so a second sign-in started in the same browser does not void the first.
 const upstreamLoginCookie = "idp_login_state"
+
+// upstreamLoginCookieName is the binding cookie's name for one state: the
+// prefix and the first 16 hex characters of the state's SHA-256.
+func upstreamLoginCookieName(state string) string {
+	sum := sha256.Sum256([]byte(state))
+	return upstreamLoginCookie + "_" + hex.EncodeToString(sum[:8])
+}
 
 // upstreamLoginCookieTTL bounds the binding cookie's life, in seconds. The
 // state it holds expires server-side on its own; this only keeps a stale
@@ -38,15 +49,16 @@ func upstreamLoginState(authURL string) string {
 // does not hide it.
 func setUpstreamLoginBinding(c *gin.Context, state string) {
 	writeSessionCookie(c, &http.Cookie{
-		Name: upstreamLoginCookie, Value: state, Path: "/",
+		Name: upstreamLoginCookieName(state), Value: state, Path: "/",
 		MaxAge: upstreamLoginCookieTTL, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
 }
 
-// clearUpstreamLoginBinding expires the binding cookie once the sign-in is done.
-func clearUpstreamLoginBinding(c *gin.Context) {
+// clearUpstreamLoginBinding expires this sign-in's binding cookie once it is
+// done.
+func clearUpstreamLoginBinding(c *gin.Context, state string) {
 	writeSessionCookie(c, &http.Cookie{
-		Name: upstreamLoginCookie, Value: "", Path: "/",
+		Name: upstreamLoginCookieName(state), Value: "", Path: "/",
 		MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode,
 	})
 }
@@ -54,7 +66,7 @@ func clearUpstreamLoginBinding(c *gin.Context) {
 // upstreamLoginBound reports whether the request carries the cookie planted at
 // initiation for exactly this state.
 func upstreamLoginBound(c *gin.Context, state string) bool {
-	held, err := c.Cookie(upstreamLoginCookie)
+	held, err := c.Cookie(upstreamLoginCookieName(state))
 	return err == nil && subtle.ConstantTimeCompare([]byte(held), []byte(state)) == 1
 }
 

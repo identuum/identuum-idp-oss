@@ -136,7 +136,7 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 		// A sign-in through an upstream provider offers no "remember me", so
 		// the cookie ends with the browser session.
 		writeSessionCookie(c, deps.CookieSession.IssueForSignIn(cookieValue, res.Session.ExpiresAt, false))
-		clearUpstreamLoginBinding(c)
+		clearUpstreamLoginBinding(c, state)
 
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "auth.oidc_login.success",
