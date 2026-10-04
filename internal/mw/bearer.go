@@ -251,13 +251,14 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 		}
 		// A user access token issued to an application (actor_type "user"
 		// with the client_id the authorization-code grant stamps) is for that
-		// application's resource servers and for userinfo, which verify it on
-		// their own. It is not a credential for the IdP's own API, whatever
-		// role its user holds: no principal is planted, so every guarded route
-		// answers 401. Console session tokens carry no client_id, and
+		// application's resource servers and for userinfo, which verifies it
+		// on its own. It is not a credential for the IdP's own API, whatever
+		// role its user holds: no principal is planted and the request
+		// continues, so every guarded route answers 401 and userinfo still
+		// works. Console session tokens carry no client_id, and
 		// service-account tokens carry another actor_type; both are unchanged.
 		if principal.ActorType == "user" && principal.ClientID != "" {
-			respondInvalidBearerToken(c, ReasonTokenInvalid)
+			c.Next()
 			return
 		}
 		// RFC 7009 per-token revocation (P0-6), enforced for EVERY bearer
