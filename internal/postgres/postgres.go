@@ -66,6 +66,10 @@ type Repositories struct {
 	// MFAProofFailure keeps the proof routes' wrong second-factor codes
 	// (mfa_proof_failures, migration 0048) for the per-user budget.
 	MFAProofFailure *PgxMFAProofFailureRepository
+	// DCRRegistrationLimit keeps the limits an initial access token set on
+	// the client it registered (dcr_client_registration_limits, migration
+	// 0049).
+	DCRRegistrationLimit *PgxDCRRegistrationLimitRepository
 	// Audit is the OSS plain persistent audit log store (L-2). Concrete
 	// type (not an interface) so the runtime can SetRetention on it after
 	// resolving the env override; it satisfies both the persistent
@@ -117,6 +121,7 @@ func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 		Registration:                    NewPgRegistrationRepository(db),
 		SessionRelyingParty:             NewPgxSessionRelyingPartyRepository(db),
 		MFAProofFailure:                 NewPgxMFAProofFailureRepository(db),
+		DCRRegistrationLimit:            NewPgxDCRRegistrationLimitRepository(db),
 		UserProfile:                     NewPgxUserProfileRepository(db),
 		AgentCommunicationAuthorization: NewPgxAgentCommunicationAuthorizationRepository(db),
 		DPoPProofReplay:                 NewPgxDPoPProofReplayRepository(db),

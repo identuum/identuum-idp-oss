@@ -58,6 +58,11 @@ type DCRManagementHandlerDeps struct {
 	// fixtures continue to reach the management surface.
 	OrgFeatureLookup OrgFeatureLookup
 
+	// RegistrationLimits holds the limits an initial access token set on
+	// the client it registered; an update beyond them is refused. nil
+	// applies none.
+	RegistrationLimits DCRRegistrationLimitStore
+
 	// StartupReport receives a fatal fault if ClientService or RATService
 	// is not wired — instead of panicking (P-018). Nil-safe.
 	StartupReport *lifecycle.StartupReport
@@ -219,6 +224,31 @@ func HandleDCRManagementPut(deps DCRManagementHandlerDeps) gin.HandlerFunc {
 			if err := domain.ValidateRedirectURIs(req.RedirectURIs); err != nil {
 				respondDCRError(c, http.StatusBadRequest, "invalid_redirect_uri", "one or more redirect_uris are not acceptable")
 				return
+			}
+		}
+		// The limits of the initial access token the client registered with
+		// hold for its updates too: judged as at registration.
+		if deps.RegistrationLimits != nil {
+			limits, err := deps.RegistrationLimits.RegistrationLimits(ctx, client.ID)
+			if err != nil {
+				respondDCRError(c, http.StatusInternalServerError, "server_error", "registration limits could not be read")
+				return
+			}
+			if limits != nil {
+				if grantTypes != nil && len(limits.AllowedGrantTypes) > 0 && !isSubset(registeredGrantTypes(grantTypes), limits.AllowedGrantTypes) {
+					respondDCRError(c, http.StatusForbidden, "invalid_client_metadata", "requested grant_types are not permitted by the initial access token this client registered with")
+					return
+				}
+				if req.TokenEndpointAuthMethod != nil && len(limits.AllowedTokenEndpointAuthMethods) > 0 {
+					method := *req.TokenEndpointAuthMethod
+					if method == "" {
+						method = "client_secret_basic"
+					}
+					if !dcrSliceContains(limits.AllowedTokenEndpointAuthMethods, method) {
+						respondDCRError(c, http.StatusForbidden, "invalid_client_metadata", "requested token_endpoint_auth_method is not permitted by the initial access token this client registered with")
+						return
+					}
+				}
 			}
 		}
 		opts := service.UpdateClientOptions{GrantTypes: grantTypes}

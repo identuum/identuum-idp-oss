@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sort"
@@ -70,10 +71,23 @@ type DCRHandlerDeps struct {
 	// URL.
 	RegistrationBaseURL string
 	Audit               audit.Service
+	// RegistrationLimits keeps an initial access token's limits for the
+	// client it registered, so an RFC 7592 update cannot widen them. nil
+	// keeps none (and the update re-applies none).
+	RegistrationLimits DCRRegistrationLimitStore
 
 	// StartupReport receives a fatal fault if ClientService is not wired —
 	// instead of panicking (P-018). Nil-safe.
 	StartupReport *lifecycle.StartupReport
+}
+
+// DCRRegistrationLimitStore keeps the limits an initial access token set on
+// the client it registered (dcr_client_registration_limits).
+type DCRRegistrationLimitStore interface {
+	SaveRegistrationLimits(ctx context.Context, clientID uuid.UUID, l domain.DCRRegistrationLimits) error
+	// RegistrationLimits returns nil when the client was registered without
+	// limits.
+	RegistrationLimits(ctx context.Context, clientID uuid.UUID) (*domain.DCRRegistrationLimits, error)
 }
 
 // RegisterDCRRoutes mounts the RFC 7591 Dynamic Client Registration
@@ -381,6 +395,20 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 		if err != nil {
 			respondDCRError(c, http.StatusBadRequest, "invalid_client_metadata", "client metadata rejected by the registration service")
 			return
+		}
+
+		// Keep the initial access token's limits with the client, so an
+		// RFC 7592 update cannot add what this registration could not. A
+		// failure is a server error, as for the RAT below.
+		if iatPolicy != nil && deps.RegistrationLimits != nil &&
+			(len(iatPolicy.AllowedGrantTypes) > 0 || len(iatPolicy.AllowedTokenEndpointAuthMethods) > 0) {
+			if err := deps.RegistrationLimits.SaveRegistrationLimits(c.Request.Context(), client.ID, domain.DCRRegistrationLimits{
+				AllowedGrantTypes:               iatPolicy.AllowedGrantTypes,
+				AllowedTokenEndpointAuthMethods: iatPolicy.AllowedTokenEndpointAuthMethods,
+			}); err != nil {
+				respondDCRError(c, http.StatusInternalServerError, "server_error", "registration limits could not be stored")
+				return
+			}
 		}
 
 		// Mint the RFC 7592 registration access token (RAT) if the

@@ -6,6 +6,15 @@ import (
 	"github.com/google/uuid"
 )
 
+// DCRRegistrationLimits are the limits an initial access token set on the
+// client it registered (dcr_client_registration_limits, migration 0049): an
+// RFC 7592 update of that client may not go beyond them. An empty list means
+// the token set no limit of that kind.
+type DCRRegistrationLimits struct {
+	AllowedGrantTypes               []string
+	AllowedTokenEndpointAuthMethods []string
+}
+
 // DynamicRegistrationToken is an RFC 7591 §2.1 initial access token
 // (IAT) that gates dynamic client registration when the operator
 // does not want to surface DCR to anonymous callers.

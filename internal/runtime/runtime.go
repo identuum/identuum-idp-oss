@@ -1410,7 +1410,10 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		EmailDeliveryConfigured: smtpNotifier != nil,
 		// PLAN-E-1: the vendored export compiled into the binary, served
 		// when IDENTUUM_IDP_UI_DIR is not set (the directory wins when it is).
-		UIEmbedded:                             uiexport.FS(),
+		UIEmbedded: uiexport.FS(),
+		// An initial access token's limits are kept with the client it
+		// registers (migration 0049); inert while no token service is wired.
+		DCRRegistrationLimits:                  repos.DCRRegistrationLimit,
 		JWKSProvider:                           jwksProvider,
 		KeyService:                             keyService,
 		TokenVerifier:                          tokenVerifier,

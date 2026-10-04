@@ -66,6 +66,11 @@ type OSSRouterDeps struct {
 	// (unknown version)".
 	Version string
 
+	// DCRRegistrationLimits keeps an initial access token's limits with the
+	// client it registers, so an RFC 7592 update cannot widen them. Used
+	// only when DCRInitialAccessTokenService is wired.
+	DCRRegistrationLimits handlers.DCRRegistrationLimitStore
+
 	// BruteForceProtectionDisabled reports the runtime's captured test-hatch
 	// state on health probes. Observation only; no control consults this field.
 	BruteForceProtectionDisabled bool
@@ -1061,6 +1066,7 @@ func mountDCR(router gin.IRouter, resolved OSSRouterDeps, orgFeatureLookup handl
 		RegistrationBaseURL: resolved.DCRRegistrationBaseURL,
 		Audit:               resolved.Audit,
 		OrgFeatureLookup:    orgFeatureLookup,
+		RegistrationLimits:  resolved.DCRRegistrationLimits,
 		StartupReport:       resolved.StartupReport,
 	})
 }
