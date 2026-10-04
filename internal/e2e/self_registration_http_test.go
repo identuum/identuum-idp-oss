@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -143,12 +144,24 @@ func TestE2E_OSS_SelfRegistration(t *testing.T) {
 	if st, e := w.login(reg); st != http.StatusUnauthorized || e != "account_unverified" {
 		t.Fatalf("unverified sign-in with verify on = %d %s", st, e)
 	}
-	var before, after int
-	_ = w.pool.QueryRow(w.ctx, `SELECT count(*) FROM email_verifications v JOIN users u ON u.id = v.user_id WHERE u.email = $1`, reg).Scan(&before)
+	// The verification row and its mail are written after the response (the
+	// response time must not say which addresses have accounts), so wait for
+	// each row to appear.
+	verificationRows := func(atLeast int) (n int) {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			_ = w.pool.QueryRow(w.ctx, `SELECT count(*) FROM email_verifications v JOIN users u ON u.id = v.user_id WHERE u.email = $1`, reg).Scan(&n)
+			if n >= atLeast || time.Now().After(deadline) {
+				return n
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+	before := verificationRows(1)
 	if st, _ := w.raw("", http.MethodPost, "/api/v1/auth/resend-verification", `{"email":"`+reg+`"}`); st != http.StatusOK {
 		t.Fatalf("resend = %d", st)
 	}
-	_ = w.pool.QueryRow(w.ctx, `SELECT count(*) FROM email_verifications v JOIN users u ON u.id = v.user_id WHERE u.email = $1`, reg).Scan(&after)
+	after := verificationRows(2)
 	if before != 1 || after != 2 {
 		t.Fatalf("verification rows %d then %d; want the initial one, then a resend", before, after)
 	}

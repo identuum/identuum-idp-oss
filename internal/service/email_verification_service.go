@@ -95,6 +95,20 @@ type EmailVerificationService struct {
 	now       func() time.Time
 	tokenSize int
 	ttl       time.Duration
+	// background runs the account-dependent part of a resend after the
+	// response; nil runs it inline.
+	background BackgroundRunner
+}
+
+// WithBackground hands the account-dependent part of ResendVerification to run,
+// so the response does not wait for it (nor reveal, by its timing, whether the
+// address has an unverified account). Nil runs it inline.
+func (s *EmailVerificationService) WithBackground(run BackgroundRunner) *EmailVerificationService {
+	if s == nil {
+		return nil
+	}
+	s.background = run
+	return s
 }
 
 // EmailVerificationServiceOptions wires the optional knobs.
@@ -213,6 +227,16 @@ func (s *EmailVerificationService) ResendVerification(ctx context.Context, email
 		s.logger.Warn("email_verification: lookup failure", zap.Error(err))
 		return nil
 	}
+	// Everything past the lookup depends on an unverified account existing, so
+	// it runs after the response: the response time must not say whether the
+	// address has one.
+	runWith(s.background, ctx, func(ctx context.Context) { s.issueResends(ctx, users) })
+	return nil
+}
+
+// issueResends issues one token, one email and one audit event per unverified
+// live account.
+func (s *EmailVerificationService) issueResends(ctx context.Context, users []*domain.User) {
 	for _, user := range users {
 		if user == nil || user.DeletedAt != nil || user.Banned || user.EmailVerified {
 			continue
@@ -255,7 +279,6 @@ func (s *EmailVerificationService) ResendVerification(ctx context.Context, email
 			OrganizationID: user.OrganizationID,
 		})
 	}
-	return nil
 }
 
 // IssueInitialVerification is a sibling helper for first-time email

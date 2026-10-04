@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 )
@@ -75,7 +76,24 @@ type RegistrationServiceConfig struct {
 	Logger         *zap.Logger
 }
 
-type RegistrationService struct{ cfg RegistrationServiceConfig }
+type RegistrationService struct {
+	cfg RegistrationServiceConfig
+	// background runs the mail and the work an existing address skips after
+	// the response; nil runs them inline.
+	background BackgroundRunner
+}
+
+// WithBackground moves the mails of Register off the request path and makes the
+// existing-address answer spend the hashing time a new account's does, so the
+// response time does not say which addresses have accounts. Nil runs the mails
+// inline.
+func (s *RegistrationService) WithBackground(run BackgroundRunner) *RegistrationService {
+	if s == nil {
+		return nil
+	}
+	s.background = run
+	return s
+}
 
 func NewRegistrationService(cfg RegistrationServiceConfig) *RegistrationService {
 	if cfg.Audit == nil {
@@ -256,11 +274,18 @@ func (s *RegistrationService) Register(ctx context.Context, slug string, in Regi
 		}
 	}
 	if live > 0 {
-		if s.cfg.Notifier != nil {
-			if err := s.cfg.Notifier.SendRegistrationNoticeEmail(ctx, email, org.Name); err != nil && !errors.Is(err, ErrEmailDeliveryNotConfigured) {
-				s.cfg.Logger.Warn("registration: notice email failed", zap.String("organization_id", org.ID.String()), zap.Error(err))
+		// A taken address answers like a new one: it spends the hashing time a
+		// new account's password does, and its mail goes out after the
+		// response, so the response time does not say which addresses have
+		// accounts.
+		_ = crypto.CompareHashAndPassword([]byte(crypto.DummyPasswordHash()), []byte(in.Password))
+		runWith(s.background, ctx, func(ctx context.Context) {
+			if s.cfg.Notifier != nil {
+				if err := s.cfg.Notifier.SendRegistrationNoticeEmail(ctx, email, org.Name); err != nil && !errors.Is(err, ErrEmailDeliveryNotConfigured) {
+					s.cfg.Logger.Warn("registration: notice email failed", zap.String("organization_id", org.ID.String()), zap.Error(err))
+				}
 			}
-		}
+		})
 		return refused("existing_email", org.ID)
 	}
 	complexity := org.PasswordComplexityEnabled
@@ -282,9 +307,13 @@ func (s *RegistrationService) Register(ctx context.Context, slug string, in Regi
 		return refused("state_failed", org.ID)
 	}
 	if set.VerifyEmail && s.cfg.Verifier != nil {
-		if _, err := s.cfg.Verifier.IssueInitialVerification(ctx, user); err != nil {
-			s.cfg.Logger.Warn("registration: verification not issued", zap.String("user_id", user.ID.String()), zap.Error(err))
-		}
+		// Its mail goes out after the response too, so a new address does not
+		// answer slower than a taken one by the length of a send.
+		runWith(s.background, ctx, func(ctx context.Context) {
+			if _, err := s.cfg.Verifier.IssueInitialVerification(ctx, user); err != nil {
+				s.cfg.Logger.Warn("registration: verification not issued", zap.String("user_id", user.ID.String()), zap.Error(err))
+			}
+		})
 	}
 	_ = s.cfg.Audit.Record(ctx, audit.Event{Action: "user.self_registered", Outcome: "success", ActorID: user.ID, ActorType: "user",
 		ActorEmail: email, ActorRole: string(domain.RoleOrgUser), SubjectID: user.ID, SubjectType: "user", SubjectEmail: email,

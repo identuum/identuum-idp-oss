@@ -132,6 +132,16 @@ follows [Semantic Versioning](https://semver.org/).
   - A sign-in for an email with no account compares against a dummy hash with
     the same Argon2id cost as a real one (it used 2 lanes against 4), so the
     response time no longer tells whether an account exists.
+- **Password reset, verification resend and self-registration no longer show,
+  by their response time, whether an address has an account.** The token, the
+  mail and the audit row of a reset or a resend are produced after the response
+  (a mail send took tens to hundreds of milliseconds only when the account
+  existed). A self-registration for a taken address spends the hashing time a
+  new account's password does, and the mails of both go out after the response.
+  The mail therefore arrives a moment after the `200` or `202`, and a failed
+  send is logged, not seen by the caller (it never was). What still differs
+  between a new and a taken address is a few database writes, a millisecond or
+  two.
 
 ## `v0.9.3`
 

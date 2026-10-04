@@ -136,6 +136,9 @@ type PasswordResetService struct {
 	now           func() time.Time
 	tokenSize     int
 	ttl           time.Duration
+	// background runs the account-dependent part of a reset request after
+	// the response; nil runs it inline.
+	background BackgroundRunner
 
 	// minPasswordLength is the policy floor applied on consume. The
 	// monolith reads this from the dynamic config; the OSS port
@@ -244,6 +247,17 @@ func (s *PasswordResetService) WithRefreshTokenRevoker(r passwordResetRefreshTok
 	return s
 }
 
+// WithBackground hands the account-dependent part of RequestPasswordReset to
+// run, so the response does not wait for it (nor reveal, by its timing, whether
+// the account exists). Nil runs it inline.
+func (s *PasswordResetService) WithBackground(run BackgroundRunner) *PasswordResetService {
+	if s == nil {
+		return nil
+	}
+	s.background = run
+	return s
+}
+
 // SetHumanFacingBaseURL updates the link prefix used in the
 // password-reset email body. Safe to call at any time; a nil-receiver
 // is a no-op so test fixtures can ignore the seam.
@@ -302,6 +316,15 @@ func (s *PasswordResetService) RequestPasswordReset(
 	if len(users) == 0 {
 		return nil
 	}
+	// Everything past the lookup depends on the account existing (a token
+	// row, an email, an audit event), so it runs after the response: the
+	// response time must not say whether the address has an account.
+	runWith(s.background, ctx, func(ctx context.Context) { s.issueResets(ctx, users, ipAddress, userAgent) })
+	return nil
+}
+
+// issueResets issues one token, one email and one audit event per live account.
+func (s *PasswordResetService) issueResets(ctx context.Context, users []*domain.User, ipAddress, userAgent string) {
 	for _, user := range users {
 		if user == nil || user.DeletedAt != nil || user.Banned {
 			// Skip banned / deleted accounts silently. The wire
@@ -357,7 +380,6 @@ func (s *PasswordResetService) RequestPasswordReset(
 			UserAgent:      userAgent,
 		})
 	}
-	return nil
 }
 
 // ResetPasswordInput captures the call-site values.

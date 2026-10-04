@@ -1316,14 +1316,14 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		HumanFacingBaseURL: linkBaseURL,
 		Audit:              auditSvc,        // L-2
 		Logger:             serviceLogger(), // P3-12
-	}).WithRefreshTokenRevoker(refreshTokenSvc)
+	}).WithRefreshTokenRevoker(refreshTokenSvc).WithBackground(service.RunDetached)
 	emailVerificationSvc := service.NewEmailVerificationService(
 		repos.User,
 		repos.EmailVerification,
 		verifyNotifier,
 		auditSvc, // OSS-SEC: was nil, so resend and verify were never audited
 		service.EmailVerificationServiceOptions{Logger: serviceLogger()}, // P3-12
-	)
+	).WithBackground(service.RunDetached)
 	orgActivationSvc := service.NewOrganizationActivationService(service.OrganizationActivationServiceConfig{
 		Users:     repos.User.(*postgres.PgxUserRepository),
 		Orgs:      repos.Organization,
@@ -1353,7 +1353,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		Repo: repos.Registration, Orgs: repos.Organization, Users: repos.User, Creator: userSvc,
 		Verifier: emailVerificationSvc, Notifier: registrationNotifier, SMTPConfigured: smtpNotifier != nil,
 		Audit: auditSvc, Logger: serviceLogger(),
-	})
+	}).WithBackground(service.RunDetached)
 
 	fmt.Fprintln(r.cfg.Stdout,
 		"identuum-idp: serve: db pool ready; JWKS, /api/v1/keys, /api/v1/clients, /api/v1/api-resources, /api/v1/scope-templates, /api/v1/users, /api/v1/organizations (+ org domains), /api/v1/me/roles + RBAC org/user role routes + password-reset / verify-email / activation / claim lifecycle routes wired with OSS service layer")
