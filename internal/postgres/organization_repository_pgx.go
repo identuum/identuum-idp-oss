@@ -534,6 +534,17 @@ func (r *PgxOrganizationRepository) Delete(ctx context.Context, id uuid.UUID) er
 		return fmt.Errorf("failed to cascade-delete oauth clients: %w", err)
 	}
 
+	// API resources — the same instant, so a restore brings back exactly
+	// these, and their audiences are released (the audience index counts
+	// only resources that are not deleted, migration 0050).
+	_, err = tx.Exec(ctx, `
+		UPDATE api_resources
+		SET deleted_at = $1
+		WHERE org_id = $2 AND deleted_at IS NULL`, now, id)
+	if err != nil {
+		return fmt.Errorf("failed to cascade-delete api resources: %w", err)
+	}
+
 	// P0-3b: proactively REVOKE the org's live long-lived credentials as
 	// defense-in-depth, ATOMIC with the cascade above (any error rolls the
 	// whole tx back via the deferred Rollback). Without this, sessions
@@ -681,6 +692,17 @@ func (r *PgxOrganizationRepository) Undelete(ctx context.Context, id uuid.UUID) 
 		WHERE organization_id = $1 AND deleted_at = $2`, id, *orgDeletedAt)
 	if err != nil {
 		return fmt.Errorf("failed to cascade-undelete oauth clients: %w", err)
+	}
+
+	// API resources — only those whose audience no live resource took while
+	// the organization was deleted; the rest stay deleted.
+	_, err = tx.Exec(ctx, `
+		UPDATE api_resources ar
+		SET deleted_at = NULL
+		WHERE ar.org_id = $1 AND ar.deleted_at = $2
+		  AND NOT EXISTS (SELECT 1 FROM api_resources live WHERE live.audience = ar.audience AND live.deleted_at IS NULL)`, id, *orgDeletedAt)
+	if err != nil {
+		return fmt.Errorf("failed to cascade-undelete api resources: %w", err)
 	}
 
 	// Finally undelete the organization

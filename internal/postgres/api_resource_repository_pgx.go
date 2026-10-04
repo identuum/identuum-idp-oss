@@ -145,7 +145,7 @@ func (r *PgxAPIResourceRepository) fetchScopes(ctx context.Context, res *domain.
 }
 
 func (r *PgxAPIResourceRepository) GetByID(ctx context.Context, id uuid.UUID, orgID *uuid.UUID) (*domain.APIResource, error) {
-	query := `SELECT id, org_id, name, audience, active, token_ttl_secs, resource_secret_hash, created_at, updated_at FROM api_resources WHERE id = $1`
+	query := `SELECT id, org_id, name, audience, active, token_ttl_secs, resource_secret_hash, created_at, updated_at FROM api_resources WHERE id = $1 AND deleted_at IS NULL`
 	var row pgx.Row
 	if orgID != nil {
 		query += ` AND org_id = $2`
@@ -172,12 +172,12 @@ func (r *PgxAPIResourceRepository) GetByAudienceGlobal(ctx context.Context, audi
 	// An API resource whose parent organization is not operational MUST NOT
 	// authenticate — tenant deletion is an authentication boundary. The org
 	// predicate mirrors domain.Organization.IsOperational() (deleted_at IS
-	// NULL AND active). NOTE: api_resources has no deleted_at column today,
-	// so row-level soft-delete + an org-delete cascade for api_resources are
-	// deferred to the org-delete cascade slice (reported, not implemented).
+	// NULL AND active). A deleted resource (the organization delete cascades
+	// to it, migration 0050) never answers: its audience may already belong
+	// to another organization.
 	query := `SELECT id, org_id, name, audience, active, token_ttl_secs, resource_secret_hash, created_at, updated_at
 		FROM api_resources ar
-		WHERE ar.audience = $1
+		WHERE ar.audience = $1 AND ar.deleted_at IS NULL
 		  AND EXISTS (SELECT 1 FROM organizations o WHERE o.id = ar.org_id AND o.deleted_at IS NULL AND o.active)
 		LIMIT 1`
 	res, err := r.scanResourceFast(r.db.QueryRow(ctx, query, audience))
@@ -221,11 +221,11 @@ func (r *PgxAPIResourceRepository) Delete(ctx context.Context, id uuid.UUID, org
 func (r *PgxAPIResourceRepository) List(ctx context.Context, pagination repository.Pagination, orgID *uuid.UUID) ([]*domain.APIResource, int, error) {
 	var totalCount int
 	countQuery := "SELECT COUNT(*) FROM api_resources"
-	whereClause := ""
+	whereClause := " WHERE deleted_at IS NULL"
 	args := []any{}
 
 	if orgID != nil {
-		whereClause = " WHERE org_id = $1"
+		whereClause += " AND org_id = $1"
 		args = append(args, *orgID)
 	}
 

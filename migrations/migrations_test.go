@@ -63,6 +63,7 @@ var expectedOSSFiles = []string{
 	"0047_session_relying_parties.sql",
 	"0048_mfa_proof_failures.sql",
 	"0049_dcr_client_registration_limits.sql",
+	"0050_api_resources_soft_delete.sql",
 }
 
 // excludedCommercialTables is the set of commercial-only table names that
@@ -183,7 +184,7 @@ func TestExactFileSetMatches(t *testing.T) {
 // one was removed without updating it.
 func TestCurrentReturnsLatestMigration(t *testing.T) {
 	got := migrations.Current()
-	want := "0049"
+	want := "0050"
 	if got != want {
 		t.Errorf("Current() = %q, want %q", got, want)
 	}
