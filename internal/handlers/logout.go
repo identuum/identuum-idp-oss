@@ -29,13 +29,33 @@ import (
 // IDTokenVerifier seams are OPTIONAL — without them the slice
 // supports cookie-driven logout only.
 type EndSessionHandlerDeps struct {
-	CookieSession       *service.CookieSessionService
-	UserSession         *service.UserSessionService
-	Clients             ConsentClientLookup
-	IDTokenVerifier     *service.IDTokenVerifier
-	BackchannelDelivery *service.BackchannelLogoutService
-	BrowserTokens       *service.BrowserSessionTokenService
-	Audit               audit.Service
+	CookieSession   *service.CookieSessionService
+	UserSession     *service.UserSessionService
+	Clients         ConsentClientLookup
+	IDTokenVerifier *service.IDTokenVerifier
+	// BackchannelDelivery posts the logout token to a relying party's
+	// back-channel logout endpoint. *service.BackchannelLogoutService
+	// satisfies it; nil disables back-channel delivery.
+	BackchannelDelivery BackchannelDeliverer
+	// SessionRPs names the relying parties that hold an ID token for a
+	// session, so ending it can notify every one of them that registered a
+	// back-channel endpoint, not only the one that asked. Nil notifies only the
+	// client the request names.
+	SessionRPs SessionRelyingParties
+	// Background runs the deliveries after the response; nil runs them inline.
+	Background    service.BackgroundRunner
+	BrowserTokens *service.BrowserSessionTokenService
+	Audit         audit.Service
+}
+
+// BackchannelDeliverer posts a logout token to one relying party.
+type BackchannelDeliverer interface {
+	Deliver(ctx context.Context, in service.DeliverInput) (*service.DeliverResult, error)
+}
+
+// SessionRelyingParties names the relying parties recorded for a session.
+type SessionRelyingParties interface {
+	ClientIDs(ctx context.Context, sessionID uuid.UUID) ([]string, error)
 }
 
 // RegisterEndSessionRoutes mounts GET /api/v1/oidc/logout. The
@@ -185,10 +205,50 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			}
 		}
 		// Phase 3: revoke a bearer-presented session (if any).
+		var bearerSessionID uuid.UUID
 		if principal, ok := mw.PrincipalFromContext(c); ok && principal != nil && principal.SessionID != (domain.Principal{}).SessionID {
+			bearerSessionID = principal.SessionID
 			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), principal.SessionID, "oidc_logout"); rerr != nil {
 				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "bearer-session", rerr)
 				revocationUnconfirmed = true
+			}
+		}
+
+		// Phase 3b: tell the relying parties (OIDC Back-Channel Logout 1.0 §2).
+		// Every relying party recorded for an ended session that registered a
+		// back-channel endpoint gets a logout token, not only the one that
+		// asked. A delivery that fails never stops the others or the logout.
+		notified := map[string]struct{}{}
+		logoutSubject := cookieResolvedUserID
+		if logoutSubject == uuid.Nil && hint != nil {
+			logoutSubject = hint.Subject
+		}
+		if deps.BackchannelDelivery != nil && deps.SessionRPs != nil && deps.Clients != nil {
+			ended := []uuid.UUID{cookieResolvedSessionID, bearerSessionID}
+			if hint != nil {
+				ended = append(ended, hint.SessionID)
+			}
+			for _, sid := range ended {
+				if sid == uuid.Nil {
+					continue
+				}
+				clientIDs, rpErr := deps.SessionRPs.ClientIDs(c.Request.Context(), sid)
+				if rpErr != nil {
+					noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "session-relying-parties", rpErr)
+					continue
+				}
+				for _, cid := range clientIDs {
+					key := cid + "|" + sid.String()
+					if _, done := notified[key]; done {
+						continue
+					}
+					rp, lerr := deps.Clients.GetClientByClientID(c.Request.Context(), cid)
+					if lerr != nil || rp == nil || rp.BackchannelLogoutURI == "" {
+						continue
+					}
+					notified[key] = struct{}{}
+					deliverBackchannelLogout(c, deps, rp, logoutSubject, sid)
+				}
 			}
 		}
 
@@ -230,37 +290,15 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// stamp into the token's sub/sid claims). Errors are
 		// non-fatal — the logout still completes for the user.
 		if deps.BackchannelDelivery != nil && resolvedClient.BackchannelLogoutURI != "" {
-			subject := cookieResolvedUserID
-			if subject == uuid.Nil && hint != nil {
-				subject = hint.Subject
-			}
 			sid := cookieResolvedSessionID
 			if sid == uuid.Nil && hint != nil {
 				sid = hint.SessionID
 			}
-			result, derr := deps.BackchannelDelivery.Deliver(c.Request.Context(), service.DeliverInput{
-				Client:    resolvedClient,
-				Subject:   subject,
-				SessionID: sid,
-			})
-			deliveryStatus := "success"
-			if derr != nil {
-				deliveryStatus = "failed"
+			// The fan-out above already reached it when it was recorded for the
+			// session; only a client it did not reach is delivered to here.
+			if _, done := notified[resolvedClient.ClientID+"|"+sid.String()]; !done {
+				deliverBackchannelLogout(c, deps, resolvedClient, logoutSubject, sid)
 			}
-			meta := map[string]any{
-				"client_id": resolvedClient.ClientID,
-				"status":    deliveryStatus,
-			}
-			if result != nil {
-				meta["http_status"] = result.Status
-			}
-			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-				Action:    "user_session.backchannel_logout.delivered",
-				Outcome:   deliveryStatus,
-				IPAddress: c.ClientIP(),
-				UserAgent: c.Request.UserAgent(),
-				Metadata:  meta,
-			})
 		}
 		location := postLogoutRedirectURI
 		if state != "" {
@@ -283,6 +321,43 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// (X-Identuum-Logout) and in the audit trail.
 		c.Redirect(http.StatusFound, location)
 	}
+}
+
+// deliverBackchannelLogout posts one relying party's logout token, after the
+// response when the handler was given a background runner, and audits the
+// outcome. Its failure is never the user's: the logout has already happened.
+func deliverBackchannelLogout(c *gin.Context, deps EndSessionHandlerDeps, rp *domain.Client, subject, sessionID uuid.UUID) {
+	ip, ua := c.ClientIP(), c.Request.UserAgent()
+	deliver := func(ctx context.Context) {
+		result, derr := deps.BackchannelDelivery.Deliver(ctx, service.DeliverInput{
+			Client:    rp,
+			Subject:   subject,
+			SessionID: sessionID,
+		})
+		deliveryStatus := "success"
+		if derr != nil {
+			deliveryStatus = "failed"
+		}
+		meta := map[string]any{
+			"client_id": rp.ClientID,
+			"status":    deliveryStatus,
+		}
+		if result != nil {
+			meta["http_status"] = result.Status
+		}
+		_ = deps.Audit.Record(ctx, audit.Event{
+			Action:    "user_session.backchannel_logout.delivered",
+			Outcome:   deliveryStatus,
+			IPAddress: ip,
+			UserAgent: ua,
+			Metadata:  meta,
+		})
+	}
+	if deps.Background == nil {
+		deliver(c.Request.Context())
+		return
+	}
+	deps.Background(c.Request.Context(), deliver)
 }
 
 // signedOutPage is the IdP's own landing after RP-initiated logout with no

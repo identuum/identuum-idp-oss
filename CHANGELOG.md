@@ -181,6 +181,17 @@ follows [Semantic Versioning](https://semver.org/).
   the standard `sid` claim (OIDC Front-Channel and Back-Channel Logout), so a
   relying party can match a logout token or a front-channel request to the
   session it holds. The existing `session_id` claim is unchanged.
+- **Back-channel logout reaches every app that holds an ID token for the
+  session.** It reached only the app that asked for the sign-out, and only when
+  that request named a `post_logout_redirect_uri`. Migration `0047` adds
+  `session_relying_parties`; the token endpoint records each (session, app) it
+  issues an ID token for, and `GET /api/v1/oidc/logout` now posts a logout token
+  (with `sub` and `sid`) to every recorded app that registered a
+  `backchannel_logout_uri`, after the response and whether or not a redirect was
+  requested. A delivery that fails is retried by the existing retry driver and
+  never stops the others or the sign-out. Sessions whose tokens were issued
+  before this change have no record and are notified only through the app that
+  asked, as before.
 
 ## `v0.9.3`
 

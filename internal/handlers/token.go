@@ -9,13 +9,21 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"go.uber.org/zap"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/service"
+	"github.com/identuum/identuum-idp-oss/logger"
 )
+
+// SessionRelyingPartyRecorder notes that a relying party was issued an ID token
+// for a session. repository.SessionRelyingPartyRepository satisfies it.
+type SessionRelyingPartyRecorder interface {
+	Record(ctx context.Context, sessionID uuid.UUID, clientID string) error
+}
 
 // SessionByIDLookup is the narrow seam the authorization_code
 // grant consumes to resolve a session_id → *domain.Session so the
@@ -89,6 +97,12 @@ type TokenHandlerDeps struct {
 	// field (omitempty keeps it off the wire); the access flow
 	// remains protocol-correct for plain OAuth 2.0.
 	IDToken *service.IDTokenService
+
+	// SessionRPs, when wired, records that the client was issued an ID token
+	// for the session, so ending the session can notify the client over
+	// back-channel logout (OIDC Back-Channel Logout 1.0 §2). A failure to
+	// record is logged and never fails the token response. Nil records nothing.
+	SessionRPs SessionRelyingPartyRecorder
 
 	// UserSession, when wired, lets the authorization_code grant
 	// mint a `refresh_token` when the consented scope contains
@@ -474,6 +488,12 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 			return nil, service.ErrTokenServiceSigningFailed
 		}
 		resp.IDToken = idt.IDToken
+		if deps.SessionRPs != nil {
+			if recErr := deps.SessionRPs.Record(c.Request.Context(), session.ID, client.ClientID); recErr != nil {
+				logger.ErrorContext(c.Request.Context(), "token: relying party not recorded for back-channel logout",
+					zap.String("client_id", client.ClientID), zap.Error(recErr))
+			}
+		}
 	}
 	// OIDC §11: the offline_access scope SHOULD trigger a refresh
 	// token. Preferred shape (THE-PKCE-DECISION): an OAUTH refresh

@@ -1439,6 +1439,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		HidePublicIDPEmailDomains:           hidePublicIDPEmailDomains,
 		BrowserTokens:                       browserTokenSvc,
 		BackchannelLogoutService:            backchannelLogoutSvc,
+		SessionRelyingParties:               repos.SessionRelyingParty,
 		BackchannelDeliveryAdminService:     backchannelDeliveryAdminSvc,
 		IntrospectionService:                introspectionSvc,
 		OAuthClientAuth:                     oauthClientAuth,

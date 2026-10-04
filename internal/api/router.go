@@ -311,6 +311,13 @@ type OSSRouterDeps struct {
 	// only when this service is wired.
 	BackchannelLogoutService *service.BackchannelLogoutService
 
+	// SessionRelyingParties, when wired, records which relying parties are
+	// issued an ID token for a session (the token endpoint) and names them when
+	// the session ends (the end-session endpoint), so a back-channel logout
+	// reaches every one of them that registered an endpoint, not only the
+	// client that asked.
+	SessionRelyingParties repository.SessionRelyingPartyRepository
+
 	// BackchannelDeliveryAdminService, when wired, mounts the
 	// site_admin-only operator surface at
 	// /api/v1/admin/backchannel-logout-deliveries (list/get/replay).
@@ -1558,7 +1565,13 @@ func mountToken(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.TokenService == nil || resolved.OAuthClientAuth == nil {
 		return
 	}
+	// Nil stays an untyped nil: a typed nil in an interface would read as wired.
+	var relyingParties handlers.SessionRelyingPartyRecorder
+	if resolved.SessionRelyingParties != nil {
+		relyingParties = resolved.SessionRelyingParties
+	}
 	handlers.RegisterTokenRoutes(router, handlers.TokenHandlerDeps{
+		SessionRPs:      relyingParties,
 		TokenService:    resolved.TokenService,
 		ClientAuth:      resolved.OAuthClientAuth,
 		Audit:           resolved.Audit,
@@ -1723,14 +1736,27 @@ func mountEndSession(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.ClientService != nil {
 		clients = resolved.ClientService
 	}
+	// Nil stays an untyped nil: a typed nil in an interface would read as wired.
+	var delivery handlers.BackchannelDeliverer
+	if resolved.BackchannelLogoutService != nil {
+		delivery = resolved.BackchannelLogoutService
+	}
+	var relyingParties handlers.SessionRelyingParties
+	if resolved.SessionRelyingParties != nil {
+		relyingParties = resolved.SessionRelyingParties
+	}
 	handlers.RegisterEndSessionRoutes(router, handlers.EndSessionHandlerDeps{
 		CookieSession:       resolved.CookieSession,
 		UserSession:         resolved.UserSessionService,
 		Clients:             clients,
 		IDTokenVerifier:     resolved.IDTokenVerifier,
-		BackchannelDelivery: resolved.BackchannelLogoutService,
-		BrowserTokens:       resolved.BrowserTokens,
-		Audit:               resolved.Audit,
+		BackchannelDelivery: delivery,
+		SessionRPs:          relyingParties,
+		// The deliveries happen after the response: a slow relying party must
+		// not hold the user's sign-out.
+		Background:    service.RunDetached,
+		BrowserTokens: resolved.BrowserTokens,
+		Audit:         resolved.Audit,
 	})
 }
 

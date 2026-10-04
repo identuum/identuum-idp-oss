@@ -59,6 +59,10 @@ type Repositories struct {
 	AgentCommunicationToken repository.AgentCommunicationTokenRepository
 	// Registration is the self-registration state of migration 0043 (D-021).
 	Registration repository.RegistrationRepository
+	// SessionRelyingParty records which relying parties hold an ID token for a
+	// session (session_relying_parties, migration 0047), so ending a session
+	// can notify all of them.
+	SessionRelyingParty repository.SessionRelyingPartyRepository
 	// Audit is the OSS plain persistent audit log store (L-2). Concrete
 	// type (not an interface) so the runtime can SetRetention on it after
 	// resolving the env override; it satisfies both the persistent
@@ -108,6 +112,7 @@ func NewPgxRepositories(db DBTX, keyCipher PrivateKeyCipher) *Repositories {
 		WebAuthnCredential:              NewPgxWebAuthnCredentialRepository(db),
 		EmailVerification:               NewPgxEmailVerificationRepository(db),
 		Registration:                    NewPgRegistrationRepository(db),
+		SessionRelyingParty:             NewPgxSessionRelyingPartyRepository(db),
 		UserProfile:                     NewPgxUserProfileRepository(db),
 		AgentCommunicationAuthorization: NewPgxAgentCommunicationAuthorizationRepository(db),
 		DPoPProofReplay:                 NewPgxDPoPProofReplayRepository(db),

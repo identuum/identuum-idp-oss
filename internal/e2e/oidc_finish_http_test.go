@@ -18,6 +18,7 @@
 package e2e
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -178,11 +179,31 @@ func TestE2E_OSS_OIDCFinish(t *testing.T) {
 	}
 	var tok struct {
 		AccessToken string `json:"access_token"`
+		IDToken     string `json:"id_token"`
 	}
 	_ = json.NewDecoder(tres.Body).Decode(&tok)
 	_ = tres.Body.Close()
 	if tres.StatusCode != http.StatusOK || tok.AccessToken == "" {
 		t.Errorf("token exchange for the first-party code = %d; want 200 with an access token", tres.StatusCode)
+	}
+	// Back-channel logout: the ID token names its session by sid, and the
+	// session is recorded as having been issued to this client, so ending it
+	// can notify the client.
+	var recordedSession string
+	if err := db.QueryRow(w.ctx, `SELECT session_id::text FROM session_relying_parties WHERE client_id = $1`, fp.Client.ClientID).Scan(&recordedSession); err != nil {
+		t.Errorf("session_relying_parties row for the first-party client: %v; want one", err)
+	}
+	if parts := strings.Split(tok.IDToken, "."); len(parts) == 3 {
+		payload, _ := base64.RawURLEncoding.DecodeString(parts[1])
+		var claims struct {
+			Sid string `json:"sid"`
+		}
+		_ = json.Unmarshal(payload, &claims)
+		if claims.Sid == "" || claims.Sid != recordedSession {
+			t.Errorf("id_token sid does not match the session recorded for the client (sid present: %v)", claims.Sid != "")
+		}
+	} else {
+		t.Errorf("token response carried no id_token")
 	}
 	var skipped string
 	if err := db.QueryRow(w.ctx, `SELECT coalesce(metadata->>'consent_skipped', '') FROM audit_events WHERE event_type = 'oauth_authorize.code_issued' AND metadata->>'client_id' = $1`, fp.Client.ClientID).Scan(&skipped); err != nil || skipped != "true" {
