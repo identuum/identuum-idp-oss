@@ -5,7 +5,14 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.4`
+
+identuum-ui `0e428ce` embedded (`v0.9.3` embedded `9cfd09b`): the
+authenticator-code field and the "Skips consent" badge for first-party apps,
+and the recent-sign-in message for account passkeys. The delta since
+`v0.9.3` (`git rev-list --count`, measured at `fc5b4cc`, before the notes
+commit) is 40 commits, 173 files, +7433/−298. Four migrations (`0044` to
+`0047`), and the endpoint count stays 157.
 
 - **Users sign in only to apps of their own organization** (D-027).
   `/authorize` issues a code only when the app belongs to the signing-in
