@@ -108,6 +108,17 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "D-026: set only by dcr.go at registration (true); never client-settable on the console wire, so an org_admin cannot make a dynamically registered app look console-created or the reverse.",
 	},
+	// RFC 7591 grant_types is stored by dynamic registration and enforced at the
+	// token endpoint. A console app has no such registration and stays
+	// unrestricted (empty), as it always was; the console has no surface for it.
+	"internal/handlers/clients.go:HandleCreateClient.RegisterClientOptions.GrantTypes": {
+		State: "absent",
+		Why:   "grant_types is the RFC 7591 registration metadata, set by dcr.go; a console app is unrestricted (empty) by design and the console has no surface to restrict it.",
+	},
+	"internal/handlers/clients.go:HandleUpdateClient.UpdateClientOptions.GrantTypes": {
+		State: "absent",
+		Why:   "grant_types is changed only through RFC 7592 management (dcr_management.go); the console update leaves a client's registered grant types alone.",
+	},
 
 	// ── OSS-ONBOARD-A (D-016): the invite branch of POST /api/v1/users ──
 	// The invite literal is built only when the bound password is EMPTY

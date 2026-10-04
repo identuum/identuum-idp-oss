@@ -194,7 +194,8 @@ func HandleDCRManagementPut(deps DCRManagementHandlerDeps) gin.HandlerFunc {
 		// Validate the request-supplied allow-list values BEFORE
 		// dispatching to the service so the metadata error is
 		// distinguishable from a service-layer rejection.
-		if _, ok := normalizeAllowedSet(req.GrantTypes, dcrAllowedGrantTypes); !ok {
+		grantTypes, ok := normalizeAllowedSet(req.GrantTypes, dcrAllowedGrantTypes)
+		if !ok {
 			respondDCRError(c, http.StatusBadRequest, "invalid_client_metadata", "grant_types contains an unsupported value")
 			return
 		}
@@ -215,7 +216,7 @@ func HandleDCRManagementPut(deps DCRManagementHandlerDeps) gin.HandlerFunc {
 				return
 			}
 		}
-		opts := service.UpdateClientOptions{}
+		opts := service.UpdateClientOptions{GrantTypes: grantTypes}
 		// THE-SILENT-DROP: the wire already distinguished absent from
 		// supplied-blank here, and this flattened it into a plain string so
 		// the service could not — a supplied "" became indistinguishable
@@ -432,5 +433,6 @@ func buildDCRReadResponse(client *domain.Client) dcrResponse {
 		BackchannelLogoutURI:              client.BackchannelLogoutURI,
 		BackchannelLogoutSessionRequired:  client.BackchannelLogoutSessionRequired,
 		IDTokenSignedResponseAlg:          client.IDTokenSignedResponseAlg,
+		GrantTypes:                        client.GrantTypes,
 	}
 }

@@ -365,6 +365,7 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 			Scope:                             req.Scope,
 			IsPublic:                          isPublic,
 			DynamicallyRegistered:             true,
+			GrantTypes:                        registeredGrantTypes(grantTypes),
 			TokenEndpointAuthMethod:           req.TokenEndpointAuthMethod,
 			TokenEndpointAuthSigningAlg:       req.TokenEndpointAuthSigningAlg,
 			JWKSUri:                           req.JWKSUri,
@@ -409,7 +410,7 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 			ClientName:                        client.Name,
 			RedirectURIs:                      client.RedirectURIs,
 			PostLogoutRedirectURIs:            client.PostLogoutRedirectURIs,
-			GrantTypes:                        grantTypes,
+			GrantTypes:                        client.GrantTypes,
 			ResponseTypes:                     responseTypes,
 			TokenEndpointAuthMethod:           client.TokenEndpointAuthMethod,
 			TokenEndpointAuthSigningAlg:       client.TokenEndpointAuthSigningAlg,
@@ -479,6 +480,15 @@ func respondDCRError(c *gin.Context, status int, code, desc string) {
 
 // normalizeAllowedSet validates that every entry in `in` is a
 // member of `allowed` and returns a sorted, de-duplicated copy.
+// registeredGrantTypes is what a registration records: the grant types it asked
+// for, or authorization_code (RFC 7591 §2) when it asked for none.
+func registeredGrantTypes(asked []string) []string {
+	if len(asked) == 0 {
+		return []string{"authorization_code"}
+	}
+	return asked
+}
+
 func normalizeAllowedSet(in []string, allowed map[string]struct{}) ([]string, bool) {
 	if len(in) == 0 {
 		return nil, true

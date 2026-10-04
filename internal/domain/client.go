@@ -260,9 +260,16 @@ type Client struct {
 	RedirectURIs                []string
 	PostLogoutRedirectURIs      []string
 	AllowedAudiences            []string
-	ID                          uuid.UUID
-	IsPublic                    bool
-	SkipConsent                 bool
+	// GrantTypes is the set of grant types this client may use at the token
+	// endpoint (RFC 7591 grant_types): authorization_code, refresh_token,
+	// client_credentials. Empty means unrestricted, which is what an app
+	// created in the console, and every app registered before this field
+	// existed, has; an app registered through DCR carries what it asked for
+	// (authorization_code when it asked for nothing).
+	GrantTypes  []string
+	ID          uuid.UUID
+	IsPublic    bool
+	SkipConsent bool
 	// DynamicallyRegistered is true for an app created through dynamic client
 	// registration (RFC 7591) rather than by an org_admin in the console. It is
 	// set once, at creation, and never changes (D-026: such an app never skips

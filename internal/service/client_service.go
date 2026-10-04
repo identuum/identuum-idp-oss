@@ -81,8 +81,11 @@ type RegisterClientOptions struct {
 	RedirectURIs           []string
 	PostLogoutRedirectURIs []string
 	AllowedAudiences       []string
-	Scope                  string
-	IsPublic               bool
+	// GrantTypes are the grant types the client registered (RFC 7591); empty
+	// leaves it unrestricted. Dynamic registration always sets them.
+	GrantTypes []string
+	Scope      string
+	IsPublic   bool
 	// SkipConsent marks a first-party client (D-018(b)); Client.Validate
 	// refuses it for a public client.
 	SkipConsent bool
@@ -131,12 +134,14 @@ type UpdateClientOptions struct {
 	//                                         DEFAULT for a blank, so "clearing"
 	//                                         would store client_secret_basic /
 	//                                         EdDSA without the caller asking
-	Name                        *string
-	Scope                       *string
-	ServiceAccountID            *uuid.UUID
-	RedirectURIs                []string
-	PostLogoutRedirectURIs      []string
-	AllowedAudiences            []string
+	Name                   *string
+	Scope                  *string
+	ServiceAccountID       *uuid.UUID
+	RedirectURIs           []string
+	PostLogoutRedirectURIs []string
+	AllowedAudiences       []string
+	// GrantTypes replaces the registered grant types when supplied (RFC 7592).
+	GrantTypes                  []string
 	TokenEndpointAuthMethod     *string
 	TokenEndpointAuthSigningAlg *string
 	JWKSUri                     *string
@@ -295,6 +300,7 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 		RedirectURIs:                      opts.RedirectURIs,
 		PostLogoutRedirectURIs:            opts.PostLogoutRedirectURIs,
 		AllowedAudiences:                  opts.AllowedAudiences,
+		GrantTypes:                        opts.GrantTypes,
 		TokenEndpointAuthMethod:           opts.TokenEndpointAuthMethod,
 		TokenEndpointAuthSigningAlg:       opts.TokenEndpointAuthSigningAlg,
 		JWKSUri:                           opts.JWKSUri,
@@ -355,6 +361,9 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 	}
 	if opts.PostLogoutRedirectURIs != nil {
 		client.PostLogoutRedirectURIs = opts.PostLogoutRedirectURIs
+	}
+	if opts.GrantTypes != nil {
+		client.GrantTypes = opts.GrantTypes
 	}
 	if opts.AllowedAudiences != nil {
 		client.AllowedAudiences = opts.AllowedAudiences

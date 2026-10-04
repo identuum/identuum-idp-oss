@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -111,12 +112,26 @@ type AuthenticatedClient struct {
 	// client_credentials request for an API resource must name one of them
 	// (H8). Populated on the oauth_client path; nil on the api_resource path.
 	AllowedAudiences []string
+	// GrantTypes is the client's registered grant_types; empty means
+	// unrestricted (see domain.Client.GrantTypes). Populated on the oauth_client
+	// path; nil on the api_resource path.
+	GrantTypes []string
 	// IDTokenAlg is the client's effective id_token_signed_response_alg
 	// (Client.EffectiveIDTokenAlg — default "EdDSA"). Empty on the
 	// api_resource path, which never receives id_tokens. RS256 lands
 	// here only via the client's explicit registration —
 	// testing-only, never the issuer default (THE-PKCE-DECISION).
 	IDTokenAlg string
+}
+
+// AllowsGrant reports whether the client may use grantType at the token
+// endpoint: always when it registered no grant types, otherwise only for the
+// ones it registered.
+func (c *AuthenticatedClient) AllowsGrant(grantType string) bool {
+	if c == nil || len(c.GrantTypes) == 0 {
+		return true
+	}
+	return slices.Contains(c.GrantTypes, grantType)
 }
 
 // AuthenticatedClientKind disambiguates client vs api-resource
@@ -173,6 +188,7 @@ func (s *OAuthClientAuthService) Authenticate(ctx context.Context, clientID, cli
 			IDTokenAlg:   c.EffectiveIDTokenAlg(),
 			// H8: the registered allowed audiences, read by client_credentials.
 			AllowedAudiences: c.AllowedAudiences,
+			GrantTypes:       c.GrantTypes,
 		}
 		if c.OrganizationID != nil {
 			out.OrganizationID = *c.OrganizationID
@@ -267,6 +283,7 @@ func (s *OAuthClientAuthService) AuthenticateAssertion(ctx context.Context, clie
 		IDTokenAlg:   client.EffectiveIDTokenAlg(),
 		// H8: the registered allowed audiences, read by client_credentials.
 		AllowedAudiences: client.AllowedAudiences,
+		GrantTypes:       client.GrantTypes,
 	}
 	if client.OrganizationID != nil {
 		out.OrganizationID = *client.OrganizationID

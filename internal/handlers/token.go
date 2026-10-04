@@ -188,6 +188,12 @@ func HandleToken(deps TokenHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		grantType := c.PostForm("grant_type")
+		// RFC 7591: a client uses only the grant types it registered. One that
+		// registered none is unrestricted.
+		if !client.AllowsGrant(grantType) {
+			emitTokenError(c, service.ErrTokenServiceUnauthorizedClient)
+			return
+		}
 		var (
 			resp *service.TokenResponse
 			err  error

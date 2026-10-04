@@ -167,6 +167,16 @@ follows [Semantic Versioning](https://semver.org/).
   page, which runs one script, allows exactly that script by a per-response
   nonce and calls back only to its own origin. The JSON API and the embedded
   console keep the engine-wide policy.
+- **The grant types an app registers are stored and enforced** (RFC 7591).
+  `POST /api/v1/oauth/register` echoed `grant_types` but kept nothing, so an app
+  registered for `authorization_code` could still ask for a `client_credentials`
+  or `refresh_token` token. Migration `0046` adds `oauth_clients.grant_types`;
+  a registration now records what it asked for (`authorization_code` when it
+  asked for nothing), the RFC 7592 read returns it and the update can change it,
+  and the token endpoint answers `unauthorized_client` for a grant outside the
+  set. **An app that needs refresh tokens must now register `refresh_token`.**
+  Apps created in the console, and every app registered before this change,
+  carry no set and stay unrestricted.
 
 ## `v0.9.3`
 
