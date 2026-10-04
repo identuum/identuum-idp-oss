@@ -55,7 +55,13 @@ IPv4 is the default everywhere; IPv6 is supported and opt-in.
 - **Behind a reverse proxy**, list the proxy in `IDENTUUM_IDP_TRUSTED_PROXIES`
   — IPv4 and IPv6 addresses or CIDRs, comma-separated, e.g.
   `10.0.0.0/8,2001:db8:1::/48`. Only a listed proxy's `X-Forwarded-For` is
-  honoured; unset, none is.
+  honoured; unset, none is. A proxy you forget to list is not a silent
+  failure: the first request that arrives from it with an `X-Forwarded-For`
+  header logs one `forwarded_header_ignored` warning naming its address. Left
+  unlisted, every user shares the proxy's address, so the per-address limits
+  and the sign-in lockout (ten different accounts failing from one address in
+  fifteen minutes lock sign-in for that address until the window passes) count
+  all of them together.
 - **Over IPv6 nothing degrades.** The audit log and sessions record the IPv6
   address. Rate limits and the sign-in lockout count an IPv6 client by its
   `/64`, so rotating addresses inside one `/64` does not escape a limit; an

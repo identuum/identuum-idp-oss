@@ -192,6 +192,14 @@ follows [Semantic Versioning](https://semver.org/).
   never stops the others or the sign-out. Sessions whose tokens were issued
   before this change have no record and are notified only through the app that
   asked, as before.
+- **A reverse proxy that is not listed as trusted is now reported.** The default
+  of trusting no proxy is right against a forged `X-Forwarded-For`, but behind a
+  proxy the operator did not list every user shares the proxy's address, so the
+  per-address limits and the sign-in lockout (ten different accounts failing
+  from one address in fifteen minutes) count them all together. The first
+  request from such a peer that carries a forwarding header now logs one
+  `forwarded_header_ignored` warning naming the peer (at most 64 peers), and the
+  operator guide says what the lockout does. The lockout itself is unchanged.
 
 ## `v0.9.3`
 
