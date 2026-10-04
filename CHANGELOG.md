@@ -12,6 +12,9 @@ follows [Semantic Versioning](https://semver.org/).
   user's organization; an app of another organization answers like an
   unknown client. An app with no organization (registered by the site
   administrator) stays available to every organization.
+- **`/authorize` and the consent page act only for a browser session.** A
+  bearer access token no longer drives them (it gets the sign-in page); the
+  person at the browser decides what an app is granted.
 - **A token issued to an app is not a credential for the IdP's own API.** A
   user token minted for an app (it carries the app's `client_id`) is still
   accepted by `userinfo` and token introspection, and no longer by the

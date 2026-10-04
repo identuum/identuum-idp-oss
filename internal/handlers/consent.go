@@ -13,7 +13,6 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
-	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -245,7 +244,7 @@ func handleConsentDeny(c *gin.Context, deps ConsentHandlerDeps, req service.Auth
 // resolveConsentPrincipal mirrors the /authorize handler's bearer-
 // then-cookie resolution but returns a *domain.Principal directly.
 func resolveConsentPrincipal(c *gin.Context, cookie *service.CookieSessionService) (*domain.Principal, error) {
-	if p, ok := mw.PrincipalFromContext(c); ok {
+	if p := browserPrincipal(c); p != nil {
 		return p, nil
 	}
 	if cookie == nil {

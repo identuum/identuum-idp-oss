@@ -33,6 +33,19 @@ func principalFromCookieSession(r *service.CookieSessionLookupResult) *domain.Pr
 	}
 }
 
+// browserPrincipal returns the principal already on the request context only
+// when it did not come from a bearer token (H2). The bearer middleware stamps
+// every principal it builds with the token's jti; a browser-session principal
+// carries none. Authorization and consent are decisions of the person at the
+// browser: a bearer token, whoever holds it, never drives them.
+func browserPrincipal(c *gin.Context) *domain.Principal {
+	p, ok := mw.PrincipalFromContext(c)
+	if !ok || p == nil || p.TokenID != "" {
+		return nil
+	}
+	return p
+}
+
 // AuthorizeHandlerDeps wires the OSS GET /api/v1/oauth/authorize
 // route.
 //
@@ -123,7 +136,7 @@ func RegisterAuthorizeRoutes(router gin.IRouter, deps AuthorizeHandlerDeps) {
 // once and surfaces only in the Location header.
 func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		principal, _ := mw.PrincipalFromContext(c)
+		principal := browserPrincipal(c)
 		if principal == nil && deps.CookieSession != nil {
 			if cookieVal, ok := deps.CookieSession.Read(c.Request); ok {
 				resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal)

@@ -134,11 +134,18 @@ func TestE2E_OSS_OIDCFinish(t *testing.T) {
 	// the third-party client is sent to consent.
 	const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
 	noRedirect := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	authorize := func(clientID string) *url.URL {
+	// H2: /authorize acts for a browser session. A bearer access token alone
+	// does not drive it.
+	browser := w.browserSession("userA")
+	authorizeAs := func(clientID string, bearer string) *url.URL {
 		q := url.Values{"response_type": {"code"}, "client_id": {clientID}, "redirect_uri": {cb}, "scope": {"openid"}, "state": {"s-" + uuid.NewString()},
 			"code_challenge": {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"}, "code_challenge_method": {"S256"}}
 		req, _ := http.NewRequest(http.MethodGet, w.base+"/api/v1/oauth/authorize?"+q.Encode(), nil)
-		req.Header.Set("Authorization", "Bearer "+w.bearers["userA"])
+		if bearer != "" {
+			req.Header.Set("Authorization", "Bearer "+bearer)
+		} else {
+			req.AddCookie(&http.Cookie{Name: browserSessionCookieName, Value: browser})
+		}
 		res, err := noRedirect.Do(req)
 		if err != nil {
 			t.Fatalf("authorize: %v", err)
@@ -149,6 +156,10 @@ func TestE2E_OSS_OIDCFinish(t *testing.T) {
 			t.Fatalf("authorize %s = %d; want 302", clientID[:6], res.StatusCode)
 		}
 		return loc
+	}
+	authorize := func(clientID string) *url.URL { return authorizeAs(clientID, "") }
+	if loc := authorizeAs(fp.Client.ClientID, w.bearers["userA"]); strings.HasPrefix(loc.String(), cb) || loc.Query().Get("code") != "" {
+		t.Errorf("a bearer token alone minted a code at /authorize; want the sign-in page")
 	}
 	loc := authorize(fp.Client.ClientID)
 	code := loc.Query().Get("code")
