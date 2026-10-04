@@ -110,6 +110,19 @@ var (
 // responsible for ensuring the hint does not leak into wire
 // responses, audit metadata, or error bodies.
 func (v *IDTokenVerifier) Verify(ctx context.Context, raw string) (*VerifiedIDTokenHint, error) {
+	return v.verify(ctx, raw, false)
+}
+
+// VerifyForLogout is Verify for an id_token_hint presented to END a session:
+// the signature, algorithm, key and issuer are verified exactly as Verify does,
+// but the token's lifetime is not held against it. OIDC RP-Initiated Logout 1.0
+// §2 has the OP accept a hint whose exp has passed, because the person is
+// logging out precisely because they have been away.
+func (v *IDTokenVerifier) VerifyForLogout(ctx context.Context, raw string) (*VerifiedIDTokenHint, error) {
+	return v.verify(ctx, raw, true)
+}
+
+func (v *IDTokenVerifier) verify(ctx context.Context, raw string, ignoreLifetime bool) (*VerifiedIDTokenHint, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, ErrIDTokenHintMalformed
 	}
@@ -157,7 +170,13 @@ func (v *IDTokenVerifier) Verify(ctx context.Context, raw string) (*VerifiedIDTo
 	}
 
 	claims := jwt.MapClaims{}
-	parser := jwt.NewParser(jwt.WithValidMethods([]string{"EdDSA", "ES256"}))
+	parserOpts := []jwt.ParserOption{jwt.WithValidMethods([]string{"EdDSA", "ES256"})}
+	if ignoreLifetime {
+		// Signature, algorithm and key are still checked by the parse; only
+		// the time-based claims (exp, nbf, iat) are not validated.
+		parserOpts = append(parserOpts, jwt.WithoutClaimsValidation())
+	}
+	parser := jwt.NewParser(parserOpts...)
 	tok, err := parser.ParseWithClaims(raw, claims, keyFunc)
 	if err != nil || tok == nil || !tok.Valid {
 		switch {

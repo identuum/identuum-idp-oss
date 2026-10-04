@@ -88,7 +88,9 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		//     "if both, they must match" rule.
 		var hint *service.VerifiedIDTokenHint
 		if deps.IDTokenVerifier != nil && idTokenHint != "" {
-			verified, err := deps.IDTokenVerifier.Verify(c.Request.Context(), idTokenHint)
+			// An expired hint is accepted (RP-Initiated Logout 1.0 §2): the
+			// signature and issuer are still verified.
+			verified, err := deps.IDTokenVerifier.VerifyForLogout(c.Request.Context(), idTokenHint)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{
 					"error":             "invalid_request",

@@ -36,6 +36,9 @@ follows [Semantic Versioning](https://semver.org/).
   account, letting it expire, or deactivating or deleting its organization now
   stops its tokens at the next request instead of at the token's expiry
   (`401`; `503` when the check cannot run).
+- **Sign-out accepts an expired `id_token_hint`.** The signature and issuer are
+  still verified; only the token's lifetime is no longer held against a hint
+  used to end a session (OIDC RP-Initiated Logout 1.0 §2).
 - **A presence-only passkey no longer earns the phishing-resistant level.** The
   passkey step-up asks the authenticator to verify the user and refuses an
   assertion in which it did not (`401 user_verification_required`, no uplift);
