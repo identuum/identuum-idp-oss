@@ -21,7 +21,9 @@ import (
 
 // H6: a passkey is a lasting sign-in factor, so adding or removing one needs a
 // RECENT sign-in — the session's creation, or its last step-up, inside the
-// window. A stolen or long-idle session cannot plant one.
+// window (ten minutes by default). A stolen or long-idle session cannot plant
+// one. The tests use ages far from the boundary (a minute, an hour) so they
+// need no clock seam.
 
 type fixedSessionLookup struct {
 	session *domain.Session
@@ -32,9 +34,8 @@ func (f fixedSessionLookup) GetByID(context.Context, uuid.UUID) (*domain.Session
 	return f.session, f.err
 }
 
-func passkeyReauthFixture(t *testing.T, lookup SessionByIDLookup, sessionID uuid.UUID) (*gin.Engine, time.Time) {
+func passkeyReauthEngine(t *testing.T, lookup SessionByIDLookup, sessionID uuid.UUID) *gin.Engine {
 	t.Helper()
-	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	user := newWebAuthnTestUser(uuid.New())
 	svc, err := service.NewWebAuthnService(service.WebAuthnServiceConfig{
 		BaseURL:     "https://idp.example.test",
@@ -45,7 +46,7 @@ func passkeyReauthFixture(t *testing.T, lookup SessionByIDLookup, sessionID uuid
 	require.NoError(t, err)
 	deps := WebAuthnHandlerDeps{
 		WebAuthn: svc, UserLookup: newFakeWebAuthnUserLookup(user), Audit: audit.NoopService{},
-		SessionLookup: lookup, Now: func() time.Time { return now },
+		SessionLookup: lookup,
 	}
 	p := principalForUser(user)
 	p.SessionID = sessionID
@@ -54,47 +55,33 @@ func passkeyReauthFixture(t *testing.T, lookup SessionByIDLookup, sessionID uuid
 	r.Use(mw.InjectPrincipalForTest(p))
 	r.POST("/api/v1/webauthn/register/begin", HandleWebAuthnRegisterBegin(deps))
 	r.DELETE("/api/v1/webauthn/credentials/:id", HandleDeleteWebAuthnCredential(deps))
-	return r, now
+	return r
 }
 
 func TestPassKeyAddAndRemoveNeedARecentSignIn(t *testing.T) {
 	sid := uuid.New()
+	ago := func(d time.Duration) *domain.Session { return &domain.Session{CreatedAt: time.Now().Add(-d)} }
 
-	type kase struct {
+	cases := []struct {
 		name         string
-		session      func(now time.Time) *domain.Session
-		lookupErr    error
-		noLookup     bool
-		noSession    bool
+		lookup       SessionByIDLookup
+		sessionID    uuid.UUID
 		wantStatus   int
 		wantErrField string
-	}
-	cases := []kase{
-		{name: "signed in a minute ago", session: func(now time.Time) *domain.Session { return &domain.Session{CreatedAt: now.Add(-time.Minute)} }, wantStatus: http.StatusOK},
-		{name: "signed in an hour ago", session: func(now time.Time) *domain.Session { return &domain.Session{CreatedAt: now.Add(-time.Hour)} }, wantStatus: http.StatusForbidden, wantErrField: "reauth_required"},
-		{name: "an old session stepped up a minute ago", session: func(now time.Time) *domain.Session {
-			up := now.Add(-time.Minute)
-			return &domain.Session{CreatedAt: now.Add(-8 * time.Hour), LastACRUpliftAt: &up}
-		}, wantStatus: http.StatusOK},
-		{name: "no session lookup wired fails closed", noLookup: true, wantStatus: http.StatusForbidden, wantErrField: "reauth_required"},
-		{name: "a principal with no session fails closed", noSession: true, session: func(now time.Time) *domain.Session { return &domain.Session{CreatedAt: now} }, wantStatus: http.StatusForbidden, wantErrField: "reauth_required"},
-		{name: "a session store outage is a 503", lookupErr: errors.New("store down"), wantStatus: http.StatusServiceUnavailable},
+	}{
+		{"signed in a minute ago", fixedSessionLookup{session: ago(time.Minute)}, sid, http.StatusOK, ""},
+		{"signed in an hour ago", fixedSessionLookup{session: ago(time.Hour)}, sid, http.StatusForbidden, "reauth_required"},
+		{"an old session stepped up a minute ago", fixedSessionLookup{session: func() *domain.Session {
+			up := time.Now().Add(-time.Minute)
+			return &domain.Session{CreatedAt: time.Now().Add(-8 * time.Hour), LastACRUpliftAt: &up}
+		}()}, sid, http.StatusOK, ""},
+		{"no session lookup wired fails closed", nil, sid, http.StatusForbidden, "reauth_required"},
+		{"a principal with no session fails closed", fixedSessionLookup{session: ago(time.Second)}, uuid.Nil, http.StatusForbidden, "reauth_required"},
+		{"a session store outage is a 503", fixedSessionLookup{err: errors.New("store down")}, sid, http.StatusServiceUnavailable, ""},
 	}
 	for _, tc := range cases {
 		t.Run("register/begin: "+tc.name, func(t *testing.T) {
-			var lookup SessionByIDLookup
-			if !tc.noLookup {
-				l := fixedSessionLookup{err: tc.lookupErr}
-				lookup = &l
-			}
-			sessionID := sid
-			if tc.noSession {
-				sessionID = uuid.Nil
-			}
-			r, now := passkeyReauthFixture(t, lookup, sessionID)
-			if fl, ok := lookup.(*fixedSessionLookup); ok && tc.session != nil {
-				fl.session = tc.session(now)
-			}
+			r := passkeyReauthEngine(t, tc.lookup, tc.sessionID)
 			rec := webauthnDoJSON(t, r, http.MethodPost, "/api/v1/webauthn/register/begin", nil)
 			assert.Equal(t, tc.wantStatus, rec.Code, rec.Body.String())
 			if tc.wantErrField != "" {
@@ -107,13 +94,12 @@ func TestPassKeyAddAndRemoveNeedARecentSignIn(t *testing.T) {
 	// (there is no such credential, so 404); a stale one never does.
 	t.Run("delete: stale is refused, fresh reaches the service", func(t *testing.T) {
 		credID := uuid.New().String()
-		r, now := passkeyReauthFixture(t, &fixedSessionLookup{session: &domain.Session{CreatedAt: time.Date(2026, 10, 4, 3, 0, 0, 0, time.UTC)}}, sid)
-		_ = now
+		r := passkeyReauthEngine(t, fixedSessionLookup{session: ago(time.Hour)}, sid)
 		rec := webauthnDoJSON(t, r, http.MethodDelete, "/api/v1/webauthn/credentials/"+credID, nil)
 		assert.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 		assert.Contains(t, rec.Body.String(), "reauth_required")
 
-		r, _ = passkeyReauthFixture(t, &fixedSessionLookup{session: &domain.Session{CreatedAt: time.Date(2026, 10, 4, 11, 58, 0, 0, time.UTC)}}, sid)
+		r = passkeyReauthEngine(t, fixedSessionLookup{session: ago(time.Minute)}, sid)
 		rec = webauthnDoJSON(t, r, http.MethodDelete, "/api/v1/webauthn/credentials/"+credID, nil)
 		assert.NotEqual(t, http.StatusForbidden, rec.Code, "a recent sign-in must pass the gate")
 	})

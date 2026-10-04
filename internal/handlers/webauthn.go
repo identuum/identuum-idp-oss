@@ -119,8 +119,6 @@ type WebAuthnHandlerDeps struct {
 	// RecentSignInWindow is how long after a sign-in or step-up a passkey may
 	// be added or removed. Zero means DefaultPassKeyRecentSignIn.
 	RecentSignInWindow time.Duration
-	// Now is the clock for that window; nil means time.Now.
-	Now func() time.Time
 }
 
 // DefaultPassKeyRecentSignIn is how recent a sign-in must be to add or remove a
@@ -159,11 +157,7 @@ func requireRecentSignIn(c *gin.Context, deps WebAuthnHandlerDeps) bool {
 	if window <= 0 {
 		window = DefaultPassKeyRecentSignIn
 	}
-	now := time.Now
-	if deps.Now != nil {
-		now = deps.Now
-	}
-	if now().Sub(session.EffectiveAuthTime()) > window {
+	if time.Since(session.EffectiveAuthTime()) > window {
 		return deny()
 	}
 	return true
