@@ -168,7 +168,7 @@ func run(args []string, out io.Writer) error {
 	// organization with no active org_admin may receive exactly one. The
 	// org_user is then created BY THE ORG ADMIN, because site_admin creating
 	// tenant users is precisely what the authority model forbids.
-	orgAdminID, err := ensureUser(base, bearer, orgAdminEmail, orgAdminPass, "org_admin", orgID)
+	orgAdminID, err := ensureOrgAdminByInvite(base, bearer, orgAdminEmail, orgAdminPass, orgID)
 	if err != nil {
 		return fmt.Errorf("org_admin: %w", err)
 	}
@@ -442,13 +442,54 @@ func findOrganization(base, bearer string) (string, error) {
 	return "", errors.New("seeded organization not found")
 }
 
+// ensureOrgAdminByInvite appoints the FIRST org_admin of the seeded
+// organization the way the authority model allows a site administrator to: by
+// INVITING it (a create with no password) and redeeming the invite with the
+// known test password. Redeeming verifies and activates the account, which a
+// site administrator can no longer do by editing a tenant user (D-025).
+// "Already seeded" (409) is not an error, so re-running the seed is safe.
+func ensureOrgAdminByInvite(base, bearer, email, password, orgID string) (string, error) {
+	body, _ := json.Marshal(map[string]any{"email": email, "role": "org_admin", "organization_id": orgID})
+	status, raw, err := postJSON(base+"/api/v1/users", bearer, body)
+	if err != nil {
+		return "", err
+	}
+	if status == http.StatusConflict {
+		return "", nil // already seeded
+	}
+	if status < 200 || status >= 300 {
+		return "", fmt.Errorf("invite org_admin → %d: %s", status, truncate(raw))
+	}
+	var invited struct {
+		User struct {
+			ID string `json:"id"`
+		} `json:"user"`
+		InviteToken string `json:"invite_token"`
+	}
+	if err := json.Unmarshal(raw, &invited); err != nil || invited.User.ID == "" || invited.InviteToken == "" {
+		return "", fmt.Errorf("the invite answered no user or token: %s", truncate(raw))
+	}
+	redeem, _ := json.Marshal(map[string]string{"token": invited.InviteToken, "password": password})
+	status, raw, err = postJSON(base+"/api/v1/auth/invite", "", redeem)
+	if err != nil {
+		return "", err
+	}
+	if status < 200 || status >= 300 {
+		return "", fmt.Errorf("redeem the org_admin invite → %d: %s", status, truncate(raw))
+	}
+	return invited.User.ID, nil
+}
+
 func ensureUser(base, bearer, email, password, role, orgID string) (string, error) {
 	// organization_id, NOT organization_domain: HandleCreateUser binds
 	// `organization_id uuid.UUID`. types.CreateUserRequest documents an
 	// OrganizationDomain field, but that is not the struct this endpoint
 	// binds — sending the domain leaves the UUID at zero and the create is
 	// refused with a bare 400 "invalid request".
-	payload := map[string]any{"email": email, "password": password, "role": role}
+	// must_change_password false: an admin-set password must otherwise be
+	// changed at first sign-in (D-017), and a seed that exists so a human can
+	// sign in with a documented test password cannot make them do that first.
+	payload := map[string]any{"email": email, "password": password, "role": role, "must_change_password": false}
 	if orgID != "" {
 		payload["organization_id"] = orgID
 	}

@@ -36,6 +36,9 @@ follows [Semantic Versioning](https://semver.org/).
   account, letting it expire, or deactivating or deleting its organization now
   stops its tokens at the next request instead of at the token's expiry
   (`401`; `503` when the check cannot run).
+- **`make dev-seed` works again.** `tools/devseed` invites the first org admin
+  and redeems the invite (a site administrator no longer edits a tenant user)
+  and creates the seeded org user without a forced password change.
 - **Sign-out accepts an expired `id_token_hint`.** The signature and issuer are
   still verified; only the token's lifetime is no longer held against a hint
   used to end a session (OIDC RP-Initiated Logout 1.0 §2).
