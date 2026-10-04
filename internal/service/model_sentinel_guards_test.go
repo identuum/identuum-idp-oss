@@ -140,7 +140,11 @@ func TestModel_SiteAdminCannotBeDeletedByAnyActor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CONTROL: seeding an org_admin failed: %v", err)
 	}
-	if err := svc.DeleteUserForActor(context.Background(), actor, u.ID); err != nil {
+	// D-025: a tenant's users are the organization's own admin's to delete,
+	// so the control acts as that organization's org_admin (another one, since
+	// an org_admin never deletes itself).
+	tenantAdmin := &domain.Principal{UserID: uuid.New(), Role: domain.RoleOrgAdmin, OrganizationID: org}
+	if err := svc.DeleteUserForActor(context.Background(), tenantAdmin, u.ID); err != nil {
 		t.Fatalf("CONTROL FAILED: an ordinary org_admin is no longer deletable: %v", err)
 	}
 }

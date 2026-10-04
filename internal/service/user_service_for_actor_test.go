@@ -318,13 +318,20 @@ func TestUserForActor_DeleteOrgAdminCannotDeleteSiteAdmin(t *testing.T) {
 	}
 }
 
-func TestUserForActor_DeleteSiteAdminAcrossOrgsOK(t *testing.T) {
+// D-025 (owner ruling, 2026-10-03): a site_admin never deletes a tenant's
+// user. This test asserted the opposite ("AcrossOrgsOK") before the ruling;
+// the org_admin of the user's own organization is the actor that may.
+func TestUserForActor_DeleteSiteAdminAcrossOrgsRefused(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)
+	org := uuid.New()
 	target := uuid.New()
-	seedRow(repo, target, uuid.New(), domain.RoleOrgUser)
-	if err := svc.DeleteUserForActor(context.Background(), siteAdminActor(), target); err != nil {
-		t.Errorf("site_admin delete failed: %v", err)
+	seedRow(repo, target, org, domain.RoleOrgUser)
+	if err := svc.DeleteUserForActor(context.Background(), siteAdminActor(), target); !errors.Is(err, domain.ErrForbidden) {
+		t.Errorf("site_admin delete of a tenant user = %v, want ErrForbidden", err)
+	}
+	if err := svc.DeleteUserForActor(context.Background(), orgAdminActor(org), target); err != nil {
+		t.Errorf("the organization's own org_admin must still be able to delete: %v", err)
 	}
 }
 
@@ -375,17 +382,19 @@ func TestResetMFAForActor_UnauthenticatedRejected(t *testing.T) {
 	}
 }
 
-func TestResetMFAForActor_SiteAdminAnyOrgClears(t *testing.T) {
+// D-025 (owner ruling, 2026-10-03): a site_admin never resets a tenant user's
+// MFA. This test asserted the opposite ("AnyOrgClears") before the ruling; the
+// clearing itself is pinned by TestResetMFAForActor_OrgAdminSameOrgClears.
+func TestResetMFAForActor_SiteAdminTenantRefused(t *testing.T) {
 	repo := newUserRepo()
 	svc := NewUserService(nil, repo)
 	target := uuid.New()
-	seedMFARow(repo, target, uuid.New(), domain.RoleOrgUser)
-	got, err := svc.ResetMFAForActor(context.Background(), siteAdminActor(), target)
-	if err != nil || got == nil {
-		t.Fatalf("site_admin reset failed: %v", err)
+	u := seedMFARow(repo, target, uuid.New(), domain.RoleOrgUser)
+	if _, err := svc.ResetMFAForActor(context.Background(), siteAdminActor(), target); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("site_admin MFA reset of a tenant user = %v, want ErrForbidden", err)
 	}
-	if got.MFAEnabled || (got.MFASecret != nil && *got.MFASecret != "") || len(got.MFARecoveryCodes) != 0 {
-		t.Errorf("site_admin reset left MFA state non-cleared: %+v", got)
+	if !u.MFAEnabled || u.MFASecret == nil || len(u.MFARecoveryCodes) == 0 {
+		t.Errorf("the refused reset still changed the user's MFA state: %+v", u)
 	}
 }
 

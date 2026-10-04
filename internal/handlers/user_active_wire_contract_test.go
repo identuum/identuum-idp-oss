@@ -26,9 +26,10 @@ func TestHandleUpdateUser_ActiveWireTranslatesToBanned(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			org := uuid.New()
 			user := &domain.User{
 				ID:             uuid.New(),
-				OrganizationID: uuid.New(),
+				OrganizationID: org,
 				Role:           domain.RoleOrgUser,
 				Email:          "wire-contract@example.test",
 				Banned:         tt.initial,
@@ -44,7 +45,7 @@ func TestHandleUpdateUser_ActiveWireTranslatesToBanned(t *testing.T) {
 				RefreshTokenRevoker: service.NoopRefreshTokenRevoker{},
 			}
 
-			code := runHandler(t, http.MethodPut, "/u/:id", "/u/"+user.ID.String(), tt.body, HandleUpdateUser(deps))
+			code := runHandlerActing(t, tenantAdminOf(org), http.MethodPut, "/u/:id", "/u/"+user.ID.String(), tt.body, HandleUpdateUser(deps))
 			if code != http.StatusOK {
 				t.Fatalf("update status = %d, want 200", code)
 			}

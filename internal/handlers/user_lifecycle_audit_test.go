@@ -17,7 +17,8 @@ import (
 // only toggles active now records user_deactivated / user_activated, and every
 // row this handler writes names its actor.
 func TestHandleUpdateUser_LifecycleIsAuditedWithTheActor(t *testing.T) {
-	actor := siteAdminActor()
+	org := uuid.New()
+	actor := tenantAdminOf(org)
 	for _, tt := range []struct {
 		name, body, want string
 		initial          bool
@@ -27,7 +28,7 @@ func TestHandleUpdateUser_LifecycleIsAuditedWithTheActor(t *testing.T) {
 		{"a field change stays user.updated", `{"name":"Renamed"}`, "user.updated", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			user := &domain.User{ID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgUser,
+			user := &domain.User{ID: uuid.New(), OrganizationID: org, Role: domain.RoleOrgUser,
 				Email: "lifecycle-audit@example.test", Banned: tt.initial}
 			repo := newMemUserRepo()
 			if _, err := repo.Create(context.Background(), user); err != nil {
@@ -40,7 +41,7 @@ func TestHandleUpdateUser_LifecycleIsAuditedWithTheActor(t *testing.T) {
 				SessionRevoker:      service.NoopSessionRevoker{},
 				RefreshTokenRevoker: service.NoopRefreshTokenRevoker{},
 			}
-			if code := runHandler(t, http.MethodPut, "/u/:id", "/u/"+user.ID.String(), tt.body, HandleUpdateUser(deps)); code != http.StatusOK {
+			if code := runHandlerActing(t, actor, http.MethodPut, "/u/:id", "/u/"+user.ID.String(), tt.body, HandleUpdateUser(deps)); code != http.StatusOK {
 				t.Fatalf("status = %d, want 200", code)
 			}
 			events := rec.Events()
@@ -51,10 +52,9 @@ func TestHandleUpdateUser_LifecycleIsAuditedWithTheActor(t *testing.T) {
 			if ev.Action != tt.want {
 				t.Fatalf("action = %q, want %q", ev.Action, tt.want)
 			}
-			// runHandler injects its own siteAdminActor() (a fresh id each
-			// call), so the id is checked for presence, the rest exactly.
-			if ev.ActorID == uuid.Nil || ev.ActorType != "user" || ev.ActorRole != string(actor.Role) {
-				t.Fatalf("actor = (%v, %q, %q), want (non-nil, user, %q)", ev.ActorID, ev.ActorType, ev.ActorRole, actor.Role)
+			// The actor is injected, so its id is checked exactly.
+			if ev.ActorID != actor.UserID || ev.ActorType != "user" || ev.ActorRole != string(actor.Role) {
+				t.Fatalf("actor = (%v, %q, %q), want (%v, user, %q)", ev.ActorID, ev.ActorType, ev.ActorRole, actor.UserID, actor.Role)
 			}
 			if ev.Metadata["user_id"] != user.ID {
 				t.Fatalf("metadata user_id = %v, want %v", ev.Metadata["user_id"], user.ID)

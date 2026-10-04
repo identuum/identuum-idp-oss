@@ -156,9 +156,10 @@ func TestProfile_SelfServiceRequiresAuthenticatedHuman(t *testing.T) {
 
 // The admin surface carries the same fields with the same authority rules.
 func TestUsers_AdminPutSetsProfileFields(t *testing.T) {
-	admin := &domain.Principal{UserID: uuid.New(), Email: "root@system.local", Role: domain.RoleSiteAdmin}
-	eng := newProfileEngine(t, admin)
+	// D-025: a tenant's users are its own org_admin's to manage; a site_admin
+	// does not act on them.
 	target := orgUserPrincipal()
+	eng := newProfileEngine(t, tenantAdminOf(target.OrganizationID))
 	seedUser(selfScopeEngine{userRepo: eng.userRepo}, target)
 
 	// Profile-only body (no user-level field) still authorizes through the

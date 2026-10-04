@@ -36,7 +36,7 @@ func seedPendingRegistrant(eng tenantEngine, id, orgID uuid.UUID, role domain.Us
 // (banned=false) is exactly the condition the login path accepts.
 func TestUserApprove_PendingUser_ClearsHold(t *testing.T) {
 	org := uuid.New()
-	eng := newTenantEngine(t, siteAdminPrincipal())
+	eng := newTenantEngine(t, tenantAdminOf(org))
 	uid := uuid.New()
 	seedPendingRegistrant(eng, uid, org, domain.RoleOrgUser)
 
@@ -158,7 +158,7 @@ func TestUserApprove_OrgAdminCrossOrgIs404(t *testing.T) {
 // not a silent success — approval is not a no-op re-approve.
 func TestUserApprove_AlreadyActiveUser_Conflict(t *testing.T) {
 	org := uuid.New()
-	eng := newTenantEngine(t, siteAdminPrincipal())
+	eng := newTenantEngine(t, tenantAdminOf(org))
 	uid := uuid.New()
 	seedTenantUser(eng, uid, org, domain.RoleOrgUser, "active@tenant.test") // banned=false
 	rec := tenantReq(t, eng, http.MethodPost, "/api/v1/users/"+uid.String()+"/approve", nil)
@@ -171,7 +171,7 @@ func TestUserApprove_AlreadyActiveUser_Conflict(t *testing.T) {
 // a pending self-registration → 409, and the admin stays banned.
 func TestUserApprove_BannedAdmin_NotUnbanned(t *testing.T) {
 	org := uuid.New()
-	eng := newTenantEngine(t, siteAdminPrincipal())
+	eng := newTenantEngine(t, tenantAdminOf(org))
 	uid := uuid.New()
 	seedPendingRegistrant(eng, uid, org, domain.RoleOrgAdmin) // banned=true, but role=org_admin
 	rec := tenantReq(t, eng, http.MethodPost, "/api/v1/users/"+uid.String()+"/approve", nil)

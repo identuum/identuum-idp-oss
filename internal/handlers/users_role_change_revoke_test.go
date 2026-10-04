@@ -22,7 +22,8 @@ import (
 func TestUsersUpdate_ARoleChangeRevokesFailClosed(t *testing.T) {
 	gin.SetMode(gin.ReleaseMode)
 	mem := newMemUserRepo()
-	target := &domain.User{ID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgAdmin, Email: "t@x.test"}
+	org := uuid.New()
+	target := &domain.User{ID: uuid.New(), OrganizationID: org, Role: domain.RoleOrgAdmin, Email: "t@x.test"}
 	if _, err := mem.Create(context.Background(), target); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -32,7 +33,8 @@ func TestUsersUpdate_ARoleChangeRevokesFailClosed(t *testing.T) {
 		SessionRevoker: erroringSessionRevoker{},
 	}
 	r := gin.New()
-	r.Use(mw.InjectPrincipalForTest(&domain.Principal{UserID: uuid.New(), Role: domain.RoleSiteAdmin, OrganizationID: uuid.MustParse(domain.SystemOrgID)}))
+	// D-025: a tenant's users are its own org_admin's to change, not a site_admin's.
+	r.Use(mw.InjectPrincipalForTest(tenantAdminOf(org)))
 	r.PUT("/api/v1/users/:id", HandleUpdateUser(deps))
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/users/"+target.ID.String(), strings.NewReader(`{"role":"org_user"}`))
 	req.Header.Set("Content-Type", "application/json")

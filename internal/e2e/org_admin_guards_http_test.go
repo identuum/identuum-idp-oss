@@ -291,8 +291,18 @@ func TestE2E_OSS_SiteAdminRecoversAnOrganizationWithoutAnActiveAdmin(t *testing.
 		Role:           domain.RoleSiteAdmin,
 		Email:          "site_admin@system.local",
 	})
-	if st, body := guardCall(site, http.MethodPut, "/api/v1/users/"+w.b.ID.String(), `{"active":false}`); st != http.StatusOK {
-		t.Fatalf("site_admin disables the sole active org_admin = %d %s; want 200", st, body)
+	// D-025 (owner ruling, 2026-10-03): a site_admin never disables a tenant's
+	// org_admin to create this situation, so the sole active org_admin is
+	// refused, and the organization reaches "no active org_admin" the way a
+	// real one does: its admin is gone, not removed by the site_admin.
+	if st, body := guardCall(site, http.MethodPut, "/api/v1/users/"+w.b.ID.String(), `{"active":false}`); st != http.StatusForbidden {
+		t.Fatalf("site_admin disables the sole active org_admin = %d %s; want 403 (D-025)", st, body)
+	}
+	if n := w.activeOrgAdmins(); n != 1 {
+		t.Fatalf("the refused disable still changed the organization: active org_admins = %d; want 1", n)
+	}
+	if _, err := w.repos.User.Update(w.ctx, w.b.ID, w.org, repositoryBan(true)); err != nil {
+		t.Fatalf("ban b: %v", err)
 	}
 	if n := w.activeOrgAdmins(); n != 0 {
 		t.Fatalf("active org_admins = %d; want 0", n)

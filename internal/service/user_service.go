@@ -259,7 +259,9 @@ func (s *UserService) ResetMFAForActor(ctx context.Context, actor *domain.Princi
 	}
 	switch {
 	case actor.IsSiteAdmin():
-		// site_admin unrestricted — matches existing reset-mfa shape.
+		if err := refuseSiteAdminTenantUser(target); err != nil {
+			return nil, err
+		}
 	case actor.IsOrgAdminOnly():
 		// G10 — NOT FOUND, NOT FORBIDDEN. 403 says "that user EXISTS and you
 		// may not touch it"; 404 says "no such user, as far as you are
@@ -555,6 +557,19 @@ func (s *UserService) authorizeCreate(ctx context.Context, actor *domain.Princip
 	return nil
 }
 
+// refuseSiteAdminTenantUser is D-025: a site_admin never edits, resets,
+// deletes, restores or approves a user that belongs to a tenant organization;
+// those are the organization admin's work. A user in the system organization
+// (the site administrator itself) is not a tenant's. The one tenant write a
+// site_admin keeps, appointing the first org_admin of an organization that has
+// none, is CreateUserForActor's and does not pass through here.
+func refuseSiteAdminTenantUser(target *domain.User) error {
+	if target == nil || target.OrganizationID.String() == domain.SystemOrgID {
+		return nil
+	}
+	return domain.ErrForbidden
+}
+
 // guardSiteAdminTenantWrite enforces the authority model's limit on what
 // site_admin may write INTO a tenant organization. See CreateUserForActor.
 func (s *UserService) guardSiteAdminTenantWrite(ctx context.Context, opts CreateUserOptions) error {
@@ -628,6 +643,9 @@ func (s *UserService) UpdateUserForActorRevokingFirst(ctx context.Context, actor
 	var scopedOrgID uuid.UUID
 	switch {
 	case actor.IsSiteAdmin():
+		if err := refuseSiteAdminTenantUser(target); err != nil {
+			return nil, err
+		}
 		scopedOrgID = target.OrganizationID
 	case actor.IsOrgAdminOnly():
 		// Outside the actor's visibility → NOT FOUND, matching the read path.
@@ -720,6 +738,9 @@ func (s *UserService) ApproveRegistrationForActor(ctx context.Context, actor *do
 	var scopedOrgID uuid.UUID
 	switch {
 	case actor.IsSiteAdmin():
+		if err := refuseSiteAdminTenantUser(target); err != nil {
+			return nil, err
+		}
 		scopedOrgID = target.OrganizationID
 	case actor.IsOrgAdminOnly():
 		// G10 — NOT FOUND, NOT FORBIDDEN. 403 says "that user EXISTS and you
@@ -773,8 +794,9 @@ func (s *UserService) DeleteUserForActor(ctx context.Context, actor *domain.Prin
 	}
 	switch {
 	case actor.IsSiteAdmin():
-		// site_admin may delete any ordinary user. org_admins included — the
-		// model's lost-all-org_admins clause depends on that.
+		if err := refuseSiteAdminTenantUser(target); err != nil {
+			return err
+		}
 	case actor.IsOrgAdminOnly():
 		// Outside the actor's visibility → NOT FOUND, matching the read and
 		// update paths: a 403 confirms the row exists across a tenant boundary.
@@ -825,6 +847,9 @@ func (s *UserService) RestoreUserForActor(ctx context.Context, actor *domain.Pri
 	}
 	switch {
 	case actor.IsSiteAdmin():
+		if err := refuseSiteAdminTenantUser(target); err != nil {
+			return err
+		}
 	case actor.IsOrgAdminOnly():
 		// G10 — NOT FOUND, NOT FORBIDDEN. See the note on ResetMFAForActor:
 		// 403 confirms the id exists in another tenant, which turns an

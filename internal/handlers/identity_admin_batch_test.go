@@ -472,9 +472,10 @@ func seedMFAEnrolledUser(eng identityEngine, role domain.UserRole, orgID uuid.UU
 	return u
 }
 
-func TestUsers_ResetMFA_SiteAdminClearsState(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
-	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, uuid.New(), "mfa@example.com")
+func TestUsers_ResetMFA_OrgAdminClearsState(t *testing.T) {
+	org := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(org), nil)
+	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, org, "mfa@example.com")
 	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/users/"+target.ID.String()+"/recovery/reset-mfa", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; body=%q", rec.Code, rec.Body.String())
@@ -512,9 +513,10 @@ func TestUsers_ResetMFA_SiteAdminClearsState(t *testing.T) {
 }
 
 func TestUsers_ResetMFA_RefreshTokenRevokerErrorIsBestEffort(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
+	org := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(org), nil)
 	eng.refreshRevoker.Err = errors.New("simulated refresh-token store outage")
-	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, uuid.New(), "rtbest@example.com")
+	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, org, "rtbest@example.com")
 	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/users/"+target.ID.String()+"/recovery/reset-mfa", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200 (best-effort refresh-token revoke); body=%q", rec.Code, rec.Body.String())
@@ -544,9 +546,10 @@ func TestUsers_ResetMFA_RefreshTokenRevokerErrorIsBestEffort(t *testing.T) {
 }
 
 func TestUsers_ResetMFA_AuditCarriesRefreshTokenCountWhenAvailable(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
+	org := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(org), nil)
 	eng.refreshRevoker.CountToReturn = 4
-	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, uuid.New(), "count@example.com")
+	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, org, "count@example.com")
 	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/users/"+target.ID.String()+"/recovery/reset-mfa", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -574,9 +577,10 @@ func TestUsers_ResetMFA_AuditCarriesRefreshTokenCountWhenAvailable(t *testing.T)
 }
 
 func TestUsers_ResetMFA_RevokerErrorIsBestEffort(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
+	org := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(org), nil)
 	eng.revoker.Err = errors.New("simulated session store outage")
-	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, uuid.New(), "besteffort@example.com")
+	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, org, "besteffort@example.com")
 	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/users/"+target.ID.String()+"/recovery/reset-mfa", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200 (best-effort revoke); body=%q", rec.Code, rec.Body.String())
@@ -623,8 +627,8 @@ func TestUsers_ResetMFA_NoRevokerWhenLookupFails(t *testing.T) {
 }
 
 func TestUsers_ResetMFA_PreservesUnrelatedFields(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
 	orgID := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(orgID), nil)
 	target := seedMFAEnrolledUser(eng, domain.RoleOrgAdmin, orgID, "admin@example.com")
 	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/users/"+target.ID.String()+"/recovery/reset-mfa", nil)
 	if rec.Code != http.StatusOK {
@@ -661,8 +665,9 @@ func TestUsers_ResetMFA_PreservesUnrelatedFields(t *testing.T) {
 }
 
 func TestUsers_ResetMFA_DoesNotLeakSecretOrCodes(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
-	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, uuid.New(), "leak@example.com")
+	org := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(org), nil)
+	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, org, "leak@example.com")
 	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/users/"+target.ID.String()+"/recovery/reset-mfa", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -715,11 +720,12 @@ func TestUsers_ResetMFA_InvalidID(t *testing.T) {
 }
 
 func TestUsers_ResetMFA_IdempotentWhenMFAAlreadyClear(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
+	org := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(org), nil)
 	now := time.Now().UTC()
 	target := &domain.User{
 		ID:             uuid.New(),
-		OrganizationID: uuid.New(),
+		OrganizationID: org,
 		Email:          "nomfa@example.com",
 		Role:           domain.RoleOrgUser,
 		PasswordHash:   "PRESERVED-PASSWORD-HASH",
@@ -748,8 +754,8 @@ func TestUsers_ResetMFA_IdempotentWhenMFAAlreadyClear(t *testing.T) {
 }
 
 func TestUsers_ResetMFA_AuditEventEmitted(t *testing.T) {
-	eng := newIdentityEngine(t, siteAdminPrincipal(), nil)
 	orgID := uuid.New()
+	eng := newIdentityEngine(t, tenantAdminOf(orgID), nil)
 	target := seedMFAEnrolledUser(eng, domain.RoleOrgUser, orgID, "audit@example.com")
 	rec := doIdentityJSON(t, eng, http.MethodPost, "/api/v1/users/"+target.ID.String()+"/recovery/reset-mfa", nil)
 	if rec.Code != http.StatusOK {

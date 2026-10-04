@@ -73,7 +73,15 @@ func TestRestoreUserForActor_RecoversSoftDeletedUser(t *testing.T) {
 	u := &domain.User{ID: uuid.New(), OrganizationID: orgID, Role: domain.RoleOrgUser, DeletedAt: &deletedAt}
 	repo.rows[u.ID] = u
 
-	if err := svc.RestoreUserForActor(context.Background(), siteAdmin(), u.ID); err != nil {
+	// D-025: a site_admin never restores a tenant's user; the organization's
+	// own org_admin does.
+	if err := svc.RestoreUserForActor(context.Background(), siteAdmin(), u.ID); !errors.Is(err, domain.ErrForbidden) {
+		t.Fatalf("site_admin restore of a tenant user = %v, want ErrForbidden", err)
+	}
+	if u.DeletedAt == nil {
+		t.Fatalf("a refused restore still cleared deleted_at")
+	}
+	if err := svc.RestoreUserForActor(context.Background(), orgAdminActor(orgID), u.ID); err != nil {
 		t.Fatalf("restore of a soft-deleted user must succeed via the admin lookup, got %v", err)
 	}
 	if u.DeletedAt != nil {

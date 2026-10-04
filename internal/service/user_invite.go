@@ -220,6 +220,17 @@ func (s *UserService) ReissueInviteForActor(ctx context.Context, actor *domain.P
 		if target.Role != domain.RoleOrgAdmin {
 			return nil, "", time.Time{}, domain.ErrForbidden
 		}
+		// D-025: the one tenant write a site_admin keeps is appointing the
+		// FIRST org_admin of an organization that has none. Re-issuing that
+		// admin's invite is part of it; once the organization has a verified
+		// org_admin it is theirs to manage, and an unevaluated predicate
+		// reads as refusal.
+		if s.repo == nil {
+			return nil, "", time.Time{}, domain.ErrForbidden
+		}
+		if n, cerr := s.repo.CountVerifiedOrgAdminsByOrganization(ctx, target.OrganizationID); cerr != nil || n > 0 {
+			return nil, "", time.Time{}, domain.ErrForbidden
+		}
 	case actor.IsOrgAdminOnly():
 		if actor.OrganizationID == uuid.Nil || target.OrganizationID != actor.OrganizationID || target.Role == domain.RoleSiteAdmin {
 			return nil, "", time.Time{}, errUserNotFound

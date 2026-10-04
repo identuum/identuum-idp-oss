@@ -44,7 +44,8 @@ func TestUsersDelete_ADatabaseFaultIsNot404(t *testing.T) {
 		RefreshTokenRevoker: service.NoopRefreshTokenRevoker{},
 	}
 	r := gin.New()
-	r.Use(mw.InjectPrincipalForTest(&domain.Principal{UserID: uuid.New(), Role: domain.RoleSiteAdmin, OrganizationID: uuid.MustParse(domain.SystemOrgID)}))
+	// D-025: a site_admin never deletes a tenant's user; its own org_admin does.
+	r.Use(mw.InjectPrincipalForTest(tenantAdminOf(org)))
 	RegisterUsersRoutes(r, deps)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+target.ID.String(), nil))

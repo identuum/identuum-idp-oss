@@ -69,9 +69,10 @@ func TestUsersUpdate_AFailedRevocationLeavesNoChange(t *testing.T) {
 		{"disable", `{"active":false}`, func(u *domain.User) bool { return u.Banned }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			target := &domain.User{ID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgAdmin, Email: "t@x.test"}
+			org := uuid.New()
+			target := &domain.User{ID: uuid.New(), OrganizationID: org, Role: domain.RoleOrgAdmin, Email: "t@x.test"}
 			rev := &switchableSessionRevoker{fail: true}
-			r, mem := revokeFirstHarness(t, siteAdminActor(), target, rev)
+			r, mem := revokeFirstHarness(t, tenantAdminOf(org), target, rev)
 
 			if w := putUser(r, target.ID, tc.body); w.Code != http.StatusServiceUnavailable {
 				t.Fatalf("with an erroring revoker = %d %s; want 503", w.Code, w.Body.String())
@@ -114,9 +115,9 @@ func TestUsersUpdate_ARefusedOrNoOpChangeRevokesNothing(t *testing.T) {
 		t.Fatalf("a refused self-disable revoked the caller's sessions (%d calls); want 0", rev.calls)
 	}
 
-	target := &domain.User{ID: uuid.New(), OrganizationID: uuid.New(), Role: domain.RoleOrgUser, Email: "u@x.test"}
+	target := &domain.User{ID: uuid.New(), OrganizationID: org, Role: domain.RoleOrgUser, Email: "u@x.test"}
 	rev2 := &switchableSessionRevoker{}
-	r2, _ := revokeFirstHarness(t, siteAdminActor(), target, rev2)
+	r2, _ := revokeFirstHarness(t, tenantAdminOf(org), target, rev2)
 	if w := putUser(r2, target.ID, `{"role":"org_user"}`); w.Code != http.StatusOK {
 		t.Fatalf("same-role PUT = %d %s; want 200", w.Code, w.Body.String())
 	}

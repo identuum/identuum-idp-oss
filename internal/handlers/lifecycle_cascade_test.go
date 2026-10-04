@@ -162,9 +162,17 @@ func siteAdminActor() *domain.Principal {
 // handlers with an injected site_admin principal.
 func runHandler(t *testing.T, method, route, path string, body string, h gin.HandlerFunc) int {
 	t.Helper()
+	return runHandlerActing(t, siteAdminActor(), method, route, path, body, h)
+}
+
+// runHandlerActing is runHandler for a chosen actor. The user routes act as the
+// target's own organization admin (D-025: a site_admin never acts on a
+// tenant's users); the organization routes still act as the site_admin.
+func runHandlerActing(t *testing.T, actor *domain.Principal, method, route, path string, body string, h gin.HandlerFunc) int {
+	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(mw.InjectPrincipalForTest(siteAdminActor()))
+	r.Use(mw.InjectPrincipalForTest(actor))
 	r.Handle(method, route, h)
 	var rdr *bytes.Reader
 	if body != "" {
@@ -195,7 +203,7 @@ func TestCascade_UserBan_RevokesSession(t *testing.T) {
 		t.Fatalf("control: live session should be admitted, got %d", before)
 	}
 
-	code := runHandler(t, http.MethodPut, "/u/:id", "/u/"+user.ID.String(), `{"banned":true}`, HandleUpdateUser(deps))
+	code := runHandlerActing(t, tenantAdminOf(orgID), http.MethodPut, "/u/:id", "/u/"+user.ID.String(), `{"banned":true}`, HandleUpdateUser(deps))
 	if code != http.StatusOK {
 		t.Fatalf("ban update status = %d, want 200", code)
 	}
@@ -221,7 +229,7 @@ func TestCascade_UserDelete_RevokesSession(t *testing.T) {
 	deps := UsersHandlerDeps{Audit: audit.NoopService{}, UserService: service.NewUserService(nil, repo), SessionRevoker: store, RefreshTokenRevoker: refresh}
 
 	verifier := cascadeVerifier{p: &domain.Principal{UserID: user.ID, Role: domain.RoleOrgUser, SessionID: sid}}
-	code := runHandler(t, http.MethodDelete, "/u/:id", "/u/"+user.ID.String(), "", HandleDeleteUser(deps))
+	code := runHandlerActing(t, tenantAdminOf(orgID), http.MethodDelete, "/u/:id", "/u/"+user.ID.String(), "", HandleDeleteUser(deps))
 	if code != http.StatusOK {
 		t.Fatalf("delete status = %d, want 200", code)
 	}
@@ -342,7 +350,7 @@ func TestCascade_RevokeError_DoesNotBreakLifecycle(t *testing.T) {
 	// that the ban persisted despite the revoke error.
 	deps := UsersHandlerDeps{Audit: audit.NoopService{}, UserService: service.NewUserService(nil, repo), SessionRevoker: erroringSessionRevoker{}}
 
-	code := runHandler(t, http.MethodPut, "/u/:id", "/u/"+user.ID.String(), `{"banned":true}`, HandleUpdateUser(deps))
+	code := runHandlerActing(t, tenantAdminOf(orgID), http.MethodPut, "/u/:id", "/u/"+user.ID.String(), `{"banned":true}`, HandleUpdateUser(deps))
 	if code != http.StatusServiceUnavailable {
 		t.Fatalf("ban with erroring revoker: status = %d, want 503 revocation_failed (fail-closed)", code)
 	}
