@@ -99,12 +99,12 @@ func TestVerifyIDTokenHint_ValidEdDSAReturnsClaims(t *testing.T) {
 	uid := uuid.New()
 	sid := uuid.New()
 	raw := mintIDToken(t, kid, priv, jwt.MapClaims{
-		"iss":        "https://idp.test",
-		"sub":        uid.String(),
-		"aud":        []string{"cli-1", "cli-2"},
-		"exp":        time.Now().Add(time.Hour).Unix(),
-		"iat":        time.Now().Unix(),
-		"session_id": sid.String(),
+		"iss": "https://idp.test",
+		"sub": uid.String(),
+		"aud": []string{"cli-1", "cli-2"},
+		"exp": time.Now().Add(time.Hour).Unix(),
+		"iat": time.Now().Unix(),
+		"sid": sid.String(),
 	})
 	out, err := v.Verify(context.Background(), raw)
 	if err != nil {
@@ -117,7 +117,7 @@ func TestVerifyIDTokenHint_ValidEdDSAReturnsClaims(t *testing.T) {
 		t.Errorf("audience = %v", out.Audience)
 	}
 	if out.SessionID != sid {
-		t.Errorf("session_id mismatch")
+		t.Errorf("sid mismatch")
 	}
 }
 

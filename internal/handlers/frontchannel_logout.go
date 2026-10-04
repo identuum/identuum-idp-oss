@@ -72,6 +72,15 @@ func RegisterFrontchannelLogoutRoutes(router gin.IRouter, deps FrontchannelLogou
 // resurrect a logged-out view.
 func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// A top-level visit is a link that could have been clicked on any page,
+		// and it carries the SameSite=Lax session cookie: ask before ending the
+		// session, exactly as end-session does. The browser names the request a
+		// top-level document in Sec-Fetch-Dest, which no page can set; an
+		// iframe load, the use this route exists for, is unchanged.
+		if cookieVal, ok := deps.CookieSession.Read(c.Request); ok && c.GetHeader("Sec-Fetch-Dest") == "document" && !logoutConfirmed(c, cookieVal) {
+			renderSignOutConfirmPage(c, cookieVal)
+			return
+		}
 		// THE-LOGOUT-THAT-CANNOT-REVOKE: a STORE error while resolving or
 		// revoking is logged with the correlation id, audited as
 		// user_session.logout.revocation_unconfirmed and marked on the

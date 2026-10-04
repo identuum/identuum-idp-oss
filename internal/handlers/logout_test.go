@@ -169,7 +169,8 @@ func logoutVerifierHarness(t *testing.T, audience []string, sessionID uuid.UUID)
 		"iat": time.Now().Unix(),
 	}
 	if sessionID != uuid.Nil {
-		tokenClaims["session_id"] = sessionID.String()
+		// The ID tokens this OP issues name their session by sid.
+		tokenClaims["sid"] = sessionID.String()
 	}
 	tok := jwt.NewWithClaims(jwt.SigningMethodEdDSA, tokenClaims)
 	tok.Header["kid"] = "kid-eddsa"

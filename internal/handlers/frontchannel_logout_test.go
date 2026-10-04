@@ -130,6 +130,44 @@ func TestFrontchannelLogout_HostileURIBlockedByValidation(t *testing.T) {
 	}
 }
 
+// The route is an iframe target. A top-level visit (a link clicked on any page,
+// which carries the SameSite=Lax session cookie) asks before ending the
+// session, as end-session does; the browser says which it is in
+// Sec-Fetch-Dest, a header no page can set. An iframe load is unchanged.
+func TestFrontchannelLogout_ATopLevelVisitAsksFirst(t *testing.T) {
+	r, cookies, sessions := newFrontchannelEngine(t)
+	issued, err := sessions.CreateUserSession(context.Background(), service.CreateUserSessionInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	cookie := cookies.Issue(issued.RefreshToken, issued.ExpiresAt)
+	alive := func() bool {
+		resolved, _ := cookies.Resolve(context.Background(), cookie.Value)
+		return resolved != nil
+	}
+	get := func(target, dest string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.AddCookie(cookie)
+		req.Header.Set("Sec-Fetch-Dest", dest)
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+
+	if w := get("/api/v1/oidc/frontchannel-logout", "document"); !strings.Contains(w.Body.String(), "Sign out?") || !alive() {
+		t.Fatalf("a top-level visit = %d %q; want the confirmation page and the session alive", w.Code, w.Body.String())
+	}
+	if w := get(confirmedLogoutURL("/api/v1/oidc/frontchannel-logout", cookie), "document"); !strings.Contains(w.Body.String(), "signed out") || alive() {
+		t.Errorf("a confirmed top-level visit = %d; want signed out", w.Code)
+	}
+
+	issued2, _ := sessions.CreateUserSession(context.Background(), service.CreateUserSessionInput{UserID: uuid.New()})
+	cookie = cookies.Issue(issued2.RefreshToken, issued2.ExpiresAt)
+	if w := get("/api/v1/oidc/frontchannel-logout", "iframe"); !strings.Contains(w.Body.String(), "signed out") || alive() {
+		t.Errorf("an iframe load = %d; want signed out at once, as before", w.Code)
+	}
+}
+
 func TestFrontchannelLogout_SessionRequiredEmitsIssAndSid(t *testing.T) {
 	repo := newHandlersSessionRepo()
 	sessions := service.NewUserSessionService(nil, repo, service.UserSessionServiceOptions{})

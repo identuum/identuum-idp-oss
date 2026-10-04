@@ -82,13 +82,17 @@ type VerifiedIDTokenHint struct {
 	// a registered client_id, mirroring monolith semantics).
 	Audience []string
 
-	// SessionID is the user-session UUID parsed from the
-	// `session_id` claim when present. Zero when absent — the
-	// access-token issuance path stamps it, the ID-token path
-	// currently does not, but accepting it here keeps the door
-	// open for a future emission.
+	// SessionID is the user-session UUID parsed from the `sid` claim the
+	// ID tokens of this OP carry (OIDC Front-Channel and Back-Channel
+	// Logout). Zero when absent: an ID token issued before sid existed.
 	SessionID uuid.UUID
 }
+
+// accessTokenClaims are claims every access token this OP mints carries at
+// least one of (user tokens: actor_type and session_id; app and machine
+// tokens: client_id and scope) and no ID token carries. A hint that holds one
+// is an access token, which is never an id_token_hint.
+var accessTokenClaims = []string{"actor_type", "client_id", "scope", "session_id"}
 
 // Sentinel errors. The wire-side logout handler maps every Verify
 // failure to RFC 6749 §5.2 `invalid_request` (HTTP 400) — the
@@ -100,6 +104,7 @@ var (
 	ErrIDTokenHintSignature       = errors.New("service: id_token_hint signature invalid")
 	ErrIDTokenHintUnknownKID      = errors.New("service: id_token_hint unknown kid")
 	ErrIDTokenHintBannedAlgorithm = errors.New("service: id_token_hint banned alg")
+	ErrIDTokenHintNotIDToken      = errors.New("service: id_token_hint is not an ID token")
 )
 
 // Verify parses, signature-verifies, and claim-validates the
@@ -195,6 +200,13 @@ func (v *IDTokenVerifier) verify(ctx context.Context, raw string, ignoreLifetime
 	if iss != v.issuer {
 		return nil, ErrIDTokenHintIssuerMismatch
 	}
+	// Access tokens share the issuer and the signing keys; whoever holds one
+	// (a resource server, a log) must not be able to end the session with it.
+	for _, name := range accessTokenClaims {
+		if _, ok := claims[name]; ok {
+			return nil, ErrIDTokenHintNotIDToken
+		}
+	}
 
 	out := &VerifiedIDTokenHint{
 		Audience: extractAudience(claims["aud"]),
@@ -204,7 +216,7 @@ func (v *IDTokenVerifier) verify(ctx context.Context, raw string, ignoreLifetime
 			out.Subject = id
 		}
 	}
-	if sid, _ := claims["session_id"].(string); sid != "" {
+	if sid, _ := claims["sid"].(string); sid != "" {
 		if id, err := uuid.Parse(sid); err == nil {
 			out.SessionID = id
 		}

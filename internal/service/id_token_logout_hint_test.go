@@ -21,7 +21,7 @@ func TestVerifyForLogout_AcceptsAnExpiredHintButNothingElseWrong(t *testing.T) {
 	sid, sub := uuid.New(), uuid.New()
 	claims := func(mut func(jwt.MapClaims)) string {
 		c := jwt.MapClaims{
-			"iss": "https://idp.test", "sub": sub.String(), "aud": "cli-1", "session_id": sid.String(),
+			"iss": "https://idp.test", "sub": sub.String(), "aud": "cli-1", "sid": sid.String(),
 			"exp": time.Now().Add(-48 * time.Hour).Unix(), "iat": time.Now().Add(-49 * time.Hour).Unix(),
 		}
 		if mut != nil {

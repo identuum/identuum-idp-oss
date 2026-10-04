@@ -139,39 +139,51 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			}
 		}
 
-		// Without a verified hint nothing shows the request came from an app
-		// the user signed in to, and a GET can be fired from any page: ask
-		// before ending a session (RP-Initiated Logout 1.0 §2). The page's link
-		// carries a value only the browser holding the cookie was shown.
-		if hint == nil {
-			if cookieVal, ok := deps.CookieSession.Read(c.Request); ok && !logoutConfirmed(c, cookieVal) {
-				renderSignOutConfirmPage(c, cookieVal)
-				return
-			}
+		// This browser's session, resolved once. Resolve returns an error ONLY
+		// for store / infrastructure failures — an unknown or dead cookie is
+		// (nil, nil) and is not an incident.
+		cookieVal, hasCookie := deps.CookieSession.Read(c.Request)
+		var resolved *service.CookieSessionLookupResult
+		var resolveErr error
+		if hasCookie {
+			resolved, resolveErr = deps.CookieSession.Resolve(c.Request.Context(), cookieVal)
 		}
+
+		// A GET can be fired from any page: ask before ending this browser's
+		// session unless a verified hint shows the request came from an app
+		// this person signed in to, in this session (RP-Initiated Logout 1.0
+		// §2: the OP MUST ask when there is no hint or the ID token does not
+		// belong to the current session or End-User). The page's link carries
+		// a value only the browser holding the cookie was shown.
+		if hasCookie && !logoutConfirmed(c, cookieVal) && !hintVouchesForBrowser(hint, resolved, resolveErr) {
+			renderSignOutConfirmPage(c, cookieVal)
+			return
+		}
+
+		// endedFor names the user of each session this request ends, so each
+		// relying party's logout token names that session's own user.
+		endedFor := map[uuid.UUID]uuid.UUID{}
 
 		// Phase 1: revoke the cookie session (best-effort — but never
 		// silently: THE-LOGOUT-THAT-CANNOT-REVOKE. A STORE error while
 		// resolving or revoking is logged with the correlation id, audited
 		// as user_session.logout.revocation_unconfirmed and marked on the
 		// response; the cookie is still cleared below because the user
-		// asked to leave this device. Resolve returns an error ONLY for
-		// store / infrastructure failures — an unknown or dead cookie is
-		// (nil, nil) and is not an incident.)
+		// asked to leave this device.)
 		var cookieResolvedSessionID uuid.UUID
 		var cookieResolvedUserID uuid.UUID
 		revocationUnconfirmed := false
-		if cookieVal, ok := deps.CookieSession.Read(c.Request); ok {
-			resolved, err := deps.CookieSession.Resolve(c.Request.Context(), cookieVal)
+		if hasCookie {
 			switch {
-			case err != nil:
-				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "cookie-session", err)
+			case resolveErr != nil:
+				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "cookie-session", resolveErr)
 				revocationUnconfirmed = true
 			case resolved != nil && resolved.Session != nil:
 				cookieResolvedSessionID = resolved.Session.ID
 				if resolved.User != nil {
 					cookieResolvedUserID = resolved.User.ID
 				}
+				endedFor[cookieResolvedSessionID] = cookieResolvedUserID
 				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "oidc_logout"); rerr != nil {
 					noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "revoke-session", rerr)
 					revocationUnconfirmed = true
@@ -195,10 +207,13 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			}
 		}
 		// Phase 2: revoke the session referenced by the hint
-		// (when present and the hint carried a session_id claim).
+		// (when present and the hint carried a sid claim).
 		// This covers the "bearer-driven logout" pattern where
 		// the RP forwards an ID token instead of a cookie.
 		if hint != nil && hint.SessionID != (domain.Principal{}).SessionID {
+			if _, seen := endedFor[hint.SessionID]; !seen {
+				endedFor[hint.SessionID] = hint.Subject
+			}
 			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), hint.SessionID, "oidc_logout"); rerr != nil {
 				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "hint-session", rerr)
 				revocationUnconfirmed = true
@@ -208,6 +223,9 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		var bearerSessionID uuid.UUID
 		if principal, ok := mw.PrincipalFromContext(c); ok && principal != nil && principal.SessionID != (domain.Principal{}).SessionID {
 			bearerSessionID = principal.SessionID
+			if _, seen := endedFor[bearerSessionID]; !seen {
+				endedFor[bearerSessionID] = principal.UserID
+			}
 			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), principal.SessionID, "oidc_logout"); rerr != nil {
 				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "bearer-session", rerr)
 				revocationUnconfirmed = true
@@ -219,9 +237,17 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// back-channel endpoint gets a logout token, not only the one that
 		// asked. A delivery that fails never stops the others or the logout.
 		notified := map[string]struct{}{}
+		// The subject of a logout token is the user of the session it ends;
+		// with no session to name, the cookie's user or the hint's subject.
 		logoutSubject := cookieResolvedUserID
 		if logoutSubject == uuid.Nil && hint != nil {
 			logoutSubject = hint.Subject
+		}
+		subjectOf := func(sid uuid.UUID) uuid.UUID {
+			if sub, ok := endedFor[sid]; ok && sub != uuid.Nil {
+				return sub
+			}
+			return logoutSubject
 		}
 		if deps.BackchannelDelivery != nil && deps.SessionRPs != nil && deps.Clients != nil {
 			ended := []uuid.UUID{cookieResolvedSessionID, bearerSessionID}
@@ -247,7 +273,7 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 						continue
 					}
 					notified[key] = struct{}{}
-					deliverBackchannelLogout(c, deps, rp, logoutSubject, sid)
+					deliverBackchannelLogout(c, deps, rp, subjectOf(sid), sid)
 				}
 			}
 		}
@@ -297,7 +323,7 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			// The fan-out above already reached it when it was recorded for the
 			// session; only a client it did not reach is delivered to here.
 			if _, done := notified[resolvedClient.ClientID+"|"+sid.String()]; !done {
-				deliverBackchannelLogout(c, deps, resolvedClient, logoutSubject, sid)
+				deliverBackchannelLogout(c, deps, resolvedClient, subjectOf(sid), sid)
 			}
 		}
 		location := postLogoutRedirectURI
@@ -390,6 +416,25 @@ func renderSignedOutPage(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Referrer-Policy", "no-referrer")
 	c.String(http.StatusOK, signedOutPage)
+}
+
+// hintVouchesForBrowser reports whether a verified id_token_hint shows the
+// sign-out request came from an app the person signed in on this browser
+// signed in to, in this session: the hint's subject is the cookie session's
+// user and, when the hint names a session (sid), it is this one. With no live
+// session on the browser there is nothing of the browser's to protect. A store
+// error resolving the cookie vouches for nothing: the person is asked.
+func hintVouchesForBrowser(hint *service.VerifiedIDTokenHint, resolved *service.CookieSessionLookupResult, resolveErr error) bool {
+	if hint == nil || resolveErr != nil {
+		return false
+	}
+	if resolved == nil || resolved.Session == nil {
+		return true
+	}
+	if resolved.User == nil || hint.Subject == uuid.Nil || resolved.User.ID != hint.Subject {
+		return false
+	}
+	return hint.SessionID == uuid.Nil || hint.SessionID == resolved.Session.ID
 }
 
 // logoutConfirmToken is the value the confirmation page's link carries. It is
