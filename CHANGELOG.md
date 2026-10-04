@@ -113,6 +113,13 @@ follows [Semantic Versioning](https://semver.org/).
   and the like). Identity scopes and an organization's own API scopes are
   unaffected, and an app stored before this change is not judged until its
   scope is edited.
+- **An upstream-provider sign-in finishes only in the browser that started
+  it.** `GET /api/v1/auth/idp/:id/login` plants a host-only, HttpOnly,
+  `SameSite=Lax` cookie (`idp_login_state`, ten minutes) holding the sign-in
+  state, and the callback refuses (`400 invalid or expired login state`, state
+  not consumed) a request without it. A callback link handed to another person
+  no longer signs them in as the person who began it. The login link and the
+  callback must be on the same host.
 
 ## `v0.9.3`
 

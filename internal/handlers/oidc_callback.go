@@ -82,6 +82,13 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "missing state or code"})
 			return
 		}
+		// The sign-in must finish in the browser that started it: a callback
+		// without the cookie planted at initiation (a link handed to someone
+		// else) is refused before the state is consumed.
+		if !upstreamLoginBound(c, state) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired login state"})
+			return
+		}
 
 		ip := c.ClientIP()
 		ua := c.Request.UserAgent()
@@ -127,6 +134,7 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 			}
 		}
 		writeSessionCookie(c, deps.CookieSession.Issue(cookieValue, res.Session.ExpiresAt))
+		clearUpstreamLoginBinding(c)
 
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "auth.oidc_login.success",

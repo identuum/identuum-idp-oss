@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -11,6 +13,50 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
+
+// upstreamLoginCookie binds an upstream sign-in to the browser that started it:
+// initiation plants it holding the state, the callback requires it.
+const upstreamLoginCookie = "idp_login_state"
+
+// upstreamLoginCookieTTL bounds the binding cookie's life, in seconds. The
+// state it holds expires server-side on its own; this only keeps a stale
+// cookie from lingering.
+const upstreamLoginCookieTTL = 10 * 60
+
+// upstreamLoginState reads the state out of the authorize URL the service built.
+func upstreamLoginState(authURL string) string {
+	u, err := url.Parse(authURL)
+	if err != nil {
+		return ""
+	}
+	return u.Query().Get("state")
+}
+
+// setUpstreamLoginBinding plants the host-only cookie that ties the sign-in to
+// this browser. It is sent on the top-level navigation back from the provider
+// (SameSite=Lax). Its path is "/" so a proxy that prefixes the callback path
+// does not hide it.
+func setUpstreamLoginBinding(c *gin.Context, state string) {
+	writeSessionCookie(c, &http.Cookie{
+		Name: upstreamLoginCookie, Value: state, Path: "/",
+		MaxAge: upstreamLoginCookieTTL, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// clearUpstreamLoginBinding expires the binding cookie once the sign-in is done.
+func clearUpstreamLoginBinding(c *gin.Context) {
+	writeSessionCookie(c, &http.Cookie{
+		Name: upstreamLoginCookie, Value: "", Path: "/",
+		MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// upstreamLoginBound reports whether the request carries the cookie planted at
+// initiation for exactly this state.
+func upstreamLoginBound(c *gin.Context, state string) bool {
+	held, err := c.Cookie(upstreamLoginCookie)
+	return err == nil && subtle.ConstantTimeCompare([]byte(held), []byte(state)) == 1
+}
 
 // OIDCLoginInitiator is the narrow initiation seam the handler consumes.
 // *service.OIDCLoginService satisfies it.
@@ -77,6 +123,14 @@ func HandleOIDCLoginInitiation(deps OIDCLoginHandlerDeps) gin.HandlerFunc {
 			}
 			return
 		}
+		// Bind the sign-in to this browser; an authorize URL with no state
+		// cannot be bound, so it is not followed.
+		state := upstreamLoginState(authURL)
+		if state == "" {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+			return
+		}
+		setUpstreamLoginBinding(c, state)
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "auth.oidc_login_initiated",
 			Outcome:   "success",

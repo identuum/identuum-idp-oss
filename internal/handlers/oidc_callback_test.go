@@ -43,6 +43,10 @@ func newOIDCCallbackEngine(t *testing.T, cb *fakeCallbackHandler) *gin.Engine {
 
 func oidcCbGET(r *gin.Engine, path string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, path, nil)
+	// The browser that started the sign-in carries the binding cookie for its state.
+	if state := req.URL.Query().Get("state"); state != "" {
+		req.AddCookie(&http.Cookie{Name: upstreamLoginCookie, Value: state})
+	}
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 	return rec
