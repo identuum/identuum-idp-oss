@@ -470,6 +470,15 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		return nil, ErrAuthorizeLoginRequired
 	}
 
+	// D-027: a user signs in only to apps of their own organization. An app
+	// registered by another organization is refused with the same direct
+	// answer as an unknown client, so nothing about the other tenant leaks
+	// and no redirect goes to its URI. An app with no organization was
+	// registered by the site administrator and is not tenant-owned.
+	if client.OrganizationID != nil && *client.OrganizationID != req.Principal.OrganizationID {
+		return nil, ErrAuthorizeInvalidClient
+	}
+
 	var authSession *domain.Session
 	if s.sessions != nil {
 		session, sessErr := s.sessions.GetByID(ctx, req.Principal.SessionID)
