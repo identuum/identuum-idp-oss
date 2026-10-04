@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -36,6 +37,38 @@ func RunDetached(ctx context.Context, work func(ctx context.Context)) {
 		}()
 		work(detached)
 	}()
+}
+
+// DetachedWork is RunDetached with a count of the work still running, so
+// shutdown can wait for it before the database pool closes underneath it.
+type DetachedWork struct {
+	wg sync.WaitGroup
+}
+
+// Run is a BackgroundRunner: it runs work as RunDetached does and counts it
+// until it ends, a panic included.
+func (d *DetachedWork) Run(ctx context.Context, work func(ctx context.Context)) {
+	d.wg.Add(1)
+	RunDetached(ctx, func(ctx context.Context) {
+		defer d.wg.Done()
+		work(ctx)
+	})
+}
+
+// Wait waits until the work started by Run has ended or ctx ends, and reports
+// whether it all ended. Call it after the server stops taking requests.
+func (d *DetachedWork) Wait(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // runWith runs work through run, or inline when run is nil.
