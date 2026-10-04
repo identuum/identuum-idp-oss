@@ -36,6 +36,10 @@ follows [Semantic Versioning](https://semver.org/).
   account, letting it expire, or deactivating or deleting its organization now
   stops its tokens at the next request instead of at the token's expiry
   (`401`; `503` when the check cannot run).
+- **Cookies are `Secure` whenever the configured issuer is `https`.** The flag
+  followed only the request's `Host` header, so a request that claimed
+  `Host: localhost` could receive a cookie a browser would also send in clear.
+  An `http` or unset issuer keeps the local-development exception.
 - **`make dev-seed` works again.** `tools/devseed` invites the first org admin
   and redeems the invite (a site administrator no longer edits a tenant user)
   and creates the seeded org user without a forced password change.

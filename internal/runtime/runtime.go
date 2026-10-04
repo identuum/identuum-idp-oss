@@ -1393,6 +1393,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		APIResourceRepo:                        apiResourceRepo,
 		ScopeTemplateRepo:                      scopeTemplateRepo,
 		ClientService:                          clientSvc,
+		Issuer:                                 resolvedIssuer,
 		APIResourceService:                     apiResourceSvc,
 		ScopeTemplateService:                   scopeTemplateSvc,
 		UserRepo:                               userRepo,

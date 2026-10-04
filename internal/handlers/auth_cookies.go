@@ -42,9 +42,23 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 )
+
+// cookieIssuerHTTPS is true when the configured issuer is an https URL. It makes
+// every cookie Secure whatever Host a request claims (see cookieSecureForRequest).
+var cookieIssuerHTTPS atomic.Bool
+
+// SetCookieIssuer tells the cookie helpers the configured issuer. An https
+// issuer means the deployment is served over TLS, so the Secure flag no longer
+// follows the request's Host header: a request that merely claims
+// Host: localhost cannot obtain a cookie a browser would also send in clear.
+// An empty or http issuer leaves the local-development exception as it was.
+func SetCookieIssuer(issuer string) {
+	cookieIssuerHTTPS.Store(strings.HasPrefix(strings.ToLower(strings.TrimSpace(issuer)), "https://"))
+}
 
 // accessTokenCookieMaxAgeSec mirrors the monolith's 900-second access-
 // token cookie MaxAge. Matches the default UserTokenService.AccessTokenTTL
@@ -185,6 +199,9 @@ func clearAuthCookies(c *gin.Context) {
 // byte-for-byte the old `gin.ReleaseMode && !isLocalhost` (ReleaseMode is
 // always forced), so NO deployed behaviour changes; only the coupling is gone.
 func cookieSecureForRequest(r *http.Request) bool {
+	if cookieIssuerHTTPS.Load() {
+		return true
+	}
 	host := r.Host
 	if i := strings.IndexByte(host, ':'); i >= 0 {
 		host = host[:i]

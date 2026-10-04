@@ -132,6 +132,10 @@ type OSSRouterDeps struct {
 	// Read-only when only the repo is supplied; mutations 501.
 	UserRepo         repository.UserRepository
 	OrganizationRepo repository.OrganizationRepository
+	// Issuer is the configured public issuer URL. An https issuer makes every
+	// cookie the IdP sets Secure whatever Host a request claims; empty or http
+	// leaves the local-development exception (handlers.SetCookieIssuer).
+	Issuer string
 
 	// OrganizationDomainRepo + IdentityProviderRepo back the public
 	// organization-lookup route (GET /api/v1/auth/organization-lookup).
@@ -632,6 +636,7 @@ func NewOSSEngine(deps OSSRouterDeps) *gin.Engine {
 // is the engine itself.
 func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	resolved := resolvedDeps(deps)
+	handlers.SetCookieIssuer(resolved.Issuer)
 
 	// orgFeatureLookup adapts the OSS protocol-settings service
 	// onto the narrow handler-side interface; nil propagates so
