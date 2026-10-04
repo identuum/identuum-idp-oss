@@ -428,6 +428,14 @@ func (s *WebAuthnService) FinishRegistrationWithNickname(ctx context.Context, us
 // credentials. Callers that need anti-enumeration semantics
 // (public login route) should call BeginDummyLogin in that case.
 func (s *WebAuthnService) BeginLogin(ctx context.Context, user *domain.User) (assertion *protocol.CredentialAssertion, sessionID string, err error) {
+	return s.beginLogin(ctx, user, protocol.VerificationPreferred)
+}
+
+// beginLogin starts an assertion ceremony asking the authenticator for the
+// given user-verification requirement: "preferred" for an ordinary sign-in
+// (a key without a PIN can still sign in where the organization does not
+// require MFA), "required" for the step-up to the phishing-resistant rung.
+func (s *WebAuthnService) beginLogin(ctx context.Context, user *domain.User, uv protocol.UserVerificationRequirement) (assertion *protocol.CredentialAssertion, sessionID string, err error) {
 	defer func() {
 		result := "success"
 		if err != nil {
@@ -447,7 +455,7 @@ func (s *WebAuthnService) BeginLogin(ctx context.Context, user *domain.User) (as
 	}
 	// Same v0.18.0 signature change as BeginRegistration above.
 	loginOptions := func(opts *protocol.PublicKeyCredentialRequestOptions) error {
-		opts.UserVerification = protocol.VerificationPreferred
+		opts.UserVerification = uv
 		return nil
 	}
 	var sessionData *webauthn.SessionData

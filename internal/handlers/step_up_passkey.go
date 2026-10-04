@@ -146,7 +146,7 @@ func HandlePasskeyStepUpFinish(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		returnTo := validateReturnTo(c.Query("return_to"))
-		_, assertedUser, _, err := deps.WebAuthn.FinishLogin(c.Request.Context(), ceremonyID, c.Request)
+		_, assertedUser, userVerified, err := deps.WebAuthn.FinishLogin(c.Request.Context(), ceremonyID, c.Request)
 		if err != nil || assertedUser == nil || assertedUser.ID != resolved.User.ID {
 			// A failed assertion, or a valid assertion by ANOTHER user, uplifts
 			// nothing: the browser session's user did not perform it.
@@ -159,6 +159,17 @@ func HandlePasskeyStepUpFinish(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 				Metadata: map[string]any{"session_id": resolved.Session.ID.String(), "reason": reason},
 			})
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_assertion"})
+			return
+		}
+		// The phishing-resistant rung is earned by an assertion in which the
+		// authenticator VERIFIED the user (PIN, fingerprint, face). A
+		// presence-only touch proves one factor and uplifts nothing.
+		if !userVerified {
+			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+				Action: "user_session.step_up.passkey_failure", Outcome: "denied", IPAddress: ip, UserAgent: ua,
+				Metadata: map[string]any{"session_id": resolved.Session.ID.String(), "reason": "user_verification_absent"},
+			})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "user_verification_required"})
 			return
 		}
 		now := deps.Now().UTC()

@@ -11,15 +11,20 @@ package service
 import (
 	"context"
 
+	"github.com/go-webauthn/webauthn/protocol"
+
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
 // BeginAssertion starts a WebAuthn assertion ceremony for an ALREADY KNOWN
 // user (the browser session's user) and returns the request options the
 // page passes to navigator.credentials.get plus the single-use ceremony
-// session id. ErrWebAuthnNoCredentials when the user has no passkey.
+// session id. ErrWebAuthnNoCredentials when the user has no passkey. It asks
+// the authenticator to VERIFY the user (UserVerification "required"): the
+// step-up it serves earns the phishing-resistant rung, and the handler refuses
+// an assertion in which the flag is absent.
 func (s *WebAuthnService) BeginAssertion(ctx context.Context, user *domain.User) (options any, sessionID string, err error) {
-	assertion, sessionID, err := s.BeginLogin(ctx, user)
+	assertion, sessionID, err := s.beginLogin(ctx, user, protocol.VerificationRequired)
 	if err != nil {
 		return nil, "", err
 	}

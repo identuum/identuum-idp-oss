@@ -682,12 +682,20 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		// ceremony), and inventing one would be a different kind of lie than
 		// the omission. The acr rung carries the meaning; amr is silent.
 		// Same for the passkey step-up in step_up_passkey.go.
+		// The phishing-resistant rung is earned by an assertion in which the
+		// authenticator VERIFIED the user. A presence-only touch (allowed here
+		// only when the organization does not require MFA) is one factor, so
+		// it is stamped the lowest rung, not the top one.
+		acr := service.ACRPhishingResistant
+		if !userVerified {
+			acr = service.ACRPassword
+		}
 		issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
 			UserID:             user.ID,
 			IPAddress:          ipPtr,
 			UserAgent:          uaPtr,
 			RememberMe:         rememberMe,
-			Acr:                service.ACRPhishingResistant,
+			Acr:                acr,
 			MaxSessionsPerUser: maxSessions,
 			OrganizationID:     user.OrganizationID,
 			Role:               string(user.Role),
