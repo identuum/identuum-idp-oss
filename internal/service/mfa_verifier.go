@@ -255,7 +255,11 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 		return ErrMFARequired
 	}
 	// Past the per-user budget of wrong codes even the right one is refused,
-	// with the answer a wrong one gets.
+	// with the answer a wrong one gets. The user's turn spans the check, the
+	// code check and the recorded miss, so parallel guesses are counted one by
+	// one.
+	release := s.failures.Hold(user.ID)
+	defer release()
 	if s.failures.Exhausted(user.ID) {
 		return ErrMFAInvalid
 	}

@@ -33,6 +33,18 @@ type TOTPFailureBudget struct {
 	window time.Duration
 	now    func() time.Time
 	misses map[uuid.UUID][]time.Time
+	turns  keyedMutex
+}
+
+// Hold gives one user's proof attempt its turn: the caller holds it across
+// Exhausted, the code check and Record, so parallel wrong codes cannot all pass
+// the check before any is counted. Another user never waits on it. A nil
+// budget holds nothing.
+func (b *TOTPFailureBudget) Hold(user uuid.UUID) (release func()) {
+	if b == nil {
+		return func() {}
+	}
+	return b.turns.lock(user.String())
 }
 
 // NewTOTPFailureBudget returns a budget of max misses per user within window.

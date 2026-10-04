@@ -95,6 +95,9 @@ type MFAEnrollmentService struct {
 	// to the TOTP proof routes (disable, regenerate, skip-consent, step-up):
 	// past it even the right code is refused.
 	proofFailures *TOTPFailureBudget
+	// verifyTurns gives one user's pending sign-in verifications their turn
+	// across the per-user count, the code check and the recorded miss.
+	verifyTurns keyedMutex
 }
 
 // MFAEnrollmentServiceOptions tunes the service. Zero values fall
@@ -579,7 +582,11 @@ func (s *MFAEnrollmentService) VerifyAndConsume(ctx context.Context, pendingID u
 	// per person. Sum the user's recent wrong codes across ALL their handles
 	// and refuse at the bound — even a correct code, cause-neutral like every
 	// other refusal. FAIL CLOSED on a counter-store error, for the same reason
-	// as RecordFailedVerifyAttempt.
+	// as RecordFailedVerifyAttempt. The user's turn spans the count, the code
+	// check and the recorded miss, so guesses sent in parallel over several
+	// handles are counted one by one instead of all reading the same count.
+	release := s.verifyTurns.lock(user.ID.String())
+	defer release()
 	recent, cntErr := s.pending.CountRecentFailedVerifyAttempts(ctx, user.ID, s.now().Add(-s.userFailureWindow))
 	if cntErr != nil {
 		return nil, fmt.Errorf("service: mfa count recent failed verify attempts: %w", cntErr)
@@ -1042,7 +1049,11 @@ func (s *MFAEnrollmentService) totpProofOK(ctx context.Context, user *domain.Use
 		return false
 	}
 	// Past the per-user budget of wrong codes even the right one is refused,
-	// with the answer a wrong one gets.
+	// with the answer a wrong one gets. The user's turn spans the check, the
+	// code check and the recorded miss, so parallel guesses are counted one by
+	// one.
+	release := s.proofFailures.Hold(user.ID)
+	defer release()
 	if s.proofFailures.Exhausted(user.ID) {
 		return false
 	}
