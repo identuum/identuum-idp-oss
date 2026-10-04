@@ -126,6 +126,10 @@ WHERE 1=1
 		q += " AND client_id = $" + itoa(len(args)+1)
 		args = append(args, filter.ClientID)
 	}
+	if filter.OrganizationID != nil {
+		q += " AND client_id IN (SELECT client_id FROM oauth_clients WHERE organization_id = $" + itoa(len(args)+1) + " AND deleted_at IS NULL)"
+		args = append(args, *filter.OrganizationID)
+	}
 	q += " ORDER BY created_at DESC LIMIT $" + itoa(len(args)+1)
 	args = append(args, limit)
 

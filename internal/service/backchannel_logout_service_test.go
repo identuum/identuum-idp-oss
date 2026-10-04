@@ -149,6 +149,9 @@ func TestBackchannel_URIWithFragmentRejected(t *testing.T) {
 // rows.
 type inMemoryDeliveryRepo struct {
 	rows map[uuid.UUID]*domain.BackchannelLogoutDelivery
+	// clientOrg stands in for the oauth_clients join behind
+	// BackchannelLogoutDeliveryListFilter.OrganizationID.
+	clientOrg map[string]uuid.UUID
 }
 
 func newDeliveryRepo() *inMemoryDeliveryRepo {
@@ -209,6 +212,11 @@ func (r *inMemoryDeliveryRepo) List(_ context.Context, filter repository.Backcha
 		}
 		if filter.ClientID != "" && row.ClientID != filter.ClientID {
 			continue
+		}
+		if filter.OrganizationID != nil {
+			if org, ok := r.clientOrg[row.ClientID]; !ok || org != *filter.OrganizationID {
+				continue
+			}
 		}
 		cp := *row
 		out = append(out, &cp)

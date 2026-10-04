@@ -15,7 +15,10 @@ import (
 type BackchannelLogoutDeliveryListFilter struct {
 	Status   string // exact match; empty = any status
 	ClientID string // exact match; empty = any client
-	Limit    int
+	// OrganizationID keeps only deliveries of live clients of that
+	// organization; nil = any.
+	OrganizationID *uuid.UUID
+	Limit          int
 }
 
 // BackchannelLogoutDeliveryRepository persists delivery rows for

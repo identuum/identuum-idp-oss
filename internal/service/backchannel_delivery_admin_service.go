@@ -9,8 +9,11 @@
 //     re-attempt delivery via the existing
 //     BackchannelLogoutService.
 //
-// Authorization gating lives at the HTTP layer
-// (mw.RequireSiteAdmin); this service trusts that gate.
+// The HTTP routes call the actor-aware ListFor, GetFor and ReplayFor (owner
+// ruling, v0.9.5): an org_admin reaches only its own organization's apps; a
+// site_admin sees every row without a tenant's user and session ids and
+// replays only the apps it owns. List, Get and Replay are the unscoped
+// primitives beneath them.
 package service
 
 import (
@@ -155,4 +158,118 @@ func (s *BackchannelDeliveryAdminService) Replay(ctx context.Context, id uuid.UU
 	// — a future telemetry slice can add a hook.
 	out.NewDeliveryID = row.ID
 	return out, delivErr
+}
+
+// deliveryAdminActor admits a site_admin and an org_admin bound to an
+// organization.
+func deliveryAdminActor(actor *domain.Principal) error {
+	switch {
+	case actor == nil:
+		return domain.ErrUnauthorized
+	case actor.IsSiteAdmin():
+		return nil
+	case actor.IsOrgAdminOnly() && actor.OrganizationID != uuid.Nil:
+		return nil
+	default:
+		return domain.ErrForbidden
+	}
+}
+
+// clientOrganization resolves the organization of a delivery's client:
+// known is false when the client cannot be read (no lookup wired, a lookup
+// error, a deleted client); org is nil for a global app.
+func (s *BackchannelDeliveryAdminService) clientOrganization(ctx context.Context, clientID string) (org *uuid.UUID, known bool) {
+	if s.clients == nil {
+		return nil, false
+	}
+	client, err := s.clients.GetClientByClientID(ctx, clientID)
+	if err != nil || client == nil {
+		return nil, false
+	}
+	return client.OrganizationID, true
+}
+
+// redactForSiteAdmin blanks the user and session ids of a delivery unless
+// its app is known to belong to the system organization (D-025).
+func (s *BackchannelDeliveryAdminService) redactForSiteAdmin(ctx context.Context, row *domain.BackchannelLogoutDelivery) {
+	org, known := s.clientOrganization(ctx, row.ClientID)
+	if known && org != nil && org.String() == domain.SystemOrgID {
+		return
+	}
+	row.UserID = nil
+	row.SessionID = nil
+}
+
+// ownedByOrgAdmin reports whether the delivery's app is a live client of the
+// org_admin's organization.
+func (s *BackchannelDeliveryAdminService) ownedByOrgAdmin(ctx context.Context, actor *domain.Principal, row *domain.BackchannelLogoutDelivery) bool {
+	org, known := s.clientOrganization(ctx, row.ClientID)
+	return known && org != nil && *org == actor.OrganizationID
+}
+
+// ListFor is List for an actor: an org_admin's list holds only its own
+// organization's apps; a site_admin's holds every row, redacted.
+func (s *BackchannelDeliveryAdminService) ListFor(ctx context.Context, actor *domain.Principal, in ListBackchannelDeliveriesInput) ([]*domain.BackchannelLogoutDelivery, error) {
+	if err := deliveryAdminActor(actor); err != nil {
+		return nil, err
+	}
+	filter := repository.BackchannelLogoutDeliveryListFilter{Status: in.Status, ClientID: in.ClientID, Limit: in.Limit}
+	if !actor.IsSiteAdmin() {
+		org := actor.OrganizationID
+		filter.OrganizationID = &org
+	}
+	rows, err := s.repo.List(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if actor.IsSiteAdmin() {
+		for _, row := range rows {
+			s.redactForSiteAdmin(ctx, row)
+		}
+	}
+	return rows, nil
+}
+
+// GetFor is Get for an actor: another organization's delivery is not found
+// for an org_admin; a site_admin's row is redacted.
+func (s *BackchannelDeliveryAdminService) GetFor(ctx context.Context, actor *domain.Principal, id uuid.UUID) (*domain.BackchannelLogoutDelivery, error) {
+	if err := deliveryAdminActor(actor); err != nil {
+		return nil, err
+	}
+	row, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if actor.IsSiteAdmin() {
+		s.redactForSiteAdmin(ctx, row)
+		return row, nil
+	}
+	if !s.ownedByOrgAdmin(ctx, actor, row) {
+		return nil, ErrBackchannelAdminNotFound
+	}
+	return row, nil
+}
+
+// ReplayFor is Replay for an actor: an org_admin replays only its own
+// organization's apps (another organization's delivery is not found); a
+// site_admin replays the apps it owns — the system organization's and the
+// global apps — and is refused a tenant's app (D-025).
+func (s *BackchannelDeliveryAdminService) ReplayFor(ctx context.Context, actor *domain.Principal, id uuid.UUID) (*ReplayResult, error) {
+	if err := deliveryAdminActor(actor); err != nil {
+		return nil, err
+	}
+	row, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if actor.IsSiteAdmin() {
+		if org, known := s.clientOrganization(ctx, row.ClientID); known && org != nil && org.String() != domain.SystemOrgID {
+			return nil, domain.ErrForbidden
+		}
+		return s.Replay(ctx, id)
+	}
+	if !s.ownedByOrgAdmin(ctx, actor, row) {
+		return nil, ErrBackchannelAdminNotFound
+	}
+	return s.Replay(ctx, id)
 }

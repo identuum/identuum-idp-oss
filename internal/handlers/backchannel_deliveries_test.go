@@ -82,10 +82,19 @@ func (r *inMemoryDeliveryRepoForHandlers) DeleteOlderThan(context.Context, time.
 // before every request.
 func newAdminEngine(t *testing.T, role domain.UserRole, seedClient bool) (*gin.Engine, *service.BackchannelDeliveryAdminService, *httptest.Server) {
 	t.Helper()
+	r, admin, srv, _ := newAdminEngineFor(t, &domain.Principal{UserID: uuid.New(), Role: role}, seedClient, nil)
+	return r, admin, srv
+}
+
+// newAdminEngineFor is newAdminEngine for a chosen principal; the seeded
+// client cli-1 belongs to clientOrg (nil: a global app). It also returns
+// the repository so a test can seed delivery rows.
+func newAdminEngineFor(t *testing.T, principal *domain.Principal, seedClient bool, clientOrg *uuid.UUID) (*gin.Engine, *service.BackchannelDeliveryAdminService, *httptest.Server, *inMemoryDeliveryRepoForHandlers) {
+	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
-		mw.SetPrincipal(c, &domain.Principal{UserID: uuid.New(), Role: role})
+		mw.SetPrincipal(c, principal)
 		c.Next()
 	})
 	mux := http.NewServeMux()
@@ -108,14 +117,14 @@ func newAdminEngine(t *testing.T, role domain.UserRole, seedClient bool) (*gin.E
 	}).WithDeliveryRepository(repo).WithRetryPolicy(1, time.Millisecond)
 	var client *domain.Client
 	if seedClient {
-		client = &domain.Client{ClientID: "cli-1", BackchannelLogoutURI: srv.URL + "/logout"}
+		client = &domain.Client{ClientID: "cli-1", OrganizationID: clientOrg, BackchannelLogoutURI: srv.URL + "/logout"}
 	}
 	admin := service.NewBackchannelDeliveryAdminService(nil, repo, delivery, &handlerAdminClientLookup{client: client})
 	RegisterBackchannelDeliveriesRoutes(r, BackchannelDeliveriesHandlerDeps{
 		Admin: admin,
 		Audit: &audit.Recorder{},
 	})
-	return r, admin, srv
+	return r, admin, srv, repo
 }
 
 type handlerAdminClientLookup struct {
@@ -146,13 +155,72 @@ func TestBackchannelAdmin_OrgUserForbidden(t *testing.T) {
 	}
 }
 
-func TestBackchannelAdmin_OrgAdminForbidden(t *testing.T) {
+// Owner ruling (v0.9.5): an org_admin reads its own organization's
+// deliveries with clients:read and replays them with clients:update.
+func TestBackchannelAdmin_OrgAdminWithoutScopeForbidden(t *testing.T) {
 	r, _, srv := newAdminEngine(t, domain.RoleOrgAdmin, true)
 	defer srv.Close()
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/backchannel-logout-deliveries", nil))
 	if w.Code != http.StatusForbidden {
 		t.Errorf("status = %d, want 403", w.Code)
+	}
+}
+
+func seedHandlerDelivery(repo *inMemoryDeliveryRepoForHandlers) uuid.UUID {
+	id, uid, sid := uuid.New(), uuid.New(), uuid.New()
+	_ = repo.Insert(context.Background(), &domain.BackchannelLogoutDelivery{
+		ID: id, ClientID: "cli-1", UserID: &uid, SessionID: &sid, Status: domain.BackchannelLogoutDeliveryFailed,
+	})
+	return id
+}
+
+func TestBackchannelAdmin_OrgAdminReadsAndReplaysItsOwnApp(t *testing.T) {
+	org := uuid.New()
+	reader := &domain.Principal{UserID: uuid.New(), OrganizationID: org, Role: domain.RoleOrgAdmin, Scope: "clients:read"}
+	r, _, srv, repo := newAdminEngineFor(t, reader, true, &org)
+	defer srv.Close()
+	id := seedHandlerDelivery(repo)
+
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/backchannel-logout-deliveries/"+id.String(), nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"user_id"`) {
+		t.Fatalf("org_admin get of its own app's delivery = %d %s, want 200 with the user id", w.Code, w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/backchannel-logout-deliveries/"+id.String()+"/replay", nil))
+	if w.Code != http.StatusForbidden {
+		t.Errorf("replay with clients:read only = %d, want 403", w.Code)
+	}
+
+	replayer := &domain.Principal{UserID: uuid.New(), OrganizationID: org, Role: domain.RoleOrgAdmin, Scope: "clients:read clients:update"}
+	r, _, srv2, repo := newAdminEngineFor(t, replayer, true, &org)
+	defer srv2.Close()
+	id = seedHandlerDelivery(repo)
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/backchannel-logout-deliveries/"+id.String()+"/replay", nil))
+	if w.Code != http.StatusOK {
+		t.Errorf("replay with clients:update = %d %s, want 200", w.Code, w.Body.String())
+	}
+}
+
+func TestBackchannelAdmin_SiteAdminSeesNoTenantUserIDs(t *testing.T) {
+	org := uuid.New()
+	r, _, srv, repo := newAdminEngineFor(t, &domain.Principal{UserID: uuid.New(), Role: domain.RoleSiteAdmin}, true, &org)
+	defer srv.Close()
+	id := seedHandlerDelivery(repo)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/v1/admin/backchannel-logout-deliveries", nil))
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), id.String()) {
+		t.Fatalf("site_admin list = %d %s, want 200 with the row", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), `"user_id"`) || strings.Contains(w.Body.String(), `"session_id"`) {
+		t.Errorf("site_admin list shows a tenant's user or session id: %s", w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/backchannel-logout-deliveries/"+id.String()+"/replay", nil))
+	if w.Code != http.StatusForbidden {
+		t.Errorf("site_admin replay of a tenant app's delivery = %d, want 403", w.Code)
 	}
 }
 

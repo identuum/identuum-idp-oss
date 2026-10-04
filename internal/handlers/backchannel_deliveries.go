@@ -28,7 +28,8 @@ type BackchannelDeliveriesHandlerDeps struct {
 //	GET  /api/v1/admin/backchannel-logout-deliveries/:id
 //	POST /api/v1/admin/backchannel-logout-deliveries/:id/replay
 //
-// All routes site_admin-gated.
+// A site_admin, or an org_admin with clients:read (reads) or clients:update
+// (replay); the service confines each actor (owner ruling, v0.9.5).
 func RegisterBackchannelDeliveriesRoutes(router gin.IRouter, deps BackchannelDeliveriesHandlerDeps) {
 	if deps.Admin == nil {
 		return
@@ -37,7 +38,10 @@ func RegisterBackchannelDeliveriesRoutes(router gin.IRouter, deps BackchannelDel
 		deps.Audit = audit.NoopService{}
 	}
 	g := router.Group("/api/v1/admin/backchannel-logout-deliveries")
-	g.Use(mw.RequireSiteAdmin())
+	read := g.Group("")
+	read.Use(mw.RequireSiteAdminOrOrgAdminWithScopesAudit(deps.Audit, domain.ScopeClientsRead))
+	replay := g.Group("")
+	replay.Use(mw.RequireSiteAdminOrOrgAdminWithScopesAudit(deps.Audit, domain.ScopeClientsUpdate))
 
 	// docgen:endpoint
 	// docgen:surface=admin
@@ -45,10 +49,10 @@ func RegisterBackchannelDeliveriesRoutes(router gin.IRouter, deps BackchannelDel
 	// docgen:path=/api/v1/admin/backchannel-logout-deliveries
 	// docgen:summary=List back-channel logout delivery audit rows (safe projection — never exposes the raw logout_token bytes).
 	// docgen:tier=oss
-	// docgen:auth=site_admin
+	// docgen:auth=site_admin|org_admin
 	// docgen:response=oss.handlers.safeBackchannelDelivery
-	// docgen:notes=Response carries no logout_token bytes, no raw cookies, no refresh tokens, no CSRF/MFA material.
-	g.GET("", HandleListBackchannelDeliveries(deps))
+	// docgen:notes=Response carries no logout_token bytes, no raw cookies, no refresh tokens, no CSRF/MFA material. org_admin additionally requires the clients:read scope and sees only deliveries of its own organization's apps. A site_admin sees every row, with user_id and session_id only for apps of the system organization (D-025).
+	read.GET("", HandleListBackchannelDeliveries(deps))
 
 	// docgen:endpoint
 	// docgen:surface=admin
@@ -56,9 +60,10 @@ func RegisterBackchannelDeliveriesRoutes(router gin.IRouter, deps BackchannelDel
 	// docgen:path=/api/v1/admin/backchannel-logout-deliveries/:id
 	// docgen:summary=Show a single back-channel logout delivery row (safe projection).
 	// docgen:tier=oss
-	// docgen:auth=site_admin
+	// docgen:auth=site_admin|org_admin
 	// docgen:response=oss.handlers.safeBackchannelDelivery
-	g.GET("/:id", HandleGetBackchannelDelivery(deps))
+	// docgen:notes=org_admin additionally requires the clients:read scope; another organization's delivery is 404. A site_admin sees user_id and session_id only for apps of the system organization.
+	read.GET("/:id", HandleGetBackchannelDelivery(deps))
 
 	// docgen:endpoint
 	// docgen:surface=admin
@@ -66,9 +71,23 @@ func RegisterBackchannelDeliveriesRoutes(router gin.IRouter, deps BackchannelDel
 	// docgen:path=/api/v1/admin/backchannel-logout-deliveries/:id/replay
 	// docgen:summary=Replay a back-channel logout delivery (re-mints a fresh logout_token; the raw token is never returned to the caller).
 	// docgen:tier=oss
-	// docgen:auth=site_admin
-	// docgen:notes=The fresh logout_token is POSTed to the RP's backchannel_logout_uri server-side; it never enters the admin response body.
-	g.POST("/:id/replay", HandleReplayBackchannelDelivery(deps))
+	// docgen:auth=site_admin|org_admin
+	// docgen:notes=The fresh logout_token is POSTed to the RP's backchannel_logout_uri server-side; it never enters the admin response body. org_admin additionally requires the clients:update scope and replays only its own organization's apps (another organization's delivery is 404). A site_admin replays only apps of the system organization and global apps; a tenant's app is 403 (D-025).
+	replay.POST("/:id/replay", HandleReplayBackchannelDelivery(deps))
+}
+
+// writeDeliveryActorError answers the actor refusals of the delivery
+// service; it reports whether it wrote a response.
+func writeDeliveryActorError(c *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, domain.ErrUnauthorized):
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	case errors.Is(err, domain.ErrForbidden):
+		c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+	default:
+		return false
+	}
+	return true
 }
 
 // safeBackchannelDelivery is the operator-facing DTO. It
@@ -118,12 +137,16 @@ func toSafeBackchannelDelivery(d *domain.BackchannelLogoutDelivery) safeBackchan
 func HandleListBackchannelDeliveries(deps BackchannelDeliveriesHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit, _ := strconv.Atoi(c.Query("limit"))
-		rows, err := deps.Admin.List(c.Request.Context(), service.ListBackchannelDeliveriesInput{
+		actor, _ := mw.PrincipalFromContext(c)
+		rows, err := deps.Admin.ListFor(c.Request.Context(), actor, service.ListBackchannelDeliveriesInput{
 			Status:   c.Query("status"),
 			ClientID: c.Query("client_id"),
 			Limit:    limit,
 		})
 		if err != nil {
+			if writeDeliveryActorError(c, err) {
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			return
 		}
@@ -146,8 +169,12 @@ func HandleGetBackchannelDelivery(deps BackchannelDeliveriesHandlerDeps) gin.Han
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		row, err := deps.Admin.Get(c.Request.Context(), id)
+		actor, _ := mw.PrincipalFromContext(c)
+		row, err := deps.Admin.GetFor(c.Request.Context(), actor, id)
 		if err != nil {
+			if writeDeliveryActorError(c, err) {
+				return
+			}
 			if errors.Is(err, service.ErrBackchannelAdminNotFound) {
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
@@ -169,8 +196,12 @@ func HandleReplayBackchannelDelivery(deps BackchannelDeliveriesHandlerDeps) gin.
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		result, err := deps.Admin.Replay(c.Request.Context(), id)
+		actor, _ := mw.PrincipalFromContext(c)
+		result, err := deps.Admin.ReplayFor(c.Request.Context(), actor, id)
 		if err != nil {
+			if writeDeliveryActorError(c, err) {
+				return
+			}
 			switch {
 			case errors.Is(err, service.ErrBackchannelAdminNotFound):
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
@@ -203,7 +234,7 @@ func HandleReplayBackchannelDelivery(deps BackchannelDeliveriesHandlerDeps) gin.
 			}
 			return
 		}
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		ev := audit.Event{
 			Action:    "backchannel_logout_delivery.replayed",
 			Outcome:   "success",
 			IPAddress: c.ClientIP(),
@@ -212,7 +243,13 @@ func HandleReplayBackchannelDelivery(deps BackchannelDeliveriesHandlerDeps) gin.
 				"delivery_id": id.String(),
 				"http_status": result.HTTPStatus,
 			},
-		})
+		}
+		if actor != nil {
+			ev.ActorID = actor.UserID
+			ev.ActorRole = string(actor.Role)
+			ev.OrganizationID = actor.OrganizationID
+		}
+		_ = deps.Audit.Record(c.Request.Context(), ev)
 		c.JSON(http.StatusOK, gin.H{
 			"delivered":       result.Delivered,
 			"http_status":     result.HTTPStatus,
