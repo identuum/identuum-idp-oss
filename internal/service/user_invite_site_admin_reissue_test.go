@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -34,6 +35,8 @@ func (r verifiedCountRepo) CountVerifiedOrgAdminsByOrganization(_ context.Contex
 func TestReissueInviteForActor_SiteAdminOnlyForAnOrganizationWithoutAnActiveAdmin(t *testing.T) {
 	ctx := context.Background()
 	hash := "pending-invite-hash"
+	fixed := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	cfg := UserInviteConfig{Now: func() time.Time { return fixed }}
 
 	seed := func(repo *inMemoryUserRepo, org uuid.UUID, verified bool, withToken bool) uuid.UUID {
 		id := uuid.New()
@@ -48,7 +51,7 @@ func TestReissueInviteForActor_SiteAdminOnlyForAnOrganizationWithoutAnActiveAdmi
 
 	t.Run("no verified admin yet: the pending first admin's invite is re-issued", func(t *testing.T) {
 		repo := newUserRepo()
-		svc := NewUserService(nil, verifiedCountRepo{repo}).WithInvite(UserInviteConfig{})
+		svc := NewUserService(nil, verifiedCountRepo{repo}).WithInvite(cfg)
 		org := uuid.New()
 		pending := seed(repo, org, false, true)
 		if _, _, _, err := svc.ReissueInviteForActor(ctx, siteAdminActor(), pending); err != nil {
@@ -58,7 +61,7 @@ func TestReissueInviteForActor_SiteAdminOnlyForAnOrganizationWithoutAnActiveAdmi
 
 	t.Run("a verified org_admin exists: refused", func(t *testing.T) {
 		repo := newUserRepo()
-		svc := NewUserService(nil, verifiedCountRepo{repo}).WithInvite(UserInviteConfig{})
+		svc := NewUserService(nil, verifiedCountRepo{repo}).WithInvite(cfg)
 		org := uuid.New()
 		seed(repo, org, true, false) // the live admin
 		pending := seed(repo, org, false, true)

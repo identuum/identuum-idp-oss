@@ -1,5 +1,21 @@
 {
   "schema_version": "ledger-amendments.v1",
   "base_commit": "1e95e6efe61a41a4fe87b0469c343514c4b1fc34",
-  "changes": []
+  "changes": [
+    {
+      "rule_id": "MODEL-SA-NODELETE-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "D-025 (owner ruling 2026-10-03): the CONTROL half of TestModel_SiteAdminCannotBeDeletedByAnyActor deleted a tenant org_admin as a site_admin; it now deletes it as another org_admin of that organization. The assertion that no actor deletes the site_admin is unchanged."
+    },
+    {
+      "rule_id": "RESTORE-RECOVERS-DELETED-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "D-025 (owner ruling 2026-10-03): the restore of a soft-deleted tenant user ran as a site_admin; the test now asserts the site_admin is refused (ErrForbidden, deleted_at kept) and that the organization's own org_admin restores it. The recovery assertion is unchanged and one refusal assertion was added."
+    },
+    {
+      "rule_id": "USER-ACTIVE-WIRE-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "D-025 (owner ruling 2026-10-03): the PUT /users/:id active-wire cases ran as a site_admin on a tenant user; they now run as that organization's own org_admin. The three active/banned translation cases and their expected values are unchanged."
+    }
+  ]
 }
