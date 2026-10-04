@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/pkg/oidc"
@@ -66,6 +67,10 @@ func expectedInlineIDToken(t *testing.T, priv ed25519.PrivateKey, kid string, no
 	}
 	if nonce != "" {
 		claims["nonce"] = nonce
+	}
+	// sid (OIDC Front-/Back-Channel Logout): the session the token is for.
+	if session.ID != uuid.Nil {
+		claims["sid"] = session.ID.String()
 	}
 	if acr := session.EffectiveACR(); acr != "" {
 		claims["acr"] = acr

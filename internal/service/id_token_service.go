@@ -204,6 +204,12 @@ func (s *IDTokenService) Issue(ctx context.Context, in IDTokenInput) (*IDTokenRe
 	extra := map[string]any{
 		"auth_time": in.Session.EffectiveAuthTime().Unix(),
 	}
+	// sid names the session this token was issued for (OIDC Front-Channel and
+	// Back-Channel Logout): the RP keeps it and matches the logout token or
+	// front-channel request against it to end exactly that session.
+	if in.Session.ID != uuid.Nil {
+		extra["sid"] = in.Session.ID.String()
+	}
 	if acr := in.Session.EffectiveACR(); acr != "" {
 		extra["acr"] = acr
 	}

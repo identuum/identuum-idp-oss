@@ -177,6 +177,10 @@ follows [Semantic Versioning](https://semver.org/).
   set. **An app that needs refresh tokens must now register `refresh_token`.**
   Apps created in the console, and every app registered before this change,
   carry no set and stay unrestricted.
+- **ID tokens carry `sid`.** The session an ID token was issued for is named by
+  the standard `sid` claim (OIDC Front-Channel and Back-Channel Logout), so a
+  relying party can match a logout token or a front-channel request to the
+  session it holds. The existing `session_id` claim is unchanged.
 
 ## `v0.9.3`
 
