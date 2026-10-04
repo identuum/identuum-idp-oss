@@ -152,7 +152,7 @@ func TestRuleLogoutUnconfirmed1_StoreErrorNeverSilent_CookieStillCleared_Healthy
 		h := newUnconfirmedHarness(t, repo)
 		cookie := h.cookieFor(t) // issued while the store was healthy
 		repo.selectorErr = storeDown
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/logout", nil)
+		req := httptest.NewRequest(http.MethodGet, confirmedLogoutURL("/api/v1/oidc/logout", cookie), nil)
 		req.AddCookie(cookie)
 		req.Header.Set(mw.CorrelationIDHeader, "cid-logout-1")
 		w := httptest.NewRecorder()
@@ -171,7 +171,7 @@ func TestRuleLogoutUnconfirmed1_StoreErrorNeverSilent_CookieStillCleared_Healthy
 		h := newUnconfirmedHarness(t, repo)
 		cookie := h.cookieFor(t)
 		repo.revokeErr = storeDown
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/logout", nil)
+		req := httptest.NewRequest(http.MethodGet, confirmedLogoutURL("/api/v1/oidc/logout", cookie), nil)
 		req.AddCookie(cookie)
 		req.Header.Set(mw.CorrelationIDHeader, "cid-logout-2")
 		w := httptest.NewRecorder()
@@ -191,7 +191,7 @@ func TestRuleLogoutUnconfirmed1_StoreErrorNeverSilent_CookieStillCleared_Healthy
 		cookie := h.cookieFor(t)
 		repo.selectorErr = storeDown
 		client := &domain.Client{ClientID: "cli-1", PostLogoutRedirectURIs: []string{"https://app.example.com/after"}}
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/logout?client_id=cli-1&post_logout_redirect_uri=https%3A%2F%2Fapp.example.com%2Fafter&state=xyz", nil)
+		req := httptest.NewRequest(http.MethodGet, confirmedLogoutURL("/api/v1/oidc/logout?client_id=cli-1&post_logout_redirect_uri=https%3A%2F%2Fapp.example.com%2Fafter&state=xyz", cookie), nil)
 		req.AddCookie(cookie)
 		req.Header.Set(mw.CorrelationIDHeader, "cid-logout-3")
 		w := httptest.NewRecorder()
@@ -242,7 +242,7 @@ func TestRuleLogoutUnconfirmed1_StoreErrorNeverSilent_CookieStillCleared_Healthy
 		repo := &failingSessionRepo{handlersSessionRepo: newHandlersSessionRepo()}
 		h := newUnconfirmedHarness(t, repo)
 		cookie := h.cookieFor(t)
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/logout", nil)
+		req := httptest.NewRequest(http.MethodGet, confirmedLogoutURL("/api/v1/oidc/logout", cookie), nil)
 		req.AddCookie(cookie)
 		w := httptest.NewRecorder()
 		h.endSessionEngine(nil).ServeHTTP(w, req)

@@ -147,6 +147,12 @@ follows [Semantic Versioning](https://semver.org/).
   ticked, so it outlived the browser. Unticked, it now has no expiry and ends
   with the browser session; a sign-in through an upstream provider, which has
   no such box, gets the same. The server-side session lifetime is unchanged.
+- **Sign-out asks before ending a session when no `id_token_hint` vouches for
+  the request.** `GET /api/v1/oidc/logout` can be fired from any page the user
+  visits, so a request that arrives with the session cookie and no verified
+  hint now shows a "Sign out?" page and ends nothing; its link carries a value
+  only the browser holding the cookie was shown. Requests with a verified hint,
+  and requests with no session, behave as before.
 
 ## `v0.9.3`
 

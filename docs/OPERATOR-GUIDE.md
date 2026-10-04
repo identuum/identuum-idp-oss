@@ -514,7 +514,10 @@ GET /.well-known/openid-configuration
 - **Sign-out:** `GET /api/v1/oidc/logout?id_token_hint=…` ends the IdP's
   browser session (the next `/authorize` asks for a sign-in again). With a
   registered `post_logout_redirect_uri` the browser returns there; without one
-  the IdP shows its own "You are signed out" page (D-018). Access tokens
+  the IdP shows its own "You are signed out" page (D-018). A request that
+  carries no verified `id_token_hint` while the browser holds a session first
+  shows a "Sign out?" page, and the session ends when the person follows its
+  link (any page can fire a GET at this endpoint, so it asks). Access tokens
   already issued stay valid until they expire, and the console has its own
   session: **Sign out** there separately.
 

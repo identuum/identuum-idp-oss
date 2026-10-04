@@ -2,7 +2,12 @@ package handlers
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
+	"html"
 	"net/http"
 	"net/url"
 	"slices"
@@ -110,6 +115,17 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 					"error":             "invalid_request",
 					"error_description": "id_token_hint audience does not match client_id",
 				})
+				return
+			}
+		}
+
+		// Without a verified hint nothing shows the request came from an app
+		// the user signed in to, and a GET can be fired from any page: ask
+		// before ending a session (RP-Initiated Logout 1.0 §2). The page's link
+		// carries a value only the browser holding the cookie was shown.
+		if hint == nil {
+			if cookieVal, ok := deps.CookieSession.Read(c.Request); ok && !logoutConfirmed(c, cookieVal) {
+				renderSignOutConfirmPage(c, cookieVal)
 				return
 			}
 		}
@@ -299,6 +315,55 @@ func renderSignedOutPage(c *gin.Context) {
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Referrer-Policy", "no-referrer")
 	c.String(http.StatusOK, signedOutPage)
+}
+
+// logoutConfirmToken is the value the confirmation page's link carries. It is
+// keyed by the session cookie's own value, so only a browser that holds the
+// cookie was ever shown it: a page that fires the end-session request from
+// elsewhere cannot compute it.
+func logoutConfirmToken(sessionCookieValue string) string {
+	mac := hmac.New(sha256.New, []byte(sessionCookieValue))
+	mac.Write([]byte("identuum end-session confirmation"))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// logoutConfirmed reports whether the request carries the confirm value for the
+// session cookie it came with.
+func logoutConfirmed(c *gin.Context, sessionCookieValue string) bool {
+	return hmac.Equal([]byte(c.Query("confirm")), []byte(logoutConfirmToken(sessionCookieValue)))
+}
+
+const signOutConfirmPage = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign out — Identuum</title>
+  <style>body{font-family:system-ui,sans-serif;max-width:32rem;margin:4rem auto;padding:0 1rem;color:#1c1917}h1{font-size:1.5rem}a{display:inline-block;padding:.5rem 1rem;border:1px solid #1c1917;border-radius:.375rem;color:#1c1917;text-decoration:none}</style>
+</head>
+<body>
+  <main>
+    <h1>Sign out?</h1>
+    <p>An application asked to end your session with the identity provider.</p>
+    <p><a href="%s">Sign out</a></p>
+  </main>
+</body>
+</html>`
+
+// renderSignOutConfirmPage asks the person before the session is ended: 200,
+// never cached, no scripts, no framing. Its one link is the same request with
+// the confirm value for this browser's session cookie added.
+func renderSignOutConfirmPage(c *gin.Context, sessionCookieValue string) {
+	q := c.Request.URL.Query()
+	q.Set("confirm", logoutConfirmToken(sessionCookieValue))
+	link := c.Request.URL.Path + "?" + q.Encode()
+	c.Header("Content-Type", "text/html; charset=utf-8")
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.Header("Content-Security-Policy", "default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; frame-ancestors 'none'; form-action 'none'; base-uri 'none'")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.String(http.StatusOK, fmt.Sprintf(signOutConfirmPage, html.EscapeString(link)))
 }
 
 // resolveLogoutClient returns the *domain.Client whose

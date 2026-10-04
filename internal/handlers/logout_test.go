@@ -100,8 +100,9 @@ func TestLogout_RevokesCookieSession(t *testing.T) {
 	uid := uuid.New()
 	issued, _ := sessions.CreateUserSession(context.Background(), service.CreateUserSessionInput{UserID: uid})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/logout", nil)
-	req.AddCookie(cookies.Issue(issued.RefreshToken, issued.ExpiresAt))
+	cookie := cookies.Issue(issued.RefreshToken, issued.ExpiresAt)
+	req := httptest.NewRequest(http.MethodGet, confirmedLogoutURL("/api/v1/oidc/logout", cookie), nil)
+	req.AddCookie(cookie)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -109,6 +110,9 @@ func TestLogout_RevokesCookieSession(t *testing.T) {
 	// it should be invalid_grant.
 	if _, err := sessions.RotateRefreshToken(context.Background(), issued.RefreshToken); err == nil {
 		t.Errorf("session was not revoked: rotation succeeded")
+	}
+	if resolved, _ := cookies.Resolve(context.Background(), cookie.Value); resolved != nil {
+		t.Errorf("the cookie still resolves to a live session after a confirmed logout")
 	}
 }
 
