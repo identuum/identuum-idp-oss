@@ -96,6 +96,12 @@ follows [Semantic Versioning](https://semver.org/).
   - is recorded: `client.created` and `client.updated` carry
     `mfa_verified`, beside the existing `skip_consent_before` and
     `skip_consent_after`, and the audit event names who made the change.
+- **A refresh-token family stops rotating after 90 days.** Each rotation gave
+  the successor a fresh 30-day lifetime, so a refresh token that stayed in use
+  never expired. The family's age (read from its UUIDv7 id) now caps it: past
+  90 days from the sign-in that created it, `grant_type=refresh_token` answers
+  `invalid_grant` and the user signs in again. Tokens issued before the family
+  id existed keep sliding as before.
 
 ## `v0.9.3`
 

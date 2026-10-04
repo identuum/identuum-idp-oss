@@ -55,6 +55,7 @@ type RefreshTokenService struct {
 	tokenRevocations *TokenRevocationService
 	userOrgLookup    RefreshUserOrgLookup
 	ttl              time.Duration
+	absoluteLifetime time.Duration
 	now              func() time.Time
 	generateToken    func() (*domain.SecureRefreshToken, error)
 }
@@ -63,11 +64,33 @@ type RefreshTokenService struct {
 //
 // TTL is the lifetime applied to newly issued refresh tokens.
 // Zero falls back to the documented 30-day default.
+//
+// AbsoluteLifetime caps how long a rotation family may keep rotating, counted
+// from the login that created it: every rotation hands the successor a fresh
+// TTL, so without a cap a refresh token that stays in use never expires. Zero
+// falls back to the 90-day default.
 type RefreshTokenServiceOptions struct {
-	TTL time.Duration
+	TTL              time.Duration
+	AbsoluteLifetime time.Duration
 }
 
-const defaultRefreshTokenTTL = 30 * 24 * time.Hour
+const (
+	defaultRefreshTokenTTL              = 30 * 24 * time.Hour
+	defaultRefreshTokenAbsoluteLifetime = 90 * 24 * time.Hour
+)
+
+// familyStartedAt reads when a rotation family began from its UUIDv7 id (the
+// first 48 bits are the Unix millisecond timestamp, RFC 9562 §5.7). ok is false
+// for a pre-migration row with no family id and for an id that is not a v7, so
+// those rows keep sliding as before rather than being cut on a guess.
+func familyStartedAt(familyID string) (time.Time, bool) {
+	id, err := uuid.Parse(familyID)
+	if err != nil || id.Version() != 7 {
+		return time.Time{}, false
+	}
+	ms := int64(id[0])<<40 | int64(id[1])<<32 | int64(id[2])<<24 | int64(id[3])<<16 | int64(id[4])<<8 | int64(id[5])
+	return time.UnixMilli(ms).UTC(), true
+}
 
 // NewRefreshTokenService constructs the service. repo is required;
 // a nil repo panics so a misconfigured deployment cannot silently
@@ -80,11 +103,16 @@ func NewRefreshTokenService(report *lifecycle.StartupReport, repo repository.Ref
 	if ttl <= 0 {
 		ttl = defaultRefreshTokenTTL
 	}
+	absoluteLifetime := opts.AbsoluteLifetime
+	if absoluteLifetime <= 0 {
+		absoluteLifetime = defaultRefreshTokenAbsoluteLifetime
+	}
 	return &RefreshTokenService{
-		repo:          repo,
-		ttl:           ttl,
-		now:           time.Now,
-		generateToken: tools.GenerateSecureRefreshToken,
+		repo:             repo,
+		ttl:              ttl,
+		absoluteLifetime: absoluteLifetime,
+		now:              time.Now,
+		generateToken:    tools.GenerateSecureRefreshToken,
 	}
 }
 
@@ -301,6 +329,12 @@ func (s *RefreshTokenService) Consume(ctx context.Context, in ConsumeRefreshToke
 		// subject / unbounded value (cardinality-DoS guard on a security
 		// metric); per-subject attribution lives in the ERROR log above.
 		metrics.AuthPolicyViolation.WithLabelValues("token_wrong_client", "").Inc()
+		return nil, ErrRefreshTokenInvalidGrant
+	}
+	// A family past its absolute lifetime stops rotating however recently its
+	// tip was used; the holder signs in again. Not a breach signal, so no
+	// lineage revocation: the row ages out on its own TTL and is refused until.
+	if started, ok := familyStartedAt(row.FamilyID); ok && now.Sub(started) > s.absoluteLifetime {
 		return nil, ErrRefreshTokenInvalidGrant
 	}
 	// Rotation-time subject revalidation (R1-secondary). GetUserOrganization
