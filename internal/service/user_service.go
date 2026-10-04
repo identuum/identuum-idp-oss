@@ -871,6 +871,12 @@ func (s *UserService) RestoreUserForActor(ctx context.Context, actor *domain.Pri
 	}
 	target, err := admin.GetByIDAdmin(ctx, targetUserID)
 	if err != nil {
+		// The repository's not-found is domain.ErrUserNotFound; the handler
+		// matches the service sentinel (USER-NOTFOUND-MAPPING-1, as on
+		// reset-mfa), so an absent id would otherwise be a 500.
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return errUserNotFound
+		}
 		return err
 	}
 	if target == nil {
@@ -894,7 +900,13 @@ func (s *UserService) RestoreUserForActor(ctx context.Context, actor *domain.Pri
 	default:
 		return domain.ErrForbidden
 	}
-	return s.repo.Undelete(ctx, targetUserID, target.OrganizationID)
+	if err := s.repo.Undelete(ctx, targetUserID, target.OrganizationID); err != nil {
+		if errors.Is(err, domain.ErrUserNotFound) {
+			return errUserNotFound
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *UserService) guardActorBaseline(actor *domain.Principal) error {

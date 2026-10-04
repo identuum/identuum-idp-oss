@@ -130,6 +130,31 @@ func TestApproveAndResetMFA_GhostMapsToServiceNotFound(t *testing.T) {
 	}
 }
 
+// domainNotFoundAdminRepo makes the deleted-inclusive admin lookup surface
+// domain.ErrUserNotFound for an absent id, as PgxUserRepository.GetByIDAdmin
+// does through scanUser.
+type domainNotFoundAdminRepo struct {
+	*deletedFilterAdminRepo
+}
+
+func (r *domainNotFoundAdminRepo) GetByIDAdmin(context.Context, uuid.UUID) (*domain.User, error) {
+	return nil, domain.ErrUserNotFound
+}
+
+// Restore of a nonexistent id is the service not-found sentinel (404), for
+// either admin: once the route admitted an org_admin and mapped its errors as
+// reset-mfa does, the raw repository error fell to the handler's 500
+// (e2e-full, v0.9.5).
+func TestRestoreUserForActor_GhostMapsToServiceNotFound(t *testing.T) {
+	repo := &domainNotFoundAdminRepo{&deletedFilterAdminRepo{inMemoryUserRepo: newUserRepo()}}
+	svc := NewUserService(nil, repo)
+	for name, actor := range map[string]*domain.Principal{"site_admin": siteAdmin(), "org_admin": orgAdminActor(uuid.New())} {
+		if err := svc.RestoreUserForActor(context.Background(), actor, uuid.New()); !errors.Is(err, ErrUserNotFound()) {
+			t.Errorf("%s restore of a nonexistent user = %v, want the service not-found sentinel", name, err)
+		}
+	}
+}
+
 // Restore MUST NOT silently fall back to the deleted-filtered GetByID when the
 // repository lacks admin support — that would reintroduce USER-RESTORE-DEAD-1
 // invisibly. Built on a pure UserRepository (inMemoryUserRepo, whose unfiltered
