@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net/mail"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -76,11 +77,28 @@ type RegistrationServiceConfig struct {
 	Logger         *zap.Logger
 }
 
+// registrationResponseFloor is how long every public sign-up answer takes at
+// least: a new address writes the account and its state and a taken one does
+// not, so without the floor the time would say which addresses have accounts.
+const registrationResponseFloor = 300 * time.Millisecond
+
 type RegistrationService struct {
 	cfg RegistrationServiceConfig
 	// background runs the mail and the work an existing address skips after
 	// the response; nil runs them inline.
 	background BackgroundRunner
+	// now and sleep time the response floor; WithClock replaces them.
+	now   func() time.Time
+	sleep func(time.Duration)
+}
+
+// WithClock replaces the clock and the wait of the response floor (tests).
+func (s *RegistrationService) WithClock(now func() time.Time, sleep func(time.Duration)) *RegistrationService {
+	if s == nil {
+		return nil
+	}
+	s.now, s.sleep = now, sleep
+	return s
 }
 
 // WithBackground moves the mails of Register off the request path and makes the
@@ -102,7 +120,7 @@ func NewRegistrationService(cfg RegistrationServiceConfig) *RegistrationService 
 	if cfg.Logger == nil {
 		cfg.Logger = zap.NewNop()
 	}
-	return &RegistrationService{cfg: cfg}
+	return &RegistrationService{cfg: cfg, now: time.Now, sleep: time.Sleep}
 }
 
 func actorEvent(actor *domain.Principal, ev audit.Event) audit.Event {
@@ -235,6 +253,13 @@ type RegisterInput struct {
 // open organization's policy refuses; every other outcome is nil and the
 // handler answers the same 202.
 func (s *RegistrationService) Register(ctx context.Context, slug string, in RegisterInput) error {
+	// Every answer but the password policy refusal waits out the floor.
+	start, floor := s.now(), true
+	defer func() {
+		if wait := registrationResponseFloor - s.now().Sub(start); floor && wait > 0 {
+			s.sleep(wait)
+		}
+	}()
 	org, set := s.openOrg(ctx, slug)
 	refused := func(reason string, orgID uuid.UUID) error {
 		_ = s.cfg.Audit.Record(ctx, audit.Event{Action: "user.self_registration_refused", Outcome: "failure", ActorType: "anonymous",
@@ -247,6 +272,7 @@ func (s *RegistrationService) Register(ctx context.Context, slug string, in Regi
 	// Policy first: it is the only answer that differs, and it must not
 	// depend on whether the address exists.
 	if err := domain.ValidatePasswordPolicy(in.Password, registrationMinPasswordLength, org.PasswordComplexityEnabled); err != nil {
+		floor = false
 		return err
 	}
 	email := strings.ToLower(strings.TrimSpace(in.Email))
