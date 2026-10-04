@@ -85,7 +85,11 @@ var (
 	// ErrSkipConsentPublicClient refuses skip_consent on a public client
 	// (D-018(b), RFC 8252 §8.6).
 	ErrSkipConsentPublicClient = errors.New("skip_consent requires a confidential client")
-	ErrForbidden               = errors.New("forbidden")
+	// ErrSkipConsentDynamicClient refuses skip_consent on an app created
+	// through dynamic client registration (D-026: only an app an org_admin
+	// creates in the console may skip the consent screen).
+	ErrSkipConsentDynamicClient = errors.New("skip_consent is not available for an app created through dynamic client registration")
+	ErrForbidden                = errors.New("forbidden")
 	// OSS-GUARDS (CE parity, AdminPermissionsModel.md line 3): an org_admin
 	// never changes its own active state, roles or MFA through the admin
 	// routes, and an organization's last active org_admin is never disabled,

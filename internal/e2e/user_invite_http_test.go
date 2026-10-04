@@ -48,6 +48,10 @@ const (
 	inviteIssuer   = "http://127.0.0.1:7115"
 	inviteUIBase   = "http://ui.invite.test"
 	invitePassword = "Invite-Pass-2026!x"
+	// inviteEncryptionKey is the TEST-ONLY AES-256-GCM key the engine is
+	// started with; a helper that seeds a stored secret seals it under the
+	// same key.
+	inviteEncryptionKey = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
 )
 
 type inviteWorld struct {
@@ -59,6 +63,7 @@ type inviteWorld struct {
 	orgA    *domain.Organization
 	orgB    *domain.Organization
 	bearers map[string]string
+	ids     map[string]uuid.UUID
 }
 
 // startInviteEngine starts a runtime with env applied, and bearer tokens
@@ -83,7 +88,7 @@ func startInviteEngine(t *testing.T, env map[string]string) *inviteWorld {
 			t.Fatalf("Generate signing key: %v", err)
 		}
 	}
-	t.Setenv("IDENTUUM_IDP_ENCRYPTION_KEY", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
+	t.Setenv("IDENTUUM_IDP_ENCRYPTION_KEY", inviteEncryptionKey)
 	t.Setenv("IDENTUUM_IDP_ALLOW_MULTI_REPLICA", "true")
 	for k, v := range env {
 		t.Setenv(k, v)
@@ -100,7 +105,7 @@ func startInviteEngine(t *testing.T, env map[string]string) *inviteWorld {
 		defer scancel()
 		_ = rt.Shutdown(sctx)
 	})
-	w := &inviteWorld{t: t, ctx: ctx, base: "http://" + rt.Addr(), pool: pool, repos: repos, bearers: map[string]string{}}
+	w := &inviteWorld{t: t, ctx: ctx, base: "http://" + rt.Addr(), pool: pool, repos: repos, bearers: map[string]string{}, ids: map[string]uuid.UUID{}}
 	w.orgA = seedTestOrganization(t, ctx, repos)
 	w.orgB = seedTestOrganization(t, ctx, repos)
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})
@@ -126,6 +131,7 @@ func startInviteEngine(t *testing.T, env map[string]string) *inviteWorld {
 			t.Fatalf("token %s: %v", name, err)
 		}
 		w.bearers[name] = tok.AccessToken
+		w.ids[name] = u.ID
 	}
 	mint("adminA", w.orgA.ID, domain.RoleOrgAdmin)
 	mint("adminB", w.orgB.ID, domain.RoleOrgAdmin)

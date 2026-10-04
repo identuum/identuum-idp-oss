@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,46 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
+
+// SkipConsentProver proves the signed-in admin holds a current MFA (TOTP)
+// code. *service.MFAEnrollmentService satisfies it.
+type SkipConsentProver interface {
+	ProveTOTP(ctx context.Context, userID uuid.UUID, code string) error
+}
+
+// requireSkipConsentProof gates turning "skip consent" on (D-026): the admin
+// must send a current TOTP code of their own. It answers and returns false when
+// the proof is missing or wrong; true means the code was spent and verified.
+// Nothing here says which part of a wrong proof was wrong.
+func requireSkipConsentProof(c *gin.Context, deps ClientsHandlerDeps, code string) bool {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mfa_code_required"})
+		return false
+	}
+	if deps.SkipConsentProver == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "mfa_unavailable"})
+		return false
+	}
+	principal, ok := mw.PrincipalFromContext(c)
+	if !ok || principal == nil || principal.UserID == uuid.Nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return false
+	}
+	switch err := deps.SkipConsentProver.ProveTOTP(c.Request.Context(), principal.UserID, code); {
+	case err == nil:
+		return true
+	case errors.Is(err, service.ErrMFANotEnrolled):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "mfa_not_enrolled"})
+	case errors.Is(err, service.ErrMFAProofInvalid):
+		c.JSON(http.StatusForbidden, gin.H{"error": "invalid_mfa_code"})
+	case errors.Is(err, service.ErrMFAEnrollmentInvalid):
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+	}
+	return false
+}
 
 // ClientsHandlerDeps wires the OAuth-client admin group.
 //
@@ -35,6 +76,11 @@ type ClientsHandlerDeps struct {
 	// ClientTokenRevoker revokes a client's tokens before DELETE removes
 	// it (OSS-CLIENTS). Nil fails closed: the delete answers 503.
 	ClientTokenRevoker ClientTokenRevoker
+
+	// SkipConsentProver checks the admin's MFA (TOTP) code when an app is
+	// marked "skip consent" (D-026). Nil fails closed: turning skip_consent
+	// on answers 503 mfa_unavailable.
+	SkipConsentProver SkipConsentProver
 
 	// StartupReport, when wired, receives a fatal fault if neither
 	// ClientService nor ClientRepo is supplied — instead of panicking
@@ -418,6 +464,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			Scope                             string     `json:"scope"`
 			IsPublic                          bool       `json:"is_public"`
 			SkipConsent                       *bool      `json:"skip_consent,omitempty"`
+			MFACode                           string     `json:"mfa_code,omitempty"`
 			TokenEndpointAuthMethod           string     `json:"token_endpoint_auth_method,omitempty"`
 			TokenEndpointAuthSigningAlg       string     `json:"token_endpoint_auth_signing_alg,omitempty"`
 			JWKSUri                           string     `json:"jwks_uri,omitempty"`
@@ -441,6 +488,18 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 				return
 			}
 			req.OrganizationID = orgFilter
+		}
+		// D-026: marking an app "skip consent" needs the admin's MFA code.
+		skipRequested := req.SkipConsent != nil && *req.SkipConsent
+		if skipRequested {
+			// A public app can never have it; say so before a code is spent.
+			if req.IsPublic {
+				respondClientInvalid(c, domain.ErrSkipConsentPublicClient)
+				return
+			}
+			if !requireSkipConsentProof(c, deps, req.MFACode) {
+				return
+			}
 		}
 		client, plaintext, err := deps.ClientService.RegisterClient(c.Request.Context(), service.RegisterClientOptions{
 			Name:                              req.Name,
@@ -479,6 +538,15 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			out["client_secret"] = plaintext
 		}
 		c.JSON(http.StatusCreated, out)
+		createdMeta := map[string]any{
+			"client_id":    client.ClientID,
+			"name":         client.Name,
+			"is_public":    client.IsPublic,
+			"skip_consent": client.SkipConsent,
+		}
+		if skipRequested {
+			createdMeta["mfa_verified"] = true
+		}
 		_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
 			Action:         "client.created",
 			Outcome:        "success",
@@ -487,12 +555,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			OrganizationID: orgOf(client.OrganizationID),
 			IPAddress:      c.ClientIP(),
 			UserAgent:      c.Request.UserAgent(),
-			Metadata: map[string]any{
-				"client_id":    client.ClientID,
-				"name":         client.Name,
-				"is_public":    client.IsPublic,
-				"skip_consent": client.SkipConsent,
-			},
+			Metadata:       createdMeta,
 		}))
 	}
 }
@@ -527,6 +590,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			BackchannelLogoutSessionRequired  *bool      `json:"backchannel_logout_session_required,omitempty"`
 			IDTokenSignedResponseAlg          *string    `json:"id_token_signed_response_alg,omitempty"`
 			SkipConsent                       *bool      `json:"skip_consent,omitempty"`
+			MFACode                           string     `json:"mfa_code,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -540,11 +604,32 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		// event below fires and which SA an unbind names, and gives the
 		// skip_consent change its before value (D-018(b)).
 		var priorSA *uuid.UUID
-		var priorSkip bool
+		var priorSkip, priorDynamic, priorPublic bool
 		if req.ServiceAccountID != nil || req.SkipConsent != nil {
 			if prior, perr := deps.ClientService.GetClient(c.Request.Context(), id); perr == nil && prior != nil {
 				priorSA = prior.ServiceAccountID
 				priorSkip = prior.SkipConsent
+				priorDynamic = prior.DynamicallyRegistered
+				priorPublic = prior.IsPublic
+			}
+		}
+		// D-026: turning "skip consent" ON needs the admin's MFA code; a public
+		// app or one created through dynamic registration can never have it,
+		// and that is answered before a code is spent on a request that cannot
+		// succeed. Turning it off, or editing an app that already has it,
+		// needs no code.
+		turningSkipOn := req.SkipConsent != nil && *req.SkipConsent && !priorSkip
+		if turningSkipOn {
+			if priorPublic {
+				respondClientInvalid(c, domain.ErrSkipConsentPublicClient)
+				return
+			}
+			if priorDynamic {
+				respondClientInvalid(c, domain.ErrSkipConsentDynamicClient)
+				return
+			}
+			if !requireSkipConsentProof(c, deps, req.MFACode) {
+				return
 			}
 		}
 		client, err := deps.ClientService.UpdateClient(c.Request.Context(), id, service.UpdateClientOptions{
@@ -579,6 +664,9 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		if req.SkipConsent != nil {
 			meta["skip_consent_before"] = priorSkip
 			meta["skip_consent_after"] = client.SkipConsent
+			if turningSkipOn {
+				meta["mfa_verified"] = true
+			}
 		}
 		_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
 			Action:         "client.updated",
@@ -744,7 +832,7 @@ func HandleRegenerateClientSecret(deps ClientsHandlerDeps) gin.HandlerFunc {
 // skip_consent refusal (D-018(b)) names its rule; every other refusal keeps
 // the flattened answer.
 func respondClientInvalid(c *gin.Context, err error) {
-	if errors.Is(err, domain.ErrSkipConsentPublicClient) {
+	if errors.Is(err, domain.ErrSkipConsentPublicClient) || errors.Is(err, domain.ErrSkipConsentDynamicClient) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
 		return
 	}

@@ -489,9 +489,13 @@ GET /.well-known/openid-configuration
   enrolled one); being signed in to the console does not carry over. The first
   authorization of a client shows a consent page (**Approve** / **Deny**); the
   decision is remembered. An organization admin may mark an application the
-  organization runs itself **First-party (skip consent)** (D-018): its users
-  are not asked, the change is audited, and `prompt=consent` still asks. A
-  public client cannot be first-party.
+  organization runs itself **First-party (skip consent)** (D-018, D-026): its
+  users are not asked for sign-in itself (`openid`, `profile`, `email`); a
+  request for more, such as `offline_access` or an API resource, still shows
+  the consent page, and so does `prompt=consent`. Only a confidential
+  application created in the console can be first-party (not a public client,
+  not one created through dynamic client registration). Turning it on asks for
+  your current authenticator code, and the change is audited with who made it.
 - **First sign-in under an MFA policy:** a user who must change an admin-set
   password (D-017) and has no authenticator enrols one on the same sign-in
   page — the key and its `otpauth://` link, the recovery codes once, then a

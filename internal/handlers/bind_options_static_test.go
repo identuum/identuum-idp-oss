@@ -100,6 +100,14 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "D-018(b): RFC 7592 management mirrors the 7591 posture: the registration access token must not make its client consent-free.",
 	},
+	// D-026: the marker records that dynamic client registration created the
+	// app. Only HandleDCRRegister feeds it (true); no console request sets or
+	// clears it, so an org_admin can never make a registered app look
+	// console-created.
+	"internal/handlers/clients.go:HandleCreateClient.RegisterClientOptions.DynamicallyRegistered": {
+		State: "absent",
+		Why:   "D-026: set only by dcr.go at registration (true); never client-settable on the console wire, so an org_admin cannot make a dynamically registered app look console-created or the reverse.",
+	},
 
 	// ── OSS-ONBOARD-A (D-016): the invite branch of POST /api/v1/users ──
 	// The invite literal is built only when the bound password is EMPTY

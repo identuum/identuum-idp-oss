@@ -958,6 +958,11 @@ func mountClients(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.RefreshTokenService != nil {
 		deps.ClientTokenRevoker = resolved.RefreshTokenService
 	}
+	// A nil *MFAEnrollmentService stays a nil interface: turning "skip
+	// consent" on then fails closed with 503 (D-026).
+	if resolved.MFAEnrollment != nil {
+		deps.SkipConsentProver = resolved.MFAEnrollment
+	}
 	handlers.RegisterClientsRoutes(router, deps)
 }
 

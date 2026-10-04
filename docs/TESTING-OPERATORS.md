@@ -539,7 +539,8 @@ true}},"id_token":{"email":null}}`). Rule `CLAIMS-PARAM-CONSENT-1`.
   (`oauth_consents.claims`, tokens like `userinfo:name`). A returning client
   asking for a claim not yet consented is sent to consent again
   (`ConsentService.Lookup` covers scope AND claims). `SkipConsent` clients
-  bypass, as for scopes.
+  bypass for an identity-only request (`openid`, `profile`, `email`; D-026),
+  as for scopes.
 - **Persisted on the code row** (`oauth_authorization_codes.requested_claims`,
   migration 0034) and honored at the exchange: the `userinfo` member rides on
   the access token as `userinfo_claims` (∩ what the role permits —

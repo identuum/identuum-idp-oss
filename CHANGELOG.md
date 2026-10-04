@@ -7,6 +7,43 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Users sign in only to apps of their own organization** (D-027).
+  `/authorize` issues a code only when the app belongs to the signing-in
+  user's organization; an app of another organization answers like an
+  unknown client. An app with no organization (registered by the site
+  administrator) stays available to every organization.
+- **A token issued to an app is not a credential for the IdP's own API.** A
+  user token minted for an app (it carries the app's `client_id`) is still
+  accepted by `userinfo` and token introspection, and no longer by the
+  admin and account routes under `/api/v1`.
+- **Site administrators do not edit tenant users** (D-025). Changing,
+  disabling, deleting, restoring or resetting MFA of a tenant user, and
+  deciding a self-registration, are refused (`403`) for a site administrator.
+  What remains is appointing the first org admin of an organization that has
+  none (including re-sending that invite).
+- **MFA wrong codes are bounded per user.** The per-sign-in limit is joined by
+  a per-user limit: 5 wrong codes in 15 minutes across all of a user's
+  pending sign-ins, after which even the correct code is refused until the
+  window passes.
+- **"Skip consent" has four guards** (D-026). An application an org admin
+  marked **First-party (skip consent)**:
+  - must be a confidential app created in the console; an app created
+    through dynamic client registration can never have it (migration `0044`
+    adds `oauth_clients.dynamically_registered`, marks apps that already hold
+    a registration access token, and clears their `skip_consent`);
+  - signs the user in silently only for `openid`, `profile` and `email`. A
+    request for anything more (`offline_access`, another scope, an API
+    resource through `audience`) shows the consent screen for it. **An
+    existing first-party app that asks for more than identity now shows
+    consent for those scopes.**
+  - needs the org admin's current TOTP code to be turned on:
+    `POST /api/v1/clients` and `PUT /api/v1/clients/:id` take `mfa_code`
+    when `skip_consent` becomes `true` (`400 mfa_code_required`,
+    `400 mfa_not_enrolled`, `403 invalid_mfa_code`);
+  - is recorded: `client.created` and `client.updated` carry
+    `mfa_verified`, beside the existing `skip_consent_before` and
+    `skip_consent_after`, and the audit event names who made the change.
+
 ## `v0.9.3`
 
 identuum-ui `9cfd09b` embedded, unchanged since `v0.9.2`. The delta since

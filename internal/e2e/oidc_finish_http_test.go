@@ -36,6 +36,10 @@ func TestE2E_OSS_OIDCFinish(t *testing.T) {
 	w := startInviteEngine(t, map[string]string{"UI": inviteUIBase, "IDENTUUM_IDP_RATE_LIMIT_LOGIN_REQUESTS": "1000"})
 	db := w.pool
 	admin := w.bearers["adminA"]
+	// D-026: turning skip_consent on needs the org_admin's current TOTP code.
+	// Each accepted code burns its step, so the two proofs below use the
+	// current step and the next.
+	totp := w.enrollTOTP("adminA")
 
 	// ── (a) end_session without a redirect: the signed-out page ────────────
 	res, err := http.Get(w.base + "/api/v1/oidc/logout")
@@ -66,7 +70,14 @@ func TestE2E_OSS_OIDCFinish(t *testing.T) {
 		return st, out
 	}
 	const cb = "https://rp.example.test/cb"
-	st, fp := create(`{"name":"first-party","redirect_uris":["` + cb + `"],"scope":"openid","skip_consent":true}`)
+	// D-026: no code, and a wrong code, create nothing.
+	if st, m, _ := w.call(admin, http.MethodPost, "/api/v1/clients", `{"name":"no-code","redirect_uris":["`+cb+`"],"scope":"openid","skip_consent":true}`); st != http.StatusBadRequest || m["error"] != "mfa_code_required" {
+		t.Errorf("skip_consent without an MFA code = %d %v; want 400 mfa_code_required", st, m)
+	}
+	if st, m, _ := w.call(admin, http.MethodPost, "/api/v1/clients", `{"name":"bad-code","redirect_uris":["`+cb+`"],"scope":"openid","skip_consent":true,"mfa_code":"000000"}`); st != http.StatusForbidden || m["error"] != "invalid_mfa_code" {
+		t.Errorf("skip_consent with a wrong MFA code = %d %v; want 403 invalid_mfa_code", st, m)
+	}
+	st, fp := create(`{"name":"first-party","redirect_uris":["` + cb + `"],"scope":"openid","skip_consent":true,"mfa_code":"` + totp(0) + `"}`)
 	if st != http.StatusCreated || fp.Client.SkipConsent == nil || !*fp.Client.SkipConsent || fp.Secret == "" {
 		t.Fatalf("create a first-party client = %d skip_consent %v; want 201 with skip_consent true", st, fp.Client.SkipConsent)
 	}
@@ -90,16 +101,30 @@ func TestE2E_OSS_OIDCFinish(t *testing.T) {
 		t.Errorf("another org_admin marks the client first-party = %d; want 404", st)
 	}
 	// Update round trip, audited with before and after.
-	for _, want := range []bool{true, false, true} {
-		st, m, _ := w.call(admin, http.MethodPut, "/api/v1/clients/"+tp.Client.ID, `{"skip_consent":`+map[bool]string{true: "true", false: "false"}[want]+`}`)
+	// Turning it on needs the MFA code (the second proof, the next step);
+	// turning it off needs none.
+	if st, m, _ := w.call(admin, http.MethodPut, "/api/v1/clients/"+tp.Client.ID, `{"skip_consent":true}`); st != http.StatusBadRequest || m["error"] != "mfa_code_required" {
+		t.Errorf("PUT skip_consent=true without a code = %d %v; want 400 mfa_code_required", st, m)
+	}
+	for _, want := range []bool{true, false} {
+		body := `{"skip_consent":false}`
+		if want {
+			body = `{"skip_consent":true,"mfa_code":"` + totp(1) + `"}`
+		}
+		st, m, _ := w.call(admin, http.MethodPut, "/api/v1/clients/"+tp.Client.ID, body)
 		if st != http.StatusOK || m["skip_consent"] != want {
 			t.Fatalf("PUT skip_consent=%v = %d %v; want 200 with skip_consent %v", want, st, m["skip_consent"], want)
 		}
 	}
 	var changes int
 	if err := db.QueryRow(w.ctx, `SELECT count(*) FROM audit_events WHERE event_type = 'client.updated' AND metadata->>'client_id' = $1
-		AND metadata ? 'skip_consent_before' AND metadata->>'skip_consent_before' <> metadata->>'skip_consent_after'`, tp.Client.ClientID).Scan(&changes); err != nil || changes != 3 {
-		t.Errorf("client.updated rows carrying a skip_consent before/after change = %d (err %v); want 3", changes, err)
+		AND metadata ? 'skip_consent_before' AND metadata->>'skip_consent_before' <> metadata->>'skip_consent_after'`, tp.Client.ClientID).Scan(&changes); err != nil || changes != 2 {
+		t.Errorf("client.updated rows carrying a skip_consent before/after change = %d (err %v); want 2", changes, err)
+	}
+	var proofRows int
+	if err := db.QueryRow(w.ctx, `SELECT count(*) FROM audit_events WHERE event_type = 'client.updated' AND metadata->>'client_id' = $1
+		AND metadata->>'skip_consent_after' = 'true' AND metadata->>'mfa_verified' = 'true'`, tp.Client.ClientID).Scan(&proofRows); err != nil || proofRows != 1 {
+		t.Errorf("client.updated rows recording skip_consent on with mfa_verified = %d (err %v); want 1", proofRows, err)
 	}
 	if st, _, _ := w.call(admin, http.MethodPut, "/api/v1/clients/"+tp.Client.ID, `{"skip_consent":false}`); st != http.StatusOK {
 		t.Fatalf("reset third-party = %d", st)

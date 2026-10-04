@@ -562,8 +562,8 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	// Phase 4: consent gate. The order is:
 	//
 	//   1. prompt=consent always forces the consent page.
-	//   2. client.SkipConsent==true bypasses the gate (trusted
-	//      first-party).
+	//   2. Client.SkipsConsentFor bypasses the gate (trusted first-party,
+	//      identity scopes only — D-026).
 	//   3. ConsentService.Lookup reports Covered=true → bypass.
 	//   4. Otherwise → ErrAuthorizeConsentRequired (handler routes
 	//      to the consent page or, with prompt=none, returns the
@@ -580,7 +580,10 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	if promptHas(req.Prompt, "consent") {
 		return nil, ErrAuthorizeConsentRequired
 	}
-	if !client.SkipConsent {
+	// D-026: skip_consent covers a confidential console-created app asking
+	// for identity only; anything else goes through the consent lookup.
+	skipsConsent := client.SkipsConsentFor(req.Scope, req.Audience)
+	if !skipsConsent {
 		if s.consent == nil {
 			return nil, ErrAuthorizeConsentRequired
 		}
@@ -632,7 +635,7 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		ClientID:    req.ClientID,
 		// Reaching here with SkipConsent set means the gate was bypassed:
 		// prompt=consent returned above.
-		ConsentSkipped: client.SkipConsent,
+		ConsentSkipped: skipsConsent,
 	}, nil
 }
 

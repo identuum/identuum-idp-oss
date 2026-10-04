@@ -181,6 +181,10 @@ var (
 	// code must not buy more recovery codes. The handler maps it to the
 	// route family's existing 401 invalid_code.
 	ErrMFARegenerateInvalidCode = errors.New("service: mfa recovery codes regenerate invalid code")
+
+	// ErrMFAProofInvalid is ProveTOTP's one cause-neutral refusal: the code
+	// was absent, blank, wrong, replayed, or a recovery code.
+	ErrMFAProofInvalid = errors.New("service: mfa totp proof invalid")
 )
 
 // MFADisableReauthMethod identifies which leg of the re-auth chain
@@ -1026,6 +1030,29 @@ func (s *MFAEnrollmentService) totpProofOK(ctx context.Context, user *domain.Use
 		return false
 	}
 	return s.totpAccept(ctx, user.ID, plaintextSeed, trimmedCode)
+}
+
+// ProveTOTP checks that the caller holds the user's current TOTP code — the
+// proof a sensitive admin action asks for (D-026: turning on "skip consent"
+// for an app). It changes nothing: a successful proof only burns the TOTP
+// step through the replay guard. As for the recovery-code regenerate, ONLY a
+// TOTP code counts; a recovery code never does. A user without MFA gets
+// ErrMFANotEnrolled; every other wrong proof is ErrMFAProofInvalid.
+func (s *MFAEnrollmentService) ProveTOTP(ctx context.Context, userID uuid.UUID, code string) error {
+	if userID == uuid.Nil {
+		return ErrMFAEnrollmentInvalid
+	}
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil || user == nil || user.Banned || user.DeletedAt != nil {
+		return ErrMFAEnrollmentInvalid
+	}
+	if !user.MFAEnabled {
+		return ErrMFANotEnrolled
+	}
+	if !s.totpProofOK(ctx, user, strings.TrimSpace(code)) {
+		return ErrMFAProofInvalid
+	}
+	return nil
 }
 
 // totpAccept is the one place a TOTP proof is accepted in this service

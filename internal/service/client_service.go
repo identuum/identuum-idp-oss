@@ -85,7 +85,10 @@ type RegisterClientOptions struct {
 	IsPublic               bool
 	// SkipConsent marks a first-party client (D-018(b)); Client.Validate
 	// refuses it for a public client.
-	SkipConsent                       bool
+	SkipConsent bool
+	// DynamicallyRegistered marks an app created through dynamic client
+	// registration; such an app never skips consent (D-026).
+	DynamicallyRegistered             bool
 	TokenEndpointAuthMethod           string
 	TokenEndpointAuthSigningAlg       string
 	JWKSUri                           string
@@ -287,6 +290,7 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 		// the STORED flag (v0.3.1 gap A).
 		IsPublic:                          opts.IsPublic,
 		SkipConsent:                       opts.SkipConsent,
+		DynamicallyRegistered:             opts.DynamicallyRegistered,
 		Scope:                             opts.Scope,
 		RedirectURIs:                      opts.RedirectURIs,
 		PostLogoutRedirectURIs:            opts.PostLogoutRedirectURIs,

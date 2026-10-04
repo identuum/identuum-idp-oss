@@ -263,7 +263,12 @@ type Client struct {
 	ID                          uuid.UUID
 	IsPublic                    bool
 	SkipConsent                 bool
-	TokenTTLSecs                *int
+	// DynamicallyRegistered is true for an app created through dynamic client
+	// registration (RFC 7591) rather than by an org_admin in the console. It is
+	// set once, at creation, and never changes (D-026: such an app never skips
+	// the consent screen).
+	DynamicallyRegistered bool
+	TokenTTLSecs          *int
 	// FrontchannelLogoutURI is the registered RP front-channel
 	// logout URL. When non-empty AND the OP frontchannel-logout
 	// route is live, the OP renders an iframe loading this URI
@@ -389,6 +394,11 @@ func (c *Client) Validate() error {
 	if c.IsPublic && c.SkipConsent {
 		return ErrSkipConsentPublicClient
 	}
+	// D-026: an app created through dynamic client registration was never
+	// vetted by an org_admin, so it never skips the consent screen.
+	if c.DynamicallyRegistered && c.SkipConsent {
+		return ErrSkipConsentDynamicClient
+	}
 
 	method := c.EffectiveAuthMethod()
 
@@ -453,6 +463,32 @@ func (c *Client) Validate() error {
 	}
 
 	return nil
+}
+
+// silentSignInScopes are the scopes a skip-consent app is granted without the
+// consent screen: identity only (D-026).
+var silentSignInScopes = map[string]bool{"openid": true, "profile": true, "email": true}
+
+// SkipsConsentFor reports whether a sign-in to this app, asking for scope and
+// audience, may proceed without the consent screen (D-026). It needs the org_admin's
+// skip_consent mark AND a confidential app created in the console AND a request
+// for identity only: an API resource (audience) or any scope beyond openid,
+// profile and email — offline_access included — shows the consent screen for
+// it. Validate refuses the mark on a public or dynamically registered app;
+// this re-checks both so a row written any other way still shows consent.
+func (c *Client) SkipsConsentFor(scope, audience string) bool {
+	if !c.SkipConsent || c.IsPublic || c.DynamicallyRegistered {
+		return false
+	}
+	if strings.TrimSpace(audience) != "" {
+		return false
+	}
+	for _, s := range strings.Fields(scope) {
+		if !silentSignInScopes[s] {
+			return false
+		}
+	}
+	return true
 }
 
 // IsRedirectURIAllowed checks if the provided URI is in the allowed list

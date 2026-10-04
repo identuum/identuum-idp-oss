@@ -49,8 +49,8 @@ func (r *PgxClientRepository) RegisterClient(ctx context.Context, client *domain
 	}
 
 	query := `
-		INSERT INTO oauth_clients (id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
+		INSERT INTO oauth_clients (id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at, dynamically_registered)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
 		RETURNING id`
 
 	// Resolve stored values: empty string → NULL for optional columns, else use provided value.
@@ -111,6 +111,7 @@ func (r *PgxClientRepository) RegisterClient(ctx context.Context, client *domain
 		storedIDTokenAlg,
 		client.CreatedAt,
 		client.UpdatedAt,
+		client.DynamicallyRegistered,
 	).Scan(&client.ID)
 
 	if err != nil {
@@ -140,6 +141,7 @@ func (r *PgxClientRepository) scanClient(row pgx.Row) (*domain.Client, error) {
 		&client.ServiceAccountID,
 		&client.IsPublic,
 		&client.SkipConsent,
+		&client.DynamicallyRegistered,
 		&client.AllowedAudiences,
 		&client.TokenTTLSecs,
 		&client.TokenEndpointAuthMethod,
@@ -187,7 +189,7 @@ func (r *PgxClientRepository) GetClientByID(ctx context.Context, id uuid.UUID) (
 	// tombstone read. (Org-LIVENESS is the separate AUTH boundary and is
 	// enforced on the auth-time lookup GetClientByClientID below.)
 	query := `
-		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
+		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, dynamically_registered, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
 		FROM oauth_clients
 		WHERE id = $1 AND deleted_at IS NULL`
 
@@ -223,7 +225,7 @@ func (r *PgxClientRepository) GetClientByClientID(ctx context.Context, clientID 
 	// NULL AND active). organization_id IS NULL guards any non-tenant/system
 	// client.
 	query := `
-		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
+		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, dynamically_registered, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
 		FROM oauth_clients oc
 		WHERE oc.client_id = $1
 		  AND oc.deleted_at IS NULL
@@ -253,7 +255,7 @@ func (r *PgxClientRepository) ListByServiceAccountID(ctx context.Context, orgID 
 	defer timer.ObserveDuration()
 
 	query := `
-		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
+		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, dynamically_registered, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
 		FROM oauth_clients
 		WHERE organization_id = $1 AND service_account_id = $2 AND deleted_at IS NULL
 		LIMIT 2`
@@ -394,7 +396,7 @@ func (r *PgxClientRepository) List(ctx context.Context, pagination repository.Pa
 
 	// 2. List items
 	query := `
-		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
+		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, dynamically_registered, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, created_at, updated_at
 		FROM oauth_clients
 	` + whereClause + `
 		ORDER BY created_at DESC

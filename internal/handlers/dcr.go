@@ -364,6 +364,7 @@ func HandleDCRRegister(deps DCRHandlerDeps) gin.HandlerFunc {
 			PostLogoutRedirectURIs:            req.PostLogoutRedirectURIs,
 			Scope:                             req.Scope,
 			IsPublic:                          isPublic,
+			DynamicallyRegistered:             true,
 			TokenEndpointAuthMethod:           req.TokenEndpointAuthMethod,
 			TokenEndpointAuthSigningAlg:       req.TokenEndpointAuthSigningAlg,
 			JWKSUri:                           req.JWKSUri,
