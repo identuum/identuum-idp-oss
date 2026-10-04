@@ -157,7 +157,9 @@ func (r *memUserRepo) CountVerifiedOrgAdminsByOrganizations(_ context.Context, _
 	return map[uuid.UUID]int{}, nil
 }
 func (r *memUserRepo) VerifyPassword(_ context.Context, _, _ string) error { return nil }
-func (r *memUserRepo) HashPassword(p string) (string, error)               { return "hashed:" + p, nil }
+func (r *memUserRepo) HashPassword(_ context.Context, p string) (string, error) {
+	return "hashed:" + p, nil
+}
 func (r *memUserRepo) GetUserOrganization(_ context.Context, _ uuid.UUID) (*domain.Organization, error) {
 	panic("not used")
 }

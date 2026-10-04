@@ -446,7 +446,7 @@ func (s *PasswordResetService) ResetPassword(ctx context.Context, in ResetPasswo
 	// Atomic single-use claim + password write in ONE transaction. A concurrent
 	// reset matches zero rows and gets ok=false; a failed write rolls the claim
 	// back so a valid link survives. Pre-hash the password (argon2id).
-	passwordHash, err := crypto.GenerateHash([]byte(in.NewPassword))
+	passwordHash, err := crypto.GenerateHashContext(ctx, []byte(in.NewPassword))
 	if err != nil {
 		return fmt.Errorf("password_reset: hash password: %w", err)
 	}

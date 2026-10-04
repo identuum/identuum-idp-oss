@@ -359,7 +359,7 @@ func TestCachedUserRepository_PassThroughs(t *testing.T) {
 
 	// HashPassword
 	mockRepo.On("HashPassword", "pass").Return("hash", nil).Once()
-	hash, err := cachedRepo.HashPassword("pass")
+	hash, err := cachedRepo.HashPassword(ctx, "pass")
 	assert.NoError(t, err)
 	assert.Equal(t, "hash", hash)
 

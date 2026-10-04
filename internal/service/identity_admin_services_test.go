@@ -143,7 +143,7 @@ func (r *inMemoryUserRepo) CountVerifiedOrgAdminsByOrganizations(_ context.Conte
 func (r *inMemoryUserRepo) VerifyPassword(_ context.Context, _ string, _ string) error {
 	return nil
 }
-func (r *inMemoryUserRepo) HashPassword(p string) (string, error) {
+func (r *inMemoryUserRepo) HashPassword(_ context.Context, p string) (string, error) {
 	return "hashed:" + p, nil
 }
 func (r *inMemoryUserRepo) GetUserOrganization(_ context.Context, _ uuid.UUID) (*domain.Organization, error) {

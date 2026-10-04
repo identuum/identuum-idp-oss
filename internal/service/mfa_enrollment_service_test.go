@@ -279,7 +279,7 @@ func (s *stubUserRepoForMFAEnroll) VerifyPassword(_ context.Context, password, h
 	}
 	return errors.New("invalid password")
 }
-func (s *stubUserRepoForMFAEnroll) HashPassword(string) (string, error) {
+func (s *stubUserRepoForMFAEnroll) HashPassword(context.Context, string) (string, error) {
 	panic("stubUserRepoForMFAEnroll: HashPassword not expected")
 }
 func (s *stubUserRepoForMFAEnroll) GetUserOrganization(context.Context, uuid.UUID) (*domain.Organization, error) {

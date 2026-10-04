@@ -415,8 +415,8 @@ func (r *CachedUserRepository) VerifyPassword(ctx context.Context, password, has
 	return r.delegate.VerifyPassword(ctx, password, hash)
 }
 
-func (r *CachedUserRepository) HashPassword(password string) (string, error) {
-	return r.delegate.HashPassword(password)
+func (r *CachedUserRepository) HashPassword(ctx context.Context, password string) (string, error) {
+	return r.delegate.HashPassword(ctx, password)
 }
 
 func (r *CachedUserRepository) GetUserOrganization(ctx context.Context, userID uuid.UUID) (*domain.Organization, error) {

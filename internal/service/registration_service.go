@@ -304,7 +304,7 @@ func (s *RegistrationService) Register(ctx context.Context, slug string, in Regi
 		// new account's password does, and its mail goes out after the
 		// response, so the response time does not say which addresses have
 		// accounts.
-		_ = crypto.CompareHashAndPassword([]byte(crypto.DummyPasswordHash()), []byte(in.Password))
+		_ = crypto.CompareHashAndPasswordContext(ctx, []byte(crypto.DummyPasswordHash()), []byte(in.Password))
 		runWith(s.background, ctx, func(ctx context.Context) {
 			if s.cfg.Notifier != nil {
 				if err := s.cfg.Notifier.SendRegistrationNoticeEmail(ctx, email, org.Name); err != nil && !errors.Is(err, ErrEmailDeliveryNotConfigured) {

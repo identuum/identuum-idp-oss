@@ -403,7 +403,7 @@ func (s *OrganizationActivationService) ConsumeActivationToken(ctx context.Conte
 	// activation_token_hash is the atomic claim guard: a concurrent consumer
 	// matches zero rows and is rejected; a failure in any write rolls the whole
 	// transaction back (the link survives). Password is pre-hashed with argon2id.
-	passwordHash, err := crypto.GenerateHash([]byte(in.Password))
+	passwordHash, err := crypto.GenerateHashContext(ctx, []byte(in.Password))
 	if err != nil {
 		return nil, nil, fmt.Errorf("org_activation: hash password: %w", err)
 	}

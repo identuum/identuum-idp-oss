@@ -179,7 +179,7 @@ func (s *UserService) Create(ctx context.Context, opts CreateUserOptions) (*doma
 	if err := domain.ValidatePasswordPolicy(opts.Password, minLen, complexityEnabled); err != nil {
 		return nil, err
 	}
-	hash, err := s.repo.HashPassword(opts.Password)
+	hash, err := s.repo.HashPassword(ctx, opts.Password)
 	if err != nil {
 		return nil, errPasswordHashing
 	}
@@ -383,7 +383,7 @@ func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts Upda
 		if err := domain.ValidatePasswordPolicy(*opts.Password, minLen, complexityEnabled); err != nil {
 			return nil, err
 		}
-		hash, err := s.repo.HashPassword(*opts.Password)
+		hash, err := s.repo.HashPassword(ctx, *opts.Password)
 		if err != nil {
 			return nil, errPasswordHashing
 		}

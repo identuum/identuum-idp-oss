@@ -256,7 +256,7 @@ func (r *PgxUserRepository) Create(ctx context.Context, user *domain.User) (*dom
 		// wrong. Refuse the write.
 		return nil, fmt.Errorf("password hash format not supported (only argon2id is accepted)")
 	default:
-		hash, err := crypto.GenerateHash([]byte(user.PasswordHash))
+		hash, err := crypto.GenerateHashContext(ctx, []byte(user.PasswordHash))
 		if err != nil {
 			return nil, fmt.Errorf("failed to hash password: %w", err)
 		}
@@ -504,7 +504,7 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 			// an unloginable user.
 			return nil, fmt.Errorf("password hash format not supported (only argon2id is accepted)")
 		default:
-			hash, err := crypto.GenerateHash([]byte(*opts.Password))
+			hash, err := crypto.GenerateHashContext(ctx, []byte(*opts.Password))
 			if err != nil {
 				return nil, fmt.Errorf("failed to hash password: %w", err)
 			}
@@ -1170,7 +1170,7 @@ func (r *PgxUserRepository) UpdateLastLogin(ctx context.Context, id uuid.UUID) e
 // VerifyPassword verifies a password
 func (r *PgxUserRepository) VerifyPassword(ctx context.Context, password, hash string) error {
 	logger.DebugContext(ctx, "VERIFY PASSWORD CALLED", zap.Int("password_len", len(password)))
-	err := crypto.CompareHashAndPassword([]byte(hash), []byte(password))
+	err := crypto.CompareHashAndPasswordContext(ctx, []byte(hash), []byte(password))
 	if err != nil {
 		logger.DebugContext(ctx, "Password verification failed")
 		return fmt.Errorf("password verification failed: %w", err)
@@ -1178,9 +1178,9 @@ func (r *PgxUserRepository) VerifyPassword(ctx context.Context, password, hash s
 	return nil
 }
 
-// HashPassword hashes a password
-func (r *PgxUserRepository) HashPassword(password string) (string, error) {
-	hash, err := crypto.GenerateHash([]byte(password))
+// HashPassword hashes a password; the wait for a hashing slot ends with ctx.
+func (r *PgxUserRepository) HashPassword(ctx context.Context, password string) (string, error) {
+	hash, err := crypto.GenerateHashContext(ctx, []byte(password))
 	if err != nil {
 		return "", fmt.Errorf("failed to hash password: %w", err)
 	}

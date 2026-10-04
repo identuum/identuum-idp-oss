@@ -108,7 +108,7 @@ func (s *ChangePasswordService) ChangeOwnPassword(ctx context.Context, userID uu
 	if err := domain.ValidatePasswordPolicy(newPassword, s.minPasswordLength, complexityEnabled); err != nil {
 		return &ChangePasswordPolicyError{Detail: err.Error()}
 	}
-	hash, err := s.users.HashPassword(newPassword)
+	hash, err := s.users.HashPassword(ctx, newPassword)
 	if err != nil {
 		return domainSentinel("change_password: hash failed")
 	}
@@ -156,7 +156,7 @@ func (s *ChangePasswordService) ChangeRequiredAtSignIn(ctx context.Context, user
 	if strings.TrimSpace(user.PasswordHash) != "" && s.users.VerifyPassword(ctx, newPassword, user.PasswordHash) == nil {
 		return nil, &ChangePasswordPolicyError{Detail: "choose a password different from the one you were given"}
 	}
-	hash, err := s.users.HashPassword(newPassword)
+	hash, err := s.users.HashPassword(ctx, newPassword)
 	if err != nil {
 		return nil, domainSentinel("change_password: hash failed")
 	}

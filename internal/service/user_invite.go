@@ -279,7 +279,7 @@ func (s *UserService) RedeemInvite(ctx context.Context, rawToken, password strin
 	if err := domain.ValidatePasswordPolicy(password, inviteMinPasswordLength, org.PasswordComplexityEnabled); err != nil {
 		return nil, errInviteWeakPassword
 	}
-	passwordHash, err := s.repo.HashPassword(password)
+	passwordHash, err := s.repo.HashPassword(ctx, password)
 	if err != nil {
 		return nil, errPasswordHashing
 	}

@@ -137,8 +137,9 @@ type UserRepository interface {
 	// VerifyPassword verifies a password against a stored hash
 	VerifyPassword(ctx context.Context, password, hash string) error
 
-	// HashPassword hashes a password using argon2id
-	HashPassword(password string) (string, error)
+	// HashPassword hashes a password using argon2id; the wait for a hashing
+	// slot ends with ctx.
+	HashPassword(ctx context.Context, password string) (string, error)
 
 	// GetUserOrganization retrieves the organization for a user
 	GetUserOrganization(ctx context.Context, userID uuid.UUID) (*domain.Organization, error)

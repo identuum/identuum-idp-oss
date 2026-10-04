@@ -140,7 +140,7 @@ func (m *MockUserRepository) VerifyPassword(ctx context.Context, password, hash 
 	return args.Error(0)
 }
 
-func (m *MockUserRepository) HashPassword(password string) (string, error) {
+func (m *MockUserRepository) HashPassword(_ context.Context, password string) (string, error) {
 	args := m.Called(password)
 	return args.String(0), args.Error(1)
 }

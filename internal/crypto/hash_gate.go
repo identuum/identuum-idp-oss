@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"runtime"
 	"sync"
 )
@@ -25,9 +26,14 @@ func hashGateCapacity() int {
 	return min(max(runtime.GOMAXPROCS(0), 2), 8)
 }
 
-// run executes f once a slot is free and returns its result.
-func (g *hashLimiter) run(f func() []byte) []byte {
-	g.slots <- struct{}{}
+// run executes f once a slot is free and returns its result. The wait ends
+// with ctx (a client that has gone), and then f does not run.
+func (g *hashLimiter) run(ctx context.Context, f func() []byte) ([]byte, error) {
+	select {
+	case g.slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	defer func() { <-g.slots }()
 	g.mu.Lock()
 	g.inFlight++
@@ -38,7 +44,7 @@ func (g *hashLimiter) run(f func() []byte) []byte {
 		g.inFlight--
 		g.mu.Unlock()
 	}()
-	return f()
+	return f(), nil
 }
 
 func (g *hashLimiter) resetPeak() {

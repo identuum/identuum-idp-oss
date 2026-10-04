@@ -269,11 +269,16 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 		// iterations, parallelism, key length) a real hash does, so the
 		// compare takes as long; it never matches. The wire response is the
 		// same either way.
-		_ = crypto.CompareHashAndPassword([]byte(crypto.DummyPasswordHash()), []byte(in.Password))
+		if crypto.CompareHashAndPasswordContext(ctx, []byte(crypto.DummyPasswordHash()), []byte(in.Password)) != nil && ctx.Err() != nil {
+			return nil, ctx.Err() // the caller has gone; nothing was checked
+		}
 		s.recordLoginRisk(ctx, email, ip, LoginRiskPurposePassword, false)
 		return nil, ErrLoginInvalidCredentials
 	}
-	if err := crypto.CompareHashAndPassword([]byte(user.PasswordHash), []byte(in.Password)); err != nil {
+	if err := crypto.CompareHashAndPasswordContext(ctx, []byte(user.PasswordHash), []byte(in.Password)); err != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err() // the caller has gone; nothing was checked
+		}
 		s.recordLoginRisk(ctx, email, ip, LoginRiskPurposePassword, false)
 		return nil, ErrLoginInvalidCredentials
 	}

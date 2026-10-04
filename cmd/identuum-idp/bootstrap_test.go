@@ -192,7 +192,7 @@ func (m *memUserRepo) GetUserOrganization(_ context.Context, _ uuid.UUID) (*doma
 func (m *memUserRepo) UpdateOrganizationID(_ context.Context, _ uuid.UUID, _ uuid.UUID) error {
 	return nil
 }
-func (m *memUserRepo) HashPassword(s string) (string, error) {
+func (m *memUserRepo) HashPassword(_ context.Context, s string) (string, error) {
 	// Identity hash is enough for the bootstrap test — the production
 	// path runs through internal/crypto.GenerateHash, which is what
 	// PgxUserRepository.Create invokes when the field is not already

@@ -148,7 +148,7 @@ func (r *recoveryStubUserRepo) VerifyPassword(_ context.Context, password, hash 
 	}
 	return errors.New("invalid password")
 }
-func (r *recoveryStubUserRepo) HashPassword(string) (string, error) {
+func (r *recoveryStubUserRepo) HashPassword(context.Context, string) (string, error) {
 	panic("recoveryStubUserRepo.HashPassword not expected")
 }
 func (r *recoveryStubUserRepo) GetUserOrganization(context.Context, uuid.UUID) (*domain.Organization, error) {

@@ -139,7 +139,9 @@ func (r *fakeUserRepoForCallback) CountVerifiedOrgAdminsByOrganizations(context.
 	return nil, nil
 }
 func (r *fakeUserRepoForCallback) VerifyPassword(context.Context, string, string) error { return nil }
-func (r *fakeUserRepoForCallback) HashPassword(string) (string, error)                  { return "", nil }
+func (r *fakeUserRepoForCallback) HashPassword(context.Context, string) (string, error) {
+	return "", nil
+}
 func (r *fakeUserRepoForCallback) GetUserOrganization(context.Context, uuid.UUID) (*domain.Organization, error) {
 	return nil, nil
 }

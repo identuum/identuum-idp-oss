@@ -267,7 +267,7 @@ func (s *OrganizationService) CreateWithInitialAdmin(ctx context.Context, opts C
 	if _, err := rand.Read(placeholder); err != nil {
 		return nil, nil, fmt.Errorf("placeholder generation failed: %w", err)
 	}
-	hash, err := crypto.GenerateHash(placeholder)
+	hash, err := crypto.GenerateHashContext(ctx, placeholder)
 	if err != nil {
 		return nil, nil, fmt.Errorf("placeholder hashing failed: %w", err)
 	}

@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -19,16 +20,26 @@ var (
 )
 
 // GenerateHash generates an Argon2id hash from a password using domain constraints.
-// It returns the hash serialized in the standard PHC string format.
+// It returns the hash serialized in the standard PHC string format. A caller
+// serving a request uses GenerateHashContext.
 func GenerateHash(password []byte) (string, error) {
+	return GenerateHashContext(context.Background(), password)
+}
+
+// GenerateHashContext is GenerateHash whose wait for a hashing slot ends with
+// ctx.
+func GenerateHashContext(ctx context.Context, password []byte) (string, error) {
 	salt := make([]byte, domain.Argon2SaltLen)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
 
-	hash := hashGate.run(func() []byte {
+	hash, err := hashGate.run(ctx, func() []byte {
 		return argon2.IDKey(password, salt, domain.Argon2Time, domain.Argon2Memory, domain.Argon2Threads, domain.Argon2KeyLen)
 	})
+	if err != nil {
+		return "", err
+	}
 
 	b64Salt := base64.RawStdEncoding.EncodeToString(salt)
 	b64Hash := base64.RawStdEncoding.EncodeToString(hash)
@@ -49,8 +60,15 @@ func DummyPasswordHash() string {
 
 // CompareHashAndPassword compares a PHC-formatted argon2id hash with a password.
 // Returns ErrMismatchedHashAndPassword on a valid-format mismatch so callers can
-// distinguish "wrong password" from malformed-hash errors.
+// distinguish "wrong password" from malformed-hash errors. A caller serving a
+// request uses CompareHashAndPasswordContext.
 func CompareHashAndPassword(encodedHash []byte, password []byte) error {
+	return CompareHashAndPasswordContext(context.Background(), encodedHash, password)
+}
+
+// CompareHashAndPasswordContext is CompareHashAndPassword whose wait for a
+// hashing slot ends with ctx; it then returns ctx's error.
+func CompareHashAndPasswordContext(ctx context.Context, encodedHash []byte, password []byte) error {
 	hashStr := string(encodedHash)
 
 	// Only argon2id is supported.
@@ -120,9 +138,12 @@ func CompareHashAndPassword(encodedHash []byte, password []byte) error {
 	}
 	keyLen := uint32(len(decodedHash)) //nolint:gosec // G115: bounds checked above
 
-	computedHash := hashGate.run(func() []byte {
+	computedHash, err := hashGate.run(ctx, func() []byte {
 		return argon2.IDKey(password, salt, time, memory, threads, keyLen)
 	})
+	if err != nil {
+		return err
+	}
 
 	if subtle.ConstantTimeCompare(decodedHash, computedHash) == 1 {
 		return nil

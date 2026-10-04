@@ -53,7 +53,7 @@ func (r *changePwStubRepo) VerifyPassword(_ context.Context, password, hash stri
 	return domain.ErrInvalidCredentials
 }
 
-func (r *changePwStubRepo) HashPassword(pw string) (string, error) {
+func (r *changePwStubRepo) HashPassword(_ context.Context, pw string) (string, error) {
 	return "$argon2id$hashed:" + pw, nil
 }
 

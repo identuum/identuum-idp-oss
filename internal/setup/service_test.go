@@ -216,7 +216,9 @@ func (m *memUserRepo) GetUserOrganization(_ context.Context, _ uuid.UUID) (*doma
 	return nil, nil
 }
 func (m *memUserRepo) UpdateOrganizationID(_ context.Context, _, _ uuid.UUID) error { return nil }
-func (m *memUserRepo) HashPassword(s string) (string, error)                        { return s, nil }
+func (m *memUserRepo) HashPassword(_ context.Context, s string) (string, error) {
+	return s, nil
+}
 func (m *memUserRepo) ConsumeRecoveryCode(context.Context, uuid.UUID, string) (*domain.User, bool, error) {
 	return nil, false, nil
 }

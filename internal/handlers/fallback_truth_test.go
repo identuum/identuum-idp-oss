@@ -27,11 +27,11 @@ func (r *faultUserRepo) Update(ctx context.Context, id, orgID uuid.UUID, opts re
 	return r.memUserRepo.Update(ctx, id, orgID, opts)
 }
 
-func (r *faultUserRepo) HashPassword(p string) (string, error) {
+func (r *faultUserRepo) HashPassword(ctx context.Context, p string) (string, error) {
 	if r.hashErr != nil {
 		return "", r.hashErr
 	}
-	return r.memUserRepo.HashPassword(p)
+	return r.memUserRepo.HashPassword(ctx, p)
 }
 
 // RULE: FALLBACK-TRUTH-1

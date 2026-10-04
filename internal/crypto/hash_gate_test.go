@@ -1,6 +1,8 @@
 package crypto
 
 import (
+	"context"
+	"errors"
 	"sync"
 	"testing"
 )
@@ -38,6 +40,32 @@ func TestPasswordHashing_RunsAreBoundedInFlight(t *testing.T) {
 	}
 	if peak := gate.peakInFlight(); peak < 1 {
 		t.Errorf("peak in flight = %d; the gate is not wrapped around the hashing", peak)
+	}
+}
+
+// A request whose client has gone does not keep waiting for a hashing slot: the
+// wait ends with the request's context, and nothing is hashed for it.
+func TestPasswordHashing_TheWaitForASlotEndsWithTheRequest(t *testing.T) {
+	gate := &hashLimiter{slots: make(chan struct{}, 1)}
+	gate.slots <- struct{}{} // every slot is taken
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	ran := false
+	if _, err := gate.run(ctx, func() []byte { ran = true; return nil }); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if ran {
+		t.Error("the hash ran for a request that had gone")
+	}
+
+	held := hashGate
+	t.Cleanup(func() { hashGate = held })
+	hashGate = gate
+	if _, err := GenerateHashContext(ctx, []byte("pw")); !errors.Is(err, context.Canceled) {
+		t.Errorf("GenerateHashContext: err = %v, want context.Canceled", err)
+	}
+	if err := CompareHashAndPasswordContext(ctx, []byte(DummyPasswordHash()), []byte("pw")); !errors.Is(err, context.Canceled) {
+		t.Errorf("CompareHashAndPasswordContext: err = %v, want context.Canceled", err)
 	}
 }
 
