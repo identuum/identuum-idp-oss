@@ -79,6 +79,12 @@ func startInviteEngine(t *testing.T, env map[string]string) *inviteWorld {
 		t.Fatalf("open pool: error returned (URL redacted): %s", classifyOpenError(err))
 	}
 	t.Cleanup(pool.Close)
+	// The suites share one database and the sign-in lockout counts failed
+	// attempts per address for 15 minutes, so the failures an earlier run left
+	// would answer this run's first sign-ins as invalid_credentials.
+	if _, err := pool.Exec(ctx, `DELETE FROM login_attempts`); err != nil {
+		t.Fatalf("clear login_attempts: %v", err)
+	}
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 	keySvc := service.NewKeyService(repos.Key)
 	if active, err := keySvc.ListActive(ctx); err != nil {
