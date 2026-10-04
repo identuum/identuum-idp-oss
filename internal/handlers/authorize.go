@@ -282,6 +282,8 @@ func emitAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req service.A
 	// Redirect-safe failures → 302 with error= + state=.
 	case errors.Is(err, service.ErrAuthorizeUnsupportedResponseType):
 		redirectAuthorizeError(c, deps, req, "unsupported_response_type")
+	case errors.Is(err, service.ErrAuthorizeUnauthorizedClient):
+		redirectAuthorizeError(c, deps, req, "unauthorized_client")
 	case errors.Is(err, service.ErrAuthorizeUnsupportedChallenge):
 		redirectAuthorizeError(c, deps, req, "invalid_request")
 	case errors.Is(err, service.ErrAuthorizeInvalidScope):

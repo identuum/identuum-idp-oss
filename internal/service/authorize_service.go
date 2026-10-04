@@ -39,6 +39,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -312,7 +313,11 @@ var (
 	// Redirect-safe sentinels (the handler builds a Location URL
 	// with error= + state= against the validated redirect_uri).
 	ErrAuthorizeUnsupportedResponseType = errors.New("service: authorize unsupported_response_type")
-	ErrAuthorizeUnsupportedChallenge    = errors.New("service: authorize unsupported PKCE method")
+	// ErrAuthorizeUnauthorizedClient: the app registered grant types without
+	// authorization_code, so the token endpoint would refuse the code
+	// (RFC 6749 §4.1.2.1 unauthorized_client).
+	ErrAuthorizeUnauthorizedClient   = errors.New("service: authorize unauthorized_client")
+	ErrAuthorizeUnsupportedChallenge = errors.New("service: authorize unsupported PKCE method")
 	// ErrAuthorizeInvalidScope is intentionally NOT returned by Authorize:
 	// per RFC 6749 §3.3 (and R6) the service CLAMPS the requested scope to
 	// the client's registered set (see ClampScopeToRegistered) rather than
@@ -412,6 +417,13 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	rt := strings.TrimSpace(req.ResponseType)
 	if rt != "code" {
 		return nil, ErrAuthorizeUnsupportedResponseType
+	}
+	// A code is issued only to an app that may exchange it: one that named
+	// its grant types without authorization_code would be refused at the
+	// token endpoint, leaving a live code behind. No grant types stored is
+	// unrestricted (console apps).
+	if len(client.GrantTypes) > 0 && !slices.Contains(client.GrantTypes, "authorization_code") {
+		return nil, ErrAuthorizeUnauthorizedClient
 	}
 	// PKCE is PER-CLIENT (THE-PKCE-DECISION, owner ruling 2026-09-01):
 	// REQUIRED for public clients — they cannot keep a secret, PKCE is
