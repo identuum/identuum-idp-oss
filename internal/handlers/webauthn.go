@@ -111,6 +111,62 @@ type WebAuthnHandlerDeps struct {
 	// RegisterLimiter 10/1h (keyed on c.ClientIP() — proxy-aware).
 	LoginLimiter    gin.HandlerFunc
 	RegisterLimiter gin.HandlerFunc
+
+	// SessionLookup reads the caller's session so adding or removing a
+	// passkey can require a RECENT sign-in (H6). nil fails closed: those two
+	// routes answer 403 reauth_required.
+	SessionLookup SessionByIDLookup
+	// RecentSignInWindow is how long after a sign-in or step-up a passkey may
+	// be added or removed. Zero means DefaultPassKeyRecentSignIn.
+	RecentSignInWindow time.Duration
+	// Now is the clock for that window; nil means time.Now.
+	Now func() time.Time
+}
+
+// DefaultPassKeyRecentSignIn is how recent a sign-in must be to add or remove a
+// passkey (H6).
+const DefaultPassKeyRecentSignIn = 10 * time.Minute
+
+// requireRecentSignIn gates adding or removing a passkey on a RECENT sign-in
+// (H6): the session's creation, or its last step-up, inside the window. A
+// passkey is a lasting sign-in factor, so a stolen or long-idle session must
+// not be able to plant or remove one. It answers and returns false when the
+// caller must sign in again (403 reauth_required); it fails closed when the
+// session cannot be read for want of a lookup, and answers 503 when the store
+// is down.
+func requireRecentSignIn(c *gin.Context, deps WebAuthnHandlerDeps) bool {
+	p, ok := mw.PrincipalFromContext(c)
+	if !ok || p == nil {
+		rejectUnauthenticated(c)
+		return false
+	}
+	deny := func() bool {
+		c.JSON(http.StatusForbidden, gin.H{"error": "reauth_required"})
+		return false
+	}
+	if p.SessionID == uuid.Nil || deps.SessionLookup == nil {
+		return deny()
+	}
+	session, err := deps.SessionLookup.GetByID(c.Request.Context(), p.SessionID)
+	if err != nil {
+		respondAuthStoreUnavailable(c, "webauthn.recent-sign-in", err)
+		return false
+	}
+	if session == nil {
+		return deny()
+	}
+	window := deps.RecentSignInWindow
+	if window <= 0 {
+		window = DefaultPassKeyRecentSignIn
+	}
+	now := time.Now
+	if deps.Now != nil {
+		now = deps.Now
+	}
+	if now().Sub(session.EffectiveAuthTime()) > window {
+		return deny()
+	}
+	return true
 }
 
 // RegisterWebAuthnRoutes mounts the WebAuthn route family.
@@ -249,6 +305,9 @@ func HandleWebAuthnRegisterBegin(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		userID, ok := authenticatedUserID(c)
 		if !ok {
 			rejectUnauthenticated(c)
+			return
+		}
+		if !requireRecentSignIn(c, deps) {
 			return
 		}
 		user, err := loadUserForWebAuthn(c, lookup, userID)
@@ -402,6 +461,9 @@ func HandleDeleteWebAuthnCredential(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		credID, err := uuid.Parse(c.Param("id"))
 		if err != nil || credID == uuid.Nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+			return
+		}
+		if !requireRecentSignIn(c, deps) {
 			return
 		}
 		if err := deps.WebAuthn.DeleteCredential(c.Request.Context(), userID, credID); err != nil {

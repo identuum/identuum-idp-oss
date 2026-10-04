@@ -93,7 +93,13 @@ func startInviteEngine(t *testing.T, env map[string]string) *inviteWorld {
 	for k, v := range env {
 		t.Setenv(k, v)
 	}
-	rt, err := runtime.New(runtime.Config{Addr: "127.0.0.1:0", Issuer: inviteIssuer, UIPublicBaseURL: env["UI"], JWKSDBURL: dbURL, DataDir: t.TempDir(), Stdout: io.Discard, Stderr: io.Discard})
+	// A test may name another issuer (key ISSUER): a passkey ceremony needs a
+	// hostname, and the default is an address.
+	issuer := inviteIssuer
+	if v := env["ISSUER"]; v != "" {
+		issuer = v
+	}
+	rt, err := runtime.New(runtime.Config{Addr: "127.0.0.1:0", Issuer: issuer, UIPublicBaseURL: env["UI"], JWKSDBURL: dbURL, DataDir: t.TempDir(), Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("runtime.New: %v", err)
 	}
@@ -109,7 +115,7 @@ func startInviteEngine(t *testing.T, env map[string]string) *inviteWorld {
 	w.orgA = seedTestOrganization(t, ctx, repos)
 	w.orgB = seedTestOrganization(t, ctx, repos)
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})
-	tokens := service.NewUserTokenService(nil, keySvc, service.UserTokenServiceOptions{Issuer: inviteIssuer})
+	tokens := service.NewUserTokenService(nil, keySvc, service.UserTokenServiceOptions{Issuer: issuer})
 	mint := func(name string, org uuid.UUID, role domain.UserRole) {
 		var u *domain.User
 		var existing uuid.UUID

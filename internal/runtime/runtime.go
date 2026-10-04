@@ -1007,7 +1007,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	orgRepo := repository.OrganizationRepository(repos.Organization)
 	orgDomainRepo := repository.OrganizationDomainRepository(repos.OrganizationDomain)
 	idpRepo := repository.IdentityProviderRepository(repos.IdentityProvider)
-	userSvc := service.NewUserService(report, repos.User)
+	// H6: an admin MFA reset also removes the user's passkeys.
+	userSvc := service.NewUserService(report, repos.User).WithPasskeyStore(repos.WebAuthnCredential)
 	orgSvc := service.NewOrganizationService(report, repos.Organization)
 	orgDomainSvc := service.NewOrganizationDomainService(report, repos.OrganizationDomain, service.NewDNSDomainProofVerifier(service.DNSDomainProofVerifierOptions{}))
 	// WithUserRepository installs the target-user tenant validation

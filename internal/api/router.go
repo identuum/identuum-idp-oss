@@ -1316,6 +1316,11 @@ func mountWebAuthn(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.UserRepo != nil {
 		waDeps.UserOrgLookup = resolved.UserRepo
 	}
+	// H6: adding or removing a passkey needs a recent sign-in; the session is
+	// read through this lookup. Without it those two routes fail closed.
+	if resolved.SessionLookup != nil {
+		waDeps.SessionLookup = resolved.SessionLookup
+	}
 	handlers.RegisterWebAuthnRoutes(router, waDeps)
 }
 

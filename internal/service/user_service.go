@@ -27,6 +27,23 @@ type UserService struct {
 	// invite is set by WithInvite (OSS-ONBOARD-A); nil leaves the invite
 	// unavailable.
 	invite *userInvite
+	// passkeys, when wired, lets an admin MFA reset remove the user's
+	// passkeys too (H6). nil leaves them in place.
+	passkeys PasskeyStore
+}
+
+// PasskeyStore is the slice of the passkey repository an MFA reset needs.
+type PasskeyStore interface {
+	ListByUser(ctx context.Context, userID uuid.UUID) ([]*domain.WebAuthnCredential, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// WithPasskeyStore wires the passkey store an admin MFA reset clears (H6): a
+// passkey registered by whoever held the account is a lasting sign-in factor,
+// so recovering the account removes it with the authenticator.
+func (s *UserService) WithPasskeyStore(store PasskeyStore) *UserService {
+	s.passkeys = store
+	return s
 }
 
 // NewUserService constructs a UserService. repo must be non-nil.
@@ -223,6 +240,20 @@ func (s *UserService) ResetMFA(ctx context.Context, id, orgID uuid.UUID) (*domai
 	}
 	if updated == nil {
 		return nil, errUserNotFound
+	}
+	// H6: the reset also removes the user's passkeys. Failing here is an
+	// error, not a success with a factor left behind; the reset is safe to
+	// repeat.
+	if s.passkeys != nil {
+		creds, err := s.passkeys.ListByUser(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("service: list passkeys for MFA reset: %w", err)
+		}
+		for _, cred := range creds {
+			if err := s.passkeys.Delete(ctx, cred.ID); err != nil {
+				return nil, fmt.Errorf("service: remove passkey for MFA reset: %w", err)
+			}
+		}
 	}
 	return updated, nil
 }

@@ -24,6 +24,12 @@ follows [Semantic Versioning](https://semver.org/).
   deciding a self-registration, are refused (`403`) for a site administrator.
   What remains is appointing the first org admin of an organization that has
   none (including re-sending that invite).
+- **Passkeys follow account recovery and need a recent sign-in.** An
+  organization admin's MFA reset now removes the user's passkeys as well as
+  the authenticator. Starting a passkey registration, and removing a passkey,
+  need a sign-in (or step-up) from the last 10 minutes; an older session gets
+  `403 reauth_required` and the account page asks the person to sign in
+  again.
 - **An API resource's audience is unique across the installation** (migration
   `0045`), and is never the issuer or an application's client id. Creating
   or renaming onto a taken audience answers `409 audience_exists`; an
