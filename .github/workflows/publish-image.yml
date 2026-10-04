@@ -187,8 +187,11 @@ jobs:
           docker run -d --name idp-verify-pg --network idp-verify \
             -e POSTGRES_USER=identuum_idp -e POSTGRES_PASSWORD=dev-identuum_idp-not-a-secret -e POSTGRES_DB=identuum_idp \
             postgres:18-alpine >/dev/null
+          # Over TCP: the image's first-start init server listens on the Unix
+          # socket only, so a socket probe answers before the server the IdP
+          # dials is up, and the IdP's one migrate attempt is refused.
           for _ in $(seq 1 60); do
-            docker exec idp-verify-pg pg_isready -U identuum_idp -d identuum_idp >/dev/null 2>&1 && break
+            docker exec idp-verify-pg pg_isready -h 127.0.0.1 -U identuum_idp -d identuum_idp >/dev/null 2>&1 && break
             sleep 1
           done
           docker run -d --name idp-verify --network idp-verify -p 127.0.0.1:7113:7113 \
