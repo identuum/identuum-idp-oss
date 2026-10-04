@@ -2,6 +2,7 @@ package mw
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -68,6 +69,11 @@ func (r sessionSubjectResolver) ResolveSubject(ctx context.Context, ref oidc.Pri
 		return false, err
 	}
 	info, err := r.sessions.GetSessionWithUserAndOrgStatus(ctx, sid)
+	if errors.Is(err, domain.ErrSessionNotFound) {
+		// A session row that no longer exists (swept after it expired) is a
+		// verdict, not a store failure.
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}
@@ -260,18 +266,6 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 			respondInvalidBearerToken(c, ReasonTokenInvalid)
 			return
 		}
-		// A user access token issued to an application (actor_type "user"
-		// with the client_id the authorization-code grant stamps) is for that
-		// application's resource servers and for userinfo, which verifies it
-		// on its own. It is not a credential for the IdP's own API, whatever
-		// role its user holds: no principal is planted and the request
-		// continues, so every guarded route answers 401 and userinfo still
-		// works. Console session tokens carry no client_id, and
-		// service-account tokens carry another actor_type; both are unchanged.
-		if principal.ActorType == "user" && principal.ClientID != "" {
-			c.Next()
-			return
-		}
 		// RFC 7009 per-token revocation (P0-6), enforced for EVERY bearer
 		// token regardless of SessionID — so M2M / client-credentials /
 		// service-account tokens (which carry a jti but no session) honor
@@ -341,6 +335,18 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				return
 			}
 		}
+		// A user access token issued to an application is for that
+		// application's resource servers and for userinfo, which verifies it on
+		// its own. It is not a credential for the IdP's own API, whatever role
+		// its user holds: no principal is planted and the request continues,
+		// so every guarded route answers 401 and userinfo still works. It is
+		// judged here, after revocation and liveness, so a route that reads
+		// the header itself (GET /api/v1/validate) never accepts a revoked
+		// token or one whose session, user or organization is gone.
+		if isAppIssuedUserToken(principal) {
+			c.Next()
+			return
+		}
 		// A service-account token has no session, so the gate above never
 		// judged it. Its account must still be active and unexpired and its
 		// organization operational at use.
@@ -364,6 +370,23 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 		SetPrincipal(c, principal)
 		c.Next()
 	}
+}
+
+// isAppIssuedUserToken reports whether a token is a user's access token issued
+// to an application: it names a client and a user. The authorization-code
+// grant stamps actor_type "user"; the refresh_token grant stamps no actor_type,
+// so the subject decides. A console session token names no client, a
+// service-account token carries its own actor_type, and a client-credentials
+// token's subject is the client itself; none of them is an app-issued user
+// token.
+func isAppIssuedUserToken(p *domain.Principal) bool {
+	if p.ClientID == "" || p.ActorType == "service_account" {
+		return false
+	}
+	if p.ActorType == "user" {
+		return true
+	}
+	return p.UserID != uuid.Nil && p.Sub != p.ClientID
 }
 
 // respondInvalidBearerToken refuses a presented bearer token the verifier

@@ -206,3 +206,14 @@ func TestSessionSubjectResolver_VerdictMatchesCanBeUsedForAuth(t *testing.T) {
 		t.Fatalf("session not found: got (%v, %v), want (false, nil)", ok, err)
 	}
 }
+
+// The postgres lookup answers a missing row with domain.ErrSessionNotFound,
+// not (nil, nil). A session swept after it expired is a verdict (not live,
+// 401), never a store failure (503).
+func TestSessionSubjectResolver_SweptSessionIsNotLiveNotAStoreError(t *testing.T) {
+	r := sessionSubjectResolver{sessions: &stubSessionLookup{err: domain.ErrSessionNotFound}}
+	ok, err := r.ResolveSubject(context.Background(), oidc.PrincipalRef{Subject: "u", SessionID: uuid.NewString()})
+	if ok || err != nil {
+		t.Fatalf("session row gone: got (%v, %v), want (false, nil)", ok, err)
+	}
+}
