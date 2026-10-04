@@ -192,6 +192,14 @@ follows [Semantic Versioning](https://semver.org/).
   never stops the others or the sign-out. Sessions whose tokens were issued
   before this change have no record and are notified only through the app that
   asked, as before.
+- **The runtime image moves from distroless `base` to distroless `static`, and
+  the builder and prep digests are refreshed.** The `base` flavour ships libc6
+  and libssl3, and a scan of its newest build still showed 2 Critical and 7
+  High findings in them (the libssl3 fixes were not in the base and libc6 is
+  will-not-fix); none is reachable from the static, CGO-free binary. `static`
+  has neither package and scans with no findings. Nothing else in the image
+  changes: the binary, the CA bundle, the account files and the data directory
+  are copied exactly as before.
 - **A reverse proxy that is not listed as trusted is now reported.** The default
   of trusting no proxy is right against a forged `X-Forwarded-For`, but behind a
   proxy the operator did not list every user shares the proxy's address, so the

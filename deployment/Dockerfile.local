@@ -11,7 +11,7 @@
 #   prep     — the same Debian image, used ONCE to materialise the things a
 #              distroless runtime cannot create for itself: the passwd/group
 #              entries and the data directory with its ownership and mode.
-#   runtime  — gcr.io/distroless/base-debian12. The binary, the CA bundle, the
+#   runtime  — gcr.io/distroless/static-debian12. The binary, the CA bundle, the
 #              account files, and the data directory. NO shell, no apt, no
 #              package manager, no coreutils, no gosu, no tini.
 #
@@ -49,11 +49,13 @@
 # binary therefore starts privileged, fixes the mount, drops, and REFUSES TO
 # SERVE if the drop did not take effect.
 #
-# base-debian12 rather than static-debian12: the binary is CGO-free and static,
-# so `static` would fit today, but `base` keeps glibc and /etc present for the
-# netgo/ossl fallbacks and for any future CGO-requiring dependency, at a cost of
-# a few MB and still no shell. Revisit if the image size ever matters more than
-# that margin.
+# static-debian12 rather than base-debian12 (v0.9.4): the binary is CGO-free and
+# static, so it needs no libc and no libssl. The `base` flavour ships both, and a
+# scan of its newest build still showed 2 Critical and 7 High findings in libc6
+# and libssl3 (libssl3's fixes were not in the base; libc6 was will-not-fix),
+# none of them reachable from this binary. `static` has neither package and scans
+# with no findings. If a dependency that needs CGO is ever added, this base and
+# CGO_ENABLED=0 above must be revisited together.
 #
 # Build context MUST be the module root (one level above this Dockerfile):
 #   docker compose -f deployment/docker-compose.dev.yml --profile app build
@@ -67,7 +69,7 @@
 # TOOLCHAIN-PARITY-1 (cmd/identuum-idp) fails the build on any skew. The
 # 1.26.5 pin shipped 8 HIGH stdlib CVEs into the v0.3.4 image while the
 # host toolchain (1.26.6) kept every host-side scan green.
-FROM golang:1.27.1-bookworm@sha256:648f440f42a0958804efb24df176f806f9d353b41f1c0627f666428e40310f6b AS builder
+FROM golang:1.27.1-bookworm@sha256:69a7b9788769bec032d238959b61854e9ae87f57be9029ec04e9885fabf99195 AS builder
 
 # CGO disabled for a pure-static binary; no glibc dependency means the runtime
 # stage does not link the base libc.
@@ -108,7 +110,7 @@ RUN go build \
 
 # Prep — creates what distroless cannot create for itself. Everything here is
 # COPYed into the runtime as plain files; this stage does not ship.
-FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df AS prep
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS prep
 
 # UID/GID 10001 sits above the Debian system-user range so an operator-mounted
 # volume stays safe. The numbers are ALSO compiled into the binary
@@ -126,7 +128,7 @@ RUN groupadd -r -g 10001 idp \
 # package manager, no coreutils. `docker exec … sh` does not work here by
 # design: that debuggability is traded for an image with nothing in it for an
 # attacker to use after a compromise.
-FROM gcr.io/distroless/base-debian12@sha256:62730825d3cf03571e0a1b8f014748de94d0404500f063593b614c23da38841d AS runtime
+FROM gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2 AS runtime
 
 # TLS roots for the binary's OUTBOUND HTTPS to upstream OIDC discovery + JWKS
 # endpoints. The base ships a bundle; copying the builder's keeps the two
