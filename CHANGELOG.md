@@ -153,6 +153,12 @@ follows [Semantic Versioning](https://semver.org/).
   hint now shows a "Sign out?" page and ends nothing; its link carries a value
   only the browser holding the cookie was shown. Requests with a verified hint,
   and requests with no session, behave as before.
+- **Newly generated MFA recovery codes carry 80 bits.** They were 8 base32
+  characters (40 bits), stored as an unkeyed SHA-256, which a reader of the
+  database could test offline in seconds. They are now 16 characters (80 bits),
+  too large to guess. Codes issued earlier keep working until they are
+  regenerated (`POST /api/v1/me/mfa/recovery-codes/regenerate`), which is the
+  way to move an existing user to the longer ones.
 
 ## `v0.9.3`
 

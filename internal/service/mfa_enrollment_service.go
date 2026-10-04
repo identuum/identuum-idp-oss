@@ -227,7 +227,9 @@ const (
 	defaultMFAEnrollmentTTL               = 5 * time.Minute
 	defaultMFAEnrollmentSecretBytes       = 20
 	defaultMFAEnrollmentRecoveryCodeCount = 10
-	defaultMFAEnrollmentRecoveryCodeBytes = 5
+	// 10 random bytes (80 bits, 16 base32 characters): the codes are stored as
+	// an unkeyed SHA-256, so a code must be too large to guess offline.
+	defaultMFAEnrollmentRecoveryCodeBytes = 10
 	// defaultMFAMaxVerifyAttempts bounds wrong-guess attempts against a
 	// single verify-kind handle before it is invalidated (P0-13). See
 	// MFAEnrollmentServiceOptions.MaxVerifyAttempts for the rationale.
