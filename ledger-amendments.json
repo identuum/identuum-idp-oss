@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "703737011d8c8ab73178519da88525cd421a79da",
-  "changes": [
-    {
-      "rule_id": "ORG-FIELDS-WIRE-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "Owner ruling (v0.9.5): the policy fields of a tenant organization are its own org_admin's, so the five-field binding case now runs as that org_admin instead of a site_admin; a case asserting that a site_admin sending a policy field for a tenant is refused before any repository write was added. The bound fields, the slug and tier refusals and the unbound compliance_contact_email are asserted as before."
-    }
-  ]
+  "base_commit": "9c845392501f17cbeb1661b33e63fce428519cc3",
+  "changes": []
 }
