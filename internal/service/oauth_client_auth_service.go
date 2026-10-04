@@ -107,6 +107,10 @@ type AuthenticatedClient struct {
 	// TokenService MUST intersect requested scopes against this
 	// set — never grant a scope not present here.
 	AllowedScopes []string
+	// AllowedAudiences is the client's registered allowed_audiences. A
+	// client_credentials request for an API resource must name one of them
+	// (H8). Populated on the oauth_client path; nil on the api_resource path.
+	AllowedAudiences []string
 	// IDTokenAlg is the client's effective id_token_signed_response_alg
 	// (Client.EffectiveIDTokenAlg — default "EdDSA"). Empty on the
 	// api_resource path, which never receives id_tokens. RS256 lands
@@ -167,6 +171,8 @@ func (s *OAuthClientAuthService) Authenticate(ctx context.Context, clientID, cli
 			Name:         c.Name,
 			IsPublic:     c.IsPublic,
 			IDTokenAlg:   c.EffectiveIDTokenAlg(),
+			// H8: the registered allowed audiences, read by client_credentials.
+			AllowedAudiences: c.AllowedAudiences,
 		}
 		if c.OrganizationID != nil {
 			out.OrganizationID = *c.OrganizationID
@@ -259,6 +265,8 @@ func (s *OAuthClientAuthService) AuthenticateAssertion(ctx context.Context, clie
 		Name:         client.Name,
 		IsPublic:     client.IsPublic,
 		IDTokenAlg:   client.EffectiveIDTokenAlg(),
+		// H8: the registered allowed audiences, read by client_credentials.
+		AllowedAudiences: client.AllowedAudiences,
 	}
 	if client.OrganizationID != nil {
 		out.OrganizationID = *client.OrganizationID

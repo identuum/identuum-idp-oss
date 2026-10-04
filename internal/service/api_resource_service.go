@@ -23,6 +23,9 @@ import (
 // feature-gate middleware before this service is exposed.
 type APIResourceService struct {
 	repo repository.APIResourceRepository
+	// reserved, when wired, reports an audience that no API resource may
+	// carry: the issuer, or an application's client id (H7).
+	reserved func(ctx context.Context, audience string) (bool, error)
 }
 
 func NewAPIResourceService(report *lifecycle.StartupReport, repo repository.APIResourceRepository) *APIResourceService {
@@ -30,6 +33,28 @@ func NewAPIResourceService(report *lifecycle.StartupReport, repo repository.APIR
 		report.Fatal("NewAPIResourceService", "service: NewAPIResourceService requires a non-nil APIResourceRepository")
 	}
 	return &APIResourceService{repo: repo}
+}
+
+// WithReservedAudiences wires the check that refuses an audience equal to the
+// issuer or to a client id (H7). A check that cannot run refuses the write.
+func (s *APIResourceService) WithReservedAudiences(reserved func(ctx context.Context, audience string) (bool, error)) *APIResourceService {
+	s.reserved = reserved
+	return s
+}
+
+// checkAudience applies the reservation check; it is a no-op when none is wired.
+func (s *APIResourceService) checkAudience(ctx context.Context, audience string) error {
+	if s.reserved == nil {
+		return nil
+	}
+	taken, err := s.reserved(ctx, audience)
+	if err != nil {
+		return fmt.Errorf("service: api resource audience check: %w", err)
+	}
+	if taken {
+		return fmt.Errorf("%w: audience is reserved", errAPIResourceInvalid)
+	}
+	return nil
 }
 
 // CreateAPIResourceOptions captures the OSS-safe shape required to
@@ -139,6 +164,9 @@ func (s *APIResourceService) Create(ctx context.Context, actor *domain.Principal
 	if err := resource.Validate(); err != nil {
 		return nil, "", err
 	}
+	if err := s.checkAudience(ctx, resource.Audience); err != nil {
+		return nil, "", err
+	}
 	if err := s.repo.Create(ctx, resource, opts.Scopes); err != nil {
 		return nil, "", err
 	}
@@ -160,6 +188,7 @@ func (s *APIResourceService) Update(ctx context.Context, actor *domain.Principal
 	if opts.Name != nil {
 		resource.Name = *opts.Name
 	}
+	audienceChanged := opts.Audience != nil && *opts.Audience != resource.Audience
 	if opts.Audience != nil {
 		resource.Audience = *opts.Audience
 	}
@@ -184,6 +213,13 @@ func (s *APIResourceService) Update(ctx context.Context, actor *domain.Principal
 	// operator was told "internal_error" for their own bad request.
 	if err := resource.Validate(); err != nil {
 		return nil, fmt.Errorf("%w: %v", errAPIResourceInvalid, err)
+	}
+	// H7: only a CHANGED audience is checked, so editing a resource whose
+	// audience later became reserved is not blocked.
+	if audienceChanged {
+		if err := s.checkAudience(ctx, resource.Audience); err != nil {
+			return nil, err
+		}
 	}
 	if opts.Scopes != nil {
 		if err := domain.ValidateAPIScopes(opts.Scopes); err != nil {

@@ -28,6 +28,18 @@ func NewPgxAPIResourceRepository(db DBTX) *PgxAPIResourceRepository {
 // Compile-time check
 var _ repository.APIResourceRepository = (*PgxAPIResourceRepository)(nil)
 
+// audienceConflict reports a unique violation on api_resources — the audience
+// is unique across the installation (H7), and (org_id, audience) before it —
+// as the domain's conflict error. Any other error is returned unchanged, so
+// the caller can tell the two apart by comparing.
+func audienceConflict(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		return domain.ErrAPIResourceAlreadyExists
+	}
+	return err
+}
+
 func (r *PgxAPIResourceRepository) Create(ctx context.Context, resource *domain.APIResource, scopes []domain.APIScope) error {
 	timer := prometheus.NewTimer(metrics.DBQueryDuration.WithLabelValues("api_resource_repo", "create", "all"))
 	defer timer.ObserveDuration()
@@ -62,6 +74,9 @@ func (r *PgxAPIResourceRepository) Create(ctx context.Context, resource *domain.
 		resource.UpdatedAt,
 	)
 	if err != nil {
+		if conflict := audienceConflict(err); conflict != err {
+			return conflict
+		}
 		return fmt.Errorf("failed to insert resource: %w", err)
 	}
 
@@ -331,6 +346,9 @@ func (r *PgxAPIResourceRepository) UpdateWithScopes(ctx context.Context, res *do
 		`UPDATE api_resources SET name = $1, audience = $2, active = $3, token_ttl_secs = $4, resource_secret_hash = $5, updated_at = $6 WHERE id = $7`,
 		res.Name, res.Audience, res.Active, res.TokenTTLSecs, res.ResourceSecretHash, res.UpdatedAt, res.ID,
 	); err != nil {
+		if conflict := audienceConflict(err); conflict != err {
+			return conflict
+		}
 		return fmt.Errorf("update_with_scopes: update: %w", err)
 	}
 

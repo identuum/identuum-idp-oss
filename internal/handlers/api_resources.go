@@ -329,6 +329,12 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 				// A create naming ANOTHER organization reads as a miss —
 				// never a confirming 403 (the SA rationale).
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			case errors.Is(err, domain.ErrAPIResourceAlreadyExists):
+				// H7: an audience is unique across the installation.
+				c.JSON(http.StatusConflict, gin.H{"error": "audience_exists"})
+			case errors.Is(err, service.ErrAPIResourceInvalid()):
+				// H7: an audience the issuer or an application owns.
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})
 			default:
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			}

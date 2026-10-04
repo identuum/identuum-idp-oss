@@ -439,7 +439,10 @@ func TestIssueClientCredentials_UnknownAudienceRejectedAsInvalidTarget(t *testin
 	provider := &inMemoryKeyProvider{keys: []domain.SigningKey{ed}}
 	lookup := &stubAudienceLookup{resources: map[string]*domain.APIResource{}}
 	svc := NewTokenService(nil, provider, TokenServiceOptions{Issuer: "https://idp.test"}).WithAudienceLookup(lookup)
-	_, err := svc.IssueClientCredentials(context.Background(), newConfidentialOAuthClient(), ClientCredentialsRequest{
+	// The client lists the audience (H8), so the lookup is what refuses it.
+	caller := newConfidentialOAuthClient()
+	caller.AllowedAudiences = []string{"https://unknown.example.com"}
+	_, err := svc.IssueClientCredentials(context.Background(), caller, ClientCredentialsRequest{
 		GrantType:         "client_credentials",
 		RequestedAudience: "https://unknown.example.com",
 	})
@@ -548,9 +551,10 @@ func TestIssueClientCredentials_ScopeOutsideAudienceRejectedAsInvalidScope(t *te
 	}}
 	svc := NewTokenService(nil, provider, TokenServiceOptions{Issuer: "https://idp.test"}).WithAudienceLookup(lookup)
 	caller := &AuthenticatedClient{
-		Kind:          AuthenticatedClientKindOAuth,
-		ClientID:      "cli-1",
-		AllowedScopes: []string{"billing:read", "billing:write"},
+		Kind:             AuthenticatedClientKindOAuth,
+		ClientID:         "cli-1",
+		AllowedScopes:    []string{"billing:read", "billing:write"},
+		AllowedAudiences: []string{res.Audience}, // H8
 	}
 	// billing:write is in caller's set but NOT in the audience's
 	// set → invalid_scope.
@@ -574,6 +578,7 @@ func TestIssueClientCredentials_OAuthClientWithoutPolicyUsesAudienceScopes(t *te
 	svc := NewTokenService(nil, provider, TokenServiceOptions{Issuer: "https://idp.test"}).WithAudienceLookup(lookup)
 	// Caller has no AllowedScopes → audience set IS the policy.
 	caller := newConfidentialOAuthClient()
+	caller.AllowedAudiences = []string{res.Audience} // H8
 	resp, err := svc.IssueClientCredentials(context.Background(), caller, ClientCredentialsRequest{
 		GrantType:         "client_credentials",
 		RequestedAudience: res.Audience,

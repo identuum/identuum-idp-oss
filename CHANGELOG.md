@@ -24,6 +24,19 @@ follows [Semantic Versioning](https://semver.org/).
   deciding a self-registration, are refused (`403`) for a site administrator.
   What remains is appointing the first org admin of an organization that has
   none (including re-sending that invite).
+- **An API resource's audience is unique across the installation** (migration
+  `0045`), and is never the issuer or an application's client id. Creating
+  or renaming onto a taken audience answers `409 audience_exists`; an
+  audience equal to the issuer or a client id answers `400`. **If two
+  organizations already hold the same audience, the migration stops and names
+  it; rename or delete all but one, then migrate again.** It changes no row
+  itself.
+- **`client_credentials` for an API resource is held to the client's
+  registration.** A request with an `audience` succeeds only when the
+  audience is in the client's `allowed_audiences` and the resource belongs to
+  the client's organization; otherwise `invalid_target`. **A client that asks
+  for an audience without listing it now fails; add it to the client's
+  allowed audiences.** A request with no `audience` is unchanged.
 - **MFA wrong codes are bounded per user.** The per-sign-in limit is joined by
   a per-user limit: 5 wrong codes in 15 minutes across all of a user's
   pending sign-ins, after which even the correct code is refused until the

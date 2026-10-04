@@ -79,11 +79,13 @@ func pemMarshalPub(t *testing.T, k any) string {
 // /token handler shape, not the client-auth chain.
 type tokenStubAllow struct {
 	kind service.AuthenticatedClientKind
+	// audiences are the client's registered allowed audiences (H8).
+	audiences []string
 }
 
 func (s tokenStubAllow) Authenticate(_ context.Context, id, _, _ string) (*service.AuthenticatedClient, error) {
 	out := &service.AuthenticatedClient{
-		Kind: s.kind, ClientID: id, AuthRecordID: uuid.New(),
+		Kind: s.kind, ClientID: id, AuthRecordID: uuid.New(), AllowedAudiences: s.audiences,
 	}
 	if s.kind == service.AuthenticatedClientKindAPIResource {
 		out.AllowedScopes = []string{"billing:read"}
@@ -377,7 +379,7 @@ func TestToken_ScopeOutsideAudienceReturnsInvalidScope(t *testing.T) {
 	}
 	r := newTokenEngineWithAudience(t,
 		&keyProvider{keys: []domain.SigningKey{genEdDSA(t, "k")}},
-		tokenStubAllow{kind: service.AuthenticatedClientKindOAuth},
+		tokenStubAllow{kind: service.AuthenticatedClientKindOAuth, audiences: []string{res.Audience}},
 		audienceLookupStub{byAud: map[string]*domain.APIResource{res.Audience: res}},
 	)
 	// admin:write is not in the audience's set.

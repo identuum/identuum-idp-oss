@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -330,11 +331,22 @@ func (s *TokenService) IssueClientCredentials(ctx context.Context, client *Authe
 	allowedScopes := client.AllowedScopes
 	requestedAudience := strings.TrimSpace(req.RequestedAudience)
 	if requestedAudience != "" && s.audiences != nil {
+		// H8: an OAuth client mints a token for an API resource only when the
+		// audience is in the client's registered allowed list. The list was
+		// stored and shown but never read here.
+		if client.Kind == AuthenticatedClientKindOAuth && !slices.Contains(client.AllowedAudiences, requestedAudience) {
+			return nil, ErrTokenServiceInvalidTarget
+		}
 		resource, lookupErr := s.audiences.LookupAudience(ctx, requestedAudience)
 		if lookupErr != nil || resource == nil {
 			return nil, ErrTokenServiceInvalidTarget
 		}
 		if !resource.Active {
+			return nil, ErrTokenServiceInvalidTarget
+		}
+		// H8: and only for a resource of the client's own organization — a
+		// client of one tenant, or of none, never reaches another tenant's API.
+		if client.Kind == AuthenticatedClientKindOAuth && resource.OrganizationID != client.OrganizationID {
 			return nil, ErrTokenServiceInvalidTarget
 		}
 		// api_resource caller may only mint tokens for its own

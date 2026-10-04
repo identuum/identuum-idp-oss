@@ -999,7 +999,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	apiResourceRepo := repository.APIResourceRepository(repos.APIResource)
 	scopeTemplateRepo := repository.ScopeTemplateRepository(repos.ScopeTemplate)
 	clientSvc := service.NewClientService(report, repos.Client)
-	apiResourceSvc := service.NewAPIResourceService(report, repos.APIResource)
+	// H7: an audience is never the issuer or an application's client id.
+	apiResourceSvc := service.NewAPIResourceService(report, repos.APIResource).
+		WithReservedAudiences(service.ReservedAudienceChecker(resolvedIssuer, repos.Client))
 	scopeTemplateSvc := service.NewScopeTemplateService(report, repos.ScopeTemplate)
 	userRepo := repository.UserRepository(repos.User)
 	orgRepo := repository.OrganizationRepository(repos.Organization)
