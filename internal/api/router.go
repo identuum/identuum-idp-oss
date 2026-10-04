@@ -675,6 +675,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	// fault has been recorded, every normal route is refused with 503
 	// while the health/liveness probes remain reachable.
 	mountNotServingGuard(router, resolved)
+	mountAuthPageCSP(router)
 	mountCredentialLimiter(router, resolved)
 	mountBearerAuth(router, resolved)
 	mountPublicSurface(router, resolved)
@@ -802,6 +803,33 @@ func NotServingGuard(report *lifecycle.StartupReport) gin.HandlerFunc {
 			"faults": report.Faults(),
 		})
 	}
+}
+
+// authPageRoutes are the IdP's own server-rendered pages: sign-in (with its
+// password-change and MFA-enrolment steps), consent and step-up. They load
+// nothing and run no script. The passkey step-up page, which runs one, sets
+// its own policy with a nonce.
+var authPageRoutes = map[string]struct{}{
+	"/api/v1/auth/browser-login":   {},
+	"/api/v1/auth/step-up":         {},
+	"/api/v1/auth/step-up/passkey": {},
+	"/api/v1/oauth/consent":        {},
+	"/api/v1/oauth/authorize":      {},
+}
+
+// authPageCSP is the policy of authPageRoutes: no load of any kind (the one
+// inline style is allowed), no framing, no re-basing.
+const authPageCSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'"
+
+// mountAuthPageCSP sets authPageCSP on the responses of authPageRoutes, over the
+// engine-wide default. A handler that needs more sets its own after this runs.
+func mountAuthPageCSP(router gin.IRouter) {
+	router.Use(func(c *gin.Context) {
+		if _, ok := authPageRoutes[c.FullPath()]; ok {
+			c.Header("Content-Security-Policy", authPageCSP)
+		}
+		c.Next()
+	})
 }
 
 // credentialPostRoutes are the routes where a caller proves a secret: password

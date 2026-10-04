@@ -24,6 +24,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"html"
@@ -205,7 +207,7 @@ const passkeyStepUpPageTemplate = `<!DOCTYPE html>
     {{ERROR}}
     <p><button id="retry" type="button" hidden>Try again</button></p>
     <noscript><p role="alert">This step needs JavaScript to talk to your passkey.</p></noscript>
-    <script>
+    <script nonce="{{NONCE}}">
     (function () {
       var OPTIONS = {{OPTIONS}};
       var CEREMONY = "{{CEREMONY}}";
@@ -272,8 +274,19 @@ const passkeyStepUpPageTemplate = `<!DOCTYPE html>
 </body>
 </html>`
 
+// renderPasskeyStepUpPage writes the page and its policy. The page's one script
+// runs by a per-response nonce and may call back only to this origin; nothing
+// else loads or runs, and the page cannot be framed or re-based.
 func renderPasskeyStepUpPage(w http.ResponseWriter, optionsJSON, ceremonyID, returnTo, errCode string) {
-	body := strings.ReplaceAll(passkeyStepUpPageTemplate, "{{OPTIONS}}", optionsJSON)
+	nonceBytes := make([]byte, 18)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		http.Error(w, "temporarily unavailable, try again", http.StatusServiceUnavailable)
+		return
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(nonceBytes)
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
+	body := strings.ReplaceAll(passkeyStepUpPageTemplate, "{{NONCE}}", nonce)
+	body = strings.ReplaceAll(body, "{{OPTIONS}}", optionsJSON)
 	body = strings.ReplaceAll(body, "{{CEREMONY}}", jsStringEscape(ceremonyID))
 	body = strings.ReplaceAll(body, "{{RETURN_TO}}", jsStringEscape(returnTo))
 	if errCode != "" {

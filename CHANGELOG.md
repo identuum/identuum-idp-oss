@@ -159,6 +159,14 @@ follows [Semantic Versioning](https://semver.org/).
   too large to guess. Codes issued earlier keep working until they are
   regenerated (`POST /api/v1/me/mfa/recovery-codes/regenerate`), which is the
   way to move an existing user to the longer ones.
+- **The IdP's own pages carry a content security policy that loads nothing and
+  runs no script.** Sign-in (with its password-change and MFA-enrolment steps),
+  consent and step-up answered only `frame-ancestors 'none'`; they now also
+  send `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'`, so a
+  markup-injection bug in one of them cannot execute code. The passkey step-up
+  page, which runs one script, allows exactly that script by a per-response
+  nonce and calls back only to its own origin. The JSON API and the embedded
+  console keep the engine-wide policy.
 
 ## `v0.9.3`
 
