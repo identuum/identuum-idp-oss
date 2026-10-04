@@ -181,6 +181,9 @@ func (recoveryPendingRepoStub) MarkConsumed(context.Context, uuid.UUID, time.Tim
 func (recoveryPendingRepoStub) RecordFailedVerifyAttempt(context.Context, uuid.UUID, int, time.Time) (bool, error) {
 	return false, nil
 }
+func (recoveryPendingRepoStub) CountRecentFailedVerifyAttempts(context.Context, uuid.UUID, time.Time) (int, error) {
+	return 0, nil
+}
 func (recoveryPendingRepoStub) DeleteExpired(context.Context) (int64, error) {
 	return 0, nil
 }

@@ -17,6 +17,13 @@ import (
 // never distinguishes these cases.
 var ErrMFAPendingSessionNotFound = errors.New("repository: mfa pending login session not found")
 
+// MFAFailedAttemptRetention is how long, counted from creation, the
+// maintenance sweep keeps an expired verify handle that recorded wrong codes.
+// It is the ceiling of the per-user wrong-code window
+// (CountRecentFailedVerifyAttempts): a handle lives minutes, the window
+// longer, and a swept row would take its count out of the sum early.
+const MFAFailedAttemptRetention = time.Hour
+
 // MFAPendingLoginSessionRepository is the persistence seam for the
 // short-lived pending-MFA login state. Production wires
 // *PgxMFAPendingLoginSessionRepository; tests stub the interface
@@ -72,6 +79,14 @@ type MFAPendingLoginSessionRepository interface {
 	// actual store failure; the caller MUST fail closed (reject the
 	// verification) on error rather than let an uncounted guess through.
 	RecordFailedVerifyAttempt(ctx context.Context, id uuid.UUID, maxAttempts int, now time.Time) (invalidated bool, err error)
+
+	// CountRecentFailedVerifyAttempts sums failed_attempts over the user's
+	// verify-kind handles created at or after since — the per-USER wrong-code
+	// total that the per-handle counter cannot give, because every password
+	// step mints a fresh handle. Consumed and expired handles count: a handle
+	// killed by its own bound is exactly the evidence. Returns a non-nil error
+	// ONLY on a store failure; the caller MUST fail closed.
+	CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (int, error)
 
 	// DeleteExpired removes rows whose expires_at is past on the DB
 	// clock (NOW()) — the maintenance sweep that evicts the candidate

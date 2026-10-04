@@ -85,6 +85,11 @@ type MFAEnrollmentService struct {
 	codeCount         int
 	codeBytes         int
 	maxVerifyAttempts int
+	// maxUserFailures bounds the wrong codes ONE USER may make across all of
+	// their pending sign-ins within userFailureWindow. The per-handle bound
+	// alone is reset by every password step, which mints a fresh handle.
+	maxUserFailures   int
+	userFailureWindow time.Duration
 	now               func() time.Time
 }
 
@@ -114,6 +119,16 @@ type MFAEnrollmentServiceOptions struct {
 	// negligible — while tolerating a couple of legitimate mistypes /
 	// clock-skew retries inside the handle's ~5-minute lifetime.
 	MaxVerifyAttempts int
+	// MaxUserFailures is the number of wrong codes one user may make across
+	// ALL of their pending sign-ins inside UserFailureWindow before further
+	// verification is refused (the per-handle bound is reset by signing in
+	// again). Defaults to 5, the password-login lockout threshold.
+	MaxUserFailures int
+	// UserFailureWindow is the sliding window MaxUserFailures counts in.
+	// Defaults to 15 minutes, the password-login lockout window; capped at
+	// repository.MFAFailedAttemptRetention, how long the sweep keeps the
+	// evidence.
+	UserFailureWindow time.Duration
 }
 
 // Sentinel errors. The HTTP layer maps these to opaque 401 / 400
@@ -205,6 +220,11 @@ const (
 	// single verify-kind handle before it is invalidated (P0-13). See
 	// MFAEnrollmentServiceOptions.MaxVerifyAttempts for the rationale.
 	defaultMFAMaxVerifyAttempts = 5
+	// defaultMFAMaxUserFailures and defaultMFAUserFailureWindow bound the wrong
+	// codes one user can make across pending sign-ins: 5 in 15 minutes, as the
+	// password-login lockout (LoginRiskService).
+	defaultMFAMaxUserFailures   = 5
+	defaultMFAUserFailureWindow = 15 * time.Minute
 )
 
 // NewMFAEnrollmentService constructs the service. Pending, Users,
@@ -244,6 +264,19 @@ func NewMFAEnrollmentService(report *lifecycle.StartupReport, repos MFAEnrollmen
 	if maxVerifyAttempts <= 0 {
 		maxVerifyAttempts = defaultMFAMaxVerifyAttempts
 	}
+	maxUserFailures := opts.MaxUserFailures
+	if maxUserFailures <= 0 {
+		maxUserFailures = defaultMFAMaxUserFailures
+	}
+	userFailureWindow := opts.UserFailureWindow
+	if userFailureWindow <= 0 {
+		userFailureWindow = defaultMFAUserFailureWindow
+	}
+	// The sweep keeps failed verify handles only this long; a longer window
+	// would count less than it claims.
+	if userFailureWindow > repository.MFAFailedAttemptRetention {
+		userFailureWindow = repository.MFAFailedAttemptRetention
+	}
 	return &MFAEnrollmentService{
 		pending:           repos.Pending,
 		users:             repos.Users,
@@ -255,6 +288,8 @@ func NewMFAEnrollmentService(report *lifecycle.StartupReport, repos MFAEnrollmen
 		codeCount:         codeCount,
 		codeBytes:         codeBytes,
 		maxVerifyAttempts: maxVerifyAttempts,
+		maxUserFailures:   maxUserFailures,
+		userFailureWindow: userFailureWindow,
 		now:               time.Now,
 	}
 }
@@ -522,6 +557,19 @@ func (s *MFAEnrollmentService) VerifyAndConsume(ctx context.Context, pendingID u
 	if !user.MFAEnabled || user.MFASecret == nil || *user.MFASecret == "" {
 		// The user is no longer in the enrolled state; the pending
 		// row is no longer redeemable as verify-kind.
+		return nil, ErrMFAEnrollmentInvalid
+	}
+	// PER-USER BOUND. The per-handle counter below is reset by every password
+	// step (a fresh handle), so on its own it bounds guesses per sign-in, not
+	// per person. Sum the user's recent wrong codes across ALL their handles
+	// and refuse at the bound — even a correct code, cause-neutral like every
+	// other refusal. FAIL CLOSED on a counter-store error, for the same reason
+	// as RecordFailedVerifyAttempt.
+	recent, cntErr := s.pending.CountRecentFailedVerifyAttempts(ctx, user.ID, s.now().Add(-s.userFailureWindow))
+	if cntErr != nil {
+		return nil, fmt.Errorf("service: mfa count recent failed verify attempts: %w", cntErr)
+	}
+	if recent >= s.maxUserFailures {
 		return nil, ErrMFAEnrollmentInvalid
 	}
 	var (

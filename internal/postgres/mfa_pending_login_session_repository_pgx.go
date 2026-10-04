@@ -177,6 +177,22 @@ RETURNING (consumed_at IS NOT NULL)`
 	return invalidated, nil
 }
 
+// CountRecentFailedVerifyAttempts sums failed_attempts over the user's
+// verify-kind handles created at or after since. See the interface doc.
+func (r *PgxMFAPendingLoginSessionRepository) CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (int, error) {
+	const q = `
+SELECT COALESCE(SUM(failed_attempts), 0)::int
+FROM   mfa_pending_login_sessions
+WHERE  user_id = $1
+  AND  kind = 'verify'
+  AND  created_at >= $2`
+	var n int
+	if err := r.db.QueryRow(ctx, q, userID, since).Scan(&n); err != nil {
+		return 0, fmt.Errorf("postgres: count recent failed mfa verify attempts: %w", err)
+	}
+	return n, nil
+}
+
 // DeleteExpired removes rows whose expires_at is older than
 // (now - grace).
 func (r *PgxMFAPendingLoginSessionRepository) DeleteExpired(ctx context.Context) (int64, error) {
@@ -186,8 +202,19 @@ func (r *PgxMFAPendingLoginSessionRepository) DeleteExpired(ctx context.Context)
 	// by every started, never-finished enrollment. A live handle inside
 	// its window (still consumable) is never touched. Mirrors the
 	// oidc_states sweeper shape.
-	const q = `DELETE FROM mfa_pending_login_sessions WHERE expires_at < NOW()`
-	ct, err := r.db.Exec(ctx, q)
+	//
+	// A verify handle that recorded wrong codes is KEPT for
+	// repository.MFAFailedAttemptRetention after creation: those counts are
+	// the per-user wrong-code evidence CountRecentFailedVerifyAttempts sums,
+	// and a handle expires (5 minutes) well before that window does. A verify
+	// row carries no secret material, so keeping it holds nothing sensitive.
+	const q = `
+DELETE FROM mfa_pending_login_sessions
+WHERE  expires_at < NOW()
+  AND  NOT (kind = 'verify'
+            AND failed_attempts > 0
+            AND created_at >= NOW() - make_interval(secs => $1))`
+	ct, err := r.db.Exec(ctx, q, repository.MFAFailedAttemptRetention.Seconds())
 	if err != nil {
 		return 0, fmt.Errorf("postgres: delete expired mfa_pending_login_sessions: %w", err)
 	}

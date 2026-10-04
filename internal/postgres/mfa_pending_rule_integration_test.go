@@ -110,3 +110,76 @@ func TestMFAPending_RecordFailedVerifyAttemptBounds(t *testing.T) {
 		t.Errorf("maxAttempts < 1 must be an error (fail closed)")
 	}
 }
+
+// The per-user wrong-code total spans handles: it sums failed_attempts over
+// the user's verify handles inside the window, whatever their state, and the
+// maintenance sweep keeps an expired verify handle that recorded wrong codes
+// for repository.MFAFailedAttemptRetention so the sum does not shrink early.
+func TestMFAPending_CountRecentFailedVerifyAttemptsAndRetention(t *testing.T) {
+	pool := keyEncPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	repo := postgres.NewPgxMFAPendingLoginSessionRepository(pool)
+
+	orgID := seedScratchOrg(t, pool)
+	userID := seedSessionUser(t, ctx, pool, orgID)
+	otherID := seedSessionUser(t, ctx, pool, orgID)
+
+	seed := func(user uuid.UUID, kind string, failed int, age, ttl time.Duration) uuid.UUID {
+		t.Helper()
+		id := uuid.New()
+		if _, err := pool.Exec(ctx, `
+			INSERT INTO mfa_pending_login_sessions (id, user_id, kind, remember_me, failed_attempts, created_at, expires_at)
+			VALUES ($1, $2, $3, false, $4, NOW() - make_interval(secs => $5), NOW() - make_interval(secs => $5) + make_interval(secs => $6))`,
+			id, user, kind, failed, age.Seconds(), ttl.Seconds()); err != nil {
+			t.Fatalf("seed mfa pending: %v", err)
+		}
+		return id
+	}
+	exists := func(id uuid.UUID) bool {
+		t.Helper()
+		var n int
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM mfa_pending_login_sessions WHERE id = $1`, id).Scan(&n); err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		return n == 1
+	}
+
+	recentExpired := seed(userID, "verify", 3, 10*time.Minute, 5*time.Minute) // expired, inside the window
+	recentLive := seed(userID, "verify", 2, time.Minute, 5*time.Minute)
+	old := seed(userID, "verify", 4, 2*time.Hour, 5*time.Minute)       // outside any window
+	clean := seed(userID, "verify", 0, 30*time.Minute, 5*time.Minute)  // expired, no wrong codes
+	enroll := seed(userID, "enroll", 4, 10*time.Minute, 5*time.Minute) // not a verify handle
+	someoneElse := seed(otherID, "verify", 4, time.Minute, 5*time.Minute)
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM mfa_pending_login_sessions WHERE id = ANY($1)`,
+			[]uuid.UUID{recentExpired, recentLive, old, clean, enroll, someoneElse})
+	})
+
+	since := time.Now().Add(-15 * time.Minute)
+	if n, err := repo.CountRecentFailedVerifyAttempts(ctx, userID, since); err != nil || n != 5 {
+		t.Errorf("CountRecentFailedVerifyAttempts = (%d, %v), want (5, nil): 3 expired + 2 live verify wrong codes, nothing from the old, enroll or another user's handle", n, err)
+	}
+	if n, err := repo.CountRecentFailedVerifyAttempts(ctx, uuid.New(), since); err != nil || n != 0 {
+		t.Errorf("a user with no handles = (%d, %v), want (0, nil)", n, err)
+	}
+
+	if _, err := repo.DeleteExpired(ctx); err != nil {
+		t.Fatalf("DeleteExpired: %v", err)
+	}
+	if !exists(recentExpired) {
+		t.Error("an expired verify handle with wrong codes inside the retention must survive the sweep")
+	}
+	if exists(old) {
+		t.Error("an expired verify handle past the retention must be swept")
+	}
+	if exists(clean) {
+		t.Error("an expired verify handle with no wrong codes must be swept")
+	}
+	if exists(enroll) {
+		t.Error("an expired enroll handle (it holds the candidate secret) must be swept")
+	}
+	if n, err := repo.CountRecentFailedVerifyAttempts(ctx, userID, since); err != nil || n != 5 {
+		t.Errorf("after the sweep = (%d, %v), want (5, nil): the sweep must not shrink the window", n, err)
+	}
+}

@@ -58,6 +58,24 @@ type stubPendingRepo struct {
 	// to exercise the P0-13 fail-closed path (counter-store error must
 	// reject the verification, never let an uncounted guess through).
 	recordErr error
+	// countErr, when non-nil, is returned by CountRecentFailedVerifyAttempts
+	// to exercise the per-user bound's fail-closed path.
+	countErr error
+}
+
+// CountRecentFailedVerifyAttempts models the Pgx query: the sum of
+// failed_attempts over the user's verify-kind handles created since `since`.
+func (s *stubPendingRepo) CountRecentFailedVerifyAttempts(_ context.Context, userID uuid.UUID, since time.Time) (int, error) {
+	if s.countErr != nil {
+		return 0, s.countErr
+	}
+	n := 0
+	for _, row := range s.rows {
+		if row.UserID == userID && row.Kind == domain.MFAPendingKindVerify && !row.CreatedAt.Before(since) {
+			n += row.FailedAttempts
+		}
+	}
+	return n, nil
 }
 
 func newStubPendingRepo() *stubPendingRepo {
