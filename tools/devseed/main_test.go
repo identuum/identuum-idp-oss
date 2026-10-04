@@ -32,6 +32,8 @@ type fakeIdP struct {
 	srv   *httptest.Server
 	// createStatus overrides the answer of POST /api/v1/users.
 	createStatus int
+	// admins are the emails the organization's administrators list answers.
+	admins []string
 }
 
 func newFakeIdP(t *testing.T) *fakeIdP {
@@ -55,6 +57,12 @@ func newFakeIdP(t *testing.T) *fakeIdP {
 			}
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/auth/invite":
 			_, _ = io.WriteString(w, `{}`)
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/admin-recovery-candidates"):
+			list := make([]map[string]string, 0, len(f.admins))
+			for _, e := range f.admins {
+				list = append(list, map[string]string{"email": e, "role": "org_admin"})
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"admins": list})
 		default:
 			_, _ = io.WriteString(w, `{}`)
 		}
@@ -109,6 +117,22 @@ func TestEnsureOrgAdminByInvite_AlreadySeededIsNotAnError(t *testing.T) {
 	}
 	if idp.find(http.MethodPost, "/api/v1/auth/invite") != nil {
 		t.Error("nothing to redeem when the admin already exists")
+	}
+}
+
+// Once the organization has its admin, a site administrator may not add
+// another (D-025): the IdP answers the invite 403. A re-run finds the seeded
+// admin in the organization's administrators list and does not ask.
+func TestEnsureOrgAdminByInvite_ReRunFindsTheSeededAdmin(t *testing.T) {
+	idp := newFakeIdP(t)
+	idp.admins = []string{"Someone@Else.test", strings.ToUpper(orgAdminEmail)}
+	idp.createStatus = http.StatusForbidden
+	id, err := ensureOrgAdminByInvite(idp.srv.URL, "site-bearer", orgAdminEmail, orgAdminPass, "org-1")
+	if err != nil || id != "" {
+		t.Errorf("= %q, %v; want an empty id and no error on a re-run", id, err)
+	}
+	if idp.find(http.MethodPost, "/api/v1/users") != nil {
+		t.Error("a re-run invited the org admin again")
 	}
 }
 

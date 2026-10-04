@@ -449,6 +449,12 @@ func findOrganization(base, bearer string) (string, error) {
 // site administrator can no longer do by editing a tenant user (D-025).
 // "Already seeded" (409) is not an error, so re-running the seed is safe.
 func ensureOrgAdminByInvite(base, bearer, email, password, orgID string) (string, error) {
+	// Once the organization has its admin a site administrator may not add
+	// another (D-025: the invite answers 403), so a re-run first asks the
+	// organization's administrators list whether the seeded admin is there.
+	if seeded, err := orgListsAdmin(base, bearer, orgID, email); err == nil && seeded {
+		return "", nil // already seeded
+	}
 	body, _ := json.Marshal(map[string]any{"email": email, "role": "org_admin", "organization_id": orgID})
 	status, raw, err := postJSON(base+"/api/v1/users", bearer, body)
 	if err != nil {
@@ -648,6 +654,32 @@ func orNone(s string) string {
 		return "(already enrolled — devseed kept no copy)"
 	}
 	return s
+}
+
+// orgListsAdmin reports whether the organization's administrators list (the
+// site administrator's read of who administers an organization) names email.
+func orgListsAdmin(base, bearer, orgID, email string) (bool, error) {
+	status, raw, err := getJSON(base+"/api/v1/organizations/"+orgID+"/admin-recovery-candidates", bearer)
+	if err != nil {
+		return false, err
+	}
+	if status != http.StatusOK {
+		return false, fmt.Errorf("administrators list → %d", status)
+	}
+	var list struct {
+		Admins []struct {
+			Email string `json:"email"`
+		} `json:"admins"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return false, err
+	}
+	for _, a := range list.Admins {
+		if strings.EqualFold(strings.TrimSpace(a.Email), email) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 var httpClient = &http.Client{Timeout: 20 * time.Second}
