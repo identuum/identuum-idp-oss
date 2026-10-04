@@ -24,6 +24,24 @@ follows [Semantic Versioning](https://semver.org/).
   deciding a self-registration, are refused (`403`) for a site administrator.
   What remains is appointing the first org admin of an organization that has
   none (including re-sending that invite).
+- **Introspection and revocation act on a client's own tokens.** A client that
+  calls `POST /api/v1/oauth/introspection` or `POST /api/v1/oauth/revoke`
+  gets `{"active":false}`, or an empty `200` that changes nothing, for a token
+  that was not issued to it (`client_id`) and is not addressed to it (`aud`).
+  A resource server introspects the tokens addressed to it. Introspection
+  also reports inactive a token whose session was revoked or whose user or
+  organization is gone, and a `token_type_hint` that points at the wrong type
+  no longer leaves a refresh token live.
+- **A service-account token stops when its account does.** Disabling a service
+  account, letting it expire, or deactivating or deleting its organization now
+  stops its tokens at the next request instead of at the token's expiry
+  (`401`; `503` when the check cannot run).
+- **A presence-only passkey no longer earns the phishing-resistant level.** The
+  passkey step-up asks the authenticator to verify the user and refuses an
+  assertion in which it did not (`401 user_verification_required`, no uplift);
+  a passkey sign-in that was presence-only (allowed only where the
+  organization does not require MFA) is recorded at the lowest level instead
+  of the top one. Sign-in with a user-verified passkey is unchanged.
 - **Passkeys follow account recovery and need a recent sign-in.** An
   organization admin's MFA reset now removes the user's passkeys as well as
   the authenticator. Starting a passkey registration, and removing a passkey,
@@ -46,7 +64,10 @@ follows [Semantic Versioning](https://semver.org/).
 - **MFA wrong codes are bounded per user.** The per-sign-in limit is joined by
   a per-user limit: 5 wrong codes in 15 minutes across all of a user's
   pending sign-ins, after which even the correct code is refused until the
-  window passes.
+  window passes. The routes that prove the second factor to a signed-in
+  caller — step-up, self-service MFA disable, recovery-code regeneration and
+  turning "skip consent" on — share their own budget of wrong codes per user
+  (5 in 15 minutes, counted in memory), with the same refusal.
 - **"Skip consent" has four guards** (D-026). An application an org admin
   marked **First-party (skip consent)**:
   - must be a confidential app created in the console; an app created
