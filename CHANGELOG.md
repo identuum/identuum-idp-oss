@@ -102,6 +102,17 @@ follows [Semantic Versioning](https://semver.org/).
   90 days from the sign-in that created it, `grant_type=refresh_token` answers
   `invalid_grant` and the user signs in again. Tokens issued before the family
   id existed keep sliding as before.
+- **A scope narrows a role.** An org admin's token that carries none of the
+  org-admin scopes (an identity-only token) is read as a plain member, so the
+  routes that check the role alone refuse it. Console sessions carry the
+  org-admin scopes and are unaffected.
+- **An org admin cannot give an app more than the admin holds.**
+  `POST /api/v1/clients` and `PUT /api/v1/clients/:id` answer
+  `400 invalid_scope` when `scope` names a scope of the IdP's own catalogue
+  the admin does not hold (`keys:rotate`, `orgs:create`, `identuum-admin:admin`
+  and the like). Identity scopes and an organization's own API scopes are
+  unaffected, and an app stored before this change is not judged until its
+  scope is edited.
 
 ## `v0.9.3`
 

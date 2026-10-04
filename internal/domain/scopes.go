@@ -453,6 +453,20 @@ func SessionScopesForRole(role UserRole) string {
 	return ""
 }
 
+// HoldsOrgAdminScope reports whether a token's scope string carries at least
+// one of the org-admin scopes. An org_admin token that carries none (an
+// identity-only token) holds no administrative authority.
+func HoldsOrgAdminScope(scope string) bool {
+	for _, held := range strings.Fields(scope) {
+		for _, admin := range OrgAdminSessionScopes {
+			if held == admin {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // OIDCIdentityScopes are the OpenID Connect scope values every authenticated
 // human may consent to. They name CLAIMS about the subject (OIDC Core §5.4),
 // not permissions over resources, so no role can forbid them — which is why

@@ -59,6 +59,37 @@ func requireSkipConsentProof(c *gin.Context, deps ClientsHandlerDeps, code strin
 	return false
 }
 
+// requireClientScopeWithinActor caps a client's scope at its creator's own: an
+// org_admin cannot hand an application a scope of the IdP's catalogue that the
+// admin does not hold (keys:rotate, orgs:create, ...). Identity scopes, the
+// connector tag and any scope outside the catalogue (an organization's own API
+// scopes) are not the IdP's to cap. It answers 400 invalid_scope and returns
+// false on a refusal.
+func requireClientScopeWithinActor(c *gin.Context, scope string) bool {
+	principal, _ := mw.PrincipalFromContext(c)
+	held := map[string]struct{}{}
+	if principal != nil {
+		held = domain.FilterKnownScopes(principal.Scope)
+	}
+	free := map[string]struct{}{domain.ScopeConnectorLiteLLM: {}}
+	for _, s := range domain.OIDCIdentityScopes {
+		free[s] = struct{}{}
+	}
+	for _, s := range strings.Fields(scope) {
+		if !domain.IsKnownScope(s) {
+			continue
+		}
+		if _, ok := free[s]; ok {
+			continue
+		}
+		if _, ok := held[s]; !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_scope"})
+			return false
+		}
+	}
+	return true
+}
+
 // ClientsHandlerDeps wires the OAuth-client admin group.
 //
 // Either ClientService (preferred) OR ClientRepo must be supplied:
@@ -489,6 +520,9 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			}
 			req.OrganizationID = orgFilter
 		}
+		if !requireClientScopeWithinActor(c, req.Scope) {
+			return
+		}
 		// D-026: marking an app "skip consent" needs the admin's MFA code.
 		skipRequested := req.SkipConsent != nil && *req.SkipConsent
 		if skipRequested {
@@ -597,6 +631,9 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		if !requireClientInActorOrg(c, deps, id) {
+			return
+		}
+		if req.Scope != nil && !requireClientScopeWithinActor(c, *req.Scope) {
 			return
 		}
 		// Prior state, read ONLY when this update touches the SA binding or

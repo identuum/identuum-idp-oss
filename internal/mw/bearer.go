@@ -355,6 +355,12 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				return
 			}
 		}
+		// A scope narrows a role: an org_admin token that carries none of the
+		// org-admin scopes holds no administrative authority, so the routes
+		// that check the role alone see a plain member.
+		if principal.ActorType == "user" && principal.Role == domain.RoleOrgAdmin && !domain.HoldsOrgAdminScope(principal.Scope) {
+			principal.Role = domain.RoleOrgUser
+		}
 		SetPrincipal(c, principal)
 		c.Next()
 	}
