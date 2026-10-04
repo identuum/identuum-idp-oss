@@ -336,7 +336,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:summary=Soft-delete a user.
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
-		// docgen:notes=site_admin can delete any ordinary user (the model's lost-all-org_admins recovery clause depends on it). org_admin additionally requires the users:delete scope and may only delete users in their own organization; cross-org and site_admin targets get the anti-enumeration 404.
+		// docgen:notes=site_admin deletes only users of the system organization; a tenant user answers 403 (D-025). org_admin additionally requires the users:delete scope and may only delete users in their own organization; cross-org and site_admin targets get the anti-enumeration 404.
 		del.DELETE("/:id", HandleDeleteUser(deps))
 
 		// Restore remains site_admin-only at the HTTP layer (infrastructure
@@ -369,7 +369,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeUser
-		// docgen:notes=site_admin can reset MFA for any target. org_admin additionally requires the users:mfa:revoke scope and may only reset MFA for users in the org_admin's own organization (cross-org and site_admin targets get 404, never 403, so a probe cannot tell another tenant's user exists), and never its own MFA (403 cannot_reset_self; its own factor is self-service). The response is the safe user projection — it never includes mfa_secret or mfa_recovery_codes. Resetting a user without MFA enrolled still returns 200.
+		// docgen:notes=site_admin resets MFA only for users of the system organization; a tenant user answers 403 (D-025). org_admin additionally requires the users:mfa:revoke scope and may only reset MFA for users in the org_admin's own organization (cross-org and site_admin targets get 404, never 403, so a probe cannot tell another tenant's user exists), and never its own MFA (403 cannot_reset_self; its own factor is self-service). The response is the safe user projection — it never includes mfa_secret or mfa_recovery_codes. Resetting a user without MFA enrolled still returns 200.
 		mfaReset.POST("/:id/recovery/reset-mfa", HandleResetUserMFA(deps))
 	} else {
 		// Read-only deployments: every mutation 501s; the scaffold
