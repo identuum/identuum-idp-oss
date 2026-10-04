@@ -7,12 +7,13 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## `v0.9.4`
 
-identuum-ui `0e428ce` embedded (`v0.9.3` embedded `9cfd09b`): the
+identuum-ui `8121ba7` embedded (`v0.9.3` embedded `9cfd09b`): the
 authenticator-code field and the "Skips consent" badge for first-party apps,
-and the recent-sign-in message for account passkeys. The delta since
-`v0.9.3` (`git rev-list --count`, measured at `fc5b4cc`, before the notes
-commit) is 40 commits, 173 files, +7433/−298. Four migrations (`0044` to
-`0047`), and the endpoint count stays 157.
+the recent-sign-in message for account passkeys, and an organization page that
+no longer offers a site administrator a Reset MFA button. The delta since
+`v0.9.3` (`git rev-list --count` and `git diff --shortstat`, measured at
+`d667485`, before the notes commit) is 45 commits, 176 files, +7597/−303.
+Four migrations (`0044` to `0047`), and the endpoint count stays 157.
 
 - **Users sign in only to apps of their own organization** (D-027).
   `/authorize` issues a code only when the app belongs to the signing-in
@@ -30,7 +31,11 @@ commit) is 40 commits, 173 files, +7433/−298. Four migrations (`0044` to
   disabling, deleting, restoring or resetting MFA of a tenant user, and
   deciding a self-registration, are refused (`403`) for a site administrator.
   What remains is appointing the first org admin of an organization that has
-  none (including re-sending that invite).
+  none (including re-sending that invite). The console's organization page
+  shows an organization's admins as status only, with no Reset MFA button.
+  **A deleted tenant user cannot be restored over HTTP in this release:** the
+  restore route admits only a site administrator, and no route lets an org
+  admin do it yet.
 - **Introspection and revocation act on a client's own tokens.** A client that
   calls `POST /api/v1/oauth/introspection` or `POST /api/v1/oauth/revoke`
   gets `{"active":false}`, or an empty `200` that changes nothing, for a token
