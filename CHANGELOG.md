@@ -7,26 +7,33 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## `v0.9.4`
 
-identuum-ui `8121ba7` embedded (`v0.9.3` embedded `9cfd09b`): the
+identuum-ui `5627ba2` embedded (`v0.9.3` embedded `9cfd09b`): the
 authenticator-code field and the "Skips consent" badge for first-party apps,
-the recent-sign-in message for account passkeys, and an organization page that
-no longer offers a site administrator a Reset MFA button. The delta since
-`v0.9.3` (`git rev-list --count` and `git diff --shortstat`, measured at
-`d667485`, before the notes commit) is 45 commits, 176 files, +7597/−303.
+the recent-sign-in message for account passkeys, an organization page that no
+longer offers a site administrator a Reset MFA button, and application forms
+that keep what was typed when a save is refused. The delta since `v0.9.3`
+(`git rev-list --count` and `git diff --shortstat`, measured at `9556d2a`,
+before the notes commit) is 58 commits, 191 files, +8882/−338.
 Four migrations (`0044` to `0047`), and the endpoint count stays 157.
 
 - **Users sign in only to apps of their own organization** (D-027).
   `/authorize` issues a code only when the app belongs to the signing-in
   user's organization; an app of another organization answers like an
   unknown client. An app with no organization (registered by the site
-  administrator) stays available to every organization.
+  administrator) stays available to every organization. The consent page
+  answers another organization's app the same way (no name shown, no consent
+  stored, no redirect), and a refresh token issued earlier to another
+  organization's app stops at its next use (`invalid_grant`).
 - **`/authorize` and the consent page act only for a browser session.** A
   bearer access token no longer drives them (it gets the sign-in page); the
   person at the browser decides what an app is granted.
 - **A token issued to an app is not a credential for the IdP's own API.** A
   user token minted for an app (it carries the app's `client_id`) is still
   accepted by `userinfo` and token introspection, and no longer by the
-  admin and account routes under `/api/v1`.
+  admin and account routes under `/api/v1`. The access token the refresh
+  grant mints for an app is held to the same rule, and an app's token that was
+  revoked, or whose session, user or organization is gone, is refused on every
+  route that reads it (`GET /api/v1/validate` included).
 - **Site administrators do not edit tenant users** (D-025). Changing,
   disabling, deleting, restoring or resetting MFA of a tenant user, and
   deciding a self-registration, are refused (`403`) for a site administrator.
@@ -36,14 +43,19 @@ Four migrations (`0044` to `0047`), and the endpoint count stays 157.
   **A deleted tenant user cannot be restored over HTTP in this release:** the
   restore route admits only a site administrator, and no route lets an org
   admin do it yet.
-- **Introspection and revocation act on a client's own tokens.** A client that
-  calls `POST /api/v1/oauth/introspection` or `POST /api/v1/oauth/revoke`
-  gets `{"active":false}`, or an empty `200` that changes nothing, for a token
-  that was not issued to it (`client_id`) and is not addressed to it (`aud`).
-  A resource server introspects the tokens addressed to it. Introspection
-  also reports inactive a token whose session was revoked or whose user or
-  organization is gone, and a `token_type_hint` that points at the wrong type
-  no longer leaves a refresh token live.
+- **An app introspects and revokes only its own tokens.** An app that calls
+  `POST /api/v1/oauth/introspection` or `POST /api/v1/oauth/revoke` with its
+  own client credentials gets `{"active":false}`, or an empty `200` that
+  changes nothing, for a token that was not issued to it (`client_id`) and is
+  not addressed to it (`aud`). A resource server authenticating with its API
+  resource's credentials introspects any token presented to it, as before,
+  and an agent-communication participant token is answered to any
+  authenticated relay holding it. Revocation stays the issuing app's alone.
+  Introspection also reports inactive a token whose session was revoked,
+  whose user or organization is gone, or whose service account was disabled
+  (a session row already swept reads inactive, not unavailable), and a
+  `token_type_hint` that points at the wrong type no longer leaves a refresh
+  token live.
 - **A service-account token stops when its account does.** Disabling a service
   account, letting it expire, or deactivating or deleting its organization now
   stops its tokens at the next request instead of at the token's expiry
@@ -57,7 +69,9 @@ Four migrations (`0044` to `0047`), and the endpoint count stays 157.
   and creates the seeded org user without a forced password change.
 - **Sign-out accepts an expired `id_token_hint`.** The signature and issuer are
   still verified; only the token's lifetime is no longer held against a hint
-  used to end a session (OIDC RP-Initiated Logout 1.0 §2).
+  used to end a session (OIDC RP-Initiated Logout 1.0 §2). The hint must be an
+  ID token: an access token presented as one is refused (`400`), and the
+  hint's `sid` names the session it ends.
 - **A presence-only passkey no longer earns the phishing-resistant level.** The
   passkey step-up asks the authenticator to verify the user and refuses an
   assertion in which it did not (`401 user_verification_required`, no uplift);
@@ -83,13 +97,19 @@ Four migrations (`0044` to `0047`), and the endpoint count stays 157.
   the client's organization; otherwise `invalid_target`. **A client that asks
   for an audience without listing it now fails; add it to the client's
   allowed audiences.** A request with no `audience` is unchanged.
+  `/authorize` holds an `audience` to the same organization rule (an active
+  API resource of the app's organization, else `invalid_target`), since the
+  audience rides on to the refresh token. A store failure while checking a new
+  resource's audience answers `500`, not `400`.
 - **MFA wrong codes are bounded per user.** The per-sign-in limit is joined by
   a per-user limit: 5 wrong codes in 15 minutes across all of a user's
   pending sign-ins, after which even the correct code is refused until the
   window passes. The routes that prove the second factor to a signed-in
   caller — step-up, self-service MFA disable, recovery-code regeneration and
   turning "skip consent" on — share their own budget of wrong codes per user
-  (5 in 15 minutes, counted in memory), with the same refusal.
+  (5 in 15 minutes, counted in memory), with the same refusal. One user's
+  codes are checked one at a time, so wrong codes sent in parallel are
+  counted one by one and cannot pass a bound together.
 - **"Skip consent" has four guards** (D-026). An application an org admin
   marked **First-party (skip consent)**:
   - must be a confidential app created in the console; an app created
@@ -98,7 +118,8 @@ Four migrations (`0044` to `0047`), and the endpoint count stays 157.
     a registration access token, and clears their `skip_consent`);
   - signs the user in silently only for `openid`, `profile` and `email`. A
     request for anything more (`offline_access`, another scope, an API
-    resource through `audience`) shows the consent screen for it. **An
+    resource through `audience`, or an address or phone claim through the
+    `claims` parameter) shows the consent screen for it. **An
     existing first-party app that asks for more than identity now shows
     consent for those scopes.**
   - needs the org admin's current TOTP code to be turned on:
@@ -119,12 +140,16 @@ Four migrations (`0044` to `0047`), and the endpoint count stays 157.
   routes that check the role alone refuse it. Console sessions carry the
   org-admin scopes and are unaffected.
 - **An org admin cannot give an app more than the admin holds.**
-  `POST /api/v1/clients` and `PUT /api/v1/clients/:id` answer
+  `POST /api/v1/clients`, `PUT /api/v1/clients/:id` and
+  `POST /api/v1/organizations/:id/service-accounts/with-client` answer
   `400 invalid_scope` when `scope` names a scope of the IdP's own catalogue
   the admin does not hold (`keys:rotate`, `orgs:create`, `identuum-admin:admin`
-  and the like). Identity scopes and an organization's own API scopes are
-  unaffected, and an app stored before this change is not judged until its
-  scope is edited.
+  and the like). Identity scopes, `connector:litellm` and an organization's own
+  API scopes are unaffected. A scope an app already holds is not judged again,
+  so an app stored before this change can still be edited and saved; a scope
+  an edit adds is judged. **An org admin can no longer create a
+  service-account client with the gateway scopes `mcp:access_*` or
+  `identuum-admin:*`, which an org admin's session does not hold.**
 - **An upstream-provider sign-in finishes only in the browser that started
   it.** `GET /api/v1/auth/idp/:id/login` plants a host-only, HttpOnly,
   `SameSite=Lax` cookie (`idp_login_state`, ten minutes) holding the sign-in
@@ -162,9 +187,14 @@ Four migrations (`0044` to `0047`), and the endpoint count stays 157.
 - **Sign-out asks before ending a session when no `id_token_hint` vouches for
   the request.** `GET /api/v1/oidc/logout` can be fired from any page the user
   visits, so a request that arrives with the session cookie and no verified
-  hint now shows a "Sign out?" page and ends nothing; its link carries a value
-  only the browser holding the cookie was shown. Requests with a verified hint,
-  and requests with no session, behave as before.
+  hint, or with a hint for another person or another session, now shows a
+  "Sign out?" page and ends nothing; its link carries a value only the browser
+  holding the cookie was shown (RP-Initiated Logout 1.0 §2). Requests whose
+  verified hint belongs to this browser's session, and requests with no
+  session, behave as before. `GET /api/v1/oidc/frontchannel-logout` asks the
+  same way when a browser opens it as a page; loaded in an iframe, its use, it
+  is unchanged. Each app's logout token names the user of the session that app
+  held.
 - **Newly generated MFA recovery codes carry 80 bits.** They were 8 base32
   characters (40 bits), stored as an unkeyed SHA-256, which a reader of the
   database could test offline in seconds. They are now 16 characters (80 bits),
@@ -188,11 +218,16 @@ Four migrations (`0044` to `0047`), and the endpoint count stays 157.
   and the token endpoint answers `unauthorized_client` for a grant outside the
   set. **An app that needs refresh tokens must now register `refresh_token`.**
   Apps created in the console, and every app registered before this change,
-  carry no set and stay unrestricted.
+  carry no set and stay unrestricted. `offline_access` hands no refresh token
+  to an app whose set lacks `refresh_token`; an initial access token's grant
+  limit is judged on what a registration records (`authorization_code` when it
+  names none); an update with an empty `grant_types` list changes nothing; a
+  missing `grant_type` stays `invalid_request` and an unknown one
+  `unsupported_grant_type`.
 - **ID tokens carry `sid`.** The session an ID token was issued for is named by
   the standard `sid` claim (OIDC Front-Channel and Back-Channel Logout), so a
   relying party can match a logout token or a front-channel request to the
-  session it holds. The existing `session_id` claim is unchanged.
+  session it holds. Access tokens keep their `session_id` claim.
 - **Back-channel logout reaches every app that holds an ID token for the
   session.** It reached only the app that asked for the sign-out, and only when
   that request named a `post_logout_redirect_uri`. Migration `0047` adds
