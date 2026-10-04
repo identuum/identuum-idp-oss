@@ -30,7 +30,7 @@ in-container support command:
 
 ```bash
 docker compose exec identuum-idp \
-    identuum-idp show-setup-code /app/data
+    /app/identuum-idp show-setup-code /app/data
 ```
 
 The setup code authorises the wizard only. It is not the

@@ -84,7 +84,7 @@ boot and stores it at `/app/data/setup-token.txt` inside the container. To show
 it again:
 
 ```
-identuum-idp show-setup-code /app/data
+/app/identuum-idp show-setup-code /app/data
 ```
 
 Never copy that value into a file, a ticket, or a shell history you keep.

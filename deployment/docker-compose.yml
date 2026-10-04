@@ -193,7 +193,7 @@ services:
       # IDENTUUM_IDP_DATA_DIR is the persistent data directory the
       # appliance setup foundation writes to (setup-token.txt at mode
       # 0600). Mounted as a named volume below so the token survives
-      # container restarts and so `docker exec identuum-idp-oss identuum-idp
+      # container restarts and so `docker exec identuum-idp-oss /app/identuum-idp
       # show-setup-code /app/data` works.
       IDENTUUM_IDP_DATA_DIR: "/app/data"
       # IDENTUUM_IDP_UI_PUBLIC_BASE_URL is the browser-facing UI base URL
@@ -206,7 +206,7 @@ services:
       # boot log has scrolled, via:
       #
       #   docker compose exec identuum-idp \
-      #     identuum-idp show-setup-code /app/data
+      #     /app/identuum-idp show-setup-code /app/data
       #
       # The URL is read inside the container only and is never echoed
       # on failure (redactURL strips user/password/host).

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -192,8 +193,19 @@ func (s *Service) Initialize(ctx context.Context, dataDir string) (*SetupBanner,
 		SetupURL:        s.buildSetupURL(),
 		SetupToken:      plaintext,
 		TokenFilePath:   TokenFilePath(dataDir),
-		ShowCodeCommand: fmt.Sprintf("identuum-idp show-setup-code %s", dataDir),
+		ShowCodeCommand: showCodeCommand(dataDir),
 	}, nil
+}
+
+// showCodeCommand is the command that re-displays the setup code. It names
+// this binary by its own path: the image puts it at /app/identuum-idp with no
+// PATH entry, so a bare name does not run there.
+func showCodeCommand(dataDir string) string {
+	bin, err := os.Executable()
+	if err != nil || bin == "" {
+		bin = "/app/identuum-idp"
+	}
+	return fmt.Sprintf("%s show-setup-code %s", bin, dataDir)
 }
 
 // resolveExistingToken inspects the DB hash + on-disk file and reports

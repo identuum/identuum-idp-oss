@@ -471,8 +471,8 @@ func (r *Runtime) Start(ctx context.Context) error {
 			// password (D-IDP-INSTALL-19), and is allowed in logs
 			// by the appliance install UX decisions
 			// (D-IDP-INSTALL-11). Operators with log-retention
-			// concerns can run `identuum-idp show-setup-code <data-dir>`
-			// to read the file directly.
+			// concerns can run `<binary> show-setup-code <data-dir>`
+			// (/app/identuum-idp in the image) to read the file directly.
 			fmt.Fprintf(r.cfg.Stdout,
 				"identuum-idp: serve: first-run setup required — open %s\n",
 				banner.SetupURL)
