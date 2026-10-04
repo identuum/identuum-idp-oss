@@ -91,6 +91,10 @@ type MFAEnrollmentService struct {
 	maxUserFailures   int
 	userFailureWindow time.Duration
 	now               func() time.Time
+	// proofFailures, when wired, bounds the wrong codes one user may present
+	// to the TOTP proof routes (disable, regenerate, skip-consent, step-up):
+	// past it even the right code is refused.
+	proofFailures *TOTPFailureBudget
 }
 
 // MFAEnrollmentServiceOptions tunes the service. Zero values fall
@@ -124,6 +128,10 @@ type MFAEnrollmentServiceOptions struct {
 	// verification is refused (the per-handle bound is reset by signing in
 	// again). Defaults to 5, the password-login lockout threshold.
 	MaxUserFailures int
+	// ProofFailures is the per-user wrong-code budget shared with the step-up
+	// verifier; it bounds the proof routes of THIS service. nil leaves them
+	// unbounded, as before.
+	ProofFailures *TOTPFailureBudget
 	// UserFailureWindow is the sliding window MaxUserFailures counts in.
 	// Defaults to 15 minutes, the password-login lockout window; capped at
 	// repository.MFAFailedAttemptRetention, how long the sweep keeps the
@@ -295,6 +303,7 @@ func NewMFAEnrollmentService(report *lifecycle.StartupReport, repos MFAEnrollmen
 		maxUserFailures:   maxUserFailures,
 		userFailureWindow: userFailureWindow,
 		now:               time.Now,
+		proofFailures:     opts.ProofFailures,
 	}
 }
 
@@ -805,6 +814,11 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 	var reauth MFADisableReauthMethod
 	trimmedCode := strings.TrimSpace(in.Code)
 	if trimmedCode != "" {
+		// The recovery-code leg below has no budget of its own, so the
+		// shared one gates the whole proof: past it, nothing is accepted.
+		if s.proofFailures.Exhausted(user.ID) {
+			return "", ErrMFADisableInvalidCode
+		}
 		// The TOTP leg is totpProofOK (shared with the recovery-code
 		// regenerate); a cipher/decrypt failure leaves it false and falls
 		// through to the hash-matched recovery-code leg (no cipher needed).
@@ -1025,11 +1039,20 @@ func (s *MFAEnrollmentService) totpProofOK(ctx context.Context, user *domain.Use
 	if user == nil || user.MFASecret == nil || *user.MFASecret == "" || trimmedCode == "" {
 		return false
 	}
+	// Past the per-user budget of wrong codes even the right one is refused,
+	// with the answer a wrong one gets.
+	if s.proofFailures.Exhausted(user.ID) {
+		return false
+	}
 	plaintextSeed, err := s.decryptSeed(*user.MFASecret)
 	if err != nil {
 		return false
 	}
-	return s.totpAccept(ctx, user.ID, plaintextSeed, trimmedCode)
+	if s.totpAccept(ctx, user.ID, plaintextSeed, trimmedCode) {
+		return true
+	}
+	s.proofFailures.Record(user.ID)
+	return false
 }
 
 // ProveTOTP checks that the caller holds the user's current TOTP code — the

@@ -116,6 +116,9 @@ type MFAVerifierService struct {
 	digits   int
 	window   int
 	now      func() time.Time
+	// failures, when wired, bounds the wrong codes one user may present across
+	// the proof routes; past it even the right code is refused.
+	failures *TOTPFailureBudget
 }
 
 // MFAVerifierOptions parameterises the verifier. Zero values fall
@@ -131,6 +134,9 @@ type MFAVerifierOptions struct {
 	// every verification refuse (fail closed) — it can never be left out to
 	// obtain a verifier that accepts a code twice.
 	Replay *TOTPReplayGuard
+	// Failures is the per-user wrong-code budget shared with the other TOTP
+	// proof routes. nil leaves verification unbounded, as before.
+	Failures *TOTPFailureBudget
 }
 
 const (
@@ -186,6 +192,7 @@ func NewMFAVerifierService(report *lifecycle.StartupReport, resolver TOTPSecretR
 		digits:   digits,
 		window:   window,
 		now:      time.Now,
+		failures: opts.Failures,
 	}
 }
 
@@ -247,11 +254,17 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 	if trimmed == "" {
 		return ErrMFARequired
 	}
+	// Past the per-user budget of wrong codes even the right one is refused,
+	// with the answer a wrong one gets.
+	if s.failures.Exhausted(user.ID) {
+		return ErrMFAInvalid
+	}
 	secret, err := s.resolver.Resolve(ctx, user)
 	if err != nil || secret == "" {
 		return ErrMFASecretUnavailable
 	}
 	if len(trimmed) != s.digits {
+		s.failures.Record(user.ID)
 		return ErrMFAInvalid
 	}
 	// Decode the base32 secret once, then delegate the RFC 6238 window
@@ -268,6 +281,7 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 		Window: s.window,
 	})
 	if !ok {
+		s.failures.Record(user.ID)
 		return ErrMFAInvalid
 	}
 	// The match says the code is genuine; the guard says whether it is
@@ -278,6 +292,7 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 		return err
 	}
 	if !first {
+		s.failures.Record(user.ID)
 		return ErrMFAInvalid
 	}
 	return nil

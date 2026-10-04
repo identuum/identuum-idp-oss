@@ -1108,7 +1108,12 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// (enrol, pending-login verify, regenerate, self-disable) consult it,
 	// and the cleanup ticker sweeps it (Start).
 	r.totpReplayGuard = service.NewTOTPReplayGuard(report, repos.TOTPUsedStep, service.TOTPReplayGuardOptions{})
-	mfaVerifier := service.NewMFAVerifierService(report, service.EncryptedTOTPSecretResolver{Cipher: mfaCipher}, service.MFAVerifierOptions{Replay: r.totpReplayGuard})
+	// One per-user budget of wrong codes for every route that proves the second
+	// factor to an authenticated caller: step-up (the verifier) and self-service
+	// disable, recovery-code regenerate and skip-consent (the enrollment
+	// service). A miss on one spends from all.
+	totpProofBudget := service.NewTOTPFailureBudget(service.DefaultTOTPFailureBudgetMax, service.DefaultTOTPFailureBudgetWindow, nil)
+	mfaVerifier := service.NewMFAVerifierService(report, service.EncryptedTOTPSecretResolver{Cipher: mfaCipher}, service.MFAVerifierOptions{Replay: r.totpReplayGuard, Failures: totpProofBudget})
 	loginRiskSvc := service.NewLoginRiskService(report, repos.LoginAttempt, service.LoginRiskServiceOptions{Logger: serviceLogger()})
 	// TEST-ONLY escape hatch (insecure_dev_mode.go): under
 	// IDENTUUM_IDP_INSECURE_DEV_MODE=true the login-risk lockout gate is left
@@ -1133,7 +1138,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		Issuer:  mfaIssuer,
 		Cipher:  mfaCipher,
 		Replay:  r.totpReplayGuard,
-	}, service.MFAEnrollmentServiceOptions{})
+	}, service.MFAEnrollmentServiceOptions{ProofFailures: totpProofBudget})
 
 	// OIDC-provider config service (OSS basic single-provider login, Slice 2).
 	// Reuses the existing IdentityProvider repository + the same env-keyed
