@@ -214,7 +214,10 @@ func (s *UserTokenService) issue(ctx context.Context, user *domain.User, session
 	if user.Email != "" {
 		extra["email"] = user.Email
 	}
-	if user.Role != "" {
+	// The role rides only on the login-session token. An app's token is not a
+	// credential for the IdP's own API (C1), so it carries nothing that would
+	// make one (owner ruling, v0.9.5); its scope was already cut to the role.
+	if user.Role != "" && clientID == "" {
 		extra["role"] = string(user.Role)
 	}
 	if scope != "" {

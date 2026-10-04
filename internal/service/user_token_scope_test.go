@@ -73,8 +73,10 @@ func TestIssueForConsentedClient_ScopeIsConsentIntersectRole(t *testing.T) {
 	})
 }
 
-// The client-bound token names its client (RFC 9068 §2.2) and keeps every
-// session claim; the login-session token keeps carrying the role set and no
+// The client-bound token names its client (RFC 9068 §2.2) and keeps the
+// session claims but never the user's role (owner ruling, v0.9.5: an app's
+// token is not a credential for the IdP's own API, so it carries nothing that
+// would make one); the login-session token keeps carrying the role and no
 // client_id — the two issuance paths stay distinguishable to introspection.
 func TestIssueForConsentedClient_ClientIDAndSessionClaims(t *testing.T) {
 	svc, _, _ := newUserTokenSvc(t)
@@ -84,8 +86,11 @@ func TestIssueForConsentedClient_ClientIDAndSessionClaims(t *testing.T) {
 	if claims["client_id"] != "cli-1" {
 		t.Errorf("client_id = %v, want cli-1", claims["client_id"])
 	}
-	if claims["session_id"] != session.ID.String() || claims["actor_type"] != ActorTypeUser || claims["role"] != string(domain.RoleOrgAdmin) {
+	if claims["session_id"] != session.ID.String() || claims["actor_type"] != ActorTypeUser {
 		t.Errorf("session claims lost on the client-bound token: %v", claims)
+	}
+	if v, present := claims["role"]; present {
+		t.Errorf("client-bound token role = %v, want absent", v)
 	}
 
 	sessResp, err := svc.IssueForSession(context.Background(), user, session)
@@ -96,6 +101,9 @@ func TestIssueForConsentedClient_ClientIDAndSessionClaims(t *testing.T) {
 	sessClaims := tok.Claims.(jwt.MapClaims)
 	if v, present := sessClaims["client_id"]; present {
 		t.Errorf("session token client_id = %v, want absent", v)
+	}
+	if sessClaims["role"] != string(domain.RoleOrgAdmin) {
+		t.Errorf("session token role = %v, want %s", sessClaims["role"], domain.RoleOrgAdmin)
 	}
 	if sessClaims["scope"] != domain.SessionScopesForRole(domain.RoleOrgAdmin) || sessResp.Scope != domain.SessionScopesForRole(domain.RoleOrgAdmin) {
 		t.Errorf("session token scope = %v / %q, want the role-derived set unchanged", sessClaims["scope"], sessResp.Scope)
