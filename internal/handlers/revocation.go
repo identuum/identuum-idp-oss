@@ -157,7 +157,8 @@ func HandleRevoke(deps RevocationHandlerDeps) gin.HandlerFunc {
 			safeMeta["client_id"] = ac.ClientID
 			safeMeta["client_kind"] = string(ac.Kind)
 		}
-		if hint == "refresh_token" || hint == "" {
+		triedRefresh := hint == "refresh_token" || hint == ""
+		if triedRefresh {
 			revoked, storeErr := tryRevokeRefreshToken(c, deps, token, safeMeta)
 			if storeErr != nil {
 				// R8: genuine store I/O error — not a token-validity issue.
@@ -172,14 +173,27 @@ func HandleRevoke(deps RevocationHandlerDeps) gin.HandlerFunc {
 		// Reuse the IntrospectionService — its safe response carries
 		// `active`, `sub`, `jti`, `exp`. We do NOT serialize the
 		// response back to the caller; we only use it for the
-		// revoker fan-out and the jti-based persistence.
-		resp, storeErr := deps.IntrospectionService.IntrospectVerdict(c.Request.Context(), token)
+		// revoker fan-out and the jti-based persistence. The verdict is the
+		// CALLER's: a token that is not the authenticated client's own reads
+		// as inactive here, so one client can neither revoke nor log out the
+		// holders of another client's tokens. The site_admin authority path
+		// (no OAuth client in the context) is not narrowed.
+		caller, _ := mw.AuthenticatedClientFromContext(c)
+		resp, storeErr := deps.IntrospectionService.IntrospectVerdictFor(c.Request.Context(), token, caller)
 		if storeErr != nil {
 			// AUTH-503 (R8 class): the token could not be judged, so it was
 			// NOT revoked — RFC 7009's unconditional 200 is for invalid
 			// tokens, never for a store that did not answer.
 			mw.RespondAuthStoreUnavailable(c, "revocation.introspect", storeErr)
 			return
+		}
+		// RFC 7009 §2.1: the hint is advisory. A token that is not an active
+		// access token may still be a refresh token the hint did not point at.
+		if !resp.Active && !triedRefresh {
+			if _, storeErr := tryRevokeRefreshToken(c, deps, token, safeMeta); storeErr != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "server_error"})
+				return
+			}
 		}
 		if resp.Active {
 			meta := map[string]any{}

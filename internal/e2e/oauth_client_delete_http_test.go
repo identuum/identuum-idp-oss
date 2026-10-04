@@ -186,20 +186,27 @@ func TestE2E_OSS_ADeletedClientsTokensStopAtOnce(t *testing.T) {
 	// A code minted before the delete and never exchanged.
 	unused := mint("openid")
 	userinfoOf := func(at string) int { st, _ := api(at, http.MethodGet, "/api/v1/oidc/userinfo", ""); return st }
-	activeOf := func(at string) bool {
-		_, body := form("/api/v1/oauth/introspection", inspector, url.Values{"token": {at}}, "")
+	activeAs := func(c ossClient, at string) bool {
+		_, body := form("/api/v1/oauth/introspection", c, url.Values{"token": {at}}, "")
 		var v struct {
 			Active bool `json:"active"`
 		}
 		_ = json.Unmarshal([]byte(body), &v)
 		return v.Active
 	}
+	// A client judges only its own tokens: the inspector, another client, is
+	// told {"active":false} for a token that is live, so the delete's effect is
+	// read through the owner before it and through userinfo after it.
+	activeOf := func(at string) bool { return activeAs(inspector, at) }
 	userinfo := func() int { return userinfoOf(tok.AccessToken) }
 	active := func() bool { return activeOf(tok.AccessToken) }
-	if st := userinfo(); st != http.StatusOK || !active() {
-		t.Fatalf("before the delete: userinfo %d, introspection active %v; want 200 and true", st, active())
+	if activeAs(inspector, tok.AccessToken) {
+		t.Fatalf("another client's introspection of the token = active; want {\"active\":false}")
 	}
-	if st := userinfoOf(bare.AccessToken); st != http.StatusOK || !activeOf(bare.AccessToken) {
+	if st := userinfo(); st != http.StatusOK || !activeAs(rp, tok.AccessToken) {
+		t.Fatalf("before the delete: userinfo %d, the owner's introspection active %v; want 200 and true", st, activeAs(rp, tok.AccessToken))
+	}
+	if st := userinfoOf(bare.AccessToken); st != http.StatusOK || !activeAs(rp, bare.AccessToken) {
 		t.Fatalf("before the delete, the openid-only token: userinfo %d; want 200 and active", st)
 	}
 

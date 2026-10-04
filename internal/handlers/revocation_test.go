@@ -611,8 +611,10 @@ func TestRevocation_RefreshTokenCrossClientSilentNoOpTokenStaysValid(t *testing.
 func TestRevocation_RefreshTokenUnknownFallsThroughToAccessPath(t *testing.T) {
 	refreshRepo := newInMemoryRefreshRepoHandlers()
 	uid := uuid.New()
+	// The access token is cli-1's own: only the client a token was issued to
+	// (or addressed to) may revoke it.
 	verifier := &revFakeVerifier{claims: &service.IntrospectionClaims{
-		Sub: uid.String(), UserID: uid, Jti: "jti-access", Exp: time.Now().Add(time.Hour).Unix(),
+		Sub: uid.String(), UserID: uid, ClientID: "cli-1", Jti: "jti-access", Exp: time.Now().Add(time.Hour).Unix(),
 	}}
 	r, jtiRepo, _, _ := newRevocationEngineWithRefresh(t, verifier, refreshRepo)
 	// Looks like a refresh token (selector.validator shape) but no

@@ -148,7 +148,11 @@ func HandleIntrospection(deps IntrospectionHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 			return
 		}
-		resp, storeErr := deps.IntrospectionService.IntrospectVerdict(c.Request.Context(), token)
+		// A client judges only a token that is its own: issued to it or
+		// addressed to it. The site_admin authority path (no OAuth client in
+		// the context) is not narrowed.
+		caller, _ := mw.AuthenticatedClientFromContext(c)
+		resp, storeErr := deps.IntrospectionService.IntrospectVerdictFor(c.Request.Context(), token, caller)
 		if storeErr != nil {
 			// AUTH-503: the key / revocation STORE erred — RFC 7662's
 			// {"active":false} is a VERDICT the OP has not reached; answer 503

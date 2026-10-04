@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
+	"github.com/identuum/identuum-idp-oss/pkg/oidc"
 )
 
 // IntrospectionClaims is the OSS-owned struct that a
@@ -145,6 +147,50 @@ type IntrospectionService struct {
 	// clientLiveness, when set, refuses a token whose client is gone
 	// (OSS-CLIENTS).
 	clientLiveness AgentCommunicationClientLookup
+
+	// subjects, when set, applies the use-time session/user/organization
+	// liveness verdict to a token that carries a session — the same verdict
+	// the bearer middleware and userinfo apply — so introspection does not
+	// call active a token whose session was revoked or whose user was banned.
+	subjects oidc.SubjectResolver
+}
+
+// WithSubjectResolver wires the liveness verdict introspection applies to a
+// session-bound token. nil leaves it off.
+func (s *IntrospectionService) WithSubjectResolver(r oidc.SubjectResolver) *IntrospectionService {
+	s.subjects = r
+	return s
+}
+
+// subjectLive applies the session liveness verdict to a session-bound token. A
+// token with no session (client-credentials, service-account) is not judged
+// here; a resolver error is reported as the store class so the wire answer can
+// be 503 rather than a silent "inactive".
+func (s *IntrospectionService) subjectLive(ctx context.Context, claims *IntrospectionClaims) (bool, error) {
+	if s.subjects == nil || claims.SessionID == uuid.Nil {
+		return true, nil
+	}
+	live, err := s.subjects.ResolveSubject(ctx, oidc.PrincipalRef{Subject: claims.Sub, SessionID: claims.SessionID.String()})
+	if err != nil {
+		return false, domain.AuthStoreUnavailable("session", err)
+	}
+	return live, nil
+}
+
+// IntrospectVerdictFor is IntrospectVerdict for an AUTHENTICATED CALLER: a
+// client may judge only a token that is its own — issued to it (client_id) or
+// addressed to it (aud) — and gets {"active":false} for any other, exactly as
+// for an unknown token (RFC 7662 §2.2). A nil caller is the site-administrator
+// authority path and is not narrowed.
+func (s *IntrospectionService) IntrospectVerdictFor(ctx context.Context, rawToken string, caller *AuthenticatedClient) (IntrospectionResponse, error) {
+	resp, err := s.IntrospectVerdict(ctx, rawToken)
+	if err != nil || !resp.Active || caller == nil {
+		return resp, err
+	}
+	if caller.ClientID == "" || (resp.ClientID != caller.ClientID && !slices.Contains(resp.Aud, caller.ClientID)) {
+		return IntrospectionResponse{Active: false}, nil
+	}
+	return resp, nil
 }
 
 // WithAgentCommunication enables participant-token introspection: a token
@@ -387,6 +433,9 @@ func (s *IntrospectionService) IntrospectVerdict(ctx context.Context, rawToken s
 		}
 	}
 	if live, liveErr := s.clientLive(ctx, claims); liveErr != nil || !live {
+		return IntrospectionResponse{Active: false}, liveErr
+	}
+	if live, liveErr := s.subjectLive(ctx, claims); liveErr != nil || !live {
 		return IntrospectionResponse{Active: false}, liveErr
 	}
 	resp := IntrospectionResponse{

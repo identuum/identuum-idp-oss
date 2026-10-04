@@ -18,6 +18,7 @@ package e2e
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -171,6 +172,24 @@ func TestE2E_OSS_SmallFixes2_ClientStoreErrorAndRevokedBearer(t *testing.T) {
 	if st, _, _ := api(bearer, http.MethodGet, "/api/v1/oidc/userinfo", ""); st != http.StatusOK {
 		t.Fatalf("userinfo before the revocation = %d; want 200", st)
 	}
+	// Revoke the token's jti the way the revocation endpoint records it. The
+	// endpoint itself revokes only a client's OWN tokens, and this is a login
+	// token that belongs to no client, so the unrelated client above cannot.
+	payload, err := base64.RawURLEncoding.DecodeString(strings.Split(bearer, ".")[1])
+	if err != nil {
+		t.Fatalf("decode the token payload: %v", err)
+	}
+	var claims struct {
+		Jti string `json:"jti"`
+		Exp int64  `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil || claims.Jti == "" || claims.Exp == 0 {
+		t.Fatalf("the token carries no jti or exp: %v", err)
+	}
+	if err := service.NewTokenRevocationService(nil, repos.TokenRevocation).RevokeJTI(ctx, claims.Jti, time.Unix(claims.Exp, 0), "e2e", nil); err != nil {
+		t.Fatalf("revoke the jti: %v", err)
+	}
+	// And the endpoint leaves a token that is not the caller's alone.
 	rev, _ := http.NewRequest(http.MethodPost, base+"/api/v1/oauth/revoke", strings.NewReader(url.Values{"token": {bearer}, "token_type_hint": {"access_token"}}.Encode()))
 	rev.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rev.SetBasicAuth(url.QueryEscape(created.Client.ClientID), url.QueryEscape(created.ClientSecret))

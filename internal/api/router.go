@@ -822,7 +822,15 @@ func mountBearerAuth(router gin.IRouter, resolved OSSRouterDeps) {
 	// resolved.TokenRevocationService wires the RFC 7009 per-token (jti)
 	// revocation gate that applies to EVERY bearer token — including M2M /
 	// service-account tokens with no session (P0-6). Fail-closed on store error.
-	router.Use(mw.BearerPrincipal(resolved.StartupReport, resolved.TokenVerifier, resolved.SessionLookup, resolved.TokenRevocationService))
+	// A service-account token has no session, so the gate above never judges
+	// it: its account and organization are checked at use instead, so a
+	// disabled account or a deactivated organization stops at once.
+	var bearerOpts []mw.BearerOption
+	if resolved.ServiceAccountService != nil && resolved.OrganizationRepo != nil {
+		bearerOpts = append(bearerOpts, mw.WithServiceAccountLiveness(
+			service.ServiceAccountTokenLiveness(resolved.ServiceAccountService, resolved.OrganizationRepo)))
+	}
+	router.Use(mw.BearerPrincipal(resolved.StartupReport, resolved.TokenVerifier, resolved.SessionLookup, resolved.TokenRevocationService, bearerOpts...))
 }
 
 func mountPublicSurface(router gin.IRouter, resolved OSSRouterDeps) {
@@ -1389,6 +1397,12 @@ func mountIntrospectionAndRevocation(router gin.IRouter, resolved OSSRouterDeps)
 	}
 	if resolved.TokenRevocationService != nil {
 		resolved.IntrospectionService.WithRevocationChecker(resolved.TokenRevocationService)
+	}
+	// A token bound to a session is active only while that session, its user
+	// and its organization are — the verdict the bearer middleware and
+	// userinfo apply (one construction site: mw.NewSessionSubjectResolver).
+	if resolved.SessionLookup != nil {
+		resolved.IntrospectionService.WithSubjectResolver(mw.NewSessionSubjectResolver(resolved.SessionLookup))
 	}
 	handlers.RegisterIntrospectionRoutes(router, handlers.IntrospectionHandlerDeps{
 		IntrospectionService: resolved.IntrospectionService,

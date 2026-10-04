@@ -85,6 +85,17 @@ type BearerOption func(*bearerOptions)
 type bearerOptions struct {
 	resolver    oidc.SubjectResolver
 	resolverSet bool
+	// saLive judges a service-account token (no session) at use.
+	saLive func(ctx context.Context, subject string) (bool, error)
+}
+
+// WithServiceAccountLiveness wires the check applied to a service-account
+// token — actor_type "service_account", no session — so a disabled account or
+// a deactivated organization stops working at once instead of at the token's
+// expiry. subject is the token's `sub`, the account's id. A check that cannot
+// run refuses the request as a 503, never admits it. nil leaves the gate off.
+func WithServiceAccountLiveness(check func(ctx context.Context, subject string) (bool, error)) BearerOption {
+	return func(o *bearerOptions) { o.saLive = check }
 }
 
 // WithSubjectResolver overrides the pkg/oidc.SubjectResolver the bearer path
@@ -326,6 +337,20 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				return
 			}
 			if !ok {
+				RespondUnauthenticatedReason(c, ReasonSessionNotLive)
+				return
+			}
+		}
+		// A service-account token has no session, so the gate above never
+		// judged it. Its account must still be active and unexpired and its
+		// organization operational at use.
+		if o.saLive != nil && principal.ActorType == "service_account" {
+			live, liveErr := o.saLive(c.Request.Context(), principal.Sub)
+			if liveErr != nil {
+				RespondAuthStoreUnavailable(c, "bearer.service-account-liveness", liveErr)
+				return
+			}
+			if !live {
 				RespondUnauthenticatedReason(c, ReasonSessionNotLive)
 				return
 			}
