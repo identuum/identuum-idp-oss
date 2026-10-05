@@ -125,6 +125,10 @@ func run(manifestPath, repo, rulefloorBin string, printDoc bool) error {
 	if err != nil {
 		return err
 	}
+	// OSS-LEDGER-ORDER: the base is right; is the rebase where it belongs?
+	if err := judgeCycle(repo, manifestPath); err != nil {
+		return err
+	}
 	fmt.Println(out.EvidenceLine())
 	return nil
 }

@@ -5,6 +5,17 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **ledger-diff-gate judges where the ledger rebase sits** (maintainer
+  tooling; no product change). In the cycle after the newest witness
+  reachable from HEAD, the first commit must change ledger-amendments.json
+  and nothing else, and no later commit may change it; otherwise the gate
+  fails naming the commits and saying what to do. A HEAD that is itself a
+  witness has an empty cycle, and older cycles are never judged. The
+  base_commit check is unchanged and still runs first. identuum-ui's
+  `make ledger-diff-gate` runs this same judge.
+
 ## `v0.9.7`
 
 identuum-ui `1354a72` embedded (`v0.9.6` embedded `57482c5`). From this
