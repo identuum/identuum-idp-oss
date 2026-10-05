@@ -89,7 +89,17 @@ COMPOSE_FILE  ?= deployment/docker-compose.dev.yml
 COMPOSE_CMD   ?= docker compose
 DEV_APP_SERVICE ?= app
 DEV_POSTGRES_SERVICE ?= postgres-idp-oss
-DEV_APP_CONTAINER ?= identuum-idp-oss
+## The dev compose names its project and app container
+## ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss-dev} (D-024); this default
+## read `identuum-idp-oss`, the owner's own app container, until
+## TOOLS-MATRIX-CONTAINERS (2026-10-05), so dev-recreate-app's `docker rm -f`
+## aimed at it.
+DEV_COMPOSE_PROJECT = $(or $(IDENTUUM_IDP_COMPOSE_PROJECT),identuum-idp-oss-dev)
+DEV_APP_CONTAINER ?= $(DEV_COMPOSE_PROJECT)
+## PROTECTED (owner, TOOLS-MATRIX-CONTAINERS 2026-10-05): the owner's own
+## containers and their compose project; no target or proof stops, removes,
+## recreates or renames them (agent-rules.md §H-bis).
+PROTECTED_CONTAINERS := identuum-idp-oss-postgres identuum-idp-oss
 DEV_APP_PORT ?= 7113
 DEV_HEALTH_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/health
 DEV_COMPONENT_URL ?= http://127.0.0.1:7113/api/v1/component
@@ -741,11 +751,65 @@ witness-mint-test:
 ## a 35-entry plan, red and unseen. Each builds its own throwaway repository.
 .PHONY: script-tests
 script-tests:
+	@$(MAKE) --no-print-directory protected-guard-selftest
 	@bash scripts/verify-check-test.sh
 	@bash scripts/ci-integration-record-test.sh
 	@bin=$$(mktemp "$${TMPDIR:-/tmp}/ci-witness.XXXXXX"); \
 	go build -o "$$bin" ./tools/ci-witness || { rm -f "$$bin"; exit 1; }; \
 	bash scripts/ci-witness-expectation-test.sh "$$bin"; rc=$$?; rm -f "$$bin"; exit $$rc
+
+## protected-guard / protected-check (TOOLS-MATRIX-CONTAINERS, 2026-10-05):
+## nothing this repository runs may stop, remove, recreate or rename the
+## owner's containers (PROTECTED_CONTAINERS; agent-rules.md §H-bis).
+## protected-guard is the prerequisite of every container target: it refuses
+## when the dev compose project, its -postgres container or DEV_APP_CONTAINER
+## resolves to a protected name, or COMPOSE_FILE is the published compose
+## (project identuum-idp-oss, containers identuum-idp-oss and -postgres).
+## `make protected-check SCRIPT=<file>` refuses a proof script with a docker
+## command that acts on a protected name, or a compose command on the
+## published file without its own `-p`; run it before any proof script.
+.PHONY: protected-guard protected-check protected-guard-selftest
+protected-guard:
+	@for n in "$(DEV_COMPOSE_PROJECT)" "$(DEV_COMPOSE_PROJECT)-postgres" "$(DEV_APP_CONTAINER)"; do \
+		case " $(PROTECTED_CONTAINERS) " in *" $$n "*) echo "protected-guard: REFUSED — this target would act on $$n, the owner's protected container or project; ask the owner first (agent-rules.md §H-bis)" >&2; exit 2;; esac; \
+	done; \
+	case " $(COMPOSE_FILE) " in *deployment/docker-compose.yml*) echo "protected-guard: REFUSED — COMPOSE_FILE is deployment/docker-compose.yml, whose project and container names are the owner's; ask the owner first (agent-rules.md §H-bis)" >&2; exit 2;; esac
+
+protected-check:
+	@test -n "$(SCRIPT)" && test -f "$(SCRIPT)" || { echo "protected-check: usage: make protected-check SCRIPT=<file>" >&2; exit 2; }; \
+	names=$$(printf '%s|' $(PROTECTED_CONTAINERS)); names=$${names%|}; \
+	act='docker([[:space:]]+container)?[[:space:]]+(stop|rm|kill|rename|restart|update)[[:space:]]|docker[[:space:]]+compose[[:space:]].*[[:space:]](down|rm|stop|kill|restart|up|create)([[:space:]]|$$)'; \
+	hits=$$(grep -nE "$$act" "$(SCRIPT)" | grep -E "(^|[[:space:]=:\"'])($$names)([[:space:]:\"']|$$)"); \
+	pub=$$(grep -nE "$$act" "$(SCRIPT)" | grep -F 'deployment/docker-compose.yml' | grep -vE '[[:space:]]-p[[:space:]]'); \
+	if [ -n "$$hits$$pub" ]; then \
+		echo "protected-check: REFUSED — $(SCRIPT) would act on the owner's protected containers; ask the owner first (agent-rules.md §H-bis):" >&2; \
+		printf '%s\n' "$$hits" "$$pub" | grep -v '^$$' >&2; exit 2; \
+	fi; \
+	echo "check OK: protected-check $(SCRIPT): no command acts on a protected container"
+
+protected-guard-selftest:
+	@d=$$(mktemp -d "$${TMPDIR:-/tmp}/protected.XXXXXX"); trap 'rm -rf "$$d"' EXIT; n=0; fails=0; \
+	expect() { want=$$1; label=$$2; shift 2; n=$$((n + 1)); "$$@" > /dev/null 2>&1; rc=$$?; \
+		if [ $$rc -eq $$want ]; then echo "  ok    exit $$rc  $$label"; else echo "  FAIL  want exit $$want, got $$rc  $$label"; fails=$$((fails + 1)); fi; }; \
+	chk() { printf '%s\n' "$$2" > "$$d/s.sh"; expect $$1 "check: $$2" $(MAKE) --no-print-directory protected-check SCRIPT="$$d/s.sh"; }; \
+	chk 2 'docker stop identuum-idp-oss-postgres'; \
+	chk 2 'docker rm -f identuum-idp-oss'; \
+	chk 2 'docker rename identuum-idp-oss-postgres old-pg'; \
+	chk 2 'docker compose -p identuum-idp-oss -f deployment/docker-compose.dev.yml down'; \
+	chk 2 'IDENTUUM_IDP_COMPOSE_PROJECT=identuum-idp-oss docker compose -f deployment/docker-compose.dev.yml up -d'; \
+	chk 2 'docker compose -f deployment/docker-compose.yml up -d'; \
+	chk 0 'docker stop identuum-idp-oss-dev-postgres'; \
+	chk 0 'docker ps --filter name=identuum-idp-oss-postgres'; \
+	chk 0 'docker compose -p v097rel -f deployment/docker-compose.yml -f override.yml up -d'; \
+	chk 0 'cd /work/identuum-idp-oss && docker compose -f deployment/docker-compose.dev.yml up -d'; \
+	expect 0 "guard: default dev project" $(MAKE) --no-print-directory protected-guard; \
+	expect 0 "guard: the e2e harness project" $(MAKE) --no-print-directory protected-guard IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e; \
+	expect 2 "guard: project identuum-idp-oss" $(MAKE) --no-print-directory protected-guard IDENTUUM_IDP_COMPOSE_PROJECT=identuum-idp-oss; \
+	expect 2 "guard: DEV_APP_CONTAINER=identuum-idp-oss" $(MAKE) --no-print-directory protected-guard DEV_APP_CONTAINER=identuum-idp-oss; \
+	expect 2 "guard: the published compose" $(MAKE) --no-print-directory protected-guard COMPOSE_FILE=deployment/docker-compose.yml; \
+	for f in conformance/run.sh scripts/*.sh; do expect 0 "this repository: $$f" $(MAKE) --no-print-directory protected-check SCRIPT="$$f"; done; \
+	if [ $$fails -ne 0 ]; then echo "protected-guard-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
+	echo "check OK: protected-guard-selftest $$n case(s), refusals and passes proven"
 
 .PHONY: witness witness-parity
 
@@ -1635,7 +1699,15 @@ grype-scan:
 ## IT RESTARTS NOTHING. Clearing a wedged engine destroys every container on
 ## the machine, including ones this repo knows nothing about. A build target
 ## that quietly reaches for that is one that eats other people's work.
-fast-up:
+##
+## IT STOPS NOTHING EITHER (TOOLS-MATRIX-CONTAINERS, 2026-10-05). When a
+## PostgreSQL already answers DEV_PG_HOST_PORT and the dev user connects (the
+## dev stack, or the owner's own stack from this same compose file), fast-up
+## reuses it: the integration suites only need a server with their own
+## identuum_idp_oss_test database (test-db). An incompatible server on the
+## port is refused by name. Agents used to stop the owner's container to free
+## 5513 for a second, identical server.
+fast-up: protected-guard
 	@run_bounded() { \
 		_secs=$$1; shift; \
 		_out=$$(mktemp); \
@@ -1679,6 +1751,14 @@ fast-up:
 		exit 1; \
 	fi; \
 	echo "Docker engine OK (server $$RB_OUT)."; \
+	if command -v pg_isready > /dev/null 2>&1 && pg_isready -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -t 2 > /dev/null 2>&1; then \
+		if command -v psql > /dev/null 2>&1 && PGPASSWORD=dev-idp_oss_user-not-a-secret psql -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user -d postgres -tAc 'select 1' > /dev/null 2>&1; then \
+			echo "fast-up: a compatible PostgreSQL already answers 127.0.0.1:$(DEV_PG_HOST_PORT) (the dev user connects) — REUSING it; nothing started, nothing stopped."; \
+			exit 0; \
+		fi; \
+		echo "fast-up: 127.0.0.1:$(DEV_PG_HOST_PORT) answers, but the dev user cannot connect — another server holds the port. Nothing was stopped: free it yourself, or set DEV_PG_HOST_PORT."; \
+		exit 1; \
+	fi; \
 	printf 'Starting the dev stack (bound %ss)...\n' '$(COMPOSE_UP_TIMEOUT)'; \
 	run_bounded $(COMPOSE_UP_TIMEOUT) $(COMPOSE_CMD) -f $(COMPOSE_FILE) up -d; \
 	up_rc=$$RB_RC; echo "$$RB_OUT"; \
@@ -1733,26 +1813,26 @@ fast-up:
 ## containers whose profile is active, so a plain `down` left the profiled app
 ## container RUNNING — holding the network open and serving against a database
 ## that had just been removed. Measured on the operator's box.
-fast-down:
+fast-down: protected-guard
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app down
 
 ## fast-clean: stop containers AND remove the named volume (full reset).
 ## Use this to start with a fresh empty database. validate uses this automatically.
 ## Same `--profile app` requirement as fast-down — without it the app container
 ## survives the volume removal and keeps serving on a destroyed database.
-fast-clean:
+fast-clean: protected-guard
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app down --volumes
 
 ## dev-up: start the local IDP OSS app + Postgres stack (volumes preserved).
-dev-up:
+dev-up: protected-guard
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app up -d
 
 ## dev-rebuild: rebuild and force-recreate only the local IDP OSS app service.
-dev-rebuild:
+dev-rebuild: protected-guard
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app up -d --build --force-recreate $(DEV_APP_SERVICE)
 
 ## dev-recreate-app: recover stale app container/network state without deleting Postgres data.
-dev-recreate-app:
+dev-recreate-app: protected-guard
 	-$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app rm -f -s $(DEV_APP_SERVICE)
 	@docker rm -f $(DEV_APP_CONTAINER) 2>/dev/null || true
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) up -d $(DEV_POSTGRES_SERVICE)
@@ -1775,7 +1855,7 @@ dev-pg-logs:
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) logs -f $(DEV_POSTGRES_SERVICE)
 
 ## dev-down: stop and remove the local IDP OSS stack (volumes preserved).
-dev-down:
+dev-down: protected-guard
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app down
 
 ## dev-seed: seed the RUNNING dev stack with known TEST credentials and print
@@ -1783,7 +1863,7 @@ dev-down:
 ## Requires a stack that is already up and MIGRATED. The credentials are
 ## public and documented — they are only ever valid in a disposable dev
 ## database, which is why the tool demands an explicit confirmation flag.
-dev-seed:
+dev-seed: protected-guard
 	go run ./tools/devseed --issuer http://127.0.0.1:$(DEV_APP_PORT) \
 		--container $(DEV_APP_CONTAINER) --i-know-this-is-a-dev-database
 
@@ -1794,7 +1874,7 @@ dev-seed:
 ## The app recreate is not optional: migrations run from the app entrypoint at
 ## container start, so `fast-clean && dev-up` alone leaves a fresh volume with
 ## NO SCHEMA and the next command fails with `relation "users" does not exist`.
-dev-reset:
+dev-reset: protected-guard
 	$(MAKE) --no-print-directory fast-clean
 	$(MAKE) --no-print-directory dev-up
 	$(MAKE) --no-print-directory dev-recreate-app
@@ -2142,8 +2222,10 @@ integration-inventory:
 ## the CI service container provides the database. See the ci.yml
 ## header enumeration.
 ## test-db: create + migrate the dedicated integration database
-## (identuum_idp_oss_test on the dev Postgres), separate from the human's dev
-## DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it
+## (identuum_idp_oss_test on whichever PostgreSQL answers 127.0.0.1:5513 with
+## the dev user: the dev stack, or the owner's own stack from the same compose
+## file, which is never stopped for it, TOOLS-MATRIX-CONTAINERS), separate from
+## the human's dev DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it
 ## already exists, then migrations are (re-)applied. Never touches OSS_DB_URL.
 test-db:
 	@echo "test-db: ensuring $(OSS_TEST_DB_URL) exists + migrated"
@@ -2323,7 +2405,7 @@ oss-build:
 ##   holding 7113, this target's `up -d` will fail. Operator must run:
 ##     docker stop identuum-idp-app
 ##   first (non-destructive; revert with `docker start identuum-idp-app`).
-oss-up: oss-build
+oss-up: protected-guard oss-build
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app up -d
 	@# THE-LYING-READY: `up -d` returns as soon as the container is CREATED, and
 	@# the entrypoint still has to migrate before it serves — so this target
@@ -2339,7 +2421,7 @@ oss-up: oss-build
 
 ## oss-down: stop the OSS app container (Postgres preserved so the
 ## next `oss-up` is fast).
-oss-down:
+oss-down: protected-guard
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app stop app
 	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app rm -f app
 

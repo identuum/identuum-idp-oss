@@ -15,6 +15,18 @@ follows [Semantic Versioning](https://semver.org/).
   witness has an empty cycle, and older cycles are never judged. The
   base_commit check is unchanged and still runs first. identuum-ui's
   `make ledger-diff-gate` runs this same judge.
+- **Development targets never touch the owner's own containers** (maintainer
+  tooling; no product change). `make fast-up` reuses a PostgreSQL that
+  already answers 127.0.0.1:5513 with the dev user (it used to fail on the
+  bound port, and the way out was to stop that server), and refuses an
+  incompatible one without stopping it. Every container target first runs
+  `protected-guard`, which refuses when the compose project or a container
+  name resolves to `identuum-idp-oss` or `identuum-idp-oss-postgres`, or the
+  published compose file is used; `make protected-check SCRIPT=<file>`
+  refuses a proof script that would stop, remove, recreate or rename them.
+  `DEV_APP_CONTAINER` now defaults to the dev compose's own name
+  (`identuum-idp-oss-dev`), not `identuum-idp-oss`. The published compose is
+  unchanged.
 
 ## `v0.9.7`
 
