@@ -185,6 +185,57 @@ func RequireOAuthClient(report *lifecycle.StartupReport, authn OAuthClientAuthen
 	}
 }
 
+// RequireTokenEndpointClient is RequireOAuthClient for the token endpoint,
+// which also admits a PUBLIC client (token_endpoint_auth_method none, RFC
+// 6749 §2.1) on the one request such a client makes: an authorization_code
+// exchange carrying a PKCE code_verifier, whose S256 challenge
+// AuthorizationCodeService.Consume verifies (RFC 7636 §4.6). That request
+// presents no credential — no Basic header, no client_secret, no
+// client_assertion. The authenticator still decides, with the observed
+// method "none", so only a client REGISTERED for none passes (P0-7): a
+// confidential client cannot drop its secret by sending a verifier. Every
+// other request is judged exactly as RequireOAuthClient judges it, so a
+// public client gets no other grant here (FUNC-H2).
+func RequireTokenEndpointClient(report *lifecycle.StartupReport, authn OAuthClientAuthenticator) gin.HandlerFunc {
+	secretOrAssertion := RequireOAuthClient(report, authn)
+	if authn == nil {
+		return secretOrAssertion
+	}
+	return func(c *gin.Context) {
+		if !isPublicPKCEExchange(c) {
+			secretOrAssertion(c)
+			return
+		}
+		ac, err := authn.Authenticate(c.Request.Context(), c.PostForm("client_id"), "", service.ClientAuthMethodNone)
+		if err != nil || ac == nil {
+			if domain.IsAuthStoreUnavailable(err) {
+				RespondAuthStoreUnavailable(c, "client-auth.none", err)
+				return
+			}
+			respondInvalidClient(c)
+			return
+		}
+		c.Set(oauthClientCtxKey, ac)
+		c.Next()
+	}
+}
+
+// isPublicPKCEExchange reports whether the request is a credential-less
+// authorization_code exchange with a PKCE verifier — the only token request a
+// public client may make.
+func isPublicPKCEExchange(c *gin.Context) bool {
+	if _, _, hasBasic := c.Request.BasicAuth(); hasBasic {
+		return false
+	}
+	return c.PostForm("grant_type") == "authorization_code" &&
+		c.PostForm("client_id") != "" &&
+		c.PostForm("code_verifier") != "" &&
+		c.PostForm("client_secret") == "" &&
+		c.PostForm("client_assertion") == "" &&
+		c.PostForm("client_assertion_type") == "" &&
+		c.PostForm("authorization_details") == ""
+}
+
 func respondInvalidClient(c *gin.Context) {
 	c.Header("WWW-Authenticate", `Basic realm="oauth-client"`)
 	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{

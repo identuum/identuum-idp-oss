@@ -2009,7 +2009,6 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 		// see the canonical OAuth URL shape, but the actual route is
 		// only registered when this branch executes.
 		body["token_endpoint"] = resolved.Issuer + "/api/v1/oauth/token"
-		body["token_endpoint_auth_methods_supported"] = authMethods
 		grants := []string{"client_credentials"}
 		if deps.TokenService.HasRefreshTokenGrant() && deps.RefreshTokenService != nil {
 			grants = append(grants, "refresh_token")
@@ -2027,6 +2026,14 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 			deps.UserToken != nil &&
 			deps.UserLookup != nil &&
 			deps.SessionLookup != nil
+		// FUNC-H2: a public client ("none") redeems its code with PKCE at the
+		// token endpoint (mw.RequireTokenEndpointClient) and nowhere else, so
+		// "none" is a token-endpoint method only, and only with the code grant.
+		tokenAuthMethods := authMethods
+		if hasAuthCodeGrant {
+			tokenAuthMethods = append(append([]string{}, authMethods...), service.ClientAuthMethodNone)
+		}
+		body["token_endpoint_auth_methods_supported"] = tokenAuthMethods
 		if hasAuthCodeGrant {
 			grants = append(grants, "authorization_code")
 			body["authorization_endpoint"] = resolved.Issuer + "/api/v1/oauth/authorize"

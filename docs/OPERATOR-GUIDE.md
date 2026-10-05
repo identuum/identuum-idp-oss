@@ -525,7 +525,14 @@ GET /.well-known/openid-configuration
 ```
 
 - **Authorization code with PKCE** (`S256`). The token endpoint accepts
-  `client_secret_basic`, `client_secret_post` and `private_key_jwt`.
+  `client_secret_basic`, `client_secret_post` and `private_key_jwt`, and
+  `none` for a public client.
+- **Public client** (single-page or mobile app, no secret): `/authorize`
+  requires a `code_challenge` (S256), and the code exchange sends `client_id`
+  and `code_verifier` with no secret. That exchange is the only token request
+  a public client can make: it gets an access token and an ID token, but no
+  refresh token (the refresh grant needs client authentication), so it signs
+  in again through `/authorize` when the access token expires.
 - **Sign-in happens on the IdP's own page.** `/authorize` signs the user in
   at `/api/v1/auth/browser-login` (email, password, and a TOTP code if they
   enrolled one); being signed in to the console does not carry over. The first

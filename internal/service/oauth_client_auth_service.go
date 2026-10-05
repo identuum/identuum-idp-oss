@@ -150,6 +150,10 @@ const (
 const (
 	ClientAuthMethodBasic = "client_secret_basic"
 	ClientAuthMethodPost  = "client_secret_post"
+	// ClientAuthMethodNone is a public client presenting no credential; the
+	// token endpoint observes it only on a PKCE code exchange
+	// (mw.RequireTokenEndpointClient).
+	ClientAuthMethodNone = "none"
 )
 
 // Authenticate runs the OAuth-client-then-API-resource fallback

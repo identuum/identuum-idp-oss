@@ -730,7 +730,9 @@ MUST send a `code_challenge` (S256 only) — the request is refused without
 one. A CONFIDENTIAL client MAY omit PKCE entirely. But PKCE is only optional
 to SEND, never to HONOR: any challenge that was supplied is validated and
 its verifier is enforced at the token endpoint, and a code minted without a
-challenge refuses a gratuitous verifier.
+challenge refuses a gratuitous verifier. A public client redeems its code
+with `client_id` and `code_verifier` and no credential (discovery lists
+`none` for the token endpoint only); it receives no refresh token.
 
 ## Forced re-authentication — prompt=login and max_age
 

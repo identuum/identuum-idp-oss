@@ -152,7 +152,7 @@ func RegisterTokenRoutes(router gin.IRouter, deps TokenHandlerDeps) {
 	if deps.PreAuthLimiter != nil {
 		g.Use(deps.PreAuthLimiter)
 	}
-	g.Use(mw.RequireOAuthClient(deps.StartupReport, deps.ClientAuth))
+	g.Use(mw.RequireTokenEndpointClient(deps.StartupReport, deps.ClientAuth))
 	// Per-client rate limit runs AFTER client auth so it keys on the
 	// authenticated client. Nil-safe (noop when unconfigured).
 	if deps.Limiter != nil {
@@ -506,8 +506,9 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 	// token, redeemable at /api/v1/auth/session/refresh only.
 	var issuedRefreshID *uuid.UUID
 	// A client registered without the refresh_token grant could never redeem
-	// the token, so it is not handed one.
-	if hasOfflineAccessScope(consumed.Scope) && client.AllowsGrant("refresh_token") {
+	// the token, so it is not handed one; nor is a public client, which the
+	// refresh_token grant refuses (TokenService.IssueRefresh).
+	if hasOfflineAccessScope(consumed.Scope) && client.AllowsGrant("refresh_token") && !client.IsPublic {
 		switch {
 		case deps.RefreshTokens != nil:
 			issued, refreshErr := deps.RefreshTokens.Issue(c.Request.Context(), service.IssueRefreshTokenInput{

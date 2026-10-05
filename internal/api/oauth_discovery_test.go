@@ -427,6 +427,30 @@ func TestDiscovery_TokenEndpointAuthSigningAlgIsInboundOnly(t *testing.T) {
 	// the inbound/outbound distinction.
 }
 
+// FUNC-H2: with the auth-code chain live a public client redeems its code at
+// the token endpoint, so "none" is advertised there — and only there:
+// introspection and revocation still require a credential.
+func TestDiscovery_TokenEndpointAdvertisesNoneForPublicClients(t *testing.T) {
+	body := fullChainDiscovery(t)
+	has := func(key string) bool {
+		raw, _ := body[key].([]any)
+		for _, m := range raw {
+			if m == "none" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("token_endpoint_auth_methods_supported") {
+		t.Errorf("token_endpoint_auth_methods_supported = %v; want none listed", body["token_endpoint_auth_methods_supported"])
+	}
+	for _, key := range []string{"introspection_endpoint_auth_methods_supported", "revocation_endpoint_auth_methods_supported"} {
+		if has(key) {
+			t.Errorf("%s lists none: %v", key, body[key])
+		}
+	}
+}
+
 // TestDiscovery_NoNonStandardTopLevelKeys pins the OIDC-Conformance
 // Phase 3 remediation: the discovery document MUST NOT carry vendor-
 // specific top-level keys like `mode`, `build`, or `tier`. Operators
