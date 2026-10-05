@@ -1086,7 +1086,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		service.AgentCommunicationAuthorizationServiceOptions{})
 
 	sessionRepo := repository.SessionRepository(repos.Session)
-	userSessionSvc := service.NewUserSessionService(report, repos.Session, service.UserSessionServiceOptions{})
+	// FUNC-M15: every sign-in session records the user's last_login_at.
+	userSessionSvc := service.NewUserSessionService(report, repos.Session, service.UserSessionServiceOptions{}).
+		WithLastLoginRecorder(userRepo)
 	orgRoleSvc = orgRoleSvc.WithSessionRevoker(userSessionSvc)
 
 	// MFA at-rest protection (all-tiers AES-256-GCM invariant). The TOTP

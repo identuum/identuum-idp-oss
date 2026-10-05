@@ -71,6 +71,23 @@ type UserSessionService struct {
 	cleanupBatch     int
 	now              func() time.Time
 	generateToken    func() (*domain.SecureRefreshToken, error)
+	// lastLogin records users.last_login_at when a sign-in creates a session
+	// (FUNC-M15). Nil records nothing.
+	lastLogin LastLoginRecorder
+}
+
+// LastLoginRecorder writes a user's last_login_at. The user repository's
+// UpdateLastLogin satisfies it.
+type LastLoginRecorder interface {
+	UpdateLastLogin(ctx context.Context, userID uuid.UUID) error
+}
+
+// WithLastLoginRecorder records last_login_at for every sign-in session
+// (FUNC-M15: it was never written, so the console's "Last login" was always
+// empty).
+func (s *UserSessionService) WithLastLoginRecorder(r LastLoginRecorder) *UserSessionService {
+	s.lastLogin = r
+	return s
 }
 
 // WithAudit composes the OSS-safe audit-emission seam. When wired,
@@ -338,6 +355,15 @@ func (s *UserSessionService) CreateUserSession(ctx context.Context, in CreateUse
 	// is the NEWEST, and the loop evicts oldest-first, so it is never its own
 	// victim.
 	s.applyMaxSessionsCap(ctx, in)
+	// FUNC-M15: a session without a client is a sign-in (password, code
+	// step, passkey, upstream provider); a client-bound one is derived from
+	// an earlier sign-in and is not a new login. Best effort: the sign-in
+	// stands when the write fails.
+	if s.lastLogin != nil && in.ClientID == nil {
+		if err := s.lastLogin.UpdateLastLogin(ctx, in.UserID); err != nil {
+			logger.WarnContext(ctx, "user_session: last_login_at not recorded", zap.Error(err))
+		}
+	}
 	return &IssuedUserSession{
 		Session:      persisted,
 		RefreshToken: secure.Encode(),
