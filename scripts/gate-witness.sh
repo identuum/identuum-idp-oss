@@ -157,8 +157,10 @@ repo_state() {
 # not intermittently, because a tracked record is modified in the whole
 # window between any verify and its witness commit. Gate records are written
 # by the gates and read by check (the mint's no-reach set already says so);
-# they are not work. `check`'s own DIRTY-NOW test keeps the single-record
-# exclusion: judging is not minting.
+# they are not work. `check`'s own DIRTY-NOW test excludes them too since
+# OSS-GATE-TIDY (2026-10-05, selftest 21): a modified sibling record is not a
+# moving tree, and its content stays inside the tree digest, so a record that
+# changes after the mint still fails as a digest mismatch.
 work_state() {
 	local repo="$1" rec="$2"
 	(
@@ -619,7 +621,7 @@ check_mode() {
 		*)
 			rechead=$(cd "$repo" && git rev-parse --verify --quiet "$rechead^{commit}" || echo unknown)
 			curhead=$(cd "$repo" && git rev-parse HEAD 2>/dev/null || echo none)
-			reclean=$(cd "$repo" && git status --porcelain -- . ":(exclude)$rec" 2>/dev/null | grep -c . || true)
+			reclean=$(cd "$repo" && git status --porcelain -- . ":(exclude)$rec" ":(exclude)GATE-RUN*.txt" 2>/dev/null | grep -c . || true)
 			if [ "$rechead" = "unknown" ]; then
 				echo "GATE-WITNESS STALE-HEAD: $path names a commit this repository does not have"
 				bad=1
@@ -845,6 +847,21 @@ selftest() {
 		grep -q '^repo-head: .* (dirty)$' GATE-RUN.second.txt && { echo "SELFTEST FAIL 20d: the second record was stamped (dirty) for a modified sibling record"; rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt; exit 1; }
 		rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt
 
+		# 21 CHECK, TOO, READS GATE RECORDS AS NOT WORK (OSS-GATE-TIDY,
+		# 2026-10-05, owner choice (b)). identuum-idp-oss's close is verify ->
+		# mint -> witness, so the tracked GATE-RUN.txt is modified while
+		# test-full-mint checks the integration record it just minted; check's
+		# DIRTY-NOW test excluded only the record it judged and refused it
+		# (measured at 2c3253c). Constructed: the tracked record is modified, a
+		# second record is minted beside it and must pass check; a modified
+		# non-record file still fails check.
+		echo 'evidence: [selftest] a sibling record modified' >>GATE-RUN.txt
+		bash "$self" run GATE-RUN.second.txt "selftest second record" 'a=true' >/dev/null 2>&1 || { echo "SELFTEST FAIL 21a: the run beside a modified sibling record exited nonzero"; rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt; exit 1; }
+		bash "$self" check . GATE-RUN.second.txt >/dev/null 2>&1 || { echo "SELFTEST FAIL 21b: check refused a fresh record because another gate record is modified — gate records are not a moving tree"; rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt; exit 1; }
+		echo drift >>f.txt
+		bash "$self" check . GATE-RUN.second.txt >/dev/null 2>&1 && { echo "SELFTEST FAIL 21c: check accepted the record with a non-record file modified"; rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt f.txt; exit 1; }
+		rm -f GATE-RUN.second.txt; git checkout -q -- GATE-RUN.txt f.txt
+
 		# 13 the TWO-REPO witness: the record pins a sibling; the sibling moving
 		# or dirtying fails check. Fixture repos live OUTSIDE this selftest
 		# repo's work tree so they cannot dirty it.
@@ -999,7 +1016,7 @@ selftest() {
 		exit 0
 	) || fails=1
 	if [ "$fails" -eq 0 ]; then
-		echo "SELFTEST OK — 20 case(s): fire (missing, stale x3, red, incomplete x2, hand-stamped dirty record, dirty tree refused by check, dirty-sibling mint, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record, run-into-open-session, second-init-into-open-session) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record, session completes and releases, dead-owner session broken, dirty-tree run writes nothing: green exit 0 saying NOT MINTED, red, aborted, force/skip-record names; a modified sibling gate record still mints, unstamped) proven"
+		echo "SELFTEST OK — 21 case(s): fire (missing, stale x3, red, incomplete x2, hand-stamped dirty record, dirty tree refused by check, dirty-sibling mint, stale-head, stale-xrepo, dirty-sibling, contended-write, contended init/step/finalize, two-verdict record, run-into-open-session, second-init-into-open-session) and pass (run, stepwise, witness-commit, xrepo, commit-tie, uncontended-after-release, 4-way race serialized, dead-holder lock broken, restored single-verdict record, session completes and releases, dead-owner session broken, dirty-tree run writes nothing: green exit 0 saying NOT MINTED, red, aborted, force/skip-record names; a modified sibling gate record still mints, unstamped, and check accepts the record minted beside it) proven"
 		return 0
 	fi
 	return 1
