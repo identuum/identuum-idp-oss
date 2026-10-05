@@ -152,7 +152,11 @@ func TestVerifyAllDirtyWorkPreservesRecord(t *testing.T) {
 	}
 }
 
-func TestVerifyAllPlanKeepsFreshnessLast(t *testing.T) {
+// TestVerifyAllPlanEndsWithVulnerabilityGate: grype-scan is the last plan entry
+// and wiki-fresh is not planned at all (OSS-GATE-TIDY, owner ruling P-066,
+// 2026-10-05): its subject is the wiki's pin, which the wiki stage's own
+// `make check` judges at the close.
+func TestVerifyAllPlanEndsWithVulnerabilityGate(t *testing.T) {
 	makefile := readGateContractFile(t, "../../Makefile")
 	start, end := strings.Index(makefile, "\nverify:\n"), strings.Index(makefile, "\nci-verify:\n")
 	if start < 0 || end <= start {
@@ -172,7 +176,12 @@ func TestVerifyAllPlanKeepsFreshnessLast(t *testing.T) {
 		t.Fatal("verify still drives scripts/verify-all.sh")
 	}
 	names := regexp.MustCompile(`(?m)^\t\t'([a-zA-Z0-9_-]+)=`).FindAllStringSubmatch(plan, -1)
-	if len(names) < 2 || names[len(names)-2][1] != "grype-scan" || names[len(names)-1][1] != "wiki-fresh" {
-		t.Fatal("the vulnerability gate must precede fatal freshness, with no target below freshness")
+	if len(names) < 2 || names[len(names)-1][1] != "grype-scan" {
+		t.Fatal("the vulnerability gate must be the last verify plan entry")
+	}
+	for _, n := range names {
+		if n[1] == "wiki-fresh" {
+			t.Fatal("wiki-fresh is planned again; the wiki stage's make check judges freshness (P-066)")
+		}
 	}
 }

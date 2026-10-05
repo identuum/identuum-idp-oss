@@ -7,6 +7,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Gate tidy-up** (maintainer tooling; no product change). `wiki-fresh`
+  is no longer a verify-plan entry: the wiki's own check judges this
+  repository's page pin at the close, so a slice here can reach green
+  without writing the wiki. `make witness` first runs `ledger-census`,
+  the wiki's retirement-ledger census, so a tools/ line-count change is
+  refused here, naming the ledger row to edit. A new planned check,
+  `record-home-paths`, refuses a tracked GATE-RUN*.txt line that names a
+  user's home directory. A dry-run selftest proves test-full's tier
+  dispatch (quick only when the classifier owes e2e-quick) without a
+  stack or a container.
 - **ledger-diff-gate judges where the ledger rebase sits** (maintainer
   tooling; no product change). In the cycle after the newest witness
   reachable from HEAD, the first commit must change ledger-amendments.json

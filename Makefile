@@ -124,7 +124,10 @@ WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
 .PHONY: ui-vendor ui-vendor-check
 .PHONY: verify ci-verify tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity image-base-check api-surface clock-fuse grype-scan verify-oss-contract verify-no-panic verify-oss wiki-fresh rulefloor-check rulefloor-integration ci-integration-test test-db
 
-## wiki-fresh: WIKI-1 gate — fail verify when this repo's wiki page is BEHIND.
+## wiki-fresh: WIKI-1 gate — fail when this repo's wiki page is BEHIND. NOT in
+## the verify plan since OSS-GATE-TIDY (2026-10-05, owner ruling P-066): the
+## wiki stage's `make check` judges freshness at the close; this target is a
+## manual look. The paragraphs below describe it as it ran inside verify.
 ## Runs `achta --wiki-dir $(WIKI_DIR) wiki check --only freshness` and uses
 ## achta's OWN exit code (THE-PYTHONLESS-GATE, 2026-09-05; the python3 parse
 ## of achta's JSON that stood here since THE-FRESHNESS-HANDOVER is gone —
@@ -566,6 +569,12 @@ workflow-yaml-parity:
 # every build/vet/test/lint gate first, wiki-fresh LAST. wiki-fresh is
 # still fatal — nothing here is downgraded to a warning — it simply no
 # longer masks what it is not about.
+# OSS-GATE-TIDY (2026-10-05, owner ruling P-066): wiki-fresh LEFT this plan.
+# Its subject is the pin in ../wiki, which an OSS-only slice cannot move, so
+# an OSS slice could not reach green past its first commit (queue :5). The
+# wiki stage's own `make check` judges freshness at the close and its witness;
+# the target stays for a manual look. grype-scan is now the last entry.
+# The two paragraphs above and below are history from when it was planned.
 # THE-GATE-THAT-STOPS-TOO-EARLY (2026-09-14): freshness is the LAST
 # plan entry, after grype-scan, with nothing below it. It remains fatal.
 # A red target no longer stops this local run: verify-all drives every
@@ -752,6 +761,8 @@ witness-mint-test:
 .PHONY: script-tests
 script-tests:
 	@$(MAKE) --no-print-directory protected-guard-selftest
+	@$(MAKE) --no-print-directory record-home-paths-selftest
+	@$(MAKE) --no-print-directory test-full-dispatch-selftest
 	@bash scripts/verify-check-test.sh
 	@bash scripts/ci-integration-record-test.sh
 	@bin=$$(mktemp "$${TMPDIR:-/tmp}/ci-witness.XXXXXX"); \
@@ -810,6 +821,76 @@ protected-guard-selftest:
 	for f in conformance/run.sh scripts/*.sh; do expect 0 "this repository: $$f" $(MAKE) --no-print-directory protected-check SCRIPT="$$f"; done; \
 	if [ $$fails -ne 0 ]; then echo "protected-guard-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
 	echo "check OK: protected-guard-selftest $$n case(s), refusals and passes proven"
+
+## record-home-paths (OSS-GATE-TIDY, 2026-10-05): a TRACKED gate record
+## (git ls-files GATE-RUN*.txt) never carries a machine's user directory — a
+## /Users/<name>/ or /home/<name>/ path, or $HOME/ when the caller has one —
+## because a witness commits that record for every reader. Untracked records
+## (GATE-RUN.ci.txt, the integration record) are not judged; no tracked record
+## at all cannot pass. Planned in verify and ci-verify; lictor's environment
+## allowlist may leave $HOME unset there, so the two literal shapes carry it.
+.PHONY: record-home-paths record-home-paths-selftest
+RECORD_REPO ?= $(CURDIR)
+record-home-paths:
+	@repo="$(RECORD_REPO)"; files="$$(git -C "$$repo" ls-files 'GATE-RUN*.txt')"; \
+	[ -n "$$files" ] || { echo "check FAILED: record-home-paths — no tracked GATE-RUN*.txt in $$repo; nothing to judge is not a pass"; exit 2; }; \
+	pat='/Users/[^/[:space:]]+/|/home/[^/[:space:]]+/'; \
+	case "$${HOME:-/}" in /) ;; *) pat="$$pat|$$(printf '%s' "$${HOME%/}" | sed 's/[][\.*^$$+?(){}|]/\\&/g')/" ;; esac; \
+	hits="$$(cd "$$repo" && grep -nHE -- "$$pat" $$files)"; \
+	if [ -n "$$hits" ]; then echo "check FAILED: record-home-paths — a tracked gate record carries a home path; a committed record must not name a machine's user directory:"; printf '%s\n' "$$hits" | cut -c1-200; exit 1; fi; \
+	echo "check OK: record-home-paths — $$(printf '%s\n' $$files | grep -c .) tracked record(s), no /Users/<name>/, /home/<name>/ or \$$HOME/ path"
+
+## record-home-paths-selftest (OSS-GATE-TIDY, 2026-10-05): fixture repositories
+## (git init, records staged, nothing committed) run through record-home-paths:
+## a clean record passes; /Users/<name>/, /home/<name>/ and $HOME/ each fail;
+## an untracked record is not judged; no tracked record cannot pass.
+record-home-paths-selftest:
+	@d=$$(mktemp -d "$${TMPDIR:-/tmp}/home-paths.XXXXXX"); trap 'rm -rf "$$d"' EXIT; n=0; fails=0; \
+	expect() { want=$$1; label=$$2; shift 2; n=$$((n + 1)); out=$$("$$@" 2>&1); rc=$$?; line=OK; [ $$want -eq 0 ] || line=FAILED; \
+		if [ $$rc -eq $$want ] && printf '%s\n' "$$out" | grep -q "^check $$line: record-home-paths"; then echo "  ok    exit $$rc  $$label"; else echo "  FAIL  want exit $$want and a 'check $$line' line, got exit $$rc  $$label"; fails=$$((fails + 1)); fi; }; \
+	rec() { mkdir -p "$$d/$$1"; git -C "$$d/$$1" init -q; printf 'schema: gate-run.v1\n%s\n' "$$3" > "$$d/$$1/$$2"; git -C "$$d/$$1" add "$$2"; }; \
+	rec clean GATE-RUN.txt 'target: vet exit=0'; \
+	rec users GATE-RUN.txt 'evidence: /Users/alice/go/bin/staticcheck'; \
+	rec home GATE-RUN.integration.txt 'evidence: /home/runner/work/identuum-idp-oss'; \
+	rec envhome GATE-RUN.txt 'evidence: /opt/agent/cache/go-build'; \
+	rec untracked GATE-RUN.txt 'target: vet exit=0'; printf '/Users/alice/x\n' > "$$d/untracked/GATE-RUN.scratch.txt"; \
+	mkdir -p "$$d/none"; git -C "$$d/none" init -q; \
+	expect 0 "a record with no home path" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/clean"; \
+	expect 2 "/Users/<name>/ in GATE-RUN.txt" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/users"; \
+	expect 2 "/home/<name>/ in GATE-RUN.integration.txt" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/home"; \
+	expect 2 "\$$HOME/ (HOME=/opt/agent)" env HOME=/opt/agent $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/envhome"; \
+	expect 0 "an untracked record is not judged" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/untracked"; \
+	expect 2 "no tracked record cannot pass" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/none"; \
+	expect 0 "this repository" $(MAKE) --no-print-directory record-home-paths; \
+	if [ $$fails -ne 0 ]; then echo "record-home-paths-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
+	echo "check OK: record-home-paths-selftest $$n case(s), refusals and passes proven"
+
+## test-full-dispatch-selftest (OSS-GATE-TIDY, 2026-10-05; queue :8): test-full's
+## tier branch, proven without a stack or a container. It runs the UNCHANGED
+## test-full recipe of $(DISPATCH_MAKEFILE) from a fixture directory whose
+## ../identuum-ui is an empty directory, with a stub `go` first on PATH that
+## prints a fixture classifier line and exit code, and MAKE= a stub that only
+## prints the dispatch it was handed. Cases: "e2e-quick owed" dispatches
+## test-full-mint E2E_TIER=quick; an e2e-full line, an unknown line and exit 3
+## dispatch E2E_TIER=full; exit 0 dispatches nothing. What it cannot prove:
+## that a real quick-class change makes the classifier print that line, and
+## that identuum-ui's e2e-quick then runs green (queue :8).
+.PHONY: test-full-dispatch-selftest
+DISPATCH_MAKEFILE ?= $(CURDIR)/Makefile
+test-full-dispatch-selftest:
+	@d=$$(mktemp -d "$${TMPDIR:-/tmp}/dispatch.XXXXXX"); trap 'rm -rf "$$d"' EXIT; n=0; fails=0; \
+	mkdir -p "$$d/bin" "$$d/oss" "$$d/identuum-ui"; \
+	printf '#!/bin/sh\nprintf "%%s\\n" "$$FIXTURE_LINE"\nexit "$$FIXTURE_RC"\n' > "$$d/bin/go"; \
+	printf '#!/bin/sh\necho "dispatch: $$*"\n' > "$$d/bin/probe"; chmod +x "$$d/bin/go" "$$d/bin/probe"; \
+	case_() { n=$$((n + 1)); out=$$(cd "$$d/oss" && env PATH="$$d/bin:$$PATH" FIXTURE_LINE="$$2" FIXTURE_RC="$$3" $(MAKE) --no-print-directory -f "$(DISPATCH_MAKEFILE)" test-full MAKE="$$d/bin/probe" 2>&1); \
+		if printf '%s\n' "$$out" | grep -qF -- "$$4" && { [ -z "$$5" ] || ! printf '%s\n' "$$out" | grep -qF -- "$$5"; }; then echo "  ok    $$1"; \
+		else fails=$$((fails + 1)); echo "  FAIL  $$1: wanted \"$$4\"$${5:+ and no \"$$5\"}"; printf '%s\n' "$$out" | sed 's/^/        /'; fi; }; \
+	case_ "e2e-quick owed -> E2E_TIER=quick" "check OK: mint-reachability MINT REQUIRED — 1 reaching path; e2e-quick owed: src/x.ts" 1 "dispatch: --no-print-directory test-full-mint E2E_TIER=quick" ""; \
+	case_ "e2e-full owed -> E2E_TIER=full" "check OK: mint-reachability MINT REQUIRED — 1 reaching path; e2e-full owed: Makefile" 1 "dispatch: --no-print-directory test-full-mint E2E_TIER=full" "E2E_TIER=quick"; \
+	case_ "unknown line, exit 3 -> E2E_TIER=full" "mint-reachability: cannot evaluate" 3 "dispatch: --no-print-directory test-full-mint E2E_TIER=full" "E2E_TIER=quick"; \
+	case_ "exit 0 -> no dispatch" "check OK: mint-reachability SKIPPABLE — tier none" 0 "test-full: MINT SATISFIED" "dispatch:"; \
+	if [ $$fails -ne 0 ]; then echo "test-full-dispatch-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
+	echo "check OK: test-full-dispatch-selftest $$n case(s): quick only when e2e-quick is owed, full otherwise, nothing on 0 (no stack, no container)"
 
 .PHONY: witness witness-parity
 
@@ -871,6 +952,7 @@ define VERIFY_PLAN
 		'openapi-check=$(MAKE) --no-print-directory openapi-check' \
 		'repo-green=$(MAKE) --no-print-directory repo-green' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
+		'record-home-paths=$(MAKE) --no-print-directory record-home-paths' \
 		'ui-vendor-check=$(MAKE) --no-print-directory ui-vendor-check' \
 		'notices-check=$(MAKE) --no-print-directory notices-check' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
@@ -897,8 +979,7 @@ define VERIFY_PLAN
 		'go-mod-tidy-diff=go mod tidy -diff' \
 		'staticcheck=staticcheck ./...' \
 		'govulncheck=govulncheck ./...' \
-		'grype-scan=$(MAKE) grype-scan' \
-		'wiki-fresh=$(MAKE) --no-print-directory wiki-fresh'
+		'grype-scan=$(MAKE) grype-scan'
 endef
 
 ## ci-verify: CI mirror of `make verify` MINUS CI_VERIFY_SUBTRACTS and PLUS
@@ -940,6 +1021,7 @@ endef
 ## WIKI_DIR=/nonexistent-wiki` prints one SKIPPED line and exits 0. A step that
 ## cannot fail in the only environment that runs it is decoration, and a
 ## decoration in a gate list is worse than an absence: it reads like coverage.
+## (OSS-GATE-TIDY, 2026-10-05: `verify` no longer runs it either, P-066.)
 ## `verify` still runs it, so the local chain is unchanged, and the four other
 ## repos in the fleet already kept it out of their CI target — this makes all
 ## five agree.
@@ -1005,7 +1087,8 @@ endef
 ##   make[1]: *** [Makefile:112: repo-green] Error 127
 ##
 ## So the wiki-coupled gates live in `verify` (where the sibling checkout is
-## real) and are EXCLUDED here, enumerated: clock-fuse-gate, wiki-fresh —
+## real) and are EXCLUDED here, enumerated: clock-fuse-gate (and wiki-fresh
+## until OSS-GATE-TIDY moved it out of verify altogether, P-066) —
 ## and repo-green, which since THE-GREEN-CONSUMERS (2026-09-21) runs the
 ## installed lictor and COULD run here, but stays out BY CHOICE: nothing it
 ## measures is lost in CI — its four floors (fmt, build, test, vet) are
@@ -1056,6 +1139,7 @@ ci-verify:
 define CI_VERIFY_PLAN
 		'script-tests=$(MAKE) --no-print-directory script-tests' \
 		'tracked-binary-check=$(MAKE) --no-print-directory tracked-binary-check' \
+		'record-home-paths=$(MAKE) --no-print-directory record-home-paths' \
 		'credential-transparency=$(MAKE) --no-print-directory credential-transparency' \
 		'workflow-yaml=$(MAKE) --no-print-directory workflow-yaml' \
 		'workflow-yaml-parity=$(MAKE) --no-print-directory workflow-yaml-parity' \
@@ -1099,7 +1183,7 @@ go-test-race:
 # when the two plans above differ by anything else, so no comment here or in
 # .github/workflows/ci.yml enumerates them; the reasons are in the ci-verify
 # header.
-CI_VERIFY_SUBTRACTS := ci-witness clock-fuse-gate gograph-boundaries gograph-build gograph-capabilities govulncheck ledger-diff-gate mint-decide repo-green tool-versions toolchain-parity ui-vendor-check wiki-fresh witness-mint-test
+CI_VERIFY_SUBTRACTS := ci-witness clock-fuse-gate gograph-boundaries gograph-build gograph-capabilities govulncheck ledger-diff-gate mint-decide repo-green tool-versions toolchain-parity ui-vendor-check witness-mint-test
 CI_VERIFY_ADDS := fmt-check vet go-build go-test-race
 
 ## fmt-check: HARD gofmt gate (CE-GATES-3). Fails on drifted files AND on a
@@ -1539,6 +1623,24 @@ witness-mint-check:
 		echo "witness: REFUSED — the e2e mint is owed or cannot be established as satisfied; mint-decide's reason is above. Re-running witness cannot pay this debt."; \
 		exit 1; \
 	fi
+
+## ledger-census (OSS-GATE-TIDY, 2026-10-05; queue :6): the wiki's retirement
+## ledger pins every tools/ directory here by its .go line count, and until now
+## only the wiki ran that census — a slice later, in a repository the breaking
+## slice may not write. This runs the wiki's own command (the
+## retirement-ledger-census entry of the wiki's `make check`) from here, as an
+## OSS-only prerequisite of `witness`, so a tools/ change is red at THIS close,
+## naming the row to edit ("line N size — row R states <dir> has X lines; on
+## disk it has Y"). Sibling-coupled (it reads the wiki), so it is in neither
+## verify nor ci-verify. A missing wiki or achta is CANNOT EVALUATE (exit 2)
+## and refuses the witness like a red.
+.PHONY: ledger-census
+witness: ledger-census
+ledger-census:
+	@wiki="$(abspath $(WIKI_DIR))"; \
+	[ -f "$$wiki/contracts/retirement-ledger.md" ] || { echo "ledger-census: CANNOT EVALUATE — $$wiki/contracts/retirement-ledger.md is absent; the wiki sibling is required at the close"; exit 2; }; \
+	command -v achta >/dev/null 2>&1 || { echo "ledger-census: CANNOT EVALUATE — achta is not installed"; exit 2; }; \
+	achta --wiki-dir "$$wiki" ledger census --file "$$wiki/contracts/retirement-ledger.md" --dir "$$wiki/tools" --tree "GO=$(CURDIR)/tools" --ext .go || { echo "ledger-census: REFUSED — a tools/ line count no longer matches its retirement-ledger row (named above); edit that row in the wiki's contracts/retirement-ledger.md before the witness"; exit 1; }
 
 ## image-policy-restate-check: IMG-NONALPINE is stated in ONE place — the
 ## canonical text beside image-base-check above. THE-IMAGE-POLICY-TRUTH
