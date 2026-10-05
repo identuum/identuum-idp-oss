@@ -189,10 +189,10 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:surface=auth
 		// docgen:method=POST
 		// docgen:path=/api/v1/auth/login/mfa
-		// docgen:summary=Two-step MFA verification. For users already enrolled in TOTP; consumes the pending verify-kind session_id from /api/v1/auth/login on the mfa_required path, verifies the TOTP code against the user's persisted MFASecret, and completes the login by issuing the full session + Set-Cookie.
+		// docgen:summary=Two-step MFA verification. For users already enrolled in TOTP; consumes the pending verify-kind session_id from /api/v1/auth/login on the mfa_required path, verifies the code as a TOTP code against the user's persisted MFASecret or as one unused recovery code (burned on use), and completes the login by issuing the full session + Set-Cookie.
 		// docgen:tier=oss
 		// docgen:auth=session
-		// docgen:notes=Cookies are set ONLY after TOTP verification succeeds AND the pending row's MarkConsumed UPDATE atomically claims it. 401 invalid_code on any failure.
+		// docgen:notes=Cookies are set ONLY after the code verifies AND the pending row's MarkConsumed UPDATE atomically claims it. 401 invalid_code on any failure.
 		router.POST("/api/v1/auth/login/mfa", HandleMFAVerifyLogin(deps))
 		if deps.ChangePassword != nil {
 			// docgen:endpoint

@@ -284,7 +284,7 @@ endpoints:
     path: "/api/v1/auth/login/mfa"
     handler: "HandleMFAVerifyLogin"
     registrar: ""
-    summary: "Two-step MFA verification. For users already enrolled in TOTP; consumes the pending verify-kind session_id from /api/v1/auth/login on the mfa_required path, verifies the TOTP code against the user's persisted MFASecret, and completes the login by issuing the full session + Set-Cookie."
+    summary: "Two-step MFA verification. For users already enrolled in TOTP; consumes the pending verify-kind session_id from /api/v1/auth/login on the mfa_required path, verifies the code as a TOTP code against the user's persisted MFASecret or as one unused recovery code (burned on use), and completes the login by issuing the full session + Set-Cookie."
     tier: "oss"
     auth: "session"
     request_schema: ""

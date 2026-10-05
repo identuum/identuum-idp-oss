@@ -365,7 +365,7 @@ const loginFormTemplate = `<!DOCTYPE html>
     <form method="POST" action="/api/v1/auth/browser-login" autocomplete="off">
       <label>Email <input type="email" name="email" required autofocus></label><br>
       <label>Password <input type="password" name="password" required></label><br>
-      <label>TOTP (if enabled) <input type="text" name="totp_code" inputmode="numeric" autocomplete="one-time-code"></label><br>
+      <label>Authenticator code or recovery code (if enabled) <input type="text" name="totp_code" autocomplete="one-time-code" maxlength="32"></label><br>
       <label><input type="checkbox" name="remember_me" value="1"> Remember me</label><br>
       <input type="hidden" name="return_to" value="{{RETURN_TO}}">
       {{CSRF}}

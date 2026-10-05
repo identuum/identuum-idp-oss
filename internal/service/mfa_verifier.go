@@ -42,6 +42,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/pkg/totp"
@@ -224,6 +227,48 @@ var (
 	// window. Wire layer maps to 401 with no detail.
 	ErrMFAInvalid = errors.New("service: mfa invalid")
 )
+
+// RecoveryCodeConsumer burns one of a user's stored recovery codes by its
+// at-rest hash, atomically: consumed is false when the code is not (or no
+// longer) there. The user repository's ConsumeRecoveryCode satisfies it.
+type RecoveryCodeConsumer interface {
+	ConsumeRecoveryCode(ctx context.Context, userID uuid.UUID, codeHash string) (user *domain.User, consumed bool, err error)
+}
+
+// VerifySignIn is Verify for the sign-in code step, where a recovery code
+// also completes the second factor (FUNC-H3), as it does on the pending
+// sign-in step (MFAEnrollmentService.VerifyAndConsume). A code of the TOTP
+// length is checked exactly as Verify checks it; any other code is burned as
+// one of the user's recovery codes, once, under the same wrong-code budget.
+// remaining is the user's recovery codes left after one was used. Step-up and
+// the other proofs keep Verify, where only TOTP counts; recovery nil leaves
+// TOTP only.
+func (s *MFAVerifierService) VerifySignIn(ctx context.Context, user *domain.User, code string, recovery RecoveryCodeConsumer) (recoveryUsed bool, remaining int, err error) {
+	trimmed := strings.TrimSpace(code)
+	if recovery == nil || trimmed == "" || len(trimmed) == s.digits {
+		return false, 0, s.Verify(ctx, user, code)
+	}
+	if user == nil {
+		return false, 0, ErrMFAInvalid
+	}
+	if !user.MFAEnabled {
+		return false, 0, ErrMFANotEnabled
+	}
+	release := s.failures.Hold(user.ID)
+	defer release()
+	if s.failures.Exhausted(ctx, user.ID) {
+		return false, 0, ErrMFAInvalid
+	}
+	updated, consumed, err := recovery.ConsumeRecoveryCode(ctx, user.ID, crypto.HashSecret(trimmed))
+	if err != nil {
+		return false, 0, err
+	}
+	if !consumed || updated == nil {
+		s.failures.Record(ctx, user.ID)
+		return false, 0, ErrMFAInvalid
+	}
+	return true, len(updated.MFARecoveryCodes), nil
+}
 
 // Verify checks the supplied TOTP code against the user's
 // resolved secret. Behavior:

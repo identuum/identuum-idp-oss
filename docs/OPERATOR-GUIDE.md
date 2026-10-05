@@ -20,8 +20,10 @@ subcommand of `./identuum-idp`; see README "Running the bare binary".
 After the setup wizard, sign in at `/login` as `site_admin@system.local`
 with the password you chose in the wizard. This first sign-in enrols an
 authenticator app (TOTP) and shows one-time recovery codes — store them; every
-later sign-in asks for a code. The address you typed in the wizard is the
-site administrator's contact email, not the login.
+later sign-in asks for a code. Without the authenticator, enter one recovery
+code (16 characters) where the sign-in asks for the code; each code works
+once. The address you typed in the wizard is the site administrator's contact
+email, not the login.
 
 ## Check health
 

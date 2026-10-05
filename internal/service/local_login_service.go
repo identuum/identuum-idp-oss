@@ -60,6 +60,10 @@ type LocalLoginService struct {
 	// registrations reads a self-registrant's state (D-021, ruling b); nil
 	// leaves every user on today's gate.
 	registrations loginRegistrationStates
+	// recovery burns a recovery code entered at the code step (FUNC-H3). It is
+	// the user store itself when that store can (the user repository can);
+	// nil leaves the code step TOTP only.
+	recovery RecoveryCodeConsumer
 }
 
 // loginRegistrationStates is the narrow seam of the self-registration gate:
@@ -107,10 +111,12 @@ func NewLocalLoginService(report *lifecycle.StartupReport, users LocalLoginUserL
 	if sessions == nil {
 		report.Fatal("NewLocalLoginService", "service: NewLocalLoginService requires a non-nil UserSessionService")
 	}
+	recovery, _ := users.(RecoveryCodeConsumer)
 	return &LocalLoginService{
 		users:    users,
 		mfa:      mfa,
 		sessions: sessions,
+		recovery: recovery,
 	}
 }
 
@@ -388,6 +394,7 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 		return nil, ErrLoginInvalidCredentials
 	}
 
+	recoveryUsed, recoveryLeft := false, 0
 	if user.MFAEnabled && s.mfa != nil {
 		if s.risk != nil {
 			if err := s.risk.Check(ctx, email, ip, LoginRiskPurposeMFA); err != nil {
@@ -399,7 +406,11 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 				return nil, ErrLoginInvalidCredentials
 			}
 		}
-		if err := s.mfa.Verify(ctx, user, in.TOTPCode); err != nil {
+		// The code step takes a TOTP code or one of the user's recovery codes
+		// (FUNC-H3), as the pending sign-in step does.
+		var err error
+		recoveryUsed, recoveryLeft, err = s.mfa.VerifySignIn(ctx, user, in.TOTPCode, s.recovery)
+		if err != nil {
 			if errors.Is(err, ErrMFARequired) {
 				// Partial-result contract: User is populated so the
 				// HTTP layer can mint a pending verify-kind session_id
@@ -429,8 +440,8 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	}
 	// THE-HONEST-ACR: stamp the context ACTUALLY performed. This point is
 	// reached with the password verified and — when the user has TOTP
-	// enrolled (the s.mfa.Verify branch above returned on any failure) —
-	// the TOTP verified as well. Before this the session carried no acr and
+	// enrolled (the VerifySignIn branch above returned on any failure) —
+	// the TOTP or a recovery code verified as well. Before this the session carried no acr and
 	// the id_token could not honestly say how the user authenticated.
 	acr, amr := auth.LoginContext(user.MFAEnabled && s.mfa != nil)
 	issued, err := s.sessions.CreateUserSession(ctx, CreateUserSessionInput{
@@ -446,6 +457,25 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	})
 	if err != nil {
 		return nil, err
+	}
+	if recoveryUsed && s.auditSvc != nil {
+		// The same distinct event as the pending sign-in step records: the
+		// raw code never, the remaining count so a run-down list can alert.
+		ua := ""
+		if in.UserAgent != nil {
+			ua = *in.UserAgent
+		}
+		_ = s.auditSvc.Record(ctx, audit.Event{
+			Action:    "user_session.login.mfa_recovery_code_consumed",
+			Outcome:   "success",
+			IPAddress: ip,
+			UserAgent: ua,
+			Metadata: map[string]any{
+				"user_id":                        user.ID.String(),
+				"session_id":                     issued.Session.ID.String(),
+				"remaining_recovery_codes_count": recoveryLeft,
+			},
+		})
 	}
 	return &LoginResult{
 		UserID:       user.ID.String(),

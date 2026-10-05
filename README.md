@@ -143,7 +143,8 @@ code is invalidated.
    The login is always `site_admin@system.local` (the wizard shows it); the
    password is the one you chose in the wizard. At this first sign-in you
    enrol an authenticator app (TOTP) and are shown one-time recovery codes;
-   every later sign-in asks for a code.
+   every later sign-in asks for a code, and a recovery code works there once
+   in place of the authenticator's.
 2. **Create an organization** in the console (**Organizations → New**) with
    the email of its administrator. The organization is inactive until that
    administrator activates it, so it is listed under **Deactivated**, not
