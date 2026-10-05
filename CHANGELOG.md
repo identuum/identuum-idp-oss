@@ -7,6 +7,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **An organization's service-account expiry is applied.** A service account
+  created without `expires_at`, in the console or with its OAuth client, now
+  expires the organization's `service_account_expiry_days` after creation
+  (365 unless the organization's org_admin changed it). `0` means no default
+  expiry; an explicit future `expires_at` is kept. Accounts that exist are
+  not changed, and changing the value later changes no existing account. If
+  the organization's value cannot be read, the account is not created.
+  Upgrade note: from this release, new accounts in an organization with the
+  default 365 expire after a year unless a date or `0` is set.
+
 - **Gate tidy-up** (maintainer tooling; no product change). `wiki-fresh`
   is no longer a verify-plan entry: the wiki's own check judges this
   repository's page pin at the close, so a slice here can reach green

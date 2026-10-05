@@ -95,7 +95,7 @@ func newBundleHarness(t *testing.T, clientRegisterErr error) (*ServiceAccountCli
 	t.Helper()
 	saRepo := newAdminFakeSARepo()
 	clientRepo := &bundleClientRepoStub{registerErr: clientRegisterErr}
-	saSvc := NewServiceAccountService(nil, saRepo)
+	saSvc := NewServiceAccountService(nil, saRepo).WithOrganizationExpiry(saOrgNoDefault{})
 	// prepareClient (the bundle's client path) is pure — the ClientService
 	// here is real but its repo is never hit by the bundle; the fakeBundleRepo
 	// owns persistence and drives failure injection via clientRepo.

@@ -63,10 +63,10 @@ func RegisterServiceAccountsRoutes(router gin.IRouter, deps ServiceAccountsHandl
 	// docgen:surface=service-accounts
 	// docgen:method=POST
 	// docgen:path=/api/v1/organizations/:id/service-accounts
-	// docgen:summary=Create a service account in an organization (service enforces site_admin OR the org's own org_admin).
+	// docgen:summary=Create a service account in an organization (service enforces site_admin OR the org's own org_admin). Without expires_at it expires the organization's service_account_expiry_days after creation (0 = no default expiry).
 	// docgen:tier=oss
 	// docgen:auth=authenticated
-	// docgen:notes=Authorisation is enforced at the handler layer.
+	// docgen:notes=Authorisation is enforced at the handler layer. Without expires_at the account expires the organization's service_account_expiry_days after creation (0 = no default expiry); an explicit future expires_at is kept, and existing accounts never change when the value changes.
 	// docgen:status=201
 	orgGroup.POST("", HandleCreateServiceAccount(deps))
 

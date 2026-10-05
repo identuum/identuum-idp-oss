@@ -1974,7 +1974,7 @@ paths:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
     post:
       operationId: "identuum-idp-oss.service-accounts.create_service_account"
-      summary: "Create a service account in an organization (service enforces site_admin OR the org's own org_admin)."
+      summary: "Create a service account in an organization (service enforces site_admin OR the org's own org_admin). Without expires_at it expires the organization's service_account_expiry_days after creation (0 = no default expiry)."
       tags:
         - "service-accounts"
       parameters:
@@ -1987,13 +1987,13 @@ paths:
         - cookieAuth: []
       responses:
         "201":
-          description: "Create a service account in an organization (service enforces site_admin OR the org's own org_admin)."
+          description: "Create a service account in an organization (service enforces site_admin OR the org's own org_admin). Without expires_at it expires the organization's service_account_expiry_days after creation (0 = no default expiry)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/organizations/{id}/service-accounts/with-client":
     post:
       operationId: "identuum-idp-oss.service-accounts.create_service_account_with_client"
-      summary: "Create a service account bundled with an OAuth client (one-shot issuance; the OAuth client_secret is returned ONCE)."
+      summary: "Create a service account bundled with an OAuth client (one-shot issuance; the OAuth client_secret is returned ONCE). Without service_account.expires_at the account expires the organization's service_account_expiry_days after creation (0 = no default expiry)."
       tags:
         - "service-accounts"
       parameters:
@@ -2006,7 +2006,7 @@ paths:
         - cookieAuth: []
       responses:
         "201":
-          description: "Create a service account bundled with an OAuth client (one-shot issuance; the OAuth client_secret is returned ONCE)."
+          description: "Create a service account bundled with an OAuth client (one-shot issuance; the OAuth client_secret is returned ONCE). Without service_account.expires_at the account expires the organization's service_account_expiry_days after creation (0 = no default expiry)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/profile":

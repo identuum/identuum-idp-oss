@@ -605,9 +605,14 @@ The site administrator's own password has its own break-glass command (see
 ## Service accounts with a credential
 
 **Service accounts → Create** in the console registers the identity only: no
-credential is issued. The role is `org_user` unless you choose another, and
-the account never expires unless you set an expiry date (the organization's
-`service_account_expiry_days` is not applied to it).
+credential is issued. The role is `org_user` unless you choose another. When
+you set no expiry date, the account expires the organization's
+`service_account_expiry_days` after it is created (365 unless the org_admin
+changed it); a value of `0` means new accounts do not expire unless you set a
+date. A date you set is kept. The value applies only to accounts created after
+it is set: changing it never changes an existing account. Both creation routes,
+this one and the one below, apply it, and an expired account cannot get a
+`client_credentials` token.
 
 A service account that signs in with `client_credentials` is created together
 with its OAuth client in one call, by an org_admin of the organization:

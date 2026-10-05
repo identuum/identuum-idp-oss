@@ -80,7 +80,7 @@ func TestServiceAccountSeam_RejectedExactlyAtExpiry(t *testing.T) {
 	clock.set(at)
 
 	// EXACTLY now: `!at.After(now)` is true, so this is refused.
-	_, err := svc.buildForActor(actor, orgID, ServiceAccountAdminInput{
+	_, err := svc.buildForActor(context.Background(), actor, orgID, ServiceAccountAdminInput{
 		Name:      "sa-at-boundary",
 		ExpiresAt: &at,
 	})
@@ -89,7 +89,7 @@ func TestServiceAccountSeam_RejectedExactlyAtExpiry(t *testing.T) {
 
 	// One nanosecond later it is accepted.
 	later := at.Add(time.Nanosecond)
-	_, err = svc.buildForActor(actor, orgID, ServiceAccountAdminInput{
+	_, err = svc.buildForActor(context.Background(), actor, orgID, ServiceAccountAdminInput{
 		Name:      "sa-past-boundary",
 		ExpiresAt: &later,
 	})

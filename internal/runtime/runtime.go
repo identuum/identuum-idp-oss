@@ -1074,8 +1074,12 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// no LIVE agent-communication authorization names the account. Both
 	// seams are wired here; without them a transfer refuses to answer at all
 	// (503) rather than guessing.
+	// OSS-SA-EXPIRY: a new account without expires_at defaults to the
+	// organization's service_account_expiry_days; without this read the
+	// create paths fail closed.
 	serviceAccountSvc := service.NewServiceAccountService(report, repos.ServiceAccount).
-		WithOwnerAssignment(repos.User, repos.AgentCommunicationAuthorization)
+		WithOwnerAssignment(repos.User, repos.AgentCommunicationAuthorization).
+		WithOrganizationExpiry(repos.Organization)
 	clientSvc = clientSvc.WithServiceAccountBindingValidator(serviceAccountSvc)
 	saClientBundleRepo := postgres.NewPgxServiceAccountClientBundleRepository(pool)
 	saClientBundleSvc := service.NewServiceAccountClientBundleService(report, serviceAccountSvc, clientSvc, saClientBundleRepo)

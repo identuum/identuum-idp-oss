@@ -47,10 +47,10 @@ func RegisterServiceAccountClientBundleRoutes(router gin.IRouter, deps ServiceAc
 	// docgen:surface=service-accounts
 	// docgen:method=POST
 	// docgen:path=/api/v1/organizations/:id/service-accounts/with-client
-	// docgen:summary=Create a service account bundled with an OAuth client (one-shot issuance; the OAuth client_secret is returned ONCE).
+	// docgen:summary=Create a service account bundled with an OAuth client (one-shot issuance; the OAuth client_secret is returned ONCE). Without service_account.expires_at the account expires the organization's service_account_expiry_days after creation (0 = no default expiry).
 	// docgen:tier=oss
 	// docgen:auth=authenticated
-	// docgen:notes=Authorisation is enforced at the handler layer (site_admin OR same-org membership). The cleartext client_secret appears in the response body exactly once.
+	// docgen:notes=Authorisation is enforced at the handler layer (site_admin OR same-org membership). The cleartext client_secret appears in the response body exactly once. Without service_account.expires_at the account expires the organization's service_account_expiry_days after creation (0 = no default expiry); existing accounts never change when the value changes.
 	// docgen:status=201
 	g.POST("/with-client", HandleCreateServiceAccountWithClient(deps))
 }

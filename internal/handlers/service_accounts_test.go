@@ -117,6 +117,15 @@ func (r *inMemorySARepoForHandlers) UpdateOwner(_ context.Context, id, orgID, ow
 	return nil
 }
 
+// saOrgNoDefaultForHandlers answers service_account_expiry_days = 0 for every
+// organization (no default expiry), the behaviour these route tests were
+// written against before OSS-SA-EXPIRY.
+type saOrgNoDefaultForHandlers struct{}
+
+func (saOrgNoDefaultForHandlers) GetByID(_ context.Context, id uuid.UUID) (*domain.Organization, error) {
+	return &domain.Organization{ID: id}, nil
+}
+
 func newSAEngine(t *testing.T, principal *domain.Principal) (*gin.Engine, *inMemorySARepoForHandlers, *audit.Recorder) {
 	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
@@ -127,7 +136,7 @@ func newSAEngine(t *testing.T, principal *domain.Principal) (*gin.Engine, *inMem
 	repo := newSARepoForHandlers()
 	rec := &audit.Recorder{}
 	RegisterServiceAccountsRoutes(r, ServiceAccountsHandlerDeps{
-		ServiceAccountService: service.NewServiceAccountService(nil, repo),
+		ServiceAccountService: service.NewServiceAccountService(nil, repo).WithOrganizationExpiry(saOrgNoDefaultForHandlers{}),
 		Audit:                 rec,
 	})
 	return r, repo, rec

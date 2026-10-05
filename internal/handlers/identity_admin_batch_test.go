@@ -224,6 +224,9 @@ func (r *memOrgRepo) Update(_ context.Context, id uuid.UUID, opts repository.Upd
 	if opts.RequireStrictReauth != nil {
 		o.RequireStrictReauth = *opts.RequireStrictReauth
 	}
+	if opts.ServiceAccountExpiryDays != nil {
+		o.ServiceAccountExpiryDays = *opts.ServiceAccountExpiryDays
+	}
 	return o, nil
 }
 

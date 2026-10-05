@@ -97,7 +97,7 @@ func newOrgUser(orgID uuid.UUID) *domain.Principal {
 
 func newAdminSAService() (*ServiceAccountService, *adminFakeSARepo) {
 	repo := newAdminFakeSARepo()
-	return NewServiceAccountService(nil, repo), repo
+	return NewServiceAccountService(nil, repo).WithOrganizationExpiry(saOrgNoDefault{}), repo
 }
 
 // ---------- CreateForActor ----------

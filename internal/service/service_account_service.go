@@ -29,6 +29,9 @@ type ServiceAccountService struct {
 	// construction and wired by the runtime. See WithOwnerAssignment.
 	ownerUsers         ServiceAccountOwnerUserLookup
 	liveAuthorizations AgentCommunicationLiveParticipantLookup
+	// Default-expiry seam (OSS-SA-EXPIRY), wired by the runtime. See
+	// WithOrganizationExpiry; a create without it fails closed.
+	orgs ServiceAccountOrganizationLookup
 }
 
 // NewServiceAccountService constructs the service.

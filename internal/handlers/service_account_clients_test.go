@@ -113,7 +113,7 @@ func newBundleEngine(t *testing.T, principal *domain.Principal, clientErr error)
 	saRepo := newSARepoForHandlers()
 	clientRepo := newClientRepoForBundleHandlers()
 	clientRepo.registerErr = clientErr
-	saSvc := service.NewServiceAccountService(nil, saRepo)
+	saSvc := service.NewServiceAccountService(nil, saRepo).WithOrganizationExpiry(saOrgNoDefaultForHandlers{})
 	clientSvc := service.NewClientService(nil, clientRepo).WithServiceAccountBindingValidator(saSvc)
 	bundleRepo := &bundleRepoForHandlers{sa: saRepo, client: clientRepo}
 	bundleSvc := service.NewServiceAccountClientBundleService(nil, saSvc, clientSvc, bundleRepo)

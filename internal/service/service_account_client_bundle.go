@@ -135,7 +135,7 @@ func (s *ServiceAccountClientBundleService) CreateServiceAccountWithClientForAct
 
 	// 1. Build (do NOT persist) the service account: actor RBAC gate +
 	//    name/role/expiry validation + struct assembly.
-	sa, err := s.saService.buildForActor(actor, orgID, ServiceAccountAdminInput{
+	sa, err := s.saService.buildForActor(ctx, actor, orgID, ServiceAccountAdminInput{
 		Name:        in.SAName,
 		Description: in.SADescription,
 		Role:        in.SARole,

@@ -51,7 +51,25 @@ var (
 	ErrSANotFound      = errors.New("service: service account not found")
 	ErrSARoleInvalid   = errors.New("service: service-account role not allowed")
 	ErrSAExpiryInvalid = errors.New("service: service-account expiry must be in the future")
+	// ErrSAExpiryPolicyUnavailable: the organization's default expiry could
+	// not be read (store error, organization absent, or the read not wired),
+	// so nothing is created rather than an account that never expires.
+	ErrSAExpiryPolicyUnavailable = errors.New("service: organization service-account expiry policy unavailable")
 )
+
+// ServiceAccountOrganizationLookup reads the organization whose
+// service_account_expiry_days a new service account defaults to.
+type ServiceAccountOrganizationLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.Organization, error)
+}
+
+// WithOrganizationExpiry wires the organization read the create paths use
+// for the default expiry (OSS-SA-EXPIRY, owner rulings 2026-10-05). Without
+// it every create fails closed with ErrSAExpiryPolicyUnavailable.
+func (s *ServiceAccountService) WithOrganizationExpiry(orgs ServiceAccountOrganizationLookup) *ServiceAccountService {
+	s.orgs = orgs
+	return s
+}
 
 // CreateForActor creates a new SA in the supplied organization.
 //
@@ -61,23 +79,26 @@ var (
 //   - Empty Name → ErrSAInvalidInput.
 //   - Role MUST be one of AllowedServiceAccountRoles.
 //   - When ExpiresAt is supplied, it MUST be in the future.
+//   - When ExpiresAt is absent, it defaults to creation + N days, N the
+//     organization's service_account_expiry_days; N = 0 means no expiry.
 //
 // The returned ServiceAccount is the persisted row.
 func (s *ServiceAccountService) CreateForActor(ctx context.Context, actor *domain.Principal, orgID uuid.UUID, in ServiceAccountAdminInput) (*domain.ServiceAccount, error) {
-	sa, err := s.buildForActor(actor, orgID, in)
+	sa, err := s.buildForActor(ctx, actor, orgID, in)
 	if err != nil {
 		return nil, err
 	}
 	return s.repo.Create(ctx, sa)
 }
 
-// buildForActor is the PURE prepare step for CreateForActor: it runs the
-// actor RBAC gate + name/role/expiry validation and assembles the
+// buildForActor is the prepare step for CreateForActor: it runs the
+// actor RBAC gate + name/role/expiry validation, reads the organization's
+// default expiry when none is supplied, and assembles the
 // domain.ServiceAccount, performing NO database write. CreateForActor =
 // buildForActor + s.repo.Create (standalone behavior identical). The
 // bundle service calls buildForActor directly and persists the SA inside
 // its atomic SA+client transaction (P2-16b).
-func (s *ServiceAccountService) buildForActor(actor *domain.Principal, orgID uuid.UUID, in ServiceAccountAdminInput) (*domain.ServiceAccount, error) {
+func (s *ServiceAccountService) buildForActor(ctx context.Context, actor *domain.Principal, orgID uuid.UUID, in ServiceAccountAdminInput) (*domain.ServiceAccount, error) {
 	if err := s.requireOrgAdmin(actor, orgID); err != nil {
 		return nil, err
 	}
@@ -95,6 +116,22 @@ func (s *ServiceAccountService) buildForActor(actor *domain.Principal, orgID uui
 		return nil, ErrSAExpiryInvalid
 	}
 	now := s.now().UTC()
+	expiresAt := in.ExpiresAt
+	if expiresAt == nil {
+		// OSS-SA-EXPIRY: creation + N days, N the organization's value; 0 is
+		// no default. Any doubt about N refuses the create.
+		if s.orgs == nil {
+			return nil, ErrSAExpiryPolicyUnavailable
+		}
+		org, err := s.orgs.GetByID(ctx, orgID)
+		if err != nil || org == nil {
+			return nil, ErrSAExpiryPolicyUnavailable
+		}
+		if org.ServiceAccountExpiryDays > 0 {
+			d := now.Add(time.Duration(org.ServiceAccountExpiryDays) * 24 * time.Hour)
+			expiresAt = &d
+		}
+	}
 	// AYGHU-2 (measured live): owner_user_id existed since migration 0001 but
 	// NOTHING in OSS ever wrote it, so every service account was ownerless
 	// and the agent-communication same-owner rule refused all of them. The
@@ -107,7 +144,7 @@ func (s *ServiceAccountService) buildForActor(actor *domain.Principal, orgID uui
 		Description:    strings.TrimSpace(in.Description),
 		Role:           role,
 		Active:         true,
-		ExpiresAt:      in.ExpiresAt,
+		ExpiresAt:      expiresAt,
 		OwnerUserID:    &owner,
 		CreatedAt:      now,
 		UpdatedAt:      now,

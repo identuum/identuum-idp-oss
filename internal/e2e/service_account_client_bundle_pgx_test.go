@@ -32,7 +32,7 @@ import (
 func bundleHarnessPgx(t *testing.T, ctx context.Context, pool *pgxpool.Pool) (*service.ServiceAccountClientBundleService, *postgres.Repositories) {
 	t.Helper()
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
-	saSvc := service.NewServiceAccountService(nil, repos.ServiceAccount)
+	saSvc := service.NewServiceAccountService(nil, repos.ServiceAccount).WithOrganizationExpiry(repos.Organization)
 	clientSvc := service.NewClientService(nil, repos.Client).WithServiceAccountBindingValidator(saSvc)
 	bundleRepo := postgres.NewPgxServiceAccountClientBundleRepository(pool)
 	bundleSvc := service.NewServiceAccountClientBundleService(nil, saSvc, clientSvc, bundleRepo)

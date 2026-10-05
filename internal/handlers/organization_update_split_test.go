@@ -119,6 +119,59 @@ func TestUpdateOrganization_OrgAdminNeverChangesActive(t *testing.T) {
 	}
 }
 
+// OSS-SA-EXPIRY ruling a: service_account_expiry_days is an organization-wide
+// setting its org_admin sets. The org_admin of the organization sets it (200,
+// audited by name); another organization's org_admin and a site_admin are
+// refused (403) and the value does not move.
+func TestUpdateOrganization_ServiceAccountExpiryDaysIsTheOrgAdmins(t *testing.T) {
+	org := uuid.New()
+	actor := orgAdminOf(org, "orgs:read orgs:update")
+	eng := newTenantEngine(t, actor)
+	seedTenantOrg(eng, org, "Acme")
+	seeded, _ := eng.orgRepo.GetByID(t.Context(), org)
+	beforeDays := seeded.ServiceAccountExpiryDays
+
+	rec := tenantReq(t, eng, http.MethodPut, "/api/v1/organizations/"+org.String(), map[string]any{"service_account_expiry_days": 30})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("org_admin setting service_account_expiry_days = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	if o, _ := eng.orgRepo.GetByID(t.Context(), org); o == nil || o.ServiceAccountExpiryDays != 30 {
+		t.Fatalf("service_account_expiry_days not applied: %+v", o)
+	}
+	var named bool
+	for _, e := range eng.rec.Events() {
+		if e.Action != "organization.updated" {
+			continue
+		}
+		fields, _ := e.Metadata["fields"].([]string)
+		if len(fields) == 1 && fields[0] == "service_account_expiry_days" && e.ActorID == actor.UserID && e.OrganizationID == org {
+			named = true
+		}
+	}
+	if !named {
+		t.Fatalf("no organization.updated audit event by the org_admin naming service_account_expiry_days: %+v", eng.rec.Events())
+	}
+
+	otherEng := newTenantEngine(t, orgAdminOf(uuid.New(), "orgs:read orgs:update"))
+	seedTenantOrg(otherEng, org, "Acme")
+	if rec := tenantReq(t, otherEng, http.MethodPut, "/api/v1/organizations/"+org.String(), map[string]any{"service_account_expiry_days": 7}); rec.Code != http.StatusForbidden {
+		t.Fatalf("another organization's org_admin = %d, want 403", rec.Code)
+	}
+	if o, _ := otherEng.orgRepo.GetByID(t.Context(), org); o == nil || o.ServiceAccountExpiryDays != beforeDays {
+		t.Fatalf("a refused cross-organization edit moved the value: %+v", o)
+	}
+
+	siteEng := newTenantEngine(t, siteAdminActor())
+	seedTenantOrg(siteEng, org, "Acme")
+	rec = tenantReq(t, siteEng, http.MethodPut, "/api/v1/organizations/"+org.String(), map[string]any{"service_account_expiry_days": 7})
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("site_admin setting a tenant's service_account_expiry_days = %d, want 403", rec.Code)
+	}
+	if got := forbiddenFields(t, rec.Body.Bytes()); len(got) != 1 || got[0] != "service_account_expiry_days" {
+		t.Errorf("fields = %v, want [service_account_expiry_days]", got)
+	}
+}
+
 func TestUpdateOrganization_OrgAdminOfAnotherOrganizationOrWithoutScopeIsRefused(t *testing.T) {
 	org := uuid.New()
 	other := uuid.New()
