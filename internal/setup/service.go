@@ -402,9 +402,8 @@ func validateCompleteInput(in CompleteInput) error {
 	if !strings.Contains(in.AdminEmail, "@") {
 		return fmt.Errorf("setup complete: admin_email is not a valid email address")
 	}
-	if len(in.AdminPassword) < 12 {
-		return fmt.Errorf("setup complete: admin_password must be at least 12 characters")
-	}
+	// The 12-character minimum is ValidatePassword's own, so a short password
+	// is a policy refusal the wizard can name (FUNC-M6).
 	// Setup completion creates the FIRST site_admin row — control-
 	// plane infrastructure per Decision D-004. The locked
 	// admin-local invariant requires STRICT password validation

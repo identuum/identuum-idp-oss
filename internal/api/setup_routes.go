@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,6 +13,20 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/setup"
 )
+
+// passwordPolicyMessage peels the setup service's wrapping off a password
+// policy refusal and returns the policy's own sentence ("password must
+// contain at least one uppercase letter"), which names a rule, not the input.
+func passwordPolicyMessage(err error) string {
+	for strings.HasPrefix(err.Error(), "setup complete") {
+		next := errors.Unwrap(err)
+		if next == nil || !domain.IsPasswordPolicyError(next) {
+			break
+		}
+		err = next
+	}
+	return err.Error()
+}
 
 // recordSetupCompleted writes the two rows a completed first-run setup owes
 // the audit log (OSS-POLISH, audit F4): setup.completed for the first
@@ -187,6 +202,10 @@ func handleSetupComplete(deps SetupRoutesDeps) gin.HandlerFunc {
 			// The name yields no default domain and none was given: the
 			// operator must enter one (v0.5.1).
 			c.JSON(http.StatusBadRequest, gin.H{"error": "organization_domain_required"})
+		case domain.IsPasswordPolicyError(err):
+			// FUNC-M6: name the rule the password broke (policy text only,
+			// the change-password route's weak_password shape).
+			c.JSON(http.StatusBadRequest, gin.H{"error": "weak_password", "message": passwordPolicyMessage(err)})
 		default:
 			// validation errors and downstream service failures both
 			// land here. We do not echo the underlying error message —
