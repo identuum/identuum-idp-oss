@@ -447,7 +447,35 @@ func resolveMetricsAddr(flagVal, envVal string) string {
 //
 // Migrations are NOT run by the runtime — operators run
 // `identuum-idp migrate <url>` first. The database URL is never printed.
+// serveWaitContext is the context the boot-time database wait runs under:
+// SIGINT or SIGTERM ends it. A test replaces it.
+var serveWaitContext = func() (context.Context, context.CancelFunc) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
+// waitForDatabase waits until the database answers (FUNC-M9) and reports
+// whether to go on. A signal during the wait stops the process cleanly; the
+// URL is never printed.
+func waitForDatabase(listen, databaseURL string, stderr io.Writer) (goOn bool) {
+	ctx, cancel := serveWaitContext()
+	defer cancel()
+	rt, err := pkgruntime.New(pkgruntime.Config{Addr: listen, JWKSDBURL: databaseURL, Version: version, Stderr: stderr})
+	if err != nil {
+		return true // the serve path reports the configuration error itself
+	}
+	if err := rt.WaitForDatabase(ctx); err != nil {
+		fmt.Fprintln(stderr, "identuum-idp: stopped while waiting for the database")
+		return false
+	}
+	return true
+}
+
 func runServe(addr, issuer, databaseURL string, revocationCleanupInterval time.Duration, metricsAddr string, stdout, stderr io.Writer) int {
+	// FUNC-M9: a database that does not answer yet is waited for,
+	// NOT-SERVING on the listen address meanwhile, never an exit.
+	if !waitForDatabase(addr, databaseURL, stderr) {
+		return 0
+	}
 	rt, err := pkgruntime.New(pkgruntime.Config{
 		Addr:                      addr,
 		MetricsAddr:               metricsAddr,

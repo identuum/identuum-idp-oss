@@ -37,6 +37,13 @@ answers a ping) both answer 200. With PostgreSQL down the container turns
 `unhealthy` within about a minute while `/healthz` stays 200; it turns
 `healthy` again once the database is back.
 
+If the database does not answer when the IdP starts, the IdP does not exit.
+It prints `NOT-SERVING — the database does not answer at boot`, retries
+(1 s, doubling, up to every 30 s), and meanwhile answers `/livez` and
+`/healthz` with 200, `GET /health` with 503 naming the `database` fault, and
+every other route with 503. When the database answers, it applies migrations
+and starts serving; nothing needs restarting.
+
 ## Listen addresses: IPv4 by default, IPv6 opt-in
 
 IPv4 is the default everywhere; IPv6 is supported and opt-in.

@@ -53,6 +53,12 @@ func runAppliance(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	// before serving; they need no elevated permission, and running them here
 	// keeps the old ordering (a failed migration aborts the container rather
 	// than serving against a half-migrated schema).
+	// FUNC-M9: a database that does not answer yet is waited for, NOT-SERVING
+	// on the listen address, instead of a failed migrate ending the
+	// container (a compose install crash-looped until the database came up).
+	if !waitForDatabase(cfg.Listen, cfg.DatabaseURL, stderr) {
+		return 0
+	}
 	fmt.Fprintln(stdout, "identuum-idp-oss: applying migrations (URL redacted)...")
 	if code := runMigrate(ctx, cfg.DatabaseURL, stdout, stderr); code != 0 {
 		return code
