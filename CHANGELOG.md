@@ -7,7 +7,7 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## `v0.9.7`
 
-identuum-ui `75353da` embedded (`v0.9.6` embedded `57482c5`). From this
+identuum-ui `1354a72` embedded (`v0.9.6` embedded `57482c5`). From this
 release identuum-ui follows this repository's version numbers (owner ruling,
 2026-10-05): the embedded export is identuum-ui `v0.9.7`. The delta since
 `v0.9.6` (`git rev-list --count v0.9.6..HEAD` and `git diff --shortstat
