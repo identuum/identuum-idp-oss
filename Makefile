@@ -838,7 +838,7 @@ record-home-paths:
 	case "$${HOME:-/}" in /) ;; *) pat="$$pat|$$(printf '%s' "$${HOME%/}" | sed 's/[][\.*^$$+?(){}|]/\\&/g')/" ;; esac; \
 	hits="$$(cd "$$repo" && grep -nHE -- "$$pat" $$files)"; \
 	if [ -n "$$hits" ]; then echo "check FAILED: record-home-paths — a tracked gate record carries a home path; a committed record must not name a machine's user directory:"; printf '%s\n' "$$hits" | cut -c1-200; exit 1; fi; \
-	echo "check OK: record-home-paths — $$(printf '%s\n' $$files | grep -c .) tracked record(s), no /Users/<name>/, /home/<name>/ or \$$HOME/ path"
+	echo "check OK: record-home-paths — $$(printf '%s\n' $$files | grep -c .) tracked record(s), none names a user home directory (the Users or home shapes, or HOME); this line spells no path, because a witness commits it into the record it judges"
 
 ## record-home-paths-selftest (OSS-GATE-TIDY, 2026-10-05): fixture repositories
 ## (git init, records staged, nothing committed) run through record-home-paths:
@@ -860,6 +860,9 @@ record-home-paths-selftest:
 	expect 2 "/home/<name>/ in GATE-RUN.integration.txt" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/home"; \
 	expect 2 "\$$HOME/ (HOME=/opt/agent)" env HOME=/opt/agent $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/envhome"; \
 	expect 0 "an untracked record is not judged" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/untracked"; \
+	okline=$$($(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/clean" 2>&1 | grep '^check OK: record-home-paths'); \
+	rec ownline GATE-RUN.txt "evidence: [record-home-paths] $$okline"; \
+	expect 0 "its own OK line, committed into the record by a witness" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/ownline"; \
 	expect 2 "no tracked record cannot pass" $(MAKE) --no-print-directory record-home-paths RECORD_REPO="$$d/none"; \
 	expect 0 "this repository" $(MAKE) --no-print-directory record-home-paths; \
 	if [ $$fails -ne 0 ]; then echo "record-home-paths-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
