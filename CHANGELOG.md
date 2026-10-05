@@ -5,6 +5,64 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## `v0.9.6`
+
+identuum-ui `57482c5` embedded (`v0.9.5` embedded `4ff1270`): the sign-in
+code field takes a recovery code, and the password and code steps say how
+long to wait. The delta since `v0.9.5` (`git rev-list --count v0.9.5..HEAD`
+and `git diff --shortstat v0.9.5..HEAD`, measured at `9eb51ac`, before the
+notes commit) is 12 commits, 62 files, +2000/−266. No migration, and the
+endpoint count stays 157 (`go run ./tools/api-docgen --dry-run`).
+
+These close the High and sign-in Medium findings of the 2026-10-05
+functionality review; each has a test that failed first.
+
+- **A public client redeems its authorization code.** An app registered with
+  `token_endpoint_auth_method: none` (the console's "Public client") sends
+  `client_id` and the PKCE `code_verifier` with no secret, and receives an
+  access token and an ID token. It gets no refresh token: the refresh grant
+  needs client authentication. Discovery lists `none` for the token endpoint
+  (not for introspection or revocation). Before, the exchange answered
+  `401 invalid_client`.
+- **A recovery code signs in.** Where the sign-in page that `/authorize`
+  shows (and `POST /api/v1/auth/login` with a code) asks for the
+  authenticator code, an unused recovery code now completes the sign-in, once,
+  counted against the same wrong-code budget, and records
+  `user_session.login.mfa_recovery_code_consumed`. The console's code field
+  takes one. Step-up and the other proofs still take only an authenticator
+  code.
+- **Upstream OIDC works as the guide says.** `docs/guides/oidc-upstream-login.md`
+  now shows the request body the API takes (it listed flat fields the API
+  refused with `400`). A provider configured without `config.redirect_uris`
+  uses the callback the guide says to register,
+  `{issuer}/api/v1/auth/idp/{provider_id}/callback` (before, login start
+  answered `404`). The new **test** setting
+  `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER=true` (off by default,
+  logged as a `WARNING` at startup) lets the sign-in reach a provider on
+  loopback or a private network over `http`, so the success path can be
+  tested end to end. Do not use it in production.
+- **A correct password is never answered "invalid credentials".** While a
+  per-address sign-in bound holds (5 failures for one account from one
+  address, or 10 failing accounts from one address, in 15 minutes) the
+  answer is now `429 login_throttled` with `Retry-After` until the oldest
+  counted failure leaves the window — the answer the account-wide
+  slow-down already gave. The bounds are unchanged. Rule `LOCKOUT-1` is
+  amended to this answer.
+- **A spent wrong-code budget says to wait.** At 5 wrong codes for one user
+  in 15 minutes, every code at the sign-in code step, the right one included,
+  answers `429 login_throttled` with `Retry-After` instead of
+  `401 invalid_code`. `reset-org-admin-mfa` clears the wrong codes counted
+  against the removed factor, and fails if it cannot.
+- **The OpenID conformance harness runs again.** `make openid-conformance`
+  had stopped at provisioning since `v0.9.5`: its provisioner now sets the
+  organization's MFA policy as the org admin and creates its test user with
+  `must_change_password: false`, and no refusal body reaches the log.
+  `docs/TESTING-OPERATORS.md` records it as a release step.
+- **Withdrawn:** the review's report that a refreshed access token was
+  refused at `userinfo` and introspection came from its own test client,
+  which replayed the old refresh token (reuse revokes the family). A guard
+  test now proves both halves through the whole engine.
+
 ## `v0.9.5`
 
 identuum-ui `4ff1270` embedded (`v0.9.4` embedded `5627ba2`): a site
