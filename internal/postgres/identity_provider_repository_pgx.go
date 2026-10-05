@@ -263,9 +263,13 @@ type providerConfigDTO struct {
 	Scopes                []string          `json:"scopes,omitempty"`
 	PKCERequired          bool              `json:"pkce_required,omitempty"`
 	ClaimMapping          map[string]string `json:"claim_mapping,omitempty"`
-	AllowExternalDomains  bool              `json:"allow_external_domains,omitempty"`
-	SyncEnabled           bool              `json:"sync_enabled,omitempty"`
-	SyncSchedule          string            `json:"sync_schedule,omitempty"`
+	// EmailDomains is the upstream sign-in's JIT allow-list. Until v0.9.6 it
+	// was not stored, so the gate refused every user of a provider configured
+	// through the API.
+	EmailDomains         []string `json:"email_domains,omitempty"`
+	AllowExternalDomains bool     `json:"allow_external_domains,omitempty"`
+	SyncEnabled          bool     `json:"sync_enabled,omitempty"`
+	SyncSchedule         string   `json:"sync_schedule,omitempty"`
 }
 
 type tlsOptionsDTO struct {
@@ -289,6 +293,7 @@ func toProviderConfigDTO(cfg domain.ProviderConfig) providerConfigDTO {
 		Scopes:                cfg.Scopes,
 		PKCERequired:          cfg.PKCERequired,
 		ClaimMapping:          cfg.ClaimMapping,
+		EmailDomains:          cfg.EmailDomains,
 		AllowExternalDomains:  cfg.AllowExternalDomains,
 		SyncEnabled:           cfg.SyncEnabled,
 		SyncSchedule:          cfg.SyncSchedule,
@@ -318,6 +323,7 @@ func (dto providerConfigDTO) toDomain() domain.ProviderConfig {
 		Scopes:                dto.Scopes,
 		PKCERequired:          dto.PKCERequired,
 		ClaimMapping:          dto.ClaimMapping,
+		EmailDomains:          dto.EmailDomains,
 		AllowExternalDomains:  dto.AllowExternalDomains,
 		SyncEnabled:           dto.SyncEnabled,
 		SyncSchedule:          dto.SyncSchedule,

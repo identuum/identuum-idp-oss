@@ -40,7 +40,11 @@ functionality review; each has a test that failed first.
   `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER=true` (off by default,
   logged as a `WARNING` at startup) lets the sign-in reach a provider on
   loopback or a private network over `http`, so the success path can be
-  tested end to end. Do not use it in production.
+  tested end to end. Do not use it in production. A provider's
+  `email_domains` are now stored: until now they were dropped on save, so
+  the allow-list refused every user of a provider configured through the
+  API. **Set them again** (`PUT` on the same path) for a provider configured
+  before v0.9.6.
 - **A correct password is never answered "invalid credentials".** While a
   per-address sign-in bound holds (5 failures for one account from one
   address, or 10 failing accounts from one address, in 15 minutes) the
