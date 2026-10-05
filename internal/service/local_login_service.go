@@ -423,6 +423,12 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 				// on this path.
 				return &LoginResult{User: user}, ErrLoginMFARequired
 			}
+			if errors.Is(err, ErrLoginThrottled) {
+				// The wrong-code budget is spent: the code was not looked
+				// at, so nothing is recorded; the caller is told to wait
+				// (FUNC-M3).
+				return nil, err
+			}
 			s.recordLoginRisk(ctx, email, ip, LoginRiskPurposeMFA, false)
 			// ErrMFAInvalid + ErrMFASecretUnavailable + any other
 			// MFA failure → opaque invalid_credentials. We do

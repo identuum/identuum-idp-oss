@@ -121,8 +121,8 @@ func TestVerifySignIn_RecoveryCodesShareTheWrongCodeBudget(t *testing.T) {
 			t.Fatalf("wrong recovery code %d: used=%v err=%v; want ErrMFAInvalid", i, used, err)
 		}
 	}
-	if used, _, err := svc.VerifySignIn(ctx, user, recoveryTestCode, store); used || !errors.Is(err, ErrMFAInvalid) {
-		t.Errorf("right recovery code past the budget: used=%v err=%v; want ErrMFAInvalid", used, err)
+	if used, _, err := svc.VerifySignIn(ctx, user, recoveryTestCode, store); used || !errors.Is(err, ErrLoginThrottled) {
+		t.Errorf("right recovery code past the budget: used=%v err=%v; want ErrLoginThrottled (the wait, FUNC-M3)", used, err)
 	}
 	if got := len(store.user.MFARecoveryCodes); got != 2 {
 		t.Errorf("recovery codes left = %d; want 2 (a refused code is not burned)", got)

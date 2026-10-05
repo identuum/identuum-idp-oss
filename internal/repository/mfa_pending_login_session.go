@@ -84,9 +84,17 @@ type MFAPendingLoginSessionRepository interface {
 	// verify-kind handles created at or after since — the per-USER wrong-code
 	// total that the per-handle counter cannot give, because every password
 	// step mints a fresh handle. Consumed and expired handles count: a handle
-	// killed by its own bound is exactly the evidence. Returns a non-nil error
-	// ONLY on a store failure; the caller MUST fail closed.
-	CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (int, error)
+	// killed by its own bound is exactly the evidence. oldest is the creation
+	// time of the oldest such handle with a miss (zero when none): the bound
+	// lifts as that handle leaves the window (FUNC-M3). Returns a non-nil
+	// error ONLY on a store failure; the caller MUST fail closed.
+	CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (n int, oldest time.Time, err error)
+
+	// DeleteForUser removes every pending sign-in row of the user, and with
+	// them the wrong codes the per-user bound counts. The operator's MFA
+	// reset (reset-org-admin-mfa) calls it: the misses were against a factor
+	// that no longer exists (FUNC-M3).
+	DeleteForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 
 	// DeleteExpired removes rows whose expires_at is past on the DB
 	// clock (NOW()) — the maintenance sweep that evicts the candidate

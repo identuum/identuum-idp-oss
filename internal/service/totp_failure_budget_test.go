@@ -66,17 +66,21 @@ func (m *memProofFailures) RecordProofFailure(_ context.Context, user uuid.UUID,
 	return nil
 }
 
-func (m *memProofFailures) CountProofFailuresSince(_ context.Context, user uuid.UUID, since time.Time) (int, error) {
+func (m *memProofFailures) CountProofFailuresSince(_ context.Context, user uuid.UUID, since time.Time) (int, time.Time, error) {
 	if m.err != nil {
-		return 0, m.err
+		return 0, time.Time{}, m.err
 	}
 	n := 0
+	var oldest time.Time
 	for _, at := range m.rows[user] {
 		if !at.Before(since) {
 			n++
+			if oldest.IsZero() || at.Before(oldest) {
+				oldest = at
+			}
 		}
 	}
-	return n, nil
+	return n, oldest, nil
 }
 
 func (m *memProofFailures) DeleteProofFailuresBefore(_ context.Context, cutoff time.Time) (int64, error) {
@@ -124,6 +128,10 @@ func TestTOTPFailureBudget_AStoreThatCannotAnswerRefuses(t *testing.T) {
 	if !b.Exhausted(context.Background(), uuid.New()) {
 		t.Error("a store that cannot be read must refuse the proof, not lift the bound")
 	}
+	// No wait is known, so the code step refuses as a wrong code, not a 429.
+	if spent, wait := b.Spent(context.Background(), uuid.New()); !spent || wait != 0 {
+		t.Errorf("Spent = %v, %v; want spent with no wait", spent, wait)
+	}
 }
 
 func TestMFAVerifierVerify_PastTheBudgetEvenTheRightCodeIsRefused(t *testing.T) {
@@ -144,8 +152,11 @@ func TestMFAVerifierVerify_PastTheBudgetEvenTheRightCodeIsRefused(t *testing.T) 
 			t.Fatalf("wrong code %d: err=%v, want ErrMFAInvalid", i, err)
 		}
 	}
-	if err := svc.Verify(ctx, user, right); !errors.Is(err, ErrMFAInvalid) {
-		t.Errorf("the right code past the budget: err=%v, want ErrMFAInvalid (the same cause-neutral refusal)", err)
+	if err := svc.Verify(ctx, user, right); !errors.Is(err, ErrLoginThrottled) {
+		t.Errorf("the right code past the budget: err=%v, want ErrLoginThrottled (the wait, the same for any code; FUNC-M3)", err)
+	}
+	if err := svc.Verify(ctx, user, wrong); !errors.Is(err, ErrLoginThrottled) {
+		t.Errorf("a wrong code past the budget: err=%v, want the same ErrLoginThrottled (no oracle)", err)
 	}
 
 	// Another user is not refused for this one's misses.

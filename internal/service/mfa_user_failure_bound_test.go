@@ -12,8 +12,8 @@ import (
 // password step mints a fresh handle with a fresh per-handle counter, so a
 // person who knows the password could otherwise keep guessing by signing in
 // again. A user's recent wrong codes across all of their handles are summed:
-// at the bound, even the correct code on a new handle is refused (cause-neutral,
-// like every other refusal here), and a store error refuses too.
+// at the bound, even the correct code on a new handle is refused, unlooked at,
+// with the sign-in wait (FUNC-M3), and a store error refuses too.
 func TestMFAEnrollment_VerifyAndConsume_UserFailuresSpanHandles(t *testing.T) {
 	ctx := context.Background()
 
@@ -48,8 +48,8 @@ func TestMFAEnrollment_VerifyAndConsume_UserFailuresSpanHandles(t *testing.T) {
 		wrongOn(t, svc, user, secret, 3) // first handle dies at 3
 		wrongOn(t, svc, user, secret, 2) // second handle: 2 more, 5 in all
 		row, _ := svc.CreatePending(ctx, user, domain.MFAPendingKindVerify, false)
-		if _, err := svc.VerifyAndConsume(ctx, row.ID, correctFor(secret, svc)); !errors.Is(err, ErrMFAEnrollmentInvalid) {
-			t.Errorf("correct code at the per-user bound: err=%v, want ErrMFAEnrollmentInvalid", err)
+		if _, err := svc.VerifyAndConsume(ctx, row.ID, correctFor(secret, svc)); !errors.Is(err, ErrLoginThrottled) {
+			t.Errorf("correct code at the per-user bound: err=%v, want ErrLoginThrottled (the wait, FUNC-M3)", err)
 		}
 		if pendingRepo.rows[row.ID].ConsumedAt != nil {
 			t.Error("a refused verification must not consume the handle")

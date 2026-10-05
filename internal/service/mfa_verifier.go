@@ -256,8 +256,8 @@ func (s *MFAVerifierService) VerifySignIn(ctx context.Context, user *domain.User
 	}
 	release := s.failures.Hold(user.ID)
 	defer release()
-	if s.failures.Exhausted(ctx, user.ID) {
-		return false, 0, ErrMFAInvalid
+	if err := s.spentBudget(ctx, user.ID); err != nil {
+		return false, 0, err
 	}
 	updated, consumed, err := recovery.ConsumeRecoveryCode(ctx, user.ID, crypto.HashSecret(trimmed))
 	if err != nil {
@@ -268,6 +268,22 @@ func (s *MFAVerifierService) VerifySignIn(ctx context.Context, user *domain.User
 		return false, 0, ErrMFAInvalid
 	}
 	return true, len(updated.MFARecoveryCodes), nil
+}
+
+// spentBudget refuses while the user's wrong-code budget is spent: every code,
+// right or wrong, gets the sign-in wait (a *LoginThrottledError, 429 with
+// Retry-After) without being looked at, so the refusal tells nothing about the
+// code (FUNC-M3). A budget store that cannot be read refuses as a wrong code.
+func (s *MFAVerifierService) spentBudget(ctx context.Context, user uuid.UUID) error {
+	spent, wait := s.failures.Spent(ctx, user)
+	switch {
+	case !spent:
+		return nil
+	case wait <= 0:
+		return ErrMFAInvalid
+	default:
+		return &LoginThrottledError{RetryAfter: max(wait, time.Second), Bounded: true}
+	}
 }
 
 // Verify checks the supplied TOTP code against the user's
@@ -299,14 +315,13 @@ func (s *MFAVerifierService) Verify(ctx context.Context, user *domain.User, code
 	if trimmed == "" {
 		return ErrMFARequired
 	}
-	// Past the per-user budget of wrong codes even the right one is refused,
-	// with the answer a wrong one gets. The user's turn spans the check, the
-	// code check and the recorded miss, so parallel guesses are counted one by
-	// one.
+	// Past the per-user budget of wrong codes every code is refused unlooked
+	// at, with the wait (FUNC-M3). The user's turn spans the check, the code
+	// check and the recorded miss, so parallel guesses are counted one by one.
 	release := s.failures.Hold(user.ID)
 	defer release()
-	if s.failures.Exhausted(ctx, user.ID) {
-		return ErrMFAInvalid
+	if err := s.spentBudget(ctx, user.ID); err != nil {
+		return err
 	}
 	secret, err := s.resolver.Resolve(ctx, user)
 	if err != nil || secret == "" {

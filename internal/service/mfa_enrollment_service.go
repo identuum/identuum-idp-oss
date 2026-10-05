@@ -580,19 +580,22 @@ func (s *MFAEnrollmentService) VerifyAndConsume(ctx context.Context, pendingID u
 	// PER-USER BOUND. The per-handle counter below is reset by every password
 	// step (a fresh handle), so on its own it bounds guesses per sign-in, not
 	// per person. Sum the user's recent wrong codes across ALL their handles
-	// and refuse at the bound — even a correct code, cause-neutral like every
-	// other refusal. FAIL CLOSED on a counter-store error, for the same reason
-	// as RecordFailedVerifyAttempt. The user's turn spans the count, the code
-	// check and the recorded miss, so guesses sent in parallel over several
-	// handles are counted one by one instead of all reading the same count.
+	// and refuse at the bound — every code, right or wrong, unlooked at, with
+	// the sign-in wait until the oldest counted handle leaves the window
+	// (FUNC-M3: a correct code was answered invalid_code). FAIL CLOSED on a
+	// counter-store error, for the same reason as RecordFailedVerifyAttempt.
+	// The user's turn spans the count, the code check and the recorded miss,
+	// so guesses sent in parallel over several handles are counted one by one
+	// instead of all reading the same count.
 	release := s.verifyTurns.lock(user.ID.String())
 	defer release()
-	recent, cntErr := s.pending.CountRecentFailedVerifyAttempts(ctx, user.ID, s.now().Add(-s.userFailureWindow))
+	recent, oldest, cntErr := s.pending.CountRecentFailedVerifyAttempts(ctx, user.ID, s.now().Add(-s.userFailureWindow))
 	if cntErr != nil {
 		return nil, fmt.Errorf("service: mfa count recent failed verify attempts: %w", cntErr)
 	}
 	if recent >= s.maxUserFailures {
-		return nil, ErrMFAEnrollmentInvalid
+		wait := oldest.Add(s.userFailureWindow).Sub(s.now())
+		return nil, &LoginThrottledError{RetryAfter: max(wait, time.Second), Bounded: true}
 	}
 	var (
 		recoveryUsed     bool

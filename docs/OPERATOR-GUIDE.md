@@ -69,8 +69,11 @@ IPv4 is the default everywhere; IPv6 is supported and opt-in.
   accounts from one address, or five failures for one account from anywhere
   (then a wait that doubles from 1 second up to a minute) make the next
   sign-in answer `429 login_throttled` with `Retry-After`, the right password
-  included; the sign-in page says to wait. The code step's per-address limits
-  answer the same way. A success resets the account-wide count; the address limits pass with their
+  included; the sign-in page says to wait. At the code step, five wrong codes
+  for one user in fifteen minutes (any sign-in, any address) make every code,
+  the right one included, answer the same `429` until the oldest leaves the
+  window; the code step's per-address limits answer the same way. A success
+  resets the account-wide count; the address limits pass with their
   fifteen-minute window.
 - **Over IPv6 nothing degrades.** The audit log and sessions record the IPv6
   address. Rate limits and the sign-in lockout count an IPv6 client by its
@@ -174,7 +177,9 @@ docker run --rm --network identuum-idp-oss_default --entrypoint /app/identuum-id
 
 The organization id is on the organization's page in the console. The
 command removes the org_admin's authenticator, recovery codes and passkeys,
-revokes its sessions and refresh tokens, and records `org_admin_mfa_reset`
+revokes its sessions and refresh tokens, clears the wrong codes counted
+against the old factor (so the new one is not refused for them), and records
+`org_admin_mfa_reset`
 (actor `system`, `via: cli`). The password is unchanged: the administrator
 signs in with it and enrolls a new factor. It refuses the system
 organization (use `recover-site-admin`) and any user who is not exactly an

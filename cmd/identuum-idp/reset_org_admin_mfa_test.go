@@ -52,6 +52,19 @@ func (f *fakeRefreshRevoker) RevokeAllBySubject(_ context.Context, subject strin
 	return 2, nil
 }
 
+// fakeWrongCodes records whose wrong-code counts were cleared (FUNC-M3).
+type fakeWrongCodes struct{ pending, proof []uuid.UUID }
+
+func (f *fakeWrongCodes) DeleteForUser(_ context.Context, userID uuid.UUID) (int64, error) {
+	f.pending = append(f.pending, userID)
+	return 1, nil
+}
+
+func (f *fakeWrongCodes) DeleteProofFailuresForUser(_ context.Context, userID uuid.UUID) (int64, error) {
+	f.proof = append(f.proof, userID)
+	return 1, nil
+}
+
 // auditRows keeps the rows the persistent audit service would insert.
 type auditRows struct{ rows []domain.AuditEvent }
 
@@ -66,6 +79,7 @@ type resetHarness struct {
 	passkeys *fakePasskeys
 	sessions *fakeSessionRevoker
 	refresh  *fakeRefreshRevoker
+	wrong    *fakeWrongCodes
 	rec      *auditRows
 	org      uuid.UUID
 	admin    *domain.User
@@ -84,13 +98,15 @@ func newResetHarness(t *testing.T) resetHarness {
 		passkeys: &fakePasskeys{creds: []*domain.WebAuthnCredential{{ID: uuid.New(), UserID: admin.ID}}},
 		sessions: &fakeSessionRevoker{},
 		refresh:  &fakeRefreshRevoker{},
+		wrong:    &fakeWrongCodes{},
 		rec:      &auditRows{},
 		org:      org,
 		admin:    admin,
 		member:   member,
 	}
 	h.deps = resetOrgAdminMFADeps{
-		Users: h.users, Passkeys: h.passkeys, Sessions: h.sessions, Refresh: h.refresh, Audit: service.NewOperatorAuditor(h.rec),
+		Users: h.users, Passkeys: h.passkeys, Sessions: h.sessions, Refresh: h.refresh,
+		PendingSignIns: h.wrong, ProofFailures: h.wrong, Audit: service.NewOperatorAuditor(h.rec),
 		Now: func() time.Time { return time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC) },
 	}
 	return h
@@ -114,6 +130,11 @@ func TestResetOrgAdminMFA_RemovesEveryFactorRevokesAndAudits(t *testing.T) {
 	}
 	if len(h.refresh.subjects) != 1 || h.refresh.subjects[0] != h.admin.ID.String() {
 		t.Errorf("refresh tokens revoked for %v, want the org_admin", h.refresh.subjects)
+	}
+	// FUNC-M3: the wrong codes counted against the removed factor are cleared,
+	// so the reset administrator's new code is not refused for them.
+	if len(h.wrong.pending) != 1 || h.wrong.pending[0] != h.admin.ID || len(h.wrong.proof) != 1 || h.wrong.proof[0] != h.admin.ID {
+		t.Errorf("wrong-code counts cleared for pending %v, proof %v; want the org_admin's, once each", h.wrong.pending, h.wrong.proof)
 	}
 	if len(h.rec.rows) != 1 {
 		t.Fatalf("audit rows = %d, want 1", len(h.rec.rows))

@@ -32,15 +32,22 @@ func (r *PgxMFAProofFailureRepository) RecordProofFailure(ctx context.Context, u
 	return err
 }
 
-// CountProofFailuresSince counts the user's wrong codes at or after since.
-// Served by idx_mfa_proof_failures_user_time.
-func (r *PgxMFAProofFailureRepository) CountProofFailuresSince(ctx context.Context, user uuid.UUID, since time.Time) (int, error) {
-	const q = `SELECT COUNT(*) FROM mfa_proof_failures WHERE user_id = $1 AND failed_at >= $2`
-	var n int
-	if err := r.db.QueryRow(ctx, q, user, since).Scan(&n); err != nil {
+// CountProofFailuresSince counts the user's wrong codes at or after since,
+// with the oldest one's time. Served by idx_mfa_proof_failures_user_time.
+func (r *PgxMFAProofFailureRepository) CountProofFailuresSince(ctx context.Context, user uuid.UUID, since time.Time) (int, time.Time, error) {
+	const q = `SELECT COUNT(*), MIN(failed_at) FROM mfa_proof_failures WHERE user_id = $1 AND failed_at >= $2`
+	return scanCountAndTime(r.db.QueryRow(ctx, q, user, since))
+}
+
+// DeleteProofFailuresForUser drops every wrong code of the user — the
+// operator's MFA reset (FUNC-M3).
+func (r *PgxMFAProofFailureRepository) DeleteProofFailuresForUser(ctx context.Context, user uuid.UUID) (int64, error) {
+	const q = `DELETE FROM mfa_proof_failures WHERE user_id = $1`
+	cmd, err := r.db.Exec(ctx, q, user)
+	if err != nil {
 		return 0, err
 	}
-	return n, nil
+	return cmd.RowsAffected(), nil
 }
 
 // DeleteProofFailuresBefore drops the rows older than cutoff, for the sweep.

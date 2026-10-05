@@ -45,24 +45,33 @@ func TestMFAProofFailureRepository_CountSweepAndCascade(t *testing.T) {
 		t.Fatalf("record bob: %v", err)
 	}
 
-	if n, err := repo.CountProofFailuresSince(ctx, alice, now.Add(-15*time.Minute)); err != nil || n != 2 {
-		t.Fatalf("alice inside the window = %d, %v; want 2", n, err)
+	// FUNC-M3: the oldest counted miss's time comes back with the count.
+	if n, oldest, err := repo.CountProofFailuresSince(ctx, alice, now.Add(-15*time.Minute)); err != nil || n != 2 || !oldest.Equal(now.Add(-time.Minute)) {
+		t.Fatalf("alice inside the window = %d, oldest %s, %v; want 2, oldest %s", n, oldest, err, now.Add(-time.Minute))
 	}
-	if n, err := repo.CountProofFailuresSince(ctx, bob, now.Add(-15*time.Minute)); err != nil || n != 1 {
+	if n, _, err := repo.CountProofFailuresSince(ctx, bob, now.Add(-15*time.Minute)); err != nil || n != 1 {
 		t.Fatalf("bob = %d, %v; want 1 (alice's rows are not his)", n, err)
 	}
 
 	if _, err := repo.DeleteProofFailuresBefore(ctx, now.Add(-15*time.Minute)); err != nil {
 		t.Fatalf("sweep: %v", err)
 	}
-	if n, err := repo.CountProofFailuresSince(ctx, alice, now.Add(-time.Hour)); err != nil || n != 2 {
+	if n, _, err := repo.CountProofFailuresSince(ctx, alice, now.Add(-time.Hour)); err != nil || n != 2 {
 		t.Errorf("alice after the sweep = %d, %v; want the 2 rows inside the window kept", n, err)
+	}
+
+	// FUNC-M3: the operator's MFA reset drops one user's misses only.
+	if _, err := repo.DeleteProofFailuresForUser(ctx, alice); err != nil {
+		t.Fatalf("delete alice's misses: %v", err)
+	}
+	if n, oldest, err := repo.CountProofFailuresSince(ctx, alice, now.Add(-time.Hour)); err != nil || n != 0 || !oldest.IsZero() {
+		t.Errorf("alice after DeleteProofFailuresForUser = %d, %s, %v; want 0 and a zero time", n, oldest, err)
 	}
 
 	if _, err := pool.Exec(ctx, `DELETE FROM users WHERE id = $1`, bob); err != nil {
 		t.Fatalf("delete bob: %v", err)
 	}
-	if n, err := repo.CountProofFailuresSince(ctx, bob, now.Add(-time.Hour)); err != nil || n != 0 {
+	if n, _, err := repo.CountProofFailuresSince(ctx, bob, now.Add(-time.Hour)); err != nil || n != 0 {
 		t.Errorf("bob's rows after his deletion = %d, %v; want them gone with him", n, err)
 	}
 }

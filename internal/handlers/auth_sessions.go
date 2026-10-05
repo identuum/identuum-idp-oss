@@ -586,15 +586,21 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		// before any user lookup), so it never enumerates accounts.
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "temporarily_unavailable"})
 	case errors.Is(err, service.ErrLoginThrottled):
-		// The account-wide slow-down (owner ruling, v0.9.5): the account
-		// failed often enough from any address that this attempt must wait.
-		// Known and unknown addresses get the same answer.
-		secs := loginRetryAfterSeconds(err)
-		c.Header("Retry-After", strconv.Itoa(secs))
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "login_throttled", "retry_after_seconds": secs})
+		// The account-wide slow-down (owner ruling, v0.9.5) or a held failure
+		// bound (FUNC-M2, M3): this attempt must wait. Known and unknown
+		// addresses get the same answer.
+		respondLoginThrottled(c, err)
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 	}
+}
+
+// respondLoginThrottled is the sign-in wait: 429 login_throttled with
+// Retry-After and the same seconds in the body.
+func respondLoginThrottled(c *gin.Context, err error) {
+	secs := loginRetryAfterSeconds(err)
+	c.Header("Retry-After", strconv.Itoa(secs))
+	c.JSON(http.StatusTooManyRequests, gin.H{"error": "login_throttled", "retry_after_seconds": secs})
 }
 
 // loginRetryAfterSeconds is the slow-down's remaining wait in whole seconds,

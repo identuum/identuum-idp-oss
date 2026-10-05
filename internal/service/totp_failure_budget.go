@@ -23,7 +23,9 @@ const (
 // counts the same ones.
 type ProofFailureStore interface {
 	RecordProofFailure(ctx context.Context, user uuid.UUID, at time.Time) error
-	CountProofFailuresSince(ctx context.Context, user uuid.UUID, since time.Time) (int, error)
+	// CountProofFailuresSince also returns the oldest counted miss's time
+	// (zero when none).
+	CountProofFailuresSince(ctx context.Context, user uuid.UUID, since time.Time) (n int, oldest time.Time, err error)
 	DeleteProofFailuresBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
@@ -106,20 +108,35 @@ func (b *TOTPFailureBudget) prune(user uuid.UUID) []time.Time {
 // Exhausted reports whether the user has used up the budget. A store that
 // cannot be read reports true: the proof is refused rather than unbounded.
 func (b *TOTPFailureBudget) Exhausted(ctx context.Context, user uuid.UUID) bool {
+	spent, _ := b.Spent(ctx, user)
+	return spent
+}
+
+// Spent is Exhausted with the wait: how long until the user's oldest counted
+// miss leaves the window, so the sign-in code step can say when to try again
+// (FUNC-M3). A store that cannot be read reports spent with no wait (0).
+func (b *TOTPFailureBudget) Spent(ctx context.Context, user uuid.UUID) (bool, time.Duration) {
 	if b == nil {
-		return false
+		return false, 0
 	}
 	if b.store != nil {
-		n, err := b.store.CountProofFailuresSince(ctx, user, b.now().Add(-b.window))
+		n, oldest, err := b.store.CountProofFailuresSince(ctx, user, b.now().Add(-b.window))
 		if err != nil {
 			logger.ErrorContext(ctx, "totp proof budget: store unavailable; refusing the proof", zap.Error(err))
-			return true
+			return true, 0
 		}
-		return n >= b.max
+		if n < b.max {
+			return false, 0
+		}
+		return true, oldest.Add(b.window).Sub(b.now())
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return len(b.prune(user)) >= b.max
+	kept := b.prune(user)
+	if len(kept) < b.max {
+		return false, 0
+	}
+	return true, kept[0].Add(b.window).Sub(b.now())
 }
 
 // Record counts one wrong code for the user.

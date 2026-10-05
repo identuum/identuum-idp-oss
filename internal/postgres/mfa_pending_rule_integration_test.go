@@ -157,11 +157,16 @@ func TestMFAPending_CountRecentFailedVerifyAttemptsAndRetention(t *testing.T) {
 	})
 
 	since := time.Now().Add(-15 * time.Minute)
-	if n, err := repo.CountRecentFailedVerifyAttempts(ctx, userID, since); err != nil || n != 5 {
+	n, oldest, err := repo.CountRecentFailedVerifyAttempts(ctx, userID, since)
+	if err != nil || n != 5 {
 		t.Errorf("CountRecentFailedVerifyAttempts = (%d, %v), want (5, nil): 3 expired + 2 live verify wrong codes, nothing from the old, enroll or another user's handle", n, err)
 	}
-	if n, err := repo.CountRecentFailedVerifyAttempts(ctx, uuid.New(), since); err != nil || n != 0 {
-		t.Errorf("a user with no handles = (%d, %v), want (0, nil)", n, err)
+	// FUNC-M3: the oldest counted handle is the one created 10 minutes ago.
+	if age := time.Since(oldest); age < 9*time.Minute || age > 11*time.Minute {
+		t.Errorf("oldest counted handle is %s old, want about 10m (the expired verify handle with wrong codes)", age)
+	}
+	if n, oldest, err := repo.CountRecentFailedVerifyAttempts(ctx, uuid.New(), since); err != nil || n != 0 || !oldest.IsZero() {
+		t.Errorf("a user with no handles = (%d, %s, %v), want (0, zero, nil)", n, oldest, err)
 	}
 
 	if _, err := repo.DeleteExpired(ctx); err != nil {
@@ -179,7 +184,18 @@ func TestMFAPending_CountRecentFailedVerifyAttemptsAndRetention(t *testing.T) {
 	if exists(enroll) {
 		t.Error("an expired enroll handle (it holds the candidate secret) must be swept")
 	}
-	if n, err := repo.CountRecentFailedVerifyAttempts(ctx, userID, since); err != nil || n != 5 {
+	if n, _, err := repo.CountRecentFailedVerifyAttempts(ctx, userID, since); err != nil || n != 5 {
 		t.Errorf("after the sweep = (%d, %v), want (5, nil): the sweep must not shrink the window", n, err)
+	}
+	// FUNC-M3: the operator's MFA reset deletes the user's pending rows, and
+	// with them the misses the bound counts; another user's stay.
+	if _, err := repo.DeleteForUser(ctx, userID); err != nil {
+		t.Fatalf("DeleteForUser: %v", err)
+	}
+	if n, _, err := repo.CountRecentFailedVerifyAttempts(ctx, userID, since); err != nil || n != 0 {
+		t.Errorf("after DeleteForUser = (%d, %v), want (0, nil)", n, err)
+	}
+	if !exists(someoneElse) {
+		t.Error("DeleteForUser removed another user's handle")
 	}
 }

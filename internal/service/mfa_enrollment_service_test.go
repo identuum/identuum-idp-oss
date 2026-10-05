@@ -64,15 +64,32 @@ type stubPendingRepo struct {
 }
 
 // CountRecentFailedVerifyAttempts models the Pgx query: the sum of
-// failed_attempts over the user's verify-kind handles created since `since`.
-func (s *stubPendingRepo) CountRecentFailedVerifyAttempts(_ context.Context, userID uuid.UUID, since time.Time) (int, error) {
+// failed_attempts over the user's verify-kind handles created since `since`,
+// and the oldest such handle with a miss.
+func (s *stubPendingRepo) CountRecentFailedVerifyAttempts(_ context.Context, userID uuid.UUID, since time.Time) (int, time.Time, error) {
 	if s.countErr != nil {
-		return 0, s.countErr
+		return 0, time.Time{}, s.countErr
 	}
 	n := 0
+	var oldest time.Time
 	for _, row := range s.rows {
 		if row.UserID == userID && row.Kind == domain.MFAPendingKindVerify && !row.CreatedAt.Before(since) {
 			n += row.FailedAttempts
+			if row.FailedAttempts > 0 && (oldest.IsZero() || row.CreatedAt.Before(oldest)) {
+				oldest = row.CreatedAt
+			}
+		}
+	}
+	return n, oldest, nil
+}
+
+// DeleteForUser models the Pgx delete of a user's pending rows.
+func (s *stubPendingRepo) DeleteForUser(_ context.Context, userID uuid.UUID) (int64, error) {
+	var n int64
+	for id, row := range s.rows {
+		if row.UserID == userID {
+			delete(s.rows, id)
+			n++
 		}
 	}
 	return n, nil

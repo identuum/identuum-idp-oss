@@ -179,18 +179,33 @@ RETURNING (consumed_at IS NOT NULL)`
 
 // CountRecentFailedVerifyAttempts sums failed_attempts over the user's
 // verify-kind handles created at or after since. See the interface doc.
-func (r *PgxMFAPendingLoginSessionRepository) CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (int, error) {
+func (r *PgxMFAPendingLoginSessionRepository) CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (int, time.Time, error) {
 	const q = `
-SELECT COALESCE(SUM(failed_attempts), 0)::int
+SELECT COALESCE(SUM(failed_attempts), 0)::int,
+       MIN(created_at) FILTER (WHERE failed_attempts > 0)
 FROM   mfa_pending_login_sessions
 WHERE  user_id = $1
   AND  kind = 'verify'
   AND  created_at >= $2`
 	var n int
-	if err := r.db.QueryRow(ctx, q, userID, since).Scan(&n); err != nil {
-		return 0, fmt.Errorf("postgres: count recent failed mfa verify attempts: %w", err)
+	var oldest *time.Time
+	if err := r.db.QueryRow(ctx, q, userID, since).Scan(&n, &oldest); err != nil {
+		return 0, time.Time{}, fmt.Errorf("postgres: count recent failed mfa verify attempts: %w", err)
 	}
-	return n, nil
+	if oldest == nil {
+		return n, time.Time{}, nil
+	}
+	return n, *oldest, nil
+}
+
+// DeleteForUser removes every pending sign-in row of the user (FUNC-M3).
+func (r *PgxMFAPendingLoginSessionRepository) DeleteForUser(ctx context.Context, userID uuid.UUID) (int64, error) {
+	const q = `DELETE FROM mfa_pending_login_sessions WHERE user_id = $1`
+	cmd, err := r.db.Exec(ctx, q, userID)
+	if err != nil {
+		return 0, fmt.Errorf("postgres: delete mfa pending sessions of a user: %w", err)
+	}
+	return cmd.RowsAffected(), nil
 }
 
 // DeleteExpired removes rows whose expires_at is older than

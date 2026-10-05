@@ -6,8 +6,9 @@ package main
 //	identuum-idp reset-org-admin-mfa --org <organization-id> --email <address> [database-url]
 //
 // It removes the org_admin's authenticator, recovery codes and passkeys,
-// revokes its sessions and refresh tokens, and records org_admin_mfa_reset by
-// the system actor. The administrator then signs in with the password and
+// revokes its sessions and refresh tokens, clears the wrong codes counted
+// against the old factor, and records org_admin_mfa_reset by the system
+// actor. The administrator then signs in with the password and
 // enrolls a new factor. A site_admin cannot do this over the API (D-025), so
 // the path needs host access: in the distroless image,
 //
@@ -44,6 +45,16 @@ type resetOrgAdminMFADeps struct {
 	}
 	Refresh interface {
 		RevokeAllBySubject(ctx context.Context, subject string, at time.Time) (int64, error)
+	}
+	// The two wrong-code budgets the sign-in code step counts (FUNC-M3): the
+	// pending sign-ins' misses and the proof routes' misses. Both were against
+	// the factor the reset removes, so a reset administrator is not refused
+	// for them.
+	PendingSignIns interface {
+		DeleteForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	}
+	ProofFailures interface {
+		DeleteProofFailuresForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	}
 	Audit *service.OperatorAuditor
 	Now   func() time.Time
@@ -89,17 +100,20 @@ func runResetOrgAdminMFA(ctx context.Context, databaseURL string, orgID uuid.UUI
 	// No signing key is read or written, so the key cipher is nil (the key
 	// repository is fail-closed).
 	repos := postgres.NewPgxRepositories(pool, nil)
-	if repos == nil || repos.User == nil || repos.WebAuthnCredential == nil || repos.Session == nil || repos.RefreshToken == nil || repos.Audit == nil {
+	if repos == nil || repos.User == nil || repos.WebAuthnCredential == nil || repos.Session == nil || repos.RefreshToken == nil ||
+		repos.MFAPendingLoginSession == nil || repos.MFAProofFailure == nil || repos.Audit == nil {
 		fmt.Fprintln(stderr, "identuum-idp: reset-org-admin-mfa: repository factory returned nil")
 		return 1
 	}
 	return resetOrgAdminMFACore(ctx, resetOrgAdminMFADeps{
-		Users:    repos.User,
-		Passkeys: repos.WebAuthnCredential,
-		Sessions: repos.Session,
-		Refresh:  repos.RefreshToken,
-		Audit:    service.NewOperatorAuditor(repos.Audit),
-		Now:      time.Now,
+		Users:          repos.User,
+		Passkeys:       repos.WebAuthnCredential,
+		Sessions:       repos.Session,
+		Refresh:        repos.RefreshToken,
+		PendingSignIns: repos.MFAPendingLoginSession,
+		ProofFailures:  repos.MFAProofFailure,
+		Audit:          service.NewOperatorAuditor(repos.Audit),
+		Now:            time.Now,
 	}, orgID, email, stdout, stderr)
 }
 
@@ -134,10 +148,13 @@ func resetOrgAdminMFACore(ctx context.Context, deps resetOrgAdminMFADeps, orgID 
 	if refreshErr == nil {
 		revokedCount = &refreshRevoked
 	}
+	_, pendingErr := deps.PendingSignIns.DeleteForUser(ctx, user.ID)
+	_, proofErr := deps.ProofFailures.DeleteProofFailuresForUser(ctx, user.ID)
+	wrongCodesCleared := pendingErr == nil && proofErr == nil
 	deps.Audit.OrgAdminMFAReset(ctx, user, sessionsRevoked, revokedCount)
-	fmt.Fprintf(stdout, "identuum-idp: reset-org-admin-mfa: the second factor and passkeys of %s (organization %s) are removed; sessions revoked=%t, refresh tokens revoked=%t. Sign in with the password and enroll a new factor.\n",
-		user.Email, orgID, sessionsRevoked, refreshErr == nil)
-	if !sessionsRevoked || refreshErr != nil {
+	fmt.Fprintf(stdout, "identuum-idp: reset-org-admin-mfa: the second factor and passkeys of %s (organization %s) are removed; sessions revoked=%t, refresh tokens revoked=%t, wrong-code counts cleared=%t. Sign in with the password and enroll a new factor.\n",
+		user.Email, orgID, sessionsRevoked, refreshErr == nil, wrongCodesCleared)
+	if !sessionsRevoked || refreshErr != nil || !wrongCodesCleared {
 		return 1
 	}
 	return 0

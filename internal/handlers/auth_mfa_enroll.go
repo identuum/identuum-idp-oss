@@ -448,6 +448,12 @@ func emitPendingFailure(c *gin.Context, deps AuthSessionsHandlerDeps, err error,
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 	})
+	if errors.Is(err, service.ErrLoginThrottled) {
+		// The user's wrong-code bound is spent; the code was not looked at
+		// (FUNC-M3).
+		respondLoginThrottled(c, err)
+		return
+	}
 	if errors.Is(err, service.ErrMFAEnrollmentNotFound) ||
 		errors.Is(err, service.ErrMFAEnrollmentInvalid) ||
 		errors.Is(err, service.ErrMFAEnrollmentExpired) ||
