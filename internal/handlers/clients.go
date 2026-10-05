@@ -47,6 +47,9 @@ func requireSkipConsentProof(c *gin.Context, deps ClientsHandlerDeps, code strin
 	switch err := deps.SkipConsentProver.ProveTOTP(c.Request.Context(), principal.UserID, code); {
 	case err == nil:
 		return true
+	case errors.Is(err, service.ErrLoginThrottled):
+		// The wrong-code budget is spent: sign-in's wait answer.
+		respondLoginThrottled(c, err)
 	case errors.Is(err, service.ErrMFANotEnrolled):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "mfa_not_enrolled"})
 	case errors.Is(err, service.ErrMFAProofInvalid):

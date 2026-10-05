@@ -72,7 +72,10 @@ IPv4 is the default everywhere; IPv6 is supported and opt-in.
   included; the sign-in page says to wait. At the code step, five wrong codes
   for one user in fifteen minutes (any sign-in, any address) make every code,
   the right one included, answer the same `429` until the oldest leaves the
-  window; the code step's per-address limits answer the same way. A success
+  window; the code step's per-address limits answer the same way. Step-up and
+  the other second-factor proofs (MFA disable, recovery-code regenerate,
+  skip consent) have their own budget of five wrong codes in fifteen minutes
+  and answer the same wait (the step-up page says to wait). A success
   resets the account-wide count; the address limits pass with their
   fifteen-minute window.
 - **Over IPv6 nothing degrades.** The audit log and sessions record the IPv6

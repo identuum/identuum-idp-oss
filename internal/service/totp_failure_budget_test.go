@@ -182,13 +182,20 @@ func TestMFAEnrollment_ProofRoutesShareTheBudget(t *testing.T) {
 			t.Fatalf("wrong proof %d: err=%v", i, err)
 		}
 	}
-	if err := svc.ProveTOTP(ctx, user.ID, right); !errors.Is(err, ErrMFAProofInvalid) {
-		t.Errorf("ProveTOTP with the right code past the budget: err=%v, want ErrMFAProofInvalid", err)
+	// v0.9.7 (the v0.9.6 open item): past the budget every proof route gives
+	// sign-in's wait answer, the right code included, unlooked at.
+	wait := func(what string, err error) {
+		t.Helper()
+		var th *LoginThrottledError
+		if !errors.As(err, &th) || th.RetryAfter <= 0 {
+			t.Errorf("%s past the SHARED budget: err=%v, want a LoginThrottledError with a wait", what, err)
+		}
 	}
-	if _, err := svc.RegenerateRecoveryCodes(ctx, user.ID, right); !errors.Is(err, ErrMFARegenerateInvalidCode) {
-		t.Errorf("regenerate with the right code past the SHARED budget: err=%v, want ErrMFARegenerateInvalidCode", err)
-	}
-	if _, err := svc.DisableSelfWithProof(ctx, user.ID, MFADisableSelfInput{Code: right}); !errors.Is(err, ErrMFADisableInvalidCode) {
-		t.Errorf("disable with the right code past the SHARED budget: err=%v, want ErrMFADisableInvalidCode", err)
-	}
+	wait("ProveTOTP with the right code", svc.ProveTOTP(ctx, user.ID, right))
+	_, err := svc.RegenerateRecoveryCodes(ctx, user.ID, right)
+	wait("regenerate with the right code", err)
+	_, err = svc.DisableSelfWithProof(ctx, user.ID, MFADisableSelfInput{Code: right})
+	wait("disable with the right code", err)
+	_, err = svc.DisableSelfWithProof(ctx, user.ID, MFADisableSelfInput{Code: "REC-A"})
+	wait("disable with a recovery code", err)
 }

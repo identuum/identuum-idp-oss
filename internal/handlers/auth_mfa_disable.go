@@ -92,6 +92,9 @@ func HandleMFADisableSelf(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		})
 		if err != nil {
 			switch {
+			case errors.Is(err, service.ErrLoginThrottled):
+				// The wrong-code budget is spent: sign-in's wait answer.
+				respondLoginThrottled(c, err)
 			case errors.Is(err, service.ErrMFANotEnrolled):
 				c.JSON(http.StatusBadRequest, gin.H{"error": "mfa_not_enrolled"})
 			case errors.Is(err, service.ErrMFADisableForbiddenByPolicy):

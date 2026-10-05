@@ -275,15 +275,28 @@ func (s *MFAVerifierService) VerifySignIn(ctx context.Context, user *domain.User
 // Retry-After) without being looked at, so the refusal tells nothing about the
 // code (FUNC-M3). A budget store that cannot be read refuses as a wrong code.
 func (s *MFAVerifierService) spentBudget(ctx context.Context, user uuid.UUID) error {
-	spent, wait := s.failures.Spent(ctx, user)
-	switch {
-	case !spent:
-		return nil
-	case wait <= 0:
+	if spent, wait := budgetWait(ctx, s.failures, user); spent {
+		if wait != nil {
+			return wait
+		}
 		return ErrMFAInvalid
-	default:
-		return &LoginThrottledError{RetryAfter: max(wait, time.Second), Bounded: true}
 	}
+	return nil
+}
+
+// budgetWait reports whether the user's wrong-code budget is spent and, when
+// it is and the wait is known, the sign-in wait answer (a *LoginThrottledError,
+// 429 with Retry-After). A store that cannot be read is spent with no wait:
+// each route then refuses as a wrong code.
+func budgetWait(ctx context.Context, b *TOTPFailureBudget, user uuid.UUID) (bool, error) {
+	spent, wait := b.Spent(ctx, user)
+	if !spent {
+		return false, nil
+	}
+	if wait <= 0 {
+		return true, nil
+	}
+	return true, &LoginThrottledError{RetryAfter: max(wait, time.Second), Bounded: true}
 }
 
 // Verify checks the supplied TOTP code against the user's

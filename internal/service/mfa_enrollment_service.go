@@ -731,6 +731,13 @@ func (s *MFAEnrollmentService) RegenerateRecoveryCodes(ctx context.Context, user
 	// of disable proofs a moment later. The refusal does not say which
 	// kind of proof was wrong: absent, empty, wrong and recovery code all
 	// answer ErrMFARegenerateInvalidCode, and nothing is burned.
+	// A spent budget gives sign-in's wait answer, the code unlooked at.
+	if spent, wait := budgetWait(ctx, s.proofFailures, user.ID); spent {
+		if wait != nil {
+			return nil, wait
+		}
+		return nil, ErrMFARegenerateInvalidCode
+	}
 	if !s.totpProofOK(ctx, user, strings.TrimSpace(code)) {
 		return nil, ErrMFARegenerateInvalidCode
 	}
@@ -827,8 +834,12 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 	trimmedCode := strings.TrimSpace(in.Code)
 	if trimmedCode != "" {
 		// The recovery-code leg below has no budget of its own, so the
-		// shared one gates the whole proof: past it, nothing is accepted.
-		if s.proofFailures.Exhausted(ctx, user.ID) {
+		// shared one gates the whole proof: past it, nothing is accepted,
+		// and the answer is sign-in's wait.
+		if spent, wait := budgetWait(ctx, s.proofFailures, user.ID); spent {
+			if wait != nil {
+				return "", wait
+			}
 			return "", ErrMFADisableInvalidCode
 		}
 		// The TOTP leg is totpProofOK (shared with the recovery-code
@@ -1087,6 +1098,12 @@ func (s *MFAEnrollmentService) ProveTOTP(ctx context.Context, userID uuid.UUID, 
 	}
 	if !user.MFAEnabled {
 		return ErrMFANotEnrolled
+	}
+	if spent, wait := budgetWait(ctx, s.proofFailures, user.ID); spent {
+		if wait != nil {
+			return wait
+		}
+		return ErrMFAProofInvalid
 	}
 	if !s.totpProofOK(ctx, user, strings.TrimSpace(code)) {
 		return ErrMFAProofInvalid

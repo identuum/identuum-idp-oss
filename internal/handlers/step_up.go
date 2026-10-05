@@ -13,9 +13,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"html"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -153,6 +155,12 @@ func HandleStepUpSubmit(deps StepUpHandlerDeps) gin.HandlerFunc {
 		if err := deps.Verifier.Verify(c.Request.Context(), resolved.User, c.PostForm("totp_code")); err != nil {
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{Action: "user_session.step_up.failure", Outcome: "denied", IPAddress: ip, UserAgent: ua, Metadata: map[string]any{"session_id": resolved.Session.ID.String()}})
 			loc := "/api/v1/auth/step-up?error=invalid_code"
+			if errors.Is(err, service.ErrLoginThrottled) {
+				// The user's wrong-code budget is spent: sign-in's wait answer,
+				// as the browser sign-in gives it.
+				loc = "/api/v1/auth/step-up?error=login_throttled"
+				c.Header("Retry-After", strconv.Itoa(loginRetryAfterSeconds(err)))
+			}
 			if returnTo != "" {
 				loc += "&return_to=" + url.QueryEscape(returnTo)
 			}
@@ -221,7 +229,9 @@ const stepUpFormTemplate = `<!DOCTYPE html>
 
 func renderStepUpForm(w http.ResponseWriter, returnTo, errCode, csrfToken string) {
 	body := strings.ReplaceAll(stepUpFormTemplate, "{{RETURN_TO}}", html.EscapeString(returnTo))
-	if errCode != "" {
+	if errCode == "login_throttled" {
+		body = strings.ReplaceAll(body, "{{ERROR}}", `<p role="alert" data-error="login_throttled">Too many attempts. Wait a few minutes, then try again.</p>`)
+	} else if errCode != "" {
 		body = strings.ReplaceAll(body, "{{ERROR}}", `<p role="alert" data-error="`+html.EscapeString(errCode)+`">That code was not accepted. Please try again.</p>`)
 	} else {
 		body = strings.ReplaceAll(body, "{{ERROR}}", "")
