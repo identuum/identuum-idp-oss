@@ -256,6 +256,7 @@ func (s *stubUserRepoForMFAEnroll) GetByEmailAndOrgID(context.Context, uuid.UUID
 func (s *stubUserRepoForMFAEnroll) GetByExternalID(context.Context, uuid.UUID, string) (*domain.User, error) {
 	panic("stubUserRepoForMFAEnroll: GetByExternalID not expected")
 }
+
 // GetByIDWithOrg is the read that carries the password hash (self-enrolment's
 // password proof).
 func (s *stubUserRepoForMFAEnroll) GetByIDWithOrg(_ context.Context, id uuid.UUID) (*domain.User, error) {

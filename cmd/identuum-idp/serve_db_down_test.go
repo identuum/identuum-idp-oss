@@ -38,7 +38,7 @@ func TestRunServe_ADatabaseDownAtBootWaitsNotServing(t *testing.T) {
 	done := make(chan int, 1)
 	go func() {
 		// Nothing listens on port 1: the database is down.
-		done <- runServe(addr, "http://"+addr, "postgres://u:p@127.0.0.1:1/db?sslmode=disable&connect_timeout=1",
+		done <- runServe(addr, "http://"+addr, "postgres://u:dev-u-not-a-secret@127.0.0.1:1/db?sslmode=disable&connect_timeout=1",
 			time.Hour, "", lockedWriter{&mu, &stdout}, lockedWriter{&mu, &stderr})
 	}()
 
@@ -87,7 +87,7 @@ func TestRunServe_ADatabaseDownAtBootWaitsNotServing(t *testing.T) {
 	mu.Lock()
 	out := stdout.String() + stderr.String()
 	mu.Unlock()
-	if strings.Contains(out, "u:p@") || strings.Contains(out, "postgres://") {
+	if strings.Contains(out, "dev-u-not-a-secret") || strings.Contains(out, "postgres://") {
 		t.Error("the database URL reached the output")
 	}
 }

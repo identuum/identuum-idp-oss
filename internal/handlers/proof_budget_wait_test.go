@@ -40,6 +40,7 @@ func TestStepUpSubmit_ASpentBudgetSaysToWait(t *testing.T) {
 		CookieSession: &fakeStepUpResolver{resolved: &service.CookieSessionLookupResult{Session: sess, User: user}},
 		Verifier:      waitingVerifier{},
 		Sessions:      rec,
+		Now:           func() time.Time { return time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC) },
 	})
 	w := postStepUp(r, "live", "123456", "/api/v1/oauth/authorize?client_id=c")
 	loc := w.Header().Get("Location")
