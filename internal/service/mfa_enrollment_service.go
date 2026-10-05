@@ -98,6 +98,9 @@ type MFAEnrollmentService struct {
 	// verifyTurns gives one user's pending sign-in verifications their turn
 	// across the per-user count, the code check and the recorded miss.
 	verifyTurns keyedMutex
+	// selfEnroll remembers each user's newest account-settings enrolment
+	// (FUNC-M1, mfa_self_enroll.go).
+	selfEnroll selfEnrollments
 }
 
 // MFAEnrollmentServiceOptions tunes the service. Zero values fall
@@ -462,6 +465,13 @@ type MFAEnrollmentCompleteResult struct {
 //     The lost pending row is acceptable; pending rows are
 //     short-lived ephemera.
 func (s *MFAEnrollmentService) Complete(ctx context.Context, pendingID uuid.UUID, code string) (*MFAEnrollmentCompleteResult, error) {
+	return s.complete(ctx, pendingID, code, nil)
+}
+
+// complete is Complete; hashedCodes, when non-nil, replaces the recovery
+// codes Initiate stored on the pending row (self-enrolment shows its codes at
+// complete, not at initiate).
+func (s *MFAEnrollmentService) complete(ctx context.Context, pendingID uuid.UUID, code string, hashedCodes []string) (*MFAEnrollmentCompleteResult, error) {
 	row, err := s.pending.GetByID(ctx, pendingID)
 	if err != nil {
 		if errors.Is(err, repository.ErrMFAPendingSessionNotFound) {
@@ -512,10 +522,14 @@ func (s *MFAEnrollmentService) Complete(ctx context.Context, pendingID uuid.UUID
 	}
 	enabled := true
 	secret := *row.Secret
+	codes := row.RecoveryCodes
+	if hashedCodes != nil {
+		codes = hashedCodes
+	}
 	updated, err := s.users.Update(ctx, user.ID, user.OrganizationID, repository.UpdateUserOptions{
 		MFAEnabled:       &enabled,
 		MFASecret:        &secret,
-		MFARecoveryCodes: row.RecoveryCodes,
+		MFARecoveryCodes: codes,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("service: mfa pending persist: %w", err)

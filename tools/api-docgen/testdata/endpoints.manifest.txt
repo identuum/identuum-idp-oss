@@ -107,6 +107,8 @@ POST /api/v1/keys/rotate
 POST /api/v1/me/mfa/disable
 POST /api/v1/me/mfa/recovery-codes/regenerate
 POST /api/v1/me/sessions/revoke-all
+POST /api/v1/mfa/setup/complete
+POST /api/v1/mfa/setup/initiate
 POST /api/v1/me/sessions/revoke-current
 POST /api/v1/me/sessions/revoke-others
 POST /api/v1/oauth/authorize

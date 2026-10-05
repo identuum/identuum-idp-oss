@@ -100,7 +100,9 @@ import (
 // /api/v1/auth/register/:org_slug, GET + PUT /api/v1/settings/self-registration,
 // GET + PUT /api/v1/organizations/:id/registration, GET
 // /api/v1/organizations/:id/registrations, POST /api/v1/users/:id/reject.
-const CanonicalEndpointCount = 157
+// 157 → 159: POST /api/v1/mfa/setup/initiate + /complete, a signed-in user
+// adds an authenticator from account settings (FUNC-M1, OSS-V0.9.7).
+const CanonicalEndpointCount = 159
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

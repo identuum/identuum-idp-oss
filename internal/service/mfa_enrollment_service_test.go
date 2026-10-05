@@ -256,8 +256,15 @@ func (s *stubUserRepoForMFAEnroll) GetByEmailAndOrgID(context.Context, uuid.UUID
 func (s *stubUserRepoForMFAEnroll) GetByExternalID(context.Context, uuid.UUID, string) (*domain.User, error) {
 	panic("stubUserRepoForMFAEnroll: GetByExternalID not expected")
 }
-func (s *stubUserRepoForMFAEnroll) GetByIDWithOrg(context.Context, uuid.UUID) (*domain.User, error) {
-	panic("stubUserRepoForMFAEnroll: GetByIDWithOrg not expected")
+// GetByIDWithOrg is the read that carries the password hash (self-enrolment's
+// password proof).
+func (s *stubUserRepoForMFAEnroll) GetByIDWithOrg(_ context.Context, id uuid.UUID) (*domain.User, error) {
+	u, ok := s.byID[id]
+	if !ok {
+		return nil, domain.ErrUserNotFound
+	}
+	cp := *u
+	return &cp, nil
 }
 func (s *stubUserRepoForMFAEnroll) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("stubUserRepoForMFAEnroll: Delete not expected")

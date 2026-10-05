@@ -273,6 +273,29 @@ func RegisterAuthSessionRoutes(router gin.IRouter, deps AuthSessionsHandlerDeps)
 		// docgen:notes=Response carries Cache-Control no-store + Pragma no-cache. 204 No Content on success. 400 invalid_request when the request body is malformed. 400 mfa_not_enrolled when MFAEnabled=false on the principal. 401 invalid_code when the supplied code matches neither the TOTP secret nor any recovery code, or when no code is supplied at all (opaque — the wire NEVER distinguishes wrong-TOTP from wrong-recovery from no-code). The password key is still accepted on the wire and never consulted: a valid code succeeds whatever the password field holds, and a body with a password and no code is refused with the same 401 invalid_code. 401 unauthorized for stale / missing / banned / soft-deleted principals (same opaque envelope used by the other /me/mfa surfaces). 403 mfa_required_by_policy when role or org policy forces MFA. The supplied code, password, MFASecret, recovery codes, session IDs, access tokens, refresh tokens, token hashes, and password hash NEVER appear in the response body, audit metadata, headers, or any error envelope.
 		// docgen:status=204
 		status.POST("/disable", HandleMFADisableSelf(deps))
+
+		// Self-service enrolment from account settings (FUNC-M1), on the
+		// paths and wire shape identuum-idp-ce serves and the console calls.
+		setup := router.Group("/api/v1/mfa/setup")
+		setup.Use(mw.RequireAuthenticated())
+		// docgen:endpoint
+		// docgen:surface=auth
+		// docgen:method=POST
+		// docgen:path=/api/v1/mfa/setup/initiate
+		// docgen:summary=Self-service authenticator enrolment, step 1. Verifies the authenticated user's current password ({password}) and returns a fresh TOTP secret and otpauth URL, once. The pending enrolment (five minutes) is bound to the user on the server; a new step 1 replaces it.
+		// docgen:tier=oss
+		// docgen:auth=authenticated
+		// docgen:notes=Response carries Cache-Control no-store. 401 invalid_proof for an absent or wrong password, or an account without a local password (one refusal); a wrong password counts on the per-user proof budget the other proof routes share, and a spent budget answers 429 login_throttled with Retry-After. 409 mfa_already_enrolled when the user already has an authenticator. 400 invalid_request for a malformed body. The password and the secret never appear in an audit row.
+		setup.POST("/initiate", HandleMFASetupInitiate(deps))
+		// docgen:endpoint
+		// docgen:surface=auth
+		// docgen:method=POST
+		// docgen:path=/api/v1/mfa/setup/complete
+		// docgen:summary=Self-service authenticator enrolment, step 2. Verifies the first code ({code}) against the secret from step 1, enables MFA on the authenticated user's account and returns ten recovery codes, once.
+		// docgen:tier=oss
+		// docgen:auth=authenticated
+		// docgen:notes=Response carries Cache-Control no-store. 401 invalid_code for a wrong code (the enrolment stays open until it expires). 400 code_required for an empty code; 400 setup_not_started when no step 1 is open (never started, expired, or used). 409 mfa_already_enrolled. The recovery codes never appear in an audit row.
+		setup.POST("/complete", HandleMFASetupComplete(deps))
 	}
 	if deps.UserLookup != nil {
 		sessions := router.Group("/api/v1/me/sessions")

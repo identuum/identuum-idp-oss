@@ -1085,6 +1085,32 @@ paths:
           description: "Self-service revoke other sessions/devices. Revokes every active browser session for the authenticated user except the current session derived from the bound principal."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/mfa/setup/complete":
+    post:
+      operationId: "identuum-idp-oss.auth.mfa_setup_complete"
+      summary: "Self-service authenticator enrolment, step 2. Verifies the first code ({code}) against the secret from step 1, enables MFA on the authenticated user's account and returns ten recovery codes, once."
+      tags:
+        - "auth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Self-service authenticator enrolment, step 2. Verifies the first code ({code}) against the secret from step 1, enables MFA on the authenticated user's account and returns ten recovery codes, once."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/mfa/setup/initiate":
+    post:
+      operationId: "identuum-idp-oss.auth.mfa_setup_initiate"
+      summary: "Self-service authenticator enrolment, step 1. Verifies the authenticated user's current password ({password}) and returns a fresh TOTP secret and otpauth URL, once. The pending enrolment (five minutes) is bound to the user on the server; a new step 1 replaces it."
+      tags:
+        - "auth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Self-service authenticator enrolment, step 1. Verifies the authenticated user's current password ({password}) and returns a fresh TOTP secret and otpauth URL, once. The pending enrolment (five minutes) is bound to the user on the server; a new step 1 replaces it."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/oauth/authorize":
     get:
       operationId: "identuum-idp-oss.oauth.authorize_get"
