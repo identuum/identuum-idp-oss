@@ -5,6 +5,57 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## `v0.9.7`
+
+identuum-ui `75353da` embedded (`v0.9.6` embedded `57482c5`). From this
+release identuum-ui follows this repository's version numbers (owner ruling,
+2026-10-05): the embedded export is identuum-ui `v0.9.7`. The delta since
+`v0.9.6` (`git rev-list --count v0.9.6..HEAD` and `git diff --shortstat
+v0.9.6..HEAD`, measured at `abb76e9`, before the notes commit) is 12
+commits, 42 files, +1651/−75. No migration. The endpoint count is 159
+(157 + 2: `POST /api/v1/mfa/setup/initiate` and `/complete`; `go run
+./tools/api-docgen --dry-run`).
+
+These close the remaining Medium findings of the 2026-10-05 functionality
+review and the two items `v0.9.6` left open; each code fix has a test that
+failed first.
+
+- **Account settings can add an authenticator** (FUNC-M1). The console posts
+  to `/api/v1/mfa/setup/initiate` (`{password}` → secret and otpauth URL,
+  once) and `/complete` (`{code}` → ten recovery codes, once), the contract
+  identuum-idp-ce serves; OSS mounted neither and answered `404`. A wrong
+  password answers `401 invalid_proof` and counts on the per-user proof
+  budget; a spent budget answers `429 login_throttled` with `Retry-After`;
+  an enrolled user gets `409 mfa_already_enrolled`.
+- **Step-up and the other proof routes give sign-in's wait answer.** Past
+  the wrong-code budget, MFA disable, recovery-code regeneration and skip
+  consent answer `429 login_throttled` with `Retry-After`, and the step-up
+  page says to wait (it said the code was invalid).
+- **HTTP Basic client credentials are form-decoded** (RFC 6749 §2.3.1,
+  FUNC-M8): a resource server whose audience is a URL authenticates with
+  HTTP Basic at introspection; it was refused `401`.
+- **A database that is down at boot is waited for** (FUNC-M9). The binary
+  and the container no longer exit: they print `NOT-SERVING`, answer
+  `/livez` and `/healthz` `200`, `/health` `503` with the `database` fault
+  and every other route `503`, retry (1 s doubling to 30 s), and start
+  serving when the database answers. The compose install crash-looped
+  before.
+- **`last_login_at` is recorded** on every completed sign-in (FUNC-M15); the
+  console's "Last login" column was always empty.
+- **The setup wizard says why it refuses a password** (FUNC-M6):
+  `400 weak_password` with the policy sentence (it answered
+  `setup_complete_failed`), and the wizard's hint states the whole rule.
+- **Console** (identuum-ui `v0.9.7`): held sign-ups show Awaiting approval
+  (FUNC-M4), scope templates show (FUNC-M5), the service-account form says
+  what the IdP does (FUNC-M7), an active organization's administrator can be
+  re-invited (FUNC-M13), the audit log reaches older events (FUNC-M16), and a
+  new **Sign-in provider** page configures the organization's upstream OIDC
+  provider.
+- **Docs**: losing the at-rest key stops the whole IdP, and how to restore
+  it (FUNC-M11); signing-key rotation, and the RS256 sentence corrected
+  (FUNC-M12); resetting a user's password without email (FUNC-M14); the
+  service-account bundle route (FUNC-M7); the database-down boot.
+
 ## `v0.9.6`
 
 identuum-ui `57482c5` embedded (`v0.9.5` embedded `4ff1270`): the sign-in
