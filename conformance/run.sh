@@ -98,6 +98,17 @@ trap teardown EXIT INT TERM
 
 fail() { echo "openid-conformance: $*" >&2; exit 2; }
 
+# redact masks secret classes before anything reaches the log (FUNC-M10, §G):
+# a JWT, and the value of a token, code, state, secret, session or password
+# field, whether in a query string or a JSON body. It never redacts by
+# remembered values.
+redact() {
+	sed -E \
+		-e 's/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*/[jwt]/g' \
+		-e 's/((access_token|id_token|refresh_token|token|code|state|client_secret|session_id|password|id_token_hint)=)[^&[:space:]"]+/\1[redacted]/g' \
+		-e 's/("(access_token|id_token|refresh_token|token|code|state|client_secret|session_id|password|id_token_hint)"[[:space:]]*:[[:space:]]*")[^"]*"/\1[redacted]"/g'
+}
+
 # ── the pinned clone (cached; cloned on first run) ──────────────────────────
 if [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
 	if [ ! -d "$CACHE/.git" ]; then
@@ -234,7 +245,7 @@ login_smoke() {
 		--data-urlencode "code_challenge_method=S256")
 	case "$loc" in
 	*code=*) echo "login-smoke: PASS — org_user completed browser-login + consent and received an authorization code" ;;
-	*) echo "login-smoke: consent approve did not yield a code (redirect: ${loc:-none})"; return 1 ;;
+	*) echo "login-smoke: consent approve did not yield a code (redirect: $(printf '%s' "${loc:-none}" | redact))"; return 1 ;;
 	esac
 
 	# And with consent stored, a plain authorize on the SAME session mints a
@@ -243,7 +254,7 @@ login_smoke() {
 		"$base/api/v1/oauth/authorize?client_id=$c1&redirect_uri=$(printf '%s' "$cb" | sed 's/:/%3A/g;s|/|%2F|g')&response_type=code&scope=openid&state=smoke2&nonce=smoke2&code_challenge=$challenge&code_challenge_method=S256")
 	case "$loc" in
 	*code=*) echo "login-smoke: PASS — authorize on the logged-in session mints a code" ;;
-	*) echo "login-smoke: authorize on the logged-in session did not mint a code (redirect: ${loc:-none})"; return 1 ;;
+	*) echo "login-smoke: authorize on the logged-in session did not mint a code (redirect: $(printf '%s' "${loc:-none}" | redact))"; return 1 ;;
 	esac
 }
 if [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
@@ -303,7 +314,7 @@ basic_ec=${PIPESTATUS[0]}
 # INTERRUPTED module prints nothing useful in the runner output.
 if [ "$basic_ec" -ne 0 ] && [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
 	echo "openid-conformance: FAILURE / INTERRUPTED entries from the exported module logs ($WORK/export):"
-	python3 - "$WORK/export" <<'PY' || true
+	{ python3 - "$WORK/export" <<'PY' || true
 import glob, json, os, sys
 for path in sorted(glob.glob(os.path.join(sys.argv[1], "**", "*.json"), recursive=True)):
     try:
@@ -323,8 +334,9 @@ for path in sorted(glob.glob(os.path.join(sys.argv[1], "**", "*.json"), recursiv
                 if k in e:
                     print("      %s: %s" % (k, str(e[k])[:300]))
 PY
+	} | redact
 	echo "openid-conformance: suite server log (exceptions/errors, tail) for diagnosis:"
-	compose logs --no-color --tail 600 server 2>/dev/null | grep -iE -A8 'exception|error|interrupt' | tail -120 || true
+	compose logs --no-color --tail 600 server 2>/dev/null | grep -iE -A8 'exception|error|interrupt' | tail -120 | redact || true
 fi
 # THE-JAR-REQUEST-OBJECT: a FULL run regenerates the committed module-order
 # file MODULE mode resolves indices from; a changed order shows up in git.

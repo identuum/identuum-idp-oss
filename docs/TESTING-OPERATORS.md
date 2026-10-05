@@ -224,7 +224,12 @@ these under `CLIENT-UPDATE-DOCUMENT-1`.
 
 ## The OpenID conformance harness (`make openid-conformance`)
 
-A MANUAL target — never part of `make verify` or the disposable suite. It
+A MANUAL target — never part of `make verify`, CI or the disposable suite. It
+is a RELEASE STEP: before an OSS release is tagged, it runs at the release
+commit (both plans, no preload) and must end `RESULT: GREEN`; the release
+notes record that run. No gate runs it, because it needs Docker, about 4 GB of
+pinned images and a network clone on its first run. Until v0.9.6 nothing ran
+it, and it had stopped at provisioning since v0.9.5 (FUNC-M10). It
 runs the OpenID Foundation conformance suite (pinned in `conformance/PIN`)
 against a fresh disposable appliance, and reports the suite's verdicts
 verbatim against a committed expected-failure floor. It fixes nothing: a

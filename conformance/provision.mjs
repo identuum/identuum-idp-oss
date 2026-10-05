@@ -57,9 +57,13 @@ async function api(method, path, body, token) {
   try { json = text ? JSON.parse(text) : {}; } catch { json = { _raw: text.slice(0, 200) }; }
   return { status: res.status, json };
 }
+// errorCode is the one part of a refusal the log may carry: the response's
+// short `error` code. Bodies are never echoed — a refusal can carry a pending
+// session id, a link or a token (FUNC-M10).
+const errorCode = (json) => (typeof json?.error === "string" && /^[a-z0-9_]{1,64}$/.test(json.error) ? json.error : "-");
 function must(r, want, what) {
   if (r.status !== want) {
-    console.error(`provision: ${what} -> ${r.status} (${JSON.stringify(r.json).slice(0, 200)})`);
+    console.error(`provision: ${what} -> ${r.status} (error: ${errorCode(r.json)})`);
     process.exit(1);
   }
   return r.json;
@@ -86,10 +90,7 @@ const resend = must(await api("POST", `/api/v1/organizations/${orgId}/resend-act
 const tokenFromLink = resend.activation_url ? new URL(resend.activation_url).searchParams.get("token") : resend.activation_token;
 must(await api("POST", "/api/v1/auth/organizations/activate", { token: tokenFromLink, password: USER_PW + "-Adm1n" }), 200, "activate org_admin");
 
-// 3. mfa_policy=optional so a NO-MFA user can complete the browser login.
-must(await api("PUT", `/api/v1/organizations/${orgId}`, { mfa_policy: "optional" }, saToken), 200, "set mfa_policy optional");
-
-// 4. org_admin session (fresh admin: enroll its required TOTP once).
+// 3. org_admin session (fresh admin: enroll its required TOTP once).
 const aLogin = await api("POST", "/api/v1/auth/login", { email: "admin@conformance.test", password: USER_PW + "-Adm1n" });
 let oaToken = aLogin.json.access_token;
 if (!oaToken) {
@@ -100,13 +101,21 @@ if (!oaToken) {
   oaToken = must(done, 200, "org_admin mfa complete").access_token;
 }
 
+// 4. mfa_policy=optional so a NO-MFA user can complete the browser login.
+// D-029: a tenant organization's policy fields are its own org_admin's — a
+// site_admin's PUT of mfa_policy answers 403 forbidden_field.
+must(await api("PUT", `/api/v1/organizations/${orgId}`, { mfa_policy: "optional" }, oaToken), 200, "set mfa_policy optional");
+
 // 5. The conformance test user — NO MFA, plain password login. Login
 // refuses an unverified account (measured: 401 account_unverified), and no
 // mail flows in the harness, so the org_admin marks the address verified —
-// the same email_verified flag the admin update API exposes.
+// the same email_verified flag the admin update API exposes. D-017: a user
+// created with a password must change it at first sign-in unless the creator
+// says otherwise; the suite's browser automation signs in with exactly this
+// password, so the org_admin says otherwise.
 const created = must(await api("POST", "/api/v1/users", {
   email: "conformance-user@conformance.test", password: USER_PW,
-  name: "Conformance User", role: "org_user",
+  name: "Conformance User", role: "org_user", must_change_password: false,
 }, oaToken), 201, "create test user");
 const userId = created.user?.id ?? created.id;
 // THE-PROFILE-CLAIMS: EVERY OIDC §5.1 profile field is set on the test user
@@ -139,7 +148,7 @@ must(await api("PUT", `/api/v1/users/${userId}`, {
 {
   const check = await api("POST", "/api/v1/auth/login", { email: "conformance-user@conformance.test", password: USER_PW });
   if (check.status !== 200 || !check.json.access_token) {
-    console.error(`provision: test-user JSON login self-check -> ${check.status} (${JSON.stringify(check.json).slice(0, 200)})`);
+    console.error(`provision: test-user JSON login self-check -> ${check.status} (error: ${errorCode(check.json)})`);
     process.exit(1);
   }
 }
