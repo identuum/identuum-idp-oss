@@ -204,6 +204,59 @@ stop, rotate, set the new key, start, verify with doctor) lives in
 [guides/encryption-key-rotation.md](guides/encryption-key-rotation.md).
 Doctor's `at-rest-seals` lines are the post-rotation verification.
 
+## Rotate the token signing key
+
+The IdP signs tokens with its **active** signing key and publishes every
+active and rotating key in JWKS (`/.well-known/jwks.json`). Rotation is done
+over the API by the site administrator (bearer token); the console's keys
+page lists the keys but does not rotate them. Each step is audited
+(`key.generated`, `key.rotated`, `key.deprecated`). No restart is needed: the
+next token is signed with whatever key is active.
+
+1. Find the active key:
+
+   ```
+   GET /api/v1/keys
+   ```
+
+   Note the `kid` whose `state` is `active`.
+
+2. Create the new key. It is published in JWKS at once but does not sign yet
+   (`state` `rotating`):
+
+   ```
+   POST /api/v1/keys/generate   {"algorithm": "EdDSA"}
+   ```
+
+   `algorithm` is `EdDSA` (preferred), `ES256` or `RS256` (`RS256` never
+   becomes the default signer; see the README). The answer carries the new
+   `kid`; the private key is never returned.
+
+3. Wait until your relying parties have fetched JWKS again (at least their
+   JWKS cache time), so they know the new key before it signs.
+
+4. Switch signing to the new key:
+
+   ```
+   POST /api/v1/keys/rotate   {"old_kid": "<old kid>", "new_kid": "<new kid>"}
+   ```
+
+   The new key signs from the next token on. The old key stays published
+   (`rotating`), so tokens it already signed keep verifying. `deprecate_days`
+   (optional) only records when the old key may be removed; it does not
+   unpublish it.
+
+5. When every token the old key signed has expired (your longest access and
+   ID token lifetime), retire it:
+
+   ```
+   POST /api/v1/keys/deprecate   {"kid": "<old kid>"}
+   ```
+
+   It leaves JWKS at once. `expires_at` (RFC 3339, optional, default 30 days
+   from now) says when it may be deleted; `DELETE /api/v1/keys/expired`
+   removes deprecated keys past that time.
+
 ## Create the first admin + signing key (bootstrap)
 
 ```
@@ -322,6 +375,13 @@ POST /api/v1/organizations/<org-id>/resend-activation
 ```
 
 The response has the same shape, link included.
+
+An **active** organization has no activation to re-issue (that call answers
+`409`). When its administrator was invited and has not accepted, re-issue the
+administrator's **invite** instead: in the console, the organization's page
+shows **Waiting for the administrator to accept the invite** with **Re-issue
+invite**; over the API, `POST /api/v1/users/<admin-user-id>/invite` (see
+"Invite a user", "Re-issuing").
 
 ## Hand over an organization with a claim link
 
@@ -520,6 +580,57 @@ already-used link gets one answer (`invalid_token`). Both calls are
 rate-limited like sign-in. The token is stored only as a hash, works once, and
 never appears in a log line or an audit row (`user.invited`,
 `user.invite_reissued`, `user.invite_redeemed`).
+
+## A user forgot their password and email is not configured
+
+Without email delivery, "Forgot password" sends nothing, and the sign-in page
+tells the user to ask their administrator. The organization's administrator
+sets a new password over the API (the console has no button for it yet), as
+an org_admin of the user's organization:
+
+```
+PUT /api/v1/users/{user_id}   {"password": "…"}
+```
+
+- The password follows the organization's policy; a refusal answers
+  `400 weak_password` with the rule it broke.
+- The user is signed out everywhere: their sessions and refresh tokens are
+  revoked before the password changes.
+- The password you set is the user's password until they change it (Account
+  settings → Password). Hand it over on a channel you trust.
+
+The site administrator's own password has its own break-glass command (see
+"Reset the site_admin password" above).
+
+## Service accounts with a credential
+
+**Service accounts → Create** in the console registers the identity only: no
+credential is issued. The role is `org_user` unless you choose another, and
+the account never expires unless you set an expiry date (the organization's
+`service_account_expiry_days` is not applied to it).
+
+A service account that signs in with `client_credentials` is created together
+with its OAuth client in one call, by an org_admin of the organization:
+
+```
+POST /api/v1/organizations/{org_id}/service-accounts/with-client
+```
+
+```json
+{
+  "service_account": {"name": "reports-bot", "description": "nightly reports", "role": "org_user"},
+  "client": {"name": "reports-bot", "scope": "<scopes>", "allowed_audiences": ["<audience>"]}
+}
+```
+
+The answer is `201` with `service_account`, `client` (its `client_id`) and
+`client_secret`, which is shown **once**. The client's scope is capped at the
+scopes you hold. The service account then gets tokens from the token endpoint
+(`/api/v1/oauth/token`) with `grant_type=client_credentials` and its
+`client_id` and `client_secret` (HTTP Basic or the form body); the tokens
+carry `actor_type` `service_account`. An application registered for
+`client_credentials` without a service account is refused with
+`unauthorized_client`.
 
 ## Console and application sign-ins are separate
 

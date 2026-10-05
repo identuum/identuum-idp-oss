@@ -300,8 +300,8 @@ data.
 
 ### At-rest encryption key
 
-`IDENTUUM_IDP_ENCRYPTION_KEY` (32 bytes / 64 hex) encrypts MFA TOTP seeds at
-rest. The runtime fails closed if it is missing or malformed: an absent or
+`IDENTUUM_IDP_ENCRYPTION_KEY` (32 bytes / 64 hex) encrypts the token signing
+keys and MFA TOTP seeds at rest. The runtime fails closed if it is missing or malformed: an absent or
 invalid key records a startup-fatal and the IdP comes up **NOT-SERVING**
 (refusing traffic with `503`), so the deployment surface must always provide
 one.
@@ -316,9 +316,14 @@ one.
   the volume-persisted key. The persisted file lives inside the data volume —
   convenience, not strong key separation — and an operator-supplied env key
   always wins (it is used as-is; the file is never written or overwritten).
-- **Key loss:** if the key is lost or changed, previously-encrypted MFA secrets
-  become unrecoverable and affected users must re-enroll. Back up the key (or
-  manage it externally) alongside the database.
+- **Key loss stops the whole IdP.** With a lost or changed key the signing
+  keys cannot be read: the IdP comes up **NOT-SERVING** (`503` on every route
+  but `/livez`; `GET /health` names the `signing-key-seal` fault;
+  `identuum-idp doctor` reports it). Nobody can sign in and no token is
+  issued until the original key is back: set `IDENTUUM_IDP_ENCRYPTION_KEY` to
+  it again (or restore the key file on the data volume, image installs) and
+  restart. There is no recovery without the key — keep a copy with every
+  database backup, outside the database.
 
 ## Running the bare binary (no Docker, no Makefile)
 
@@ -385,10 +390,16 @@ Content-Type: application/json
 {"algorithm":"EdDSA"}
 ```
 
-`algorithm` may be `EdDSA` (preferred) or `ES256`. **`RS256` is
-rejected by the OSS issuance path** — `id_token_signing_alg_values_supported`
-excludes RS256 by design. (Inbound `private_key_jwt` client assertions
-may still use RS256; the two settings are separate.)
+`algorithm` may be `EdDSA` (preferred), `ES256` or `RS256`. A new key is
+published in JWKS and does not sign until it is rotated in (see "Rotate the
+token signing key" in `docs/OPERATOR-GUIDE.md`; `"state":"active"` in the
+body makes it sign at once). An `RS256` key is never the
+default signer and discovery does not advertise RS256
+(`id_token_signing_alg_values_supported` is `[EdDSA, ES256]`): it signs only
+the ID tokens of a client registered with
+`id_token_signed_response_alg=RS256` (for interoperability testing, see
+`docs/TESTING-OPERATORS.md`). Inbound `private_key_jwt` client assertions may
+use RS256; the two settings are separate.
 
 ## First-run setup (how it works)
 
