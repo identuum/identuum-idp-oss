@@ -1,8 +1,8 @@
 schema: gate-run.v1
 gate: identuum-idp-oss make verify
 note: evidence lines are the tools' own summary lines; a summary format this script does not match is recorded only as an exit code
-repo-head: 890f441
-started: 2026-10-04T21:30:04Z
+repo-head: 99d59ab
+started: 2026-10-05T09:19:06Z
 plan: tool-versions toolchain-parity ci-witness mint-decide witness-mint-test script-tests openapi-check repo-green tracked-binary-check ui-vendor-check notices-check credential-transparency workflow-yaml workflow-yaml-parity rulefloor-check ledger-diff-gate image-base-check api-surface vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report clock-fuse-gate tagged-vet integration-inventory gograph-capabilities gograph-build gograph-boundaries go-mod-tidy-diff staticcheck govulncheck grype-scan wiki-fresh
 tool: go          go1.27.1  /opt/homebrew/bin/go
 tool: staticcheck 2026.2.1 (0.8.1)  /opt/homebrew/bin/staticcheck
@@ -10,17 +10,17 @@ tool: grype       0.120.0  /opt/homebrew/bin/grype
 tool: govulncheck govulncheck@v1.8.0  /opt/homebrew/bin/govulncheck
 tool: rulefloor   {"schema_version":"rulefloor.version.v1","version":"v0.9.1","toolchain_version":"v0.9.1","version_agreement":"pass"}  /opt/homebrew/bin/rulefloor
 tool: yq          v4.54.1  /opt/homebrew/bin/yq
-tool: gograph     v1.7.5  /opt/homebrew/bin/gograph
+tool: gograph     v1.7.6  /opt/homebrew/bin/gograph
 elapsed: tool-versions 1s
 target: tool-versions exit=0
 evidence: [toolchain-parity] check OK: toolchain-parity 9 pins agree (gate-witness.sh 651402aa7df9e76472496514aa26343f76268378ccc1c354b7762c635f448809, go 1.27.1, govulncheck 1.8.0, grype 0.120.0, lictor 0.4.4, rulefloor 0.9.1, rulefloor-install-gate.sh db2a505d1c1f2fb55b34632a5098ef658dd6fbab1671e58de2c41788a63f37a6, staticcheck 0.8.1, yq 4.54.1)
 elapsed: toolchain-parity 1s
 target: toolchain-parity exit=0
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 26 planned target(s) all exit=0, ties commit 4eefa1f, 149 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d; PLAN DRIFT (report only): expected [script-tests tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity openapi-check rulefloor-check image-base-check api-surface fmt-check vet vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report tagged-vet integration-inventory notices-check go-mod-tidy-diff go-build go-test-race staticcheck grype-scan], recorded [script-tests tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity openapi-check rulefloor-check image-base-check api-surface fmt-check vet vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report tagged-vet integration-inventory go-mod-tidy-diff go-build go-test-race staticcheck grype-scan]
-evidence: [ci-witness] check OK: ci-witness identuum-idp-oss CI integration targets (partial job record) green, 3 planned target(s) all exit=0, ties commit 4eefa1f, 149 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss make ci-verify green, 26 planned target(s) all exit=0, ties commit 4eefa1f, 160 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d; PLAN DRIFT (report only): expected [script-tests tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity openapi-check rulefloor-check image-base-check api-surface fmt-check vet vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report tagged-vet integration-inventory notices-check go-mod-tidy-diff go-build go-test-race staticcheck grype-scan], recorded [script-tests tracked-binary-check credential-transparency workflow-yaml workflow-yaml-parity openapi-check rulefloor-check image-base-check api-surface fmt-check vet vet-integration doccomment-check r-suite image-base-parity witness-parity image-policy-restate-check distroless-exec-check clock-fuse-report tagged-vet integration-inventory go-mod-tidy-diff go-build go-test-race staticcheck grype-scan]
+evidence: [ci-witness] check OK: ci-witness identuum-idp-oss CI integration targets (partial job record) green, 3 planned target(s) all exit=0, ties commit 4eefa1f, 160 commit(s) behind HEAD — the CI claim covers that tree, not this one, run https://github.com/identuum/identuum-idp-oss/actions/runs/37064199744 attempt=1 sha=4eefa1f5a34dac389c5593686171a84c089e9b8d
 elapsed: ci-witness 0s
 target: ci-witness exit=0
-evidence: [mint-decide] check OK: mint-reachability MINT REQUIRED — tier full (e2e-full): 1 of 3 changed path(s) reach the appliance: deployment/docker-compose.yml (since GATE-RUN.e2e-full.txt: identuum-ui 0f00c16, identuum-idp-oss 97827c8)
+evidence: [mint-decide] check OK: mint-reachability MINT REQUIRED — tier full (e2e-full): 34 of 70 changed path(s) reach the appliance: THIRD_PARTY_NOTICES, cmd/identuum-idp/reset_org_admin_mfa.go, identuum-ui/src/__tests__/idp-client-login-throttled.test.ts, identuum-ui/src/__tests__/sign-in-code-step.test.ts, identuum-ui/src/components/auth/mfa-form.tsx, identuum-ui/src/components/auth/password-form.tsx, identuum-ui/src/lib/idp-client.ts, internal/api/router.go, …and 26 more (since GATE-RUN.e2e-full.txt: identuum-ui 0f00c16, identuum-idp-oss 890f441)
 evidence: [mint-decide] check OK: mint-decide report recorded (make exit 2); only SKIPPABLE permits a witness
 elapsed: mint-decide 1s
 target: mint-decide exit=0
@@ -31,20 +31,20 @@ target: witness-mint-test exit=0
 evidence: [script-tests] SELFTEST OK: one definition per plan (37/27/4); ci-verify differs from verify only by its declared subtractions and additions; external records preserve all-target and fail-fast verdicts
 evidence: [script-tests] check OK: CI integration record contract tests
 evidence: [script-tests] check OK: CI witness caller expectation proofs
-elapsed: script-tests 5s
+elapsed: script-tests 4s
 target: script-tests exit=0
 evidence: [openapi-check] go packages ok: 1
-elapsed: openapi-check 0s
+elapsed: openapi-check 1s
 target: openapi-check exit=0
-elapsed: repo-green 16s
+elapsed: repo-green 15s
 target: repo-green exit=0
 elapsed: tracked-binary-check 7s
 target: tracked-binary-check exit=0
-evidence: [ui-vendor-check] check OK: ui-vendor-check the embedded export matches its manifest (d3e9ebf1797c002539c0f68bdb324450874e9500194ce81f744a35de2e243fb2)
+evidence: [ui-vendor-check] check OK: ui-vendor-check the embedded export matches its manifest (77533a01d68c074299538a59208435437738749f22295f66a2e3567b7f4e50cd)
 evidence: [ui-vendor-check] go packages ok: 1
 elapsed: ui-vendor-check 0s
 target: ui-vendor-check exit=0
-evidence: [notices-check] check OK: notices THIRD_PARTY_NOTICES matches the build list (48 Go modules) and identuum-ui 4ff12701d6f1
+evidence: [notices-check] check OK: notices THIRD_PARTY_NOTICES matches the build list (48 Go modules) and identuum-ui 57482c583a3c
 elapsed: notices-check 1s
 target: notices-check exit=0
 elapsed: credential-transparency 0s
@@ -58,7 +58,7 @@ target: workflow-yaml-parity exit=0
 evidence: [rulefloor-check] check OK: 257 rows (257 armed), FLOOR 257, RED-PROOFS 257 (measured 257)
 elapsed: rulefloor-check 39s
 target: rulefloor-check exit=0
-evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=9c845392501f17cbeb1661b33e63fce428519cc3 status=same rule_changes=0 classes=none header_changes=none ledger_diff_sha256=85b826079367d34a1a0d1da398664e3cded2f8ce33ef886c005befba4ea149ff
+evidence: [ledger-diff-gate] check OK: ledger-diff reconciled base=039827bcd42fe671034a57809b220fa00ee86701 status=different rule_changes=3 classes=proof_changed,sentence_changed,test_fingerprint_changed header_changes=none ledger_diff_sha256=0ac902a17bd98f1b5e3a564001d6e9e6ab799905de71eed84bf00b7ecf3dcd8c
 elapsed: ledger-diff-gate 0s
 target: ledger-diff-gate exit=0
 elapsed: image-base-check 0s
@@ -66,9 +66,9 @@ target: image-base-check exit=0
 evidence: [api-surface] check OK: api-surface — pkg/ holds exactly {features licenseprovider oidc pkce totp uiserve webauthn} (P-061)
 elapsed: api-surface 0s
 target: api-surface exit=0
-elapsed: vet-integration 0s
+elapsed: vet-integration 1s
 target: vet-integration exit=0
-elapsed: doccomment-check 1s
+elapsed: doccomment-check 0s
 target: doccomment-check exit=0
 evidence: [r-suite] go packages ok: 3
 elapsed: r-suite 2s
@@ -86,27 +86,27 @@ elapsed: clock-fuse-report 1s
 target: clock-fuse-report exit=0
 elapsed: clock-fuse-gate 1s
 target: clock-fuse-gate exit=0
-elapsed: tagged-vet 1s
+elapsed: tagged-vet 2s
 target: tagged-vet exit=0
-elapsed: integration-inventory 0s
+elapsed: integration-inventory 1s
 target: integration-inventory exit=0
 elapsed: gograph-capabilities 0s
 target: gograph-capabilities exit=0
-elapsed: gograph-build 7s
+elapsed: gograph-build 6s
 target: gograph-build exit=0
-elapsed: gograph-boundaries 0s
+elapsed: gograph-boundaries 1s
 target: gograph-boundaries exit=0
 elapsed: go-mod-tidy-diff 0s
 target: go-mod-tidy-diff exit=0
-elapsed: staticcheck 1s
+elapsed: staticcheck 2s
 target: staticcheck exit=0
-elapsed: govulncheck 4s
+elapsed: govulncheck 7s
 target: govulncheck exit=0
-evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0 — subject directory:identuum-idp-oss; config applied (3 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s)); re-check: 1 declared ignore(s), none lapsed on 2026-10-04; coverage: inventory 85 component(s) at 4 location(s), none under an ignored path (12 ignored path(s) read from git)
+evidence: [grype-scan] check OK: grype-gate matches=0 fixable=0 allowlisted=0 unfixable=0 severe=0 — subject directory:identuum-idp-oss; config applied (3 exclude(s), db max-allowed-built-age 120h, 1 declared ignore(s)); re-check: 1 declared ignore(s), none lapsed on 2026-10-05; coverage: inventory 85 component(s) at 4 location(s), none under an ignored path (12 ignored path(s) read from git)
 elapsed: grype-scan 1s
 target: grype-scan exit=0
-elapsed: wiki-fresh 1s
+elapsed: wiki-fresh 0s
 target: wiki-fresh exit=0
-finished: 2026-10-04T21:31:39Z
-tree: sha256=eb4ae2bb1d38ee4bffb1fd1eaad9864261eb4ee4ba69ce810ce80d8ec361606f
+finished: 2026-10-05T09:20:45Z
+tree: sha256=4fa8a603eb3826980ea743698d8ba55e09d7b5e61db0433ada7b6a40d3babf5a
 result: green
