@@ -44,6 +44,39 @@ type SecretCipher interface {
 type OIDCProviderConfigService struct {
 	repo   repository.IdentityProviderRepository
 	cipher SecretCipher
+	// plainHTTPIssuers admits an http issuer too: only under the test setting
+	// IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER (WithPlainHTTPIssuers).
+	plainHTTPIssuers bool
+}
+
+// WithPlainHTTPIssuers admits a plain-http issuer URL, for the private-issuer
+// test setting only (UpstreamPrivateIssuerOptions, FUNC-H4).
+func (s *OIDCProviderConfigService) WithPlainHTTPIssuers() *OIDCProviderConfigService {
+	s.plainHTTPIssuers = true
+	return s
+}
+
+// validateInput is validateOIDCInput with the issuer judged by checkIssuer.
+func (s *OIDCProviderConfigService) validateInput(in OIDCProviderInput) error {
+	err := validateOIDCInput(in)
+	if errors.Is(err, errInvalidIssuerURL) {
+		// validateOIDCInput judges the issuer last: every other field passed.
+		return s.checkIssuer(in.IssuerURL)
+	}
+	return err
+}
+
+// checkIssuer is validateIssuerURL, except that the test setting also admits
+// an absolute http URL with a host.
+func (s *OIDCProviderConfigService) checkIssuer(raw string) error {
+	err := validateIssuerURL(raw)
+	if err == nil || !s.plainHTTPIssuers {
+		return err
+	}
+	if u, perr := url.Parse(strings.TrimSpace(raw)); perr == nil && u.Scheme == "http" && u.Host != "" {
+		return nil
+	}
+	return err
 }
 
 // NewOIDCProviderConfigService constructs the service. repo and cipher must
@@ -123,7 +156,7 @@ type OIDCProviderInput struct {
 // persists the provider. The returned provider carries the encrypted
 // secret only — the plaintext is never persisted or returned.
 func (s *OIDCProviderConfigService) CreateOIDCProvider(ctx context.Context, in OIDCProviderInput) (*domain.IdentityProvider, error) {
-	if err := validateOIDCInput(in); err != nil {
+	if err := s.validateInput(in); err != nil {
 		return nil, err
 	}
 
@@ -210,7 +243,7 @@ func (s *OIDCProviderConfigService) UpdateOIDCProvider(ctx context.Context, orgI
 	if in.Type != domain.IDPTypeOIDC {
 		return nil, errUnsupportedProviderType
 	}
-	if err := validateIssuerURL(in.IssuerURL); err != nil {
+	if err := s.checkIssuer(in.IssuerURL); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.ClientID) == "" {

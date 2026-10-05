@@ -34,8 +34,9 @@ type OIDCLoginService struct {
 	states    repository.OIDCStateRepository
 	cipher    SecretCipher
 
-	stateTTL time.Duration
-	now      func() time.Time
+	stateTTL     time.Duration
+	callbackBase string
+	now          func() time.Time
 }
 
 // OIDCLoginServiceDeps are the required collaborators.
@@ -52,6 +53,12 @@ type OIDCLoginServiceOptions struct {
 	// 10 minutes — long enough for a user to authenticate upstream, short
 	// enough to bound replay of an intercepted state.
 	StateTTL time.Duration
+	// CallbackBaseURL is the IdP's own public base (its issuer). A provider
+	// configured without redirect_uris uses the callback derived from it,
+	// {base}/api/v1/auth/idp/{provider_id}/callback — the URI the operator
+	// guide says to register with the provider (FUNC-H4). Empty leaves such a
+	// provider unusable for login, as before.
+	CallbackBaseURL string
 }
 
 const (
@@ -64,7 +71,8 @@ const (
 )
 
 // ErrLoginProviderNotFound is returned when the provider id is unknown, not
-// oidc, inactive, or not usable for login (no redirect_uri configured).
+// oidc, inactive, or not usable for login (no redirect_uri configured and no
+// issuer to derive the callback from).
 // A handler maps it to 404 — nothing about the provider is leaked.
 var ErrLoginProviderNotFound = errors.New("service: OIDC login provider not found")
 
@@ -98,12 +106,13 @@ func NewOIDCLoginService(report *lifecycle.StartupReport, deps OIDCLoginServiceD
 		ttl = defaultOIDCLoginStateTTL
 	}
 	return &OIDCLoginService{
-		providers: deps.Providers,
-		discovery: deps.Discovery,
-		states:    deps.States,
-		cipher:    deps.Cipher,
-		stateTTL:  ttl,
-		now:       time.Now,
+		providers:    deps.Providers,
+		discovery:    deps.Discovery,
+		states:       deps.States,
+		cipher:       deps.Cipher,
+		stateTTL:     ttl,
+		callbackBase: strings.TrimRight(strings.TrimSpace(opts.CallbackBaseURL), "/"),
+		now:          time.Now,
 	}
 }
 
@@ -119,6 +128,10 @@ func (s *OIDCLoginService) InitiateLogin(ctx context.Context, providerID uuid.UU
 		return "", ErrLoginProviderNotFound
 	}
 	redirectURI := firstNonEmpty(provider.Config.RedirectURIs)
+	if redirectURI == "" && s.callbackBase != "" {
+		// FUNC-H4: the callback the guide says to register.
+		redirectURI = s.callbackBase + "/api/v1/auth/idp/" + provider.ID.String() + "/callback"
+	}
 	if redirectURI == "" {
 		return "", ErrLoginProviderNotFound // not usable for login
 	}

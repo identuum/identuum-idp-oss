@@ -20,23 +20,54 @@ multi-IdP** federation and **LDAP/AD** are Commercial Edition features and are o
 
 ## Configure a provider (org admin)
 
-Send the provider config to the org identity-provider API (org admin, own org only):
+Send the provider config to the org identity-provider API as the org admin
+(own org only, a bearer token with the `idps:create` scope):
 
 ```
 POST /api/v1/organizations/{org_id}/identity-provider
+Content-Type: application/json
 ```
 
-Fields:
+```json
+{
+  "type": "oidc",
+  "name": "Example SSO",
+  "slug": "example-sso",
+  "config": {
+    "issuer_url": "https://accounts.google.com",
+    "client_id": "your-client-id",
+    "client_secret": "your-client-secret",
+    "scopes": ["openid", "email", "profile"],
+    "email_domains": ["example.com"]
+  }
+}
+```
+
+Top level:
 
 | Field | Meaning |
 |---|---|
 | `type` | Must be `oidc`. |
+| `name` | Display name of the provider. Required. |
+| `slug` | Short identifier. Required. |
+| `config` | The provider settings below. Required. |
+
+Inside `config`:
+
+| Field | Meaning |
+|---|---|
 | `issuer_url` | The provider's issuer / discovery base (must be `https://`). Discovery is read from `{issuer_url}/.well-known/openid-configuration`. |
 | `client_id` | The OAuth client ID registered with the provider. |
 | `client_secret` | The client secret (stored encrypted; write-only — never returned by GET). |
-| `scopes` | Must include `openid`. Add `email profile` to receive the email + name claims. |
+| `scopes` | `openid` is always sent. Add `email profile` to receive the email + name claims. |
 | `email_domains` | Allow-list of email domains permitted to JIT-provision (e.g. `["example.com"]`). |
 | `allow_external_domains` | When `true`, bypass the allow-list (use with care). |
+| `redirect_uris` | Optional. Leave it out to use the callback below. |
+
+The answer is `201` with the provider, whose `id` is the `{provider_id}` below.
+An organization has one OIDC provider: a second create answers `409`; change it
+with `PUT` on the same path (same body; an omitted `client_secret` keeps the
+stored one).
 
 ### Redirect URI
 
@@ -46,7 +77,10 @@ Register this exact callback with the provider (it is the OSS callback route):
 https://<your-idp-host>/api/v1/auth/idp/{provider_id}/callback
 ```
 
-`{provider_id}` is the identity-provider row's ID (returned when you create it).
+`<your-idp-host>` is the IdP's issuer (`IDENTUUM_IDP_ISSUER`), and
+`{provider_id}` is the identity-provider row's ID (returned when you create
+it). The IdP sends this callback to the provider unless `config.redirect_uris`
+names another.
 
 ### Google
 
@@ -87,7 +121,24 @@ callback redirect URI.
 - The client secret and PKCE verifier are stored **encrypted**; nothing sensitive is logged.
 - ID-token validation is strict: signature vs the provider JWKS by `kid`, `alg` allow-list
   (rejects `alg=none` and alg-confusion), and `iss` / `aud` / `exp` / `nonce` checks.
-- All outbound calls (discovery, token exchange, JWKS) are SSRF-guarded.
+- All outbound calls (discovery, token exchange, JWKS) are SSRF-guarded: a
+  provider must be reachable over `https` at a public address. A provider on
+  loopback or your private network (an internal Keycloak or ADFS) is refused,
+  and login start answers `502`.
+
+## Testing against a provider on your own network
+
+To test the sign-in end to end against a provider on loopback or a private
+network, start the IdP with the test setting:
+
+```
+IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER=true
+```
+
+It is off by default and the IdP logs a `WARNING` at startup while it is on.
+It turns the SSRF guard off for discovery, the provider's keys and the code
+exchange, and accepts an `http://` issuer. It is a test setting: do not use it
+in production.
 - The `email_domains` gate is fail-closed: an unverified email, or a domain not on the allow-list
   (without `allow_external_domains`), is refused before any account is created.
 - A returning user is matched by their stable external identity (`issuer|sub`) first, so a

@@ -1166,19 +1166,29 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// CryptoService that protects MFA secrets (mfaCipher) to encrypt
 	// client_secret at rest. No new repository or cipher is introduced.
 	oidcProviderConfigSvc := service.NewOIDCProviderConfigService(report, idpRepo, mfaCipher)
+	// FUNC-H4: the default-off test setting for a provider on loopback or a
+	// private network (logged when on); otherwise the guarded default.
+	upstreamDiscoveryOpts, upstreamCallbackOpts, upstreamPrivate := upstreamOIDCOptions(r.cfg.Getenv, r.cfg.Stderr)
+	if upstreamPrivate {
+		oidcProviderConfigSvc.WithPlainHTTPIssuers()
+	}
 
 	// OIDC discovery service (Slice 3) + login-initiation service (Slice 4).
 	// Discovery fetches upstream metadata over the SSRF-guarded safehttp
 	// client (default). Login initiation reuses the IdentityProvider repo,
 	// the OIDCState repo, and the same env-keyed CryptoService (mfaCipher)
 	// that protects MFA secrets — here to encrypt the PKCE verifier at rest.
-	oidcDiscoverySvc := service.NewOIDCDiscoveryService(service.OIDCDiscoveryOptions{})
+	// A provider without redirect_uris uses the callback derived from the
+	// issuer, the one the operator guide says to register (FUNC-H4).
+	oidcDiscoverySvc := service.NewOIDCDiscoveryService(upstreamDiscoveryOpts)
 	oidcLoginSvc := service.NewOIDCLoginService(report, service.OIDCLoginServiceDeps{
 		Providers: idpRepo,
 		Discovery: oidcDiscoverySvc,
 		States:    repos.OIDCState,
 		Cipher:    mfaCipher,
-	}, service.OIDCLoginServiceOptions{})
+	}, service.OIDCLoginServiceOptions{
+		CallbackBaseURL: server.ResolveDiscoveryConfig(server.OIDCDiscoveryConfig{Issuer: r.cfg.Issuer}).Issuer,
+	})
 	// Callback service (Slice 5): consume state, exchange code over the same
 	// SSRF-guarded safehttp client, and strictly validate the ID token against
 	// the provider JWKS (reusing the discovery service's ResolveSigningKey).
@@ -1190,7 +1200,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		Users:         userRepo,
 		Organizations: repos.Organization,
 		Sessions:      userSessionSvc,
-	}, service.OIDCCallbackServiceOptions{})
+	}, upstreamCallbackOpts)
 
 	csrfSecret := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, csrfSecret); err != nil {

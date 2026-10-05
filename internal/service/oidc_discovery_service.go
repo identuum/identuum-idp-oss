@@ -89,6 +89,19 @@ type OIDCDiscoveryOptions struct {
 	JWKSFetcher *ClientJWKSFetcherService
 }
 
+// UpstreamPrivateIssuerOptions are the upstream OIDC transport options the
+// default-off TEST setting IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER
+// selects (FUNC-H4): discovery, the provider's JWKS and the code exchange go
+// over a client WITHOUT the SSRF dial guard, and plain http is accepted, so a
+// provider on loopback or the operator's private network can be signed in
+// through end to end. It exists to test the success path; production leaves
+// the guarded, https-only default. The runtime logs a warning when it is on.
+func UpstreamPrivateIssuerOptions(timeout time.Duration) (OIDCDiscoveryOptions, OIDCCallbackServiceOptions) {
+	hc := &http.Client{Timeout: timeout}
+	return OIDCDiscoveryOptions{HTTPClient: hc, Timeout: timeout, AllowPlainHTTP: true},
+		OIDCCallbackServiceOptions{HTTPClient: hc, Timeout: timeout}
+}
+
 const (
 	defaultDiscoveryTimeout           = 5 * time.Second
 	defaultDiscoveryCacheTTL          = 10 * time.Minute
