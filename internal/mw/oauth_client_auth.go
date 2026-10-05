@@ -3,6 +3,7 @@ package mw
 import (
 	"context"
 	"net/http"
+	"net/url"
 
 	"github.com/gin-gonic/gin"
 
@@ -161,7 +162,18 @@ func RequireOAuthClient(report *lifecycle.StartupReport, authn OAuthClientAuthen
 		// authenticate with a secret at all.
 		clientID, clientSecret, hasBasic := c.Request.BasicAuth()
 		observedMethod := service.ClientAuthMethodBasic
-		if !hasBasic {
+		if hasBasic {
+			// RFC 6749 §2.3.1: both values are form-encoded before they are
+			// joined, so a ':' in an identifier (an audience URL) survives
+			// (FUNC-M8). A malformed escape is no credential.
+			id, idErr := url.QueryUnescape(clientID)
+			secret, secretErr := url.QueryUnescape(clientSecret)
+			if idErr != nil || secretErr != nil {
+				respondInvalidClient(c)
+				return
+			}
+			clientID, clientSecret = id, secret
+		} else {
 			clientID = c.PostForm("client_id")
 			clientSecret = c.PostForm("client_secret")
 			observedMethod = service.ClientAuthMethodPost
