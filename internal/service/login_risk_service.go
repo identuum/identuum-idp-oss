@@ -23,11 +23,11 @@
 //     (V2). (email AND ip) kills V1; COUNT(DISTINCT email) kills V2.
 //
 // The wire layer (LocalLoginService, the browser-login handler)
-// calls Check BEFORE the password verification step. A locked-out
-// caller (EITHER counter) gets the same generic
-// ErrLoginInvalidCredentials wire response the existing "wrong password"
-// path returns, so the caller cannot distinguish "wrong password" from
-// "locked out" — matches the project's no-enumeration posture.
+// calls Check BEFORE the password verification step. A caller held by
+// EITHER counter gets 429 login_throttled with the wait (FUNC-M2), the
+// answer the account-wide slow-down gives: a correct password is never told
+// it is wrong. Failures are recorded for unknown addresses alike, so the
+// answer says nothing about whether an account exists.
 //
 // Default policy:
 //
@@ -146,21 +146,35 @@ func accountSlowDown(n, t int) time.Duration {
 }
 
 // LoginThrottledError is ErrLoginThrottled with the wait that remains.
+// Bounded is set when a failure bound holds (the address-and-account pair or
+// the address's spray) rather than the account-wide slow-down.
 type LoginThrottledError struct {
 	RetryAfter time.Duration
+	Bounded    bool
 }
 
 func (e *LoginThrottledError) Error() string { return ErrLoginThrottled.Error() }
 
-// Is makes errors.Is(err, ErrLoginThrottled) true.
-func (e *LoginThrottledError) Is(target error) bool { return target == ErrLoginThrottled }
+// Is makes errors.Is(err, ErrLoginThrottled) true, and errors.Is(err,
+// ErrLoginRateLimited) true for a bound that holds.
+func (e *LoginThrottledError) Is(target error) bool {
+	return target == ErrLoginThrottled || (e.Bounded && target == ErrLoginRateLimited)
+}
+
+// boundHeld is the answer while a failure bound holds (FUNC-M2): the same
+// 429 login_throttled the slow-down gives, with the wait until the oldest
+// counted failure leaves the window — when the pair bound lifts; the spray
+// bound may need another wait. At least a second, so Retry-After is never 0.
+func (s *LoginRiskService) boundHeld(oldest time.Time) error {
+	wait := oldest.Add(s.window).Sub(s.now().UTC())
+	return &LoginThrottledError{RetryAfter: max(wait, time.Second), Bounded: true}
+}
 
 // Sentinels.
 //
-//   - ErrLoginRateLimited: the caller is GENUINELY locked out (failure
-//     count met/exceeded the threshold). The handler collapses this to
-//     the generic invalid-credentials response so a locked account is
-//     not enumerable.
+//   - ErrLoginRateLimited: a failure bound holds (count met/exceeded the
+//     threshold). Check returns it as a *LoginThrottledError (Bounded), so
+//     it is also ErrLoginThrottled and answers 429 with the wait (FUNC-M2).
 //   - ErrLoginRiskBackendUnavailable: the risk backend (login_attempts
 //     store) could not be consulted, so the brute-force bound cannot be
 //     enforced. Check FAILS CLOSED and returns this DISTINCT sentinel;
@@ -199,9 +213,8 @@ var (
 // brute-force counter, which also refuses rather than letting an uncounted
 // guess through.
 //
-// The handler MUST translate ErrLoginRateLimited to the same wire shape as
-// ErrLoginInvalidCredentials (so BOTH locks are indistinguishable from
-// "wrong password"), and ErrLoginRiskBackendUnavailable to a 503.
+// A bound that holds is a *LoginThrottledError (429 with Retry-After);
+// ErrLoginRiskBackendUnavailable maps to a 503.
 func (s *LoginRiskService) Check(ctx context.Context, email, ip string, purpose LoginRiskPurpose) error {
 	emailHash := hashLoginID(email)
 	// D-020: an IPv6 client counts by its /64; IPv4 keys are the address.
@@ -210,12 +223,12 @@ func (s *LoginRiskService) Check(ctx context.Context, email, ip string, purpose 
 
 	// Account counter: the (email AND ip) pair. Self-consistent even when
 	// ipHash == "" — it then matches only other no-IP rows for this email.
-	n, err := s.repo.CountAccountFailuresSince(ctx, emailHash, ipHash, string(purpose), since)
+	n, oldest, err := s.repo.CountAccountFailuresSince(ctx, emailHash, ipHash, string(purpose), since)
 	if err != nil {
 		return s.failClosed(purpose, err)
 	}
 	if n >= s.threshold {
-		return ErrLoginRateLimited
+		return s.boundHeld(oldest)
 	}
 
 	// IP counter: DISTINCT accounts sprayed from this IP. Skipped when
@@ -223,12 +236,12 @@ func (s *LoginRiskService) Check(ctx context.Context, email, ip string, purpose 
 	// degenerate bucket and a COUNT(DISTINCT email) across it would
 	// conflate unrelated no-IP rows into one meaningless keyspace.
 	if ipHash != "" {
-		d, dErr := s.repo.CountDistinctAccountsFromIPSince(ctx, ipHash, string(purpose), since)
+		d, oldestFromIP, dErr := s.repo.CountDistinctAccountsFromIPSince(ctx, ipHash, string(purpose), since)
 		if dErr != nil {
 			return s.failClosed(purpose, dErr)
 		}
 		if d >= s.ipThreshold {
-			return ErrLoginRateLimited
+			return s.boundHeld(oldestFromIP)
 		}
 	}
 

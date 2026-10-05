@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
@@ -49,39 +50,46 @@ VALUES ($1, $2, $3, $4, $5, $6, $7)
 }
 
 // CountAccountFailuresSince counts failures for the SAME (email, ip) pair
-// (P2-10 V1 fix — AND, not OR). Served by idx_login_attempts_email_purpose_time.
-func (r *PgxLoginAttemptRepository) CountAccountFailuresSince(ctx context.Context, emailHash, ipHash, purpose string, since time.Time) (int, error) {
+// (P2-10 V1 fix — AND, not OR), with the oldest one's time. Served by
+// idx_login_attempts_email_purpose_time.
+func (r *PgxLoginAttemptRepository) CountAccountFailuresSince(ctx context.Context, emailHash, ipHash, purpose string, since time.Time) (int, time.Time, error) {
 	const q = `
-SELECT COUNT(*) FROM login_attempts
+SELECT COUNT(*), MIN(created_at) FROM login_attempts
 WHERE success = false
   AND purpose = $1
   AND created_at >= $2
   AND email_hash = $3
   AND ip_hash = $4
 `
-	var n int
-	if err := r.db.QueryRow(ctx, q, purpose, since, emailHash, ipHash).Scan(&n); err != nil {
-		return 0, err
-	}
-	return n, nil
+	return scanCountAndTime(r.db.QueryRow(ctx, q, purpose, since, emailHash, ipHash))
 }
 
 // CountDistinctAccountsFromIPSince counts DISTINCT accounts sprayed from an
-// IP (P2-10 V2 fix — COUNT(DISTINCT email_hash), not raw failures). Served
-// by idx_login_attempts_ip_purpose_time.
-func (r *PgxLoginAttemptRepository) CountDistinctAccountsFromIPSince(ctx context.Context, ipHash, purpose string, since time.Time) (int, error) {
+// IP (P2-10 V2 fix — COUNT(DISTINCT email_hash), not raw failures), with the
+// oldest failure's time. Served by idx_login_attempts_ip_purpose_time.
+func (r *PgxLoginAttemptRepository) CountDistinctAccountsFromIPSince(ctx context.Context, ipHash, purpose string, since time.Time) (int, time.Time, error) {
 	const q = `
-SELECT COUNT(DISTINCT email_hash) FROM login_attempts
+SELECT COUNT(DISTINCT email_hash), MIN(created_at) FROM login_attempts
 WHERE success = false
   AND purpose = $1
   AND created_at >= $2
   AND ip_hash = $3
 `
+	return scanCountAndTime(r.db.QueryRow(ctx, q, purpose, since, ipHash))
+}
+
+// scanCountAndTime reads a (COUNT, MIN/MAX(created_at)) row; the time is zero
+// when no row was counted.
+func scanCountAndTime(row pgx.Row) (int, time.Time, error) {
 	var n int
-	if err := r.db.QueryRow(ctx, q, purpose, since, ipHash).Scan(&n); err != nil {
-		return 0, err
+	var at *time.Time
+	if err := row.Scan(&n, &at); err != nil {
+		return 0, time.Time{}, err
 	}
-	return n, nil
+	if at == nil {
+		return n, time.Time{}, nil
+	}
+	return n, *at, nil
 }
 
 // AccountFailuresAnyIPSince counts the email's failures from any IP after the
@@ -98,15 +106,7 @@ WHERE success = false
         (SELECT MAX(created_at) FROM login_attempts WHERE success AND purpose = $1 AND email_hash = $2),
         '-infinity'::timestamptz)
 `
-	var n int
-	var last *time.Time
-	if err := r.db.QueryRow(ctx, q, purpose, emailHash, since).Scan(&n, &last); err != nil {
-		return 0, time.Time{}, err
-	}
-	if last == nil {
-		return n, time.Time{}, nil
-	}
-	return n, *last, nil
+	return scanCountAndTime(r.db.QueryRow(ctx, q, purpose, emailHash, since))
 }
 
 func (r *PgxLoginAttemptRepository) DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error) {

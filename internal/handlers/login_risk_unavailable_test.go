@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,11 +31,14 @@ type scriptedLoginAttemptRepo struct {
 }
 
 func (r scriptedLoginAttemptRepo) Insert(context.Context, *domain.LoginAttempt) error { return nil }
-func (r scriptedLoginAttemptRepo) CountAccountFailuresSince(context.Context, string, string, string, time.Time) (int, error) {
-	return r.count, r.err
+
+// CountAccountFailuresSince reports the scripted count with the oldest
+// failure just recorded.
+func (r scriptedLoginAttemptRepo) CountAccountFailuresSince(context.Context, string, string, string, time.Time) (int, time.Time, error) {
+	return r.count, time.Now(), r.err
 }
-func (r scriptedLoginAttemptRepo) CountDistinctAccountsFromIPSince(context.Context, string, string, time.Time) (int, error) {
-	return 0, r.err
+func (r scriptedLoginAttemptRepo) CountDistinctAccountsFromIPSince(context.Context, string, string, time.Time) (int, time.Time, error) {
+	return 0, time.Time{}, r.err
 }
 
 // AccountFailuresAnyIPSince reports throttled failures as of now: the
@@ -118,34 +122,35 @@ func TestLoginRoute_RiskBackendUnavailableIs503(t *testing.T) {
 	}
 }
 
-// TestLoginRoute_GenuineLockoutIsInvalidCredentials proves the
-// no-enumeration posture is preserved: a genuine 5-failure lockout
-// (backend healthy, count >= threshold) returns the SAME generic 401
-// invalid_credentials as a wrong password — NOT the 503. The
-// 503-vs-401 split therefore tracks backend state only, never lockout
-// state.
+// TestLoginRoute_AHeldBoundSaysToWait pins the answer while a failure bound
+// holds (backend healthy, count >= threshold): 429 login_throttled with
+// Retry-After, the answer the account-wide slow-down gives (FUNC-M2) — never
+// 401 invalid_credentials, which told a correct password it was wrong, and
+// never the 503 of an unavailable backend. A known and an unknown account get
+// the same answer, so it enumerates nothing.
 // RULE: LOCKOUT-1
-func TestLoginRoute_GenuineLockoutIsInvalidCredentials(t *testing.T) {
+func TestLoginRoute_AHeldBoundSaysToWait(t *testing.T) {
 	seed := func(u *inMemoryUserLookupForHandlers) {
 		u.byEmail["alice@example.com"] = []*domain.User{{
 			ID: uuid.New(), Email: "alice@example.com",
 			PasswordHash: hashPasswordForHandlers(t, "correct"), EmailVerified: true,
 		}}
 	}
-	// count=5 >= threshold(5), err=nil → genuine lockout.
+	// count=5 >= threshold(5), err=nil → the pair bound holds; its oldest
+	// failure was just recorded, so the wait is the 1-minute window.
 	r := newAuthEngineWithRisk(t, seed, scriptedLoginAttemptRepo{count: 5})
 
-	// Even with the CORRECT password, a locked-out caller gets the
-	// generic invalid_credentials 401 (indistinguishable from wrong
-	// password), and never a 503.
-	w := postLogin(t, r, "alice@example.com", "correct")
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body=%q", w.Code, w.Body.String())
-	}
-	if !strings.Contains(w.Body.String(), "invalid_credentials") {
-		t.Fatalf("body = %q, want invalid_credentials", w.Body.String())
-	}
-	if w.Code == http.StatusServiceUnavailable {
-		t.Fatal("a genuine lockout must NOT surface as 503 (that would reveal lockout state)")
+	for _, email := range []string{"alice@example.com", "nobody@example.com"} {
+		w := postLogin(t, r, email, "correct")
+		if w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), `"login_throttled"`) {
+			t.Fatalf("%s: status = %d body = %q, want 429 login_throttled", email, w.Code, w.Body.String())
+		}
+		if strings.Contains(w.Body.String(), "invalid_credentials") {
+			t.Fatalf("%s: a held bound answered invalid_credentials: %q", email, w.Body.String())
+		}
+		secs, err := strconv.Atoi(w.Header().Get("Retry-After"))
+		if err != nil || secs < 1 || secs > 60 {
+			t.Errorf("%s: Retry-After = %q, want 1..60 seconds", email, w.Header().Get("Retry-After"))
+		}
 	}
 }

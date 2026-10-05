@@ -247,10 +247,10 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 		if err := s.risk.Check(ctx, email, ip, LoginRiskPurposePassword); err != nil {
 			// Backend unavailable → propagate the DISTINCT sentinel so
 			// the handler returns 503 (fail-closed). The account-wide
-			// slow-down propagates with its wait (429; it is applied to
-			// unknown addresses alike, so it enumerates nothing). A
-			// genuine lockout (ErrLoginRateLimited) collapses to
-			// invalid_credentials so a locked account is not enumerable.
+			// slow-down and a held failure bound propagate with their wait
+			// (429; failures are recorded for unknown addresses alike, so
+			// it enumerates nothing) — a correct password is never told it
+			// is wrong (FUNC-M2).
 			if errors.Is(err, ErrLoginRiskBackendUnavailable) {
 				return nil, ErrLoginRiskBackendUnavailable
 			}
@@ -398,10 +398,14 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	if user.MFAEnabled && s.mfa != nil {
 		if s.risk != nil {
 			if err := s.risk.Check(ctx, email, ip, LoginRiskPurposeMFA); err != nil {
-				// Backend unavailable → 503 (fail-closed). Genuine MFA
-				// lockout collapses to invalid_credentials.
+				// Backend unavailable → 503 (fail-closed). A held MFA bound
+				// answers with its wait, like the password step's (FUNC-M2):
+				// the password was right.
 				if errors.Is(err, ErrLoginRiskBackendUnavailable) {
 					return nil, ErrLoginRiskBackendUnavailable
+				}
+				if errors.Is(err, ErrLoginThrottled) {
+					return nil, err
 				}
 				return nil, ErrLoginInvalidCredentials
 			}

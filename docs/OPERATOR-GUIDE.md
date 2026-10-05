@@ -64,6 +64,14 @@ IPv4 is the default everywhere; IPv6 is supported and opt-in.
   and the sign-in lockout (ten different accounts failing from one address in
   fifteen minutes lock sign-in for that address until the window passes) count
   all of them together.
+- **Repeated sign-in failures slow sign-in down; nothing is told it is
+  wrong.** Five failures for one account from one address, ten failing
+  accounts from one address, or five failures for one account from anywhere
+  (then a wait that doubles from 1 second up to a minute) make the next
+  sign-in answer `429 login_throttled` with `Retry-After`, the right password
+  included; the sign-in page says to wait. The code step's per-address limits
+  answer the same way. A success resets the account-wide count; the address limits pass with their
+  fifteen-minute window.
 - **Over IPv6 nothing degrades.** The audit log and sessions record the IPv6
   address. Rate limits and the sign-in lockout count an IPv6 client by its
   `/64`, so rotating addresses inside one `/64` does not escape a limit; an

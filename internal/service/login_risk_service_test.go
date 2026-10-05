@@ -30,36 +30,46 @@ func (r *inMemoryLoginAttemptRepo) Insert(_ context.Context, a *domain.LoginAtte
 	return nil
 }
 
-// CountAccountFailuresSince — failures for the (email AND ip) pair.
-func (r *inMemoryLoginAttemptRepo) CountAccountFailuresSince(_ context.Context, emailHash, ipHash, purpose string, since time.Time) (int, error) {
+// CountAccountFailuresSince — failures for the (email AND ip) pair, and the
+// oldest one's time.
+func (r *inMemoryLoginAttemptRepo) CountAccountFailuresSince(_ context.Context, emailHash, ipHash, purpose string, since time.Time) (int, time.Time, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	var n int
+	var oldest time.Time
 	for _, row := range r.rows {
 		if row.Success || row.Purpose != purpose || row.CreatedAt.Before(since) {
 			continue
 		}
 		if row.EmailHash == emailHash && row.IPHash == ipHash {
 			n++
+			if oldest.IsZero() || row.CreatedAt.Before(oldest) {
+				oldest = row.CreatedAt
+			}
 		}
 	}
-	return n, nil
+	return n, oldest, nil
 }
 
-// CountDistinctAccountsFromIPSince — DISTINCT email_hash of failures from ip.
-func (r *inMemoryLoginAttemptRepo) CountDistinctAccountsFromIPSince(_ context.Context, ipHash, purpose string, since time.Time) (int, error) {
+// CountDistinctAccountsFromIPSince — DISTINCT email_hash of failures from ip,
+// and the oldest failure's time.
+func (r *inMemoryLoginAttemptRepo) CountDistinctAccountsFromIPSince(_ context.Context, ipHash, purpose string, since time.Time) (int, time.Time, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	seen := map[string]struct{}{}
+	var oldest time.Time
 	for _, row := range r.rows {
 		if row.Success || row.Purpose != purpose || row.CreatedAt.Before(since) {
 			continue
 		}
 		if row.IPHash == ipHash {
 			seen[row.EmailHash] = struct{}{}
+			if oldest.IsZero() || row.CreatedAt.Before(oldest) {
+				oldest = row.CreatedAt
+			}
 		}
 	}
-	return len(seen), nil
+	return len(seen), oldest, nil
 }
 
 // AccountFailuresAnyIPSince — failures for email from any ip after the later
@@ -299,18 +309,18 @@ func (r erroringLoginAttemptRepo) errs(purpose string) bool {
 	return r.errOnPurpose == "" || r.errOnPurpose == purpose
 }
 
-func (r erroringLoginAttemptRepo) CountAccountFailuresSince(_ context.Context, _, _, purpose string, _ time.Time) (int, error) {
+func (r erroringLoginAttemptRepo) CountAccountFailuresSince(_ context.Context, _, _, purpose string, _ time.Time) (int, time.Time, error) {
 	if !r.ipOnly && r.errs(purpose) {
-		return 0, errors.New("simulated login_attempts store outage")
+		return 0, time.Time{}, errors.New("simulated login_attempts store outage")
 	}
-	return 0, nil
+	return 0, time.Time{}, nil
 }
 
-func (r erroringLoginAttemptRepo) CountDistinctAccountsFromIPSince(_ context.Context, _, purpose string, _ time.Time) (int, error) {
+func (r erroringLoginAttemptRepo) CountDistinctAccountsFromIPSince(_ context.Context, _, purpose string, _ time.Time) (int, time.Time, error) {
 	if r.errs(purpose) {
-		return 0, errors.New("simulated login_attempts store outage")
+		return 0, time.Time{}, errors.New("simulated login_attempts store outage")
 	}
-	return 0, nil
+	return 0, time.Time{}, nil
 }
 
 func (r erroringLoginAttemptRepo) AccountFailuresAnyIPSince(_ context.Context, _, purpose string, _ time.Time) (int, time.Time, error) {

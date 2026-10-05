@@ -55,12 +55,12 @@ func swapPackageLoggers(t *testing.T) {
 // cannot be consulted.
 type failingLoginAttemptStore struct{}
 
-func (failingLoginAttemptStore) CountAccountFailuresSince(context.Context, string, string, string, time.Time) (int, error) {
-	return 0, errors.New("risk backend down")
+func (failingLoginAttemptStore) CountAccountFailuresSince(context.Context, string, string, string, time.Time) (int, time.Time, error) {
+	return 0, time.Time{}, errors.New("risk backend down")
 }
 
-func (failingLoginAttemptStore) CountDistinctAccountsFromIPSince(context.Context, string, string, time.Time) (int, error) {
-	return 0, errors.New("risk backend down")
+func (failingLoginAttemptStore) CountDistinctAccountsFromIPSince(context.Context, string, string, time.Time) (int, time.Time, error) {
+	return 0, time.Time{}, errors.New("risk backend down")
 }
 
 func (failingLoginAttemptStore) AccountFailuresAnyIPSince(context.Context, string, string, time.Time) (int, time.Time, error) {

@@ -24,7 +24,10 @@ type LoginAttemptRepository interface {
 	// SAME (email, ip) pair means an attacker rotating IPs can never
 	// accumulate a per-account lockout; the counter now bounds only a
 	// single host hammering a single account.
-	CountAccountFailuresSince(ctx context.Context, emailHash, ipHash, purpose string, since time.Time) (int, error)
+	//
+	// oldest is the time of the oldest counted failure (zero when none): the
+	// bound it trips lifts when that failure leaves the window (FUNC-M2).
+	CountAccountFailuresSince(ctx context.Context, emailHash, ipHash, purpose string, since time.Time) (n int, oldest time.Time, err error)
 
 	// CountDistinctAccountsFromIPSince returns COUNT(DISTINCT email_hash)
 	// over rows where success=false AND purpose=purpose AND
@@ -36,7 +39,9 @@ type LoginAttemptRepository interface {
 	// accounts instead means benign co-tenants behind a NAT (each failing
 	// their own login a few times) never trip it; only a credential-
 	// stuffing run spraying MANY distinct accounts from one IP does.
-	CountDistinctAccountsFromIPSince(ctx context.Context, ipHash, purpose string, since time.Time) (int, error)
+	//
+	// oldest is the time of the oldest counted failure (zero when none).
+	CountDistinctAccountsFromIPSince(ctx context.Context, ipHash, purpose string, since time.Time) (n int, oldest time.Time, err error)
 
 	// AccountFailuresAnyIPSince returns the failures for emailHash from any
 	// ip_hash after the later of since and the account's last success for

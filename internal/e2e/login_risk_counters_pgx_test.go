@@ -56,13 +56,14 @@ func TestLoginRiskCounters_AccountAndDistinctIP(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		seed(victim, attackerIP, false) // attacker hammers the victim from ONE IP
 	}
-	// (victim, attackerIP): the attacker's own pair sees all 5.
-	if n, err := repo.CountAccountFailuresSince(ctx, victim, attackerIP, purpose, since); err != nil || n != 5 {
-		t.Fatalf("account (victim, attackerIP) = %d, err=%v; want 5", n, err)
+	// (victim, attackerIP): the attacker's own pair sees all 5, and the oldest
+	// one's time (when the bound lifts, FUNC-M2).
+	if n, oldest, err := repo.CountAccountFailuresSince(ctx, victim, attackerIP, purpose, since); err != nil || n != 5 || oldest.IsZero() || oldest.Before(since) {
+		t.Fatalf("account (victim, attackerIP) = %d, oldest %s, err=%v; want 5 with an oldest time in the window", n, oldest, err)
 	}
 	// (victim, victimIP): the victim from their OWN IP sees ZERO — V1 dead.
-	if n, err := repo.CountAccountFailuresSince(ctx, victim, victimIP, purpose, since); err != nil || n != 0 {
-		t.Fatalf("account (victim, victimIP) = %d, err=%v; want 0 (V1: OR keyspace would return 5)", n, err)
+	if n, oldest, err := repo.CountAccountFailuresSince(ctx, victim, victimIP, purpose, since); err != nil || n != 0 || !oldest.IsZero() {
+		t.Fatalf("account (victim, victimIP) = %d, oldest %s, err=%v; want 0 and a zero time (V1: OR keyspace would return 5)", n, oldest, err)
 	}
 
 	// --- V2 (IP counter = COUNT(DISTINCT email_hash)) ---
@@ -71,8 +72,8 @@ func TestLoginRiskCounters_AccountAndDistinctIP(t *testing.T) {
 	seed("u2-"+sfx, ipX, false)
 	seed("u3-"+sfx, ipX, false)
 	seed("u3-"+sfx, ipX, false) // a 4th RAW failure but a 3rd DISTINCT account
-	if n, err := repo.CountDistinctAccountsFromIPSince(ctx, ipX, purpose, since); err != nil || n != 3 {
-		t.Fatalf("distinct-accounts(ipX) = %d, err=%v; want 3 (V2: COUNT(*) would return 4)", n, err)
+	if n, oldest, err := repo.CountDistinctAccountsFromIPSince(ctx, ipX, purpose, since); err != nil || n != 3 || oldest.IsZero() {
+		t.Fatalf("distinct-accounts(ipX) = %d, oldest %s, err=%v; want 3 with an oldest time (V2: COUNT(*) would return 4)", n, oldest, err)
 	}
 
 	// Success rows and out-of-window rows must not be counted.
@@ -84,7 +85,7 @@ func TestLoginRiskCounters_AccountAndDistinctIP(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed old: %v", err)
 	}
-	if n, err := repo.CountDistinctAccountsFromIPSince(ctx, ipX, purpose, since); err != nil || n != 3 {
+	if n, _, err := repo.CountDistinctAccountsFromIPSince(ctx, ipX, purpose, since); err != nil || n != 3 {
 		t.Fatalf("distinct-accounts(ipX) after success+old = %d, err=%v; want 3", n, err)
 	}
 }
