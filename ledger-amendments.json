@@ -1,22 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "039827bcd42fe671034a57809b220fa00ee86701",
-  "changes": [
-    {
-      "rule_id": "LOCKOUT-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "f7df2ae4a1224507160e051c1339a7619ba44df8e28186e8b63bcc71eb5616e8",
-      "reason": "OSS-V0.9.6 brief item FUNC-M2: after five wrong passwords from one address the right one was answered 401 invalid_credentials, while the v0.9.5 notes promise that repeated failures slow sign-in down with 429 and Retry-After; the brief requires that a correct password is never answered as invalid credentials. The bounds (5 per address and account, 10 accounts per address, 15 minutes) are unchanged; only their answer is. Failures are recorded for unknown addresses alike, so the 429 enumerates nothing. Amended through rulefloor amend."
-    },
-    {
-      "rule_id": "LOCKOUT-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "FUNC-M2: TestLoginRoute_GenuineLockoutIsInvalidCredentials became TestLoginRoute_AHeldBoundSaysToWait: a held pair bound now expects 429 login_throttled with a Retry-After of 1..60 seconds and no invalid_credentials, for a known and an unknown account. Rehashed 6607b26ad69a -> a23b53e207c6."
-    },
-    {
-      "rule_id": "LOCKOUT-1",
-      "change_class": "proof_changed",
-      "reason": "FUNC-M2: re-watched under the new sentence: with LoginRiskService.boundHeld returning the bare ErrLoginRateLimited the test read 'status = 401 body = {\"error\":\"invalid_credentials\"}, want 429 login_throttled'; restored, green. Recorded through rulefloor prove --supersede."
-    }
-  ]
+  "base_commit": "d9139a932147847b53d27a722f51f547c6122d74",
+  "changes": []
 }
