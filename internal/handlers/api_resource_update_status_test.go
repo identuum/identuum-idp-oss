@@ -75,11 +75,13 @@ func TestAPIResourceUpdateStatus_RefusalIsBadRequestNotInternalError(t *testing.
 		why  string
 		body string
 	}{
-		{"a blank name", `{"name":"","audience":"https://billing.example.test","token_ttl_secs":3600}`},
-		{"a blank audience", `{"name":"Billing API","audience":"","token_ttl_secs":3600}`},
-		{"a zero token TTL", `{"name":"Billing API","audience":"https://billing.example.test","token_ttl_secs":0}`},
-		{"a negative token TTL", `{"name":"Billing API","audience":"https://billing.example.test","token_ttl_secs":-5}`},
-		{"a reserved scope prefix", `{"name":"Billing API","audience":"https://billing.example.test","token_ttl_secs":3600,"scopes":[{"name":"system:root"}]}`},
+		{"a blank name", `{"name":"","audience":"https://billing.example.test"}`},
+		{"a blank audience", `{"name":"Billing API","audience":""}`},
+		// OSS-MUST1-RETIRE-TTL (owner ruling m, 2026-10-06): any token_ttl_secs
+		// is refused, so these two stay refusals for the field itself.
+		{"a zero token_ttl_secs", `{"name":"Billing API","audience":"https://billing.example.test","token_ttl_secs":0}`},
+		{"a negative token_ttl_secs", `{"name":"Billing API","audience":"https://billing.example.test","token_ttl_secs":-5}`},
+		{"a reserved scope prefix", `{"name":"Billing API","audience":"https://billing.example.test","scopes":[{"name":"system:root"}]}`},
 	} {
 		repo, deps := newFixture()
 		code := runHandlerAs(t, actor, http.MethodPut, "/r/:id", "/r/"+resID.String(),
@@ -98,7 +100,7 @@ func TestAPIResourceUpdateStatus_RefusalIsBadRequestNotInternalError(t *testing.
 	// 400 for everything would not pass this test ──
 	repo, deps := newFixture()
 	if code := runHandlerAs(t, actor, http.MethodPut, "/r/:id", "/r/"+resID.String(),
-		`{"name":"Billing API v2","audience":"https://billing.example.test","token_ttl_secs":7200}`,
+		`{"name":"Billing API v2","audience":"https://billing.example.test"}`,
 		HandleUpdateAPIResource(deps)); code != http.StatusOK {
 		t.Errorf("a well-formed update answered %d, want 200", code)
 	}

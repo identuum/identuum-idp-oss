@@ -5,6 +5,21 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **Breaking (0.x): an API resource no longer takes a token lifetime.**
+  `POST /api/v1/api-resources` and `PUT /api/v1/api-resources/:id` refuse a
+  body that contains `token_ttl_secs` with `400`
+  `{"error":"unsupported_field","field":"token_ttl_secs",...}`; the same
+  request without it is served as before, and no API resource response
+  carries `token_ttl_secs` any more. The field never had an effect: every
+  access token, `client_credentials` and `authorization_code` alike, has the
+  one 1-hour lifetime, and issuance never read the stored value. The column
+  stays and keeps its stored value as legacy data, never read for issuance
+  and never shown (owner rulings l, m and n, 2026-10-06). The unused
+  60–86400 fields of the exported request types are removed. The embedded
+  console (identuum-ui `c5899cc`) no longer offers, shows or sends it.
+
 ## `v0.9.8`
 
 identuum-ui `d009997` embedded (`v0.9.7` embedded `1354a72`). The delta

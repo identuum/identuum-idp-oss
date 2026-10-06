@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -163,15 +165,47 @@ func RegisterAPIResourcesRoutes(router gin.IRouter, deps APIResourcesHandlerDeps
 	}
 }
 
+// lifetimeField is the API resource request field OSS refuses
+// (OSS-MUST1-RETIRE-TTL, owner rulings l and m, 2026-10-06): OSS has one
+// access-token lifetime, 1 hour, and never read a per-resource one.
+const lifetimeField = "token_ttl_secs"
+
+// readAPIResourceBody returns the request body, or answers 400 and false when
+// the body cannot be read or names token_ttl_secs at the top level (in any
+// letter case, as the JSON decoder would have bound it). The refusal names
+// the field and echoes nothing of the request.
+func readAPIResourceBody(c *gin.Context) ([]byte, bool) {
+	raw, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return nil, false
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(raw, &top) == nil {
+		for k := range top {
+			if strings.EqualFold(k, lifetimeField) {
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error":   "unsupported_field",
+					"field":   lifetimeField,
+					"message": "token_ttl_secs is not accepted: every access token has the server's one lifetime (1 hour)",
+				})
+				return nil, false
+			}
+		}
+	}
+	return raw, true
+}
+
 // safeAPIResource omits ResourceSecretHash so the JSON response
-// never carries hashed secret material on the wire.
+// never carries hashed secret material on the wire. It carries no token
+// lifetime: the stored token_ttl_secs is legacy, never read for issuance and
+// never shown (owner ruling n, 2026-10-06).
 type safeAPIResource struct {
 	ID             uuid.UUID      `json:"id"`
 	OrganizationID uuid.UUID      `json:"organization_id"`
 	Name           string         `json:"name"`
 	Audience       string         `json:"audience"`
 	Active         bool           `json:"active"`
-	TokenTTLSecs   int            `json:"token_ttl_secs"`
 	Scopes         []safeAPIScope `json:"scopes"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
@@ -191,7 +225,6 @@ func toSafeAPIResource(r *domain.APIResource) safeAPIResource {
 		Name:           r.Name,
 		Audience:       r.Audience,
 		Active:         r.Active,
-		TokenTTLSecs:   r.TokenTTLSecs,
 		CreatedAt:      r.CreatedAt,
 		UpdatedAt:      r.UpdatedAt,
 		Scopes:         make([]safeAPIScope, 0, len(r.Scopes)),
@@ -301,11 +334,14 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			// explicit false: the UI create body never sends active, and
 			// the old bare bool birthed every UI-created API resource
 			// deactivated (ABSENT-BOOL-1, the BORN-ACTIVE-1 shape).
-			Active       *bool             `json:"active,omitempty"`
-			TokenTTLSecs int               `json:"token_ttl_secs"`
-			Scopes       []domain.APIScope `json:"scopes,omitempty"`
+			Active *bool             `json:"active,omitempty"`
+			Scopes []domain.APIScope `json:"scopes,omitempty"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil {
+		raw, ok := readAPIResourceBody(c)
+		if !ok {
+			return
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
@@ -318,7 +354,6 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			Name:           req.Name,
 			Audience:       req.Audience,
 			Active:         req.Active == nil || *req.Active,
-			TokenTTLSecs:   req.TokenTTLSecs,
 			Scopes:         req.Scopes,
 		})
 		if err != nil {
@@ -370,13 +405,16 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		var req struct {
-			Name         *string           `json:"name,omitempty"`
-			Audience     *string           `json:"audience,omitempty"`
-			Active       *bool             `json:"active,omitempty"`
-			TokenTTLSecs *int              `json:"token_ttl_secs,omitempty"`
-			Scopes       []domain.APIScope `json:"scopes,omitempty"`
+			Name     *string           `json:"name,omitempty"`
+			Audience *string           `json:"audience,omitempty"`
+			Active   *bool             `json:"active,omitempty"`
+			Scopes   []domain.APIScope `json:"scopes,omitempty"`
 		}
-		if err := c.ShouldBindJSON(&req); err != nil {
+		raw, ok := readAPIResourceBody(c)
+		if !ok {
+			return
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
@@ -385,11 +423,10 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		resource, err := deps.APIResourceService.Update(c.Request.Context(), actor, id, service.UpdateAPIResourceOptions{
-			Name:         req.Name,
-			Audience:     req.Audience,
-			Active:       req.Active,
-			TokenTTLSecs: req.TokenTTLSecs,
-			Scopes:       req.Scopes,
+			Name:     req.Name,
+			Audience: req.Audience,
+			Active:   req.Active,
+			Scopes:   req.Scopes,
 		})
 		if err != nil {
 			// THE-SIXTEEN-ELSES: 404 only for the real miss (a foreign-org
@@ -403,9 +440,10 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			case errors.Is(err, domain.ErrAPIResourceAlreadyExists):
 				c.JSON(http.StatusConflict, gin.H{"error": "audience_exists"})
 			case errors.Is(err, service.ErrAPIResourceInvalid()):
-				// THE-UNVALIDATED-REST: a blank name, a blank audience, a
-				// non-positive TTL or a reserved scope prefix is a BAD
-				// REQUEST. The service refused them correctly all along;
+				// THE-UNVALIDATED-REST: a blank name, a blank audience or a
+				// reserved scope prefix is a BAD REQUEST (a token_ttl_secs
+				// field is refused before the service, readAPIResourceBody).
+				// The service refused them correctly all along;
 				// this switch had no branch, so the caller was told
 				// "internal_error" for their own input.
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": err.Error()})

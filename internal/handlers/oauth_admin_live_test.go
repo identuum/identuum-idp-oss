@@ -382,7 +382,6 @@ func TestLive_APIResourceCreateReturnsResourceSecretOnce(t *testing.T) {
 		"name":            "Resource",
 		"audience":        "https://api.example.com",
 		"active":          true,
-		"token_ttl_secs":  3600,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%q", rec.Code, rec.Body.String())
@@ -422,7 +421,6 @@ func TestLive_APIResourceRegenerateRotates(t *testing.T) {
 		"name":            "R",
 		"audience":        "https://api.example.com",
 		"active":          true,
-		"token_ttl_secs":  3600,
 	})
 	var created struct {
 		APIResource    map[string]any `json:"api_resource"`
@@ -460,7 +458,6 @@ func TestLive_APIResourceDeleteAudits(t *testing.T) {
 		"name":            "R",
 		"audience":        "https://api.example.com",
 		"active":          true,
-		"token_ttl_secs":  3600,
 	})
 	var created struct {
 		APIResource map[string]any `json:"api_resource"`

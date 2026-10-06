@@ -669,6 +669,10 @@ carry `actor_type` `service_account`. An application registered for
 
 ### Tokens for an API resource, and who may introspect them
 
+Every access token lives one hour, whatever its audience. An API resource
+has no lifetime of its own: create and update refuse a `token_ttl_secs`
+field with `400 unsupported_field`.
+
 A `client_credentials` request with `audience=<an API resource's audience>`
 (one of the client's `allowed_audiences`) gets a token whose `aud` is that API
 resource, not the IdP. Introspection (`POST /api/v1/oauth/introspection`)
