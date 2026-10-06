@@ -1039,8 +1039,10 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	orgProtoSettingsSvc := service.NewOrganizationProtocolSettingsService(report, repos.OrganizationProtocolSettings)
 
 	userScopeSvc := service.NewUserScopeService(report, repos.OrgRole)
+	// OSS-INTROSPECT-AUD: introspection (never the bearer path) accepts a
+	// token whose aud names a live API resource and answers it by ruling h.
 	introspectionSvc := service.NewIntrospectionService(report,
-		tokenVerifier.(*auth.RepositoryVerifier),
+		tokenVerifier.(*auth.RepositoryVerifier).WithResourceAudiences(apiResourceSvc),
 		userScopeSvc,
 	).WithAgentCommunication(repos.AgentCommunicationAuthorization, repos.Client).
 		WithClientLiveness(repos.Client)

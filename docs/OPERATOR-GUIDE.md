@@ -643,6 +643,24 @@ carry `actor_type` `service_account`. An application registered for
 `client_credentials` without a service account is refused with
 `unauthorized_client`.
 
+### Tokens for an API resource, and who may introspect them
+
+A `client_credentials` request with `audience=<an API resource's audience>`
+(one of the client's `allowed_audiences`) gets a token whose `aud` is that API
+resource, not the IdP. Introspection (`POST /api/v1/oauth/introspection`)
+answers it as active only to:
+
+- that API resource, authenticated with its own audience and secret, when the
+  resource and the token belong to the same organization; and
+- the client the token was issued to.
+
+Every other caller gets `{"active":false}`: another API resource, another
+application, and the site_admin path that runs when no client authentication
+is wired. A token whose API resource was deleted or made inactive is inactive
+to everyone; so is a revoked or expired one. Such a token is never accepted
+as a bearer on the IdP's own API or at userinfo. Only the issuing client may
+revoke it.
+
 ## Console and application sign-ins are separate
 
 Signing in to the console (`/login`) never signs a user in to an

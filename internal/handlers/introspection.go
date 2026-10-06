@@ -99,7 +99,7 @@ func RegisterIntrospectionRoutes(router gin.IRouter, deps IntrospectionHandlerDe
 	// docgen:surface=oauth
 	// docgen:method=POST
 	// docgen:path=/api/v1/oauth/introspection
-	// docgen:summary=RFC 7662 token introspection (returns {"active":false} for revoked or unknown tokens).
+	// docgen:summary=RFC 7662 token introspection (returns {"active":false} for revoked or unknown tokens; a token minted for an API resource is active only to that resource, in the token's organization, and to the client it was issued to).
 	// docgen:tier=oss
 	// docgen:auth=oauth_client
 	// docgen:notes=Falls back to site_admin auth when ClientAuth is not wired (e.g. legacy operator paths).

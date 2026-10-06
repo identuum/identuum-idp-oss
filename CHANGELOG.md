@@ -7,6 +7,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **A token minted for an API resource can be introspected by that
+  resource.** Until now introspection answered `{"active":false}` for a
+  `client_credentials` token issued with `audience=<API resource>`, even to
+  that resource. Now it is active to the API resource it names, when the
+  resource and the token belong to the same organization, and to the client
+  it was issued to; every other caller, the site_admin path included, still
+  gets `{"active":false}`. A deleted or inactive resource's tokens stay
+  inactive, and such a token is still refused as a bearer on the IdP's own
+  API and at userinfo. Tokens addressed to the IdP are answered as before.
+
 - **New organizations start with the service-account expiry off.** A new
   organization's `service_account_expiry_days` is `0` (no default expiry)
   unless its create request names a value; its org_admin turns it on

@@ -10,6 +10,21 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
+// ResourceAudienceLookup resolves an audience to its API resource; the
+// production implementation is service.APIResourceService. It answers
+// (nil, nil) when no live resource holds the audience (the resource or its
+// organization deleted).
+type ResourceAudienceLookup interface {
+	LookupAudience(ctx context.Context, audience string) (*domain.APIResource, error)
+}
+
+// WithResourceAudiences wires the lookup IntrospectToken uses for a token whose
+// aud is not the issuer. nil leaves such tokens invalid.
+func (v *RepositoryVerifier) WithResourceAudiences(l ResourceAudienceLookup) *RepositoryVerifier {
+	v.resources = l
+	return v
+}
+
 // IntrospectToken runs the same verification chain as
 // VerifyBearerToken (signature, alg-allowlist, issuer + audience
 // claim checks, expiry via jwt.NewParser standard validators)
@@ -99,13 +114,46 @@ func (v *RepositoryVerifier) IntrospectToken(ctx context.Context, rawToken strin
 	// untouched: a relay token is never admitted to this server's own API.
 	_, hasAgentComm := claims["agent_communication"]
 	_, hasCnf := claims["cnf"]
+	var resource *service.IntrospectionResource
 	if v.opts.ExpectedAudience != "" && !(hasAgentComm && hasCnf) {
 		if !audienceContains(claims["aud"], v.opts.ExpectedAudience) {
-			return nil, errTokenInvalid
+			// OSS-INTROSPECT-AUD: a token whose single aud names a live API
+			// resource reaches the service marked with that resource, which
+			// answers it only to the resource and its issuing client.
+			resource, err = v.resourceAudience(ctx, claims["aud"])
+			if err != nil {
+				return nil, err
+			}
+			if resource == nil {
+				return nil, errTokenInvalid
+			}
 		}
 	}
 
-	return claimsToIntrospection(claims), nil
+	out := claimsToIntrospection(claims)
+	out.Resource = resource
+	return out, nil
+}
+
+// resourceAudience returns the live, active API resource a token's aud names,
+// or nil. Exactly one audience value is accepted; a store error is the store
+// class (503), never a verdict.
+func (v *RepositoryVerifier) resourceAudience(ctx context.Context, aud any) (*service.IntrospectionResource, error) {
+	if v.resources == nil {
+		return nil, nil
+	}
+	auds := audienceClaimToSlice(aud)
+	if len(auds) != 1 || auds[0] == "" {
+		return nil, nil
+	}
+	res, err := v.resources.LookupAudience(ctx, auds[0])
+	if err != nil {
+		return nil, domain.AuthStoreUnavailable("api-resources", err)
+	}
+	if res == nil || !res.Active || res.Audience != auds[0] {
+		return nil, nil
+	}
+	return &service.IntrospectionResource{ID: res.ID, OrganizationID: res.OrganizationID, Audience: res.Audience}, nil
 }
 
 // claimsToIntrospection mirrors claimsToPrincipal's field set but

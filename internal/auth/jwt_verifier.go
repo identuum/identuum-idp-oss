@@ -56,6 +56,10 @@ type VerifierOptions struct {
 type RepositoryVerifier struct {
 	repo repository.KeyRepository
 	opts VerifierOptions
+
+	// resources, when set, lets IntrospectToken (never VerifyBearerToken)
+	// accept a token whose aud names a live API resource (OSS-INTROSPECT-AUD).
+	resources ResourceAudienceLookup
 }
 
 // NewRepositoryVerifier returns a TokenVerifier backed by repo.

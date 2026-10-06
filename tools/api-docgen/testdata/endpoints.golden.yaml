@@ -1019,7 +1019,7 @@ endpoints:
     path: "/api/v1/oauth/introspection"
     handler: "HandleIntrospection"
     registrar: ""
-    summary: "RFC 7662 token introspection (returns {\"active\":false} for revoked or unknown tokens)."
+    summary: "RFC 7662 token introspection (returns {\"active\":false} for revoked or unknown tokens; a token minted for an API resource is active only to that resource, in the token's organization, and to the client it was issued to)."
     tier: "oss"
     auth: "oauth_client"
     request_schema: ""

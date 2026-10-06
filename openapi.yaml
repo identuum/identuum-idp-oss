@@ -1164,14 +1164,14 @@ paths:
   "/api/v1/oauth/introspection":
     post:
       operationId: "identuum-idp-oss.oauth.introspection"
-      summary: "RFC 7662 token introspection (returns {\"active\":false} for revoked or unknown tokens)."
+      summary: "RFC 7662 token introspection (returns {\"active\":false} for revoked or unknown tokens; a token minted for an API resource is active only to that resource, in the token's organization, and to the client it was issued to)."
       tags:
         - "oauth"
       security:
         - oauthClientAuth: []
       responses:
         "200":
-          description: "RFC 7662 token introspection (returns {\"active\":false} for revoked or unknown tokens)."
+          description: "RFC 7662 token introspection (returns {\"active\":false} for revoked or unknown tokens; a token minted for an API resource is active only to that resource, in the token's organization, and to the client it was issued to)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/oauth/register":

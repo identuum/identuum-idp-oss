@@ -58,6 +58,20 @@ type IntrospectionClaims struct {
 	// authorization_details). Populated by the verifier from the SIGNED
 	// claim set; never from unverified input.
 	Extra map[string]any
+
+	// Resource is set by the verifier when the token's aud names a live API
+	// resource instead of the issuer (OSS-INTROSPECT-AUD, ruling h). Such a
+	// token is active only to that resource, in the token's own organization,
+	// and to the client it was issued to. Nil for every other token.
+	Resource *IntrospectionResource
+}
+
+// IntrospectionResource is the live API resource a resource-audience token
+// names.
+type IntrospectionResource struct {
+	ID             uuid.UUID
+	OrganizationID uuid.UUID
+	Audience       string
 }
 
 // TokenClaimsVerifier is the seam between the IntrospectionService
@@ -109,6 +123,11 @@ type IntrospectionResponse struct {
 	Cnf                  map[string]any                   `json:"cnf,omitempty"`
 	AuthorizationDetails any                              `json:"authorization_details,omitempty"`
 	AgentCommunication   *IntrospectionAgentCommunication `json:"agent_communication,omitempty"`
+
+	// resource and orgID carry a resource-audience token's binding from the
+	// verdict to the caller narrowing (OSS-INTROSPECT-AUD). Never serialized.
+	resource *IntrospectionResource
+	orgID    uuid.UUID
 }
 
 // TokenRevocationChecker is the seam the IntrospectionService
@@ -197,11 +216,15 @@ func (s *IntrospectionService) subjectLive(ctx context.Context, claims *Introspe
 // (docs/AGENT-COMMUNICATION-AUTHORIZATION.md). An app's own client credential
 // judges only its own tokens (IntrospectVerdictFor), so one app cannot read
 // another app's tokens. A nil caller is the site-administrator authority path
-// and is not narrowed.
+// and is not narrowed. A resource-audience token is answered by ruling h
+// (resourceAudienceVerdict).
 func (s *IntrospectionService) IntrospectVerdictAs(ctx context.Context, rawToken string, caller *AuthenticatedClient) (IntrospectionResponse, error) {
-	resp, err := s.IntrospectVerdict(ctx, rawToken)
+	resp, err := s.verdict(ctx, rawToken)
 	if err != nil || !resp.Active {
 		return resp, err
+	}
+	if resp.resource != nil {
+		return resourceAudienceVerdict(resp, caller), nil
 	}
 	if (caller != nil && caller.Kind == AuthenticatedClientKindAPIResource) || resp.AgentCommunication != nil {
 		return resp, nil
@@ -214,13 +237,40 @@ func (s *IntrospectionService) IntrospectVerdictAs(ctx context.Context, rawToken
 // {"active":false} for any other, exactly as for an unknown token (RFC 7662
 // §2.2). Revocation uses it: only the client a token was issued to may revoke
 // it (RFC 7009 §2.1). A nil caller is the site-administrator authority path
-// and is not narrowed.
+// and is not narrowed, except for a resource-audience token, which only its
+// issuing client may judge here.
 func (s *IntrospectionService) IntrospectVerdictFor(ctx context.Context, rawToken string, caller *AuthenticatedClient) (IntrospectionResponse, error) {
-	resp, err := s.IntrospectVerdict(ctx, rawToken)
+	resp, err := s.verdict(ctx, rawToken)
 	if err != nil || !resp.Active {
 		return resp, err
 	}
+	if resp.resource != nil {
+		if caller == nil || caller.ClientID == "" || caller.ClientID != resp.ClientID {
+			return IntrospectionResponse{Active: false}, nil
+		}
+		return resp, nil
+	}
 	return ownTokenVerdict(resp, caller), nil
+}
+
+// resourceAudienceVerdict is owner ruling h (OSS-INTROSPECT-AUD, 2026-10-06):
+// a token whose aud names an API resource is active only to that resource,
+// when the resource and the token belong to the same organization, and to the
+// client it was issued to. Every other caller, nil included, gets
+// {"active":false}.
+func resourceAudienceVerdict(resp IntrospectionResponse, caller *AuthenticatedClient) IntrospectionResponse {
+	if caller == nil {
+		return IntrospectionResponse{Active: false}
+	}
+	if caller.ClientID != "" && caller.ClientID == resp.ClientID {
+		return resp
+	}
+	r := resp.resource
+	if caller.Kind == AuthenticatedClientKindAPIResource && caller.AuthRecordID == r.ID &&
+		resp.orgID != uuid.Nil && resp.orgID == r.OrganizationID && caller.OrganizationID == r.OrganizationID {
+		return resp
+	}
+	return IntrospectionResponse{Active: false}
 }
 
 // ownTokenVerdict keeps resp only when the token is the caller's own: issued
@@ -439,7 +489,20 @@ func (s *IntrospectionService) Introspect(ctx context.Context, rawToken string) 
 // the caller can answer 503 with an ERROR log instead of presenting an
 // unjudged token as inactive. A nil error means the response IS the
 // verdict. Introspect keeps its old signature for existing callers.
+//
+// It has no caller, so a resource-audience token is inactive here (ruling h);
+// IntrospectVerdictAs and IntrospectVerdictFor answer it to its own callers.
 func (s *IntrospectionService) IntrospectVerdict(ctx context.Context, rawToken string) (IntrospectionResponse, error) {
+	resp, err := s.verdict(ctx, rawToken)
+	if resp.resource != nil {
+		return IntrospectionResponse{Active: false}, nil
+	}
+	return resp, err
+}
+
+// verdict is IntrospectVerdict before any caller narrowing: a resource-audience
+// token's answer carries its binding for the caller to judge.
+func (s *IntrospectionService) verdict(ctx context.Context, rawToken string) (IntrospectionResponse, error) {
 	if strings.TrimSpace(rawToken) == "" {
 		return IntrospectionResponse{Active: false}, nil
 	}
@@ -498,6 +561,8 @@ func (s *IntrospectionService) IntrospectVerdict(ctx context.Context, rawToken s
 		Iss:       claims.Iss,
 		Jti:       claims.Jti,
 		Scope:     claims.Scope,
+		resource:  claims.Resource,
+		orgID:     claims.OrgID,
 	}
 	if resp.Sub == "" && claims.UserID != uuid.Nil {
 		resp.Sub = claims.UserID.String()
@@ -606,6 +671,11 @@ func (s *IntrospectionService) IntrospectActiveClaimsVerdict(ctx context.Context
 	// server's user-facing endpoints (userinfo) — refuse it here regardless
 	// of what the store would say about it.
 	if _, isParticipant := claims.Extra["agent_communication"]; isParticipant {
+		return nil, false, nil
+	}
+	// OSS-INTROSPECT-AUD: a resource-audience token is for its API resource,
+	// never for this server's user-facing endpoints.
+	if claims.Resource != nil {
 		return nil, false, nil
 	}
 	if s.revoker != nil && claims.Jti != "" {
