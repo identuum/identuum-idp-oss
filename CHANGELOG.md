@@ -7,15 +7,22 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **New organizations start with the service-account expiry off.** A new
+  organization's `service_account_expiry_days` is `0` (no default expiry)
+  unless its create request names a value; its org_admin turns it on
+  (1 to 3650 days) through `PUT /api/v1/organizations/:id` or the console's
+  organization settings. Migration 0051 makes the column default `0`, as the
+  create path already stored; no existing organization row changes.
+
 - **An organization's service-account expiry is applied.** A service account
   created without `expires_at`, in the console or with its OAuth client, now
-  expires the organization's `service_account_expiry_days` after creation
-  (365 unless the organization's org_admin changed it). `0` means no default
-  expiry; an explicit future `expires_at` is kept. Accounts that exist are
-  not changed, and changing the value later changes no existing account. If
-  the organization's value cannot be read, the account is not created.
-  Upgrade note: from this release, new accounts in an organization with the
-  default 365 expire after a year unless a date or `0` is set.
+  expires the organization's `service_account_expiry_days` after creation.
+  `0` means no default expiry; an explicit future `expires_at` is kept.
+  Accounts that exist are not changed, and changing the value later changes
+  no existing account. If the organization's value cannot be read, the
+  account is not created. Upgrade note: an organization whose stored value is
+  above `0` (check it in the console's organization settings) gives its new
+  accounts that expiry unless a date is set.
 
 - **Gate tidy-up** (maintainer tooling; no product change). `wiki-fresh`
   is no longer a verify-plan entry: the wiki's own check judges this

@@ -320,6 +320,11 @@ active* on its page) while the activation is valid, and *Invitation expired* /
 opens the link, sets a password, enrols an authenticator app on the same
 page, and then signs in at `/login` with their email.
 
+A new organization's service-account expiry (`service_account_expiry_days`)
+starts at `0`, no default expiry, unless the create request names a value.
+It is the organization's own setting: its org_admin turns it on in
+**Settings**, and a site administrator does not change it for a tenant.
+
 **This works with or without email delivery.** Those are the two supported
 modes, and they differ only in whether the IdP also sends the message for
 you:
@@ -607,9 +612,10 @@ The site administrator's own password has its own break-glass command (see
 **Service accounts → Create** in the console registers the identity only: no
 credential is issued. The role is `org_user` unless you choose another. When
 you set no expiry date, the account expires the organization's
-`service_account_expiry_days` after it is created (365 unless the org_admin
-changed it); a value of `0` means new accounts do not expire unless you set a
-date. A date you set is kept. The value applies only to accounts created after
+`service_account_expiry_days` after it is created. A new organization starts
+at `0` (unless its create request names a value), and `0` means new accounts
+do not expire unless you set a date; the organization's org_admin turns it on
+in **Settings** (1 to 3650 days). A date you set is kept. The value applies only to accounts created after
 it is set: changing it never changes an existing account. Both creation routes,
 this one and the one below, apply it, and an expired account cannot get a
 `client_credentials` token.

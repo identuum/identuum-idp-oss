@@ -1287,14 +1287,14 @@ paths:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
     post:
       operationId: "identuum-idp-oss.organizations.create_organization"
-      summary: "Create an organization."
+      summary: "Create an organization. A new organization's service_account_expiry_days starts at 0 (no default service-account expiry) unless the request names a value; its org_admin turns it on."
       tags:
         - "organizations"
       security:
         - cookieAuth: []
       responses:
         "201":
-          description: "Create an organization."
+          description: "Create an organization. A new organization's service_account_expiry_days starts at 0 (no default service-account expiry) unless the request names a value; its org_admin turns it on."
           content:
             application/json:
               schema:

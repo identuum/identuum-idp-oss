@@ -1350,7 +1350,7 @@ endpoints:
     path: "/api/v1/organizations"
     handler: "HandleCreateOrganization"
     registrar: ""
-    summary: "Create an organization."
+    summary: "Create an organization. A new organization's service_account_expiry_days starts at 0 (no default service-account expiry) unless the request names a value; its org_admin turns it on."
     tier: "oss"
     auth: "site_admin"
     request_schema: ""

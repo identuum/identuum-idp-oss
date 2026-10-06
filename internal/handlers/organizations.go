@@ -209,7 +209,7 @@ func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDe
 		// docgen:surface=organizations
 		// docgen:method=POST
 		// docgen:path=/api/v1/organizations
-		// docgen:summary=Create an organization.
+		// docgen:summary=Create an organization. A new organization's service_account_expiry_days starts at 0 (no default service-account expiry) unless the request names a value; its org_admin turns it on.
 		// docgen:tier=oss
 		// docgen:auth=site_admin
 		// docgen:response=oss.handlers.safeOrganization
