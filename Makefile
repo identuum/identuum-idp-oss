@@ -1136,6 +1136,8 @@ ci-verify:
 	+@$(call LICTOR_ASSERT,ci-verify); \
 	$(GATE_RECORD_DRIVER) "$(LICTOR)" witness run --repo "$(CURDIR)" \
 		--record GATE-RUN.ci.txt --label "$(CI_VERIFY_GATE)" \
+		--env IDENTUUM_IDP_TEST_DATABASE_URL --env IDENTUUM_IDP_REQUIRE_DB_TESTS \
+		--env IDENTUUM_IDP_ALLOW_MULTI_REPLICA \
 		--cites 'the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' -- \
 		$(CI_VERIFY_PLAN)
 
@@ -1166,20 +1168,25 @@ define CI_VERIFY_PLAN
 		'notices-check=$(MAKE) --no-print-directory notices-check' \
 		'go-mod-tidy-diff=go mod tidy -diff' \
 		'go-build=go build ./...' \
-		'go-test-race=$(MAKE) --no-print-directory go-test-race IDENTUUM_IDP_TEST_DATABASE_URL=$(IDENTUUM_IDP_TEST_DATABASE_URL) IDENTUUM_IDP_REQUIRE_DB_TESTS=$(IDENTUUM_IDP_REQUIRE_DB_TESTS) IDENTUUM_IDP_ALLOW_MULTI_REPLICA=$(IDENTUUM_IDP_ALLOW_MULTI_REPLICA)' \
+		'go-test-race=$(MAKE) --no-print-directory go-test-race' \
 		'staticcheck=staticcheck ./...' \
 		'grype-scan=$(MAKE) grype-scan'
 endef
 
 ## go-test-race (OSS-CI-ENV, 2026-10-03): ci-verify's test floor. lictor runs
-## each plan entry with its environment allowlist, so the CI job's DB settings
+## each plan entry with its environment allowlist; since LICTOR-ADOPT-0.4.5
+## (2026-10-06) ci-verify declares the CI job's DB settings
 ## (IDENTUUM_IDP_TEST_DATABASE_URL, IDENTUUM_IDP_REQUIRE_DB_TESTS,
-## IDENTUUM_IDP_ALLOW_MULTI_REPLICA) arrive as command-line variables the
-## outer make expanded from the job's environment; make exports them to this
-## recipe. Measured before: through lictor 17 DB-backed tests skipped under a
-## green record. Unset where the caller has none, so a local run skips as before.
+## IDENTUUM_IDP_ALLOW_MULTI_REPLICA) with `--env NAME`, so they reach this
+## recipe by name and the record states each one present or absent, never its
+## value. A declared name that is absent is refused here (exit 2), before any
+## test runs: through lictor 17 DB-backed tests once skipped under a green
+## record (measured, OSS-CI-ENV).
 .PHONY: go-test-race
 go-test-race:
+	@for name in IDENTUUM_IDP_TEST_DATABASE_URL IDENTUUM_IDP_REQUIRE_DB_TESTS IDENTUUM_IDP_ALLOW_MULTI_REPLICA; do \
+		printenv "$$name" >/dev/null || { echo "go-test-race: REFUSED — $$name is not set; ci-verify declares it with --env and the CI job sets it" >&2; exit 2; }; \
+	done
 	@go test ./... -count=1 -race -timeout=300s
 
 # What ci-verify subtracts from verify and adds to it, declared ONCE

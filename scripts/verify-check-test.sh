@@ -58,15 +58,26 @@ for pair in CI_VERIFY_SUBTRACTS:-23 CI_VERIFY_ADDS:-13; do
 	echo "PASS: $variable matches the plans ($(wc -l < "$scratch/declared" | tr -d ' ') names)"
 done
 
-# OSS-CI-ENV: lictor runs every plan entry with its environment allowlist, so
-# the verify job's DB settings reach go-test-race only as arguments the outer
-# make expands before lictor starts. Without them its 17 DB-backed tests skip
-# under a green record and the REQUIRE guard can never fire.
+# OSS-CI-ENV, LICTOR-ADOPT-0.4.5: lictor runs every plan entry with its
+# environment allowlist, so ci-verify declares the job's DB settings with
+# `--env NAME` (never as make variables, which would put a value on a command
+# line), the CI job sets the same names, and go-test-race refuses when one is
+# absent. Without them its 17 DB-backed tests skip under a green record.
+recipe=$(awk '$0 == "ci-verify:" { inside=1; next } inside && /^[^\t#]/ { inside=0 } inside' "$root/Makefile")
 entry=$(awk '$0 == "define CI_VERIFY_PLAN" { inside=1; next } inside && $0 == "endef" { inside=0 } inside && /^\t\t\047go-test-race=/' "$root/Makefile")
 for variable in IDENTUUM_IDP_TEST_DATABASE_URL IDENTUUM_IDP_REQUIRE_DB_TESTS IDENTUUM_IDP_ALLOW_MULTI_REPLICA; do
-	case "$entry" in *"$variable=\$($variable)"*) ;; *) echo "FAIL: ci-verify's go-test-race does not forward $variable past lictor's environment allowlist: $entry"; exit 1;; esac
+	case "$recipe" in *"--env $variable "*|*"--env $variable"$'\n'*) ;; *) echo "FAIL: ci-verify does not declare --env $variable"; exit 1;; esac
+	case "$entry" in *"$variable="*) echo "FAIL: ci-verify's go-test-race passes $variable as a make variable: $entry"; exit 1;; esac
+	grep -Eq "^      $variable: " "$root/.github/workflows/ci.yml" || { echo "FAIL: the CI verify job does not set $variable"; exit 1; }
+	# the other two set to placeholders, this one absent: refused before any test
+	set +e
+	out=$(cd "$root" && env IDENTUUM_IDP_TEST_DATABASE_URL=placeholder IDENTUUM_IDP_REQUIRE_DB_TESTS=placeholder IDENTUUM_IDP_ALLOW_MULTI_REPLICA=placeholder \
+		env -u "$variable" make --no-print-directory go-test-race 2>&1 </dev/null)
+	status=$?
+	set -e
+	[ "$status" -ne 0 ] && case "$out" in *"REFUSED — $variable is not set"*) true;; *) false;; esac || { echo "FAIL: go-test-race does not refuse an absent $variable (exit $status)"; exit 1; }
 done
-echo 'PASS: go-test-race forwards the job DB settings (3)'
+echo 'PASS: ci-verify declares the job DB settings with --env, CI sets them, go-test-race refuses an absent one (3)'
 
 # Both recorder forms the wrapper accepts are proved here, because both are
 # driven by a recipe: `verify` still drives the Bash complete-run recorder,
