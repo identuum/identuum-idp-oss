@@ -48,6 +48,11 @@ func orderFixture(t *testing.T) (dir, w1 string) {
 	t.Helper()
 	dir = t.TempDir()
 	git(t, dir, "init", "-q", "-b", "main")
+	// No background gc or maintenance: a detached auto-gc still writing into
+	// .git when t.TempDir cleans up failed this test on a CI runner (run
+	// 37441699676, "unlinkat …/.git: directory not empty").
+	git(t, dir, "config", "gc.auto", "0")
+	git(t, dir, "config", "maintenance.auto", "false")
 	commitPaths(t, dir, "work: start", strings.Repeat("0", 40), "a.txt", "ledger-amendments.json")
 	w0 := gitCommit(t, dir, WitnessSubjectPrefix+"start")
 	commitPaths(t, dir, "work: a passenger before the rebase", "", "a.txt")
