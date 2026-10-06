@@ -5,7 +5,22 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.8`
+
+identuum-ui `d009997` embedded (`v0.9.7` embedded `1354a72`). The delta
+since `v0.9.7` (`git rev-list --count v0.9.7..HEAD` and `git diff
+--shortstat v0.9.7..HEAD`, measured at `a7e2c6f`, before the notes commit)
+is 37 commits, 53 files, +1910/−132. One migration, `0051` (the
+`service_account_expiry_days` column default becomes `0`; no row changes).
+The endpoint count stays 159 (`go run ./tools/api-docgen --dry-run`).
+
+The embedded console gains, from identuum-ui `1354a72..d009997`: the
+org_admin's **Service accounts** card in organization settings (expiry in
+days, `0` = none); sign-in that sends the browser to single sign-on only on
+this server's own `/api/v1/auth/idp/<id>/login`, and a new organization's
+activation link shown as a link only when it is `https` or on this console's
+own origin; and an export that runs under the new script policy (zod runs
+without its `eval` probe).
 
 - **The console page carries a script policy and no-referrer.** Every
   response that serves the console's page (not the API) now sends
