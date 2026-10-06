@@ -763,6 +763,7 @@ script-tests:
 	@$(MAKE) --no-print-directory protected-guard-selftest
 	@$(MAKE) --no-print-directory record-home-paths-selftest
 	@$(MAKE) --no-print-directory test-full-dispatch-selftest
+	@$(MAKE) --no-print-directory claim-guard-selftest
 	@bash scripts/verify-check-test.sh
 	@bash scripts/ci-integration-record-test.sh
 	@bin=$$(mktemp "$${TMPDIR:-/tmp}/ci-witness.XXXXXX"); \
@@ -1613,6 +1614,50 @@ witness-parity:
 		exit 1; \
 	fi; \
 	echo "check OK: witness-parity witness block md5 $$got matches the shared pin"
+
+## claim-guard (WIKI-CLAIM-BOOK, owner ruling i, 2026-10-06): the witness
+## refuses while another slice holds this checkout's `achta claim`. The caller
+## names its own slice in ACHTA_SLICE (make witness ACHTA_SLICE=<GOAL NAME>).
+## No claim at all is a warning, not a refusal; a missing achta or a status
+## that is not achta.claim.v1 is CANNOT EVALUATE (exit 2). A prerequisite of
+## witness, outside the witness recipe itself.
+ACHTA ?= achta
+.PHONY: claim-guard
+witness: claim-guard
+claim-guard:
+	@command -v "$(ACHTA)" >/dev/null 2>&1 || { echo "claim-guard: CANNOT EVALUATE — achta is not installed"; exit 2; }; \
+	json=$$("$(ACHTA)" claim status --repo "$(CURDIR)" --json) || { echo "claim-guard: CANNOT EVALUATE — achta claim status failed"; exit 2; }; \
+	case "$$json" in *'"schema_version":"achta.claim.v1"'*) ;; *) echo "claim-guard: CANNOT EVALUATE — the answer is not an achta.claim.v1 status"; exit 2;; esac; \
+	case "$$json" in *'"claim":null'*) echo "claim-guard: WARNING — no slice holds this checkout's claim; take one before writing: achta claim take --repo $(CURDIR) --slice <GOAL NAME>"; exit 0;; esac; \
+	holder=$$(printf '%s' "$$json" | sed -n 's/.*"claim":{"slice":"\([^"]*\)".*/\1/p'); \
+	[ -n "$$holder" ] || { echo "claim-guard: CANNOT EVALUATE — the status names no holder"; exit 2; }; \
+	[ "$$holder" = "$${ACHTA_SLICE:-}" ] || { echo "claim-guard: REFUSED — slice $$holder holds this checkout's claim, and this witness runs as '$${ACHTA_SLICE:-<unset>}'; only the holder witnesses here (owner ruling i)"; exit 1; }; \
+	echo "claim-guard: OK — $$holder holds the claim"
+
+## claim-guard-selftest: drives claim-guard with a stub achta whose `claim
+## status --json` prints a fixture: a claim held by another slice (refused,
+## naming it), by the caller (pass), by someone while ACHTA_SLICE is unset
+## (refused), no claim (warning, pass), and output that is not a claim status
+## (cannot evaluate). It also asserts that `witness` lists claim-guard as a
+## prerequisite. The same text in the wiki, identuum-idp-oss and identuum-ui.
+.PHONY: claim-guard-selftest
+claim-guard-selftest:
+	@set -u; t=$$(mktemp -d "$${TMPDIR:-/tmp}/claim-guard.XXXXXX"); trap 'rm -rf "$$t"' EXIT; \
+	printf '#!/bin/sh\ncat "%s"\n' "$$t/status.json" > "$$t/achta"; chmod +x "$$t/achta"; \
+	held() { printf '{"schema_version":"achta.claim.v1","operation":"status","status":"pass","claim":{"slice":"%s","time":"2026-10-06T00:00:00Z","note":""},"releases":[]}' "$$1" > "$$t/status.json"; }; \
+	n=0; fails=0; \
+	case_() { n=$$((n+1)); out=$$($(MAKE) --no-print-directory claim-guard ACHTA="$$t/achta" $$2 2>&1); rc=$$?; \
+		if { [ "$$3" = pass ] && [ "$$rc" -eq 0 ]; } || { [ "$$3" = fail ] && [ "$$rc" -ne 0 ]; }; then ok=1; else ok=0; fi; \
+		if [ $$ok = 1 ] && printf '%s' "$$out" | grep -q -- "$$4"; then echo "  ok    $$1"; else echo "  FAIL  $$1: exit $$rc, wanted $$3 and '$$4'; got: $$out"; fails=$$((fails+1)); fi; }; \
+	held OTHER-SLICE; case_ "a claim held by another slice is refused, naming it" "ACHTA_SLICE=MINE" fail "REFUSED — slice OTHER-SLICE holds"; \
+	held MINE; case_ "the holder passes" "ACHTA_SLICE=MINE" pass "OK — MINE holds"; \
+	held OTHER-SLICE; case_ "a held claim with ACHTA_SLICE unset is refused" "ACHTA_SLICE=" fail "REFUSED — slice OTHER-SLICE holds"; \
+	printf '{"schema_version":"achta.claim.v1","operation":"status","status":"pass","claim":null,"releases":[]}' > "$$t/status.json"; \
+	case_ "no claim is a warning, not a refusal" "ACHTA_SLICE=MINE" pass "WARNING — no slice holds"; \
+	printf 'not json' > "$$t/status.json"; case_ "an unreadable status cannot be evaluated" "ACHTA_SLICE=MINE" fail "CANNOT EVALUATE"; \
+	n=$$((n+1)); if $(MAKE) --no-print-directory -pnrR 2>/dev/null | grep -Eq '^witness:.* claim-guard( |$$)'; then echo "  ok    witness lists claim-guard as a prerequisite"; else echo "  FAIL  witness does not list claim-guard as a prerequisite"; fails=$$((fails+1)); fi; \
+	if [ $$fails -ne 0 ]; then echo "claim-guard-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
+	echo "check OK: claim-guard-selftest $$n case(s)"
 
 ## OSS-only prerequisite, outside the shared witness recipe and its pin.
 ## Phony: every attempt re-reads both trees and the mint record, even after
