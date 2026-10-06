@@ -145,26 +145,28 @@ func TestOrganizationFieldsWireContract(t *testing.T) {
 			t.Errorf("service_account_expiry_days = %d, want 30", created.ServiceAccountExpiryDays)
 		}
 	})
+}
 
-	// OSS-SA-EXPIRY-2 ruling e: a new organization starts at 0 (no default
-	// service-account expiry) unless its create request names a value.
-	t.Run("create without service_account_expiry_days starts the organization at 0", func(t *testing.T) {
-		repo := &wireOrgRepo{memOrgRepo: newMemOrgRepo()}
-		code := runHandler(t, http.MethodPost, "/o", "/o", `{"name":"Quiet Start","domain":"quiet-start.test"}`, HandleCreateOrganization(newDeps(repo)))
-		if code != http.StatusCreated {
-			t.Fatalf("create status = %d, want 201", code)
-		}
-		var created *domain.Organization
-		repo.mu.Lock()
-		for _, o := range repo.rows {
-			created = o
-		}
-		repo.mu.Unlock()
-		if created == nil {
-			t.Fatal("no organization persisted")
-		}
-		if created.ServiceAccountExpiryDays != 0 {
-			t.Errorf("service_account_expiry_days = %d, want 0 (no default expiry until the org_admin turns it on)", created.ServiceAccountExpiryDays)
-		}
-	})
+// OSS-SA-EXPIRY-2 ruling e: a new organization starts at 0 (no default
+// service-account expiry) unless its create request names a value; the
+// with-a-value case is TestOrganizationFieldsWireContract's create subtest.
+func TestCreateOrganization_WithoutExpiryStartsAtZero(t *testing.T) {
+	repo := &wireOrgRepo{memOrgRepo: newMemOrgRepo()}
+	deps := OrganizationsHandlerDeps{Audit: audit.NoopService{}, OrganizationService: service.NewOrganizationService(nil, repo)}
+	code := runHandler(t, http.MethodPost, "/o", "/o", `{"name":"Quiet Start","domain":"quiet-start.test"}`, HandleCreateOrganization(deps))
+	if code != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201", code)
+	}
+	var created *domain.Organization
+	repo.mu.Lock()
+	for _, o := range repo.rows {
+		created = o
+	}
+	repo.mu.Unlock()
+	if created == nil {
+		t.Fatal("no organization persisted")
+	}
+	if created.ServiceAccountExpiryDays != 0 {
+		t.Errorf("service_account_expiry_days = %d, want 0 (no default expiry until the org_admin turns it on)", created.ServiceAccountExpiryDays)
+	}
 }
