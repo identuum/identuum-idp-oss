@@ -7,6 +7,16 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **The console page carries a script policy and no-referrer.** Every
+  response that serves the console's page (not the API) now sends
+  `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src
+  'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src
+  'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'` and
+  `Referrer-Policy: no-referrer`, so only the console's own scripts run and an
+  account link's credential (`/claim`, `/invite`, `/reset-link`) is never
+  sent as a `Referer`. API responses keep their headers. A reverse proxy must
+  not remove or replace them (OPERATOR-GUIDE, "Security headers").
+
 - **A token minted for an API resource can be introspected by that
   resource.** Until now introspection answered `{"active":false}` for a
   `client_credentials` token issued with `audience=<API resource>`, even to

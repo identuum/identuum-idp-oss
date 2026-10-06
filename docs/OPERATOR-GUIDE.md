@@ -98,6 +98,30 @@ IPv4 is the default everywhere; IPv6 is supported and opt-in.
   not listed in `IDENTUUM_IDP_TRUSTED_PROXIES`, every user shares the proxy's
   address and therefore one budget.
 
+## Security headers
+
+Every response carries `Strict-Transport-Security: max-age=63072000;
+includeSubDomains`, `X-Frame-Options: DENY`, `X-Content-Type-Options:
+nosniff`, `Referrer-Policy: strict-origin-when-cross-origin` and
+`Content-Security-Policy: frame-ancestors 'none'`.
+
+The console page itself (the `index.html` that every console route, such as
+`/login` or `/site-admin`, returns) gets two stricter values:
+
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; style-src
+  'self'; img-src 'self'; font-src 'self'; connect-src 'self'; object-src
+  'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`. The
+  console runs only its own scripts and styles from this server and calls
+  only this server; no inline script and no `eval` can run, even if a fault
+  ever let text into the page as markup.
+- `Referrer-Policy: no-referrer`. The account-link pages (`/claim`,
+  `/invite`, `/reset-link`) carry a one-time credential in their address;
+  with no referrer, no request the page makes sends that address on.
+
+A reverse proxy in front of the appliance must pass these headers through
+unchanged. Removing or replacing them, for example with a proxy-wide
+`Content-Security-Policy` or `Referrer-Policy`, removes these protections.
+
 ## Where data lives
 
 - **PostgreSQL** (volume `identuum-idp-oss-postgres-data`): every

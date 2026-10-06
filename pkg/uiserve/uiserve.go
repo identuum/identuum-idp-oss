@@ -88,6 +88,16 @@ const (
 	// the hashed assets'.
 	ShellCacheControl = "no-store"
 	AssetCacheControl = "public, max-age=31536000, immutable"
+	// ShellContentSecurityPolicy is the app shell's script policy (UI-SEC-HEADERS,
+	// review M1): only the export's own scripts, styles and requests, no inline
+	// script, no eval, no plugins, and no framing. The built export loads one
+	// module script and one stylesheet from /assets and calls only this origin.
+	ShellContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; " +
+		"connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+	// ShellReferrerPolicy keeps an account link's one-time credential (/claim,
+	// /invite, /reset-link) out of every Referer header (review M2): the export
+	// cannot apply a page's own no-referrer metadata before its first request.
+	ShellReferrerPolicy = "no-referrer"
 	// NotFoundBody is the plain 404 body the fallback answers with.
 	NotFoundBody = "404 page not found"
 
@@ -387,6 +397,9 @@ func (h *handler) static(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(rel, assetsPrefix) {
 			cache = AssetCacheControl
 		}
+		if rel == shellFile {
+			setShellHeaders(w)
+		}
 		serveFile(w, r, h.o.UI, rel, cache)
 		return
 	}
@@ -395,7 +408,15 @@ func (h *handler) static(w http.ResponseWriter, r *http.Request) {
 		writeNotFound(w)
 		return
 	}
+	setShellHeaders(w)
 	serveFile(w, r, h.o.UI, shellFile, ShellCacheControl)
+}
+
+// setShellHeaders sets the shell's own policy headers. They replace the
+// host's defaults for these two names on the shell response only.
+func setShellHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy", ShellContentSecurityPolicy)
+	w.Header().Set("Referrer-Policy", ShellReferrerPolicy)
 }
 
 // serveFile uses http.ServeContent (content type by extension, HEAD, ranges)
