@@ -1,11 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "7ab7ab23a10cf2cfc5f2ff31eb52aadaf816a5b3",
-  "changes": [
-    {
-      "rule_id": "API-RESOURCE-REFUSAL-STATUS-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "OSS-MUST1-RETIRE-TTL (owner ruling m, 2026-10-06): identuum-idp-oss refuses token_ttl_secs on an API resource with 400. TestAPIResourceUpdateStatus_RefusalIsBadRequestNotInternalError's blank-name, blank-audience, scope-prefix and control bodies no longer carry the field, so each still refuses for its own reason (the control still lands); the zero and negative token_ttl_secs cases stay refusals. Rehashed 2b6247a2f496 -\u003e 6b41df0b222e."
-    }
-  ]
+  "base_commit": "70a12db62a0d865200d1f82ba3100966f34bc6d0",
+  "changes": []
 }
