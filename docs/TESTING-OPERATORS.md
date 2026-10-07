@@ -34,6 +34,14 @@ make test-full
 It takes about 16 minutes and prints its progress phase by phase. All
 passwords the run needs are generated fresh for that run and never shown.
 
+Its last step is `make devseed-live` (about 50 seconds): `make dev-seed` run
+against a disposable project of its own (`identuum-devseed`, host ports 25513
+and 27113), then every credential it prints is used to sign in, and the
+project is removed again. It needs those two ports free and refuses, naming
+the holder, when one is taken. The seeded credentials are written to a
+mode-600 file in a new temporary directory, which is left for you and never
+printed. Run it alone with `make devseed-live`.
+
 The first phase is the DATABASE-BACKED suite (`make verify-integration`,
 about 5m40s of that total, measured 2026-09-03): the tests that need a real
 PostgreSQL rather than an in-memory stand-in. It runs here because the mint

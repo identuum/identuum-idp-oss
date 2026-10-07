@@ -342,6 +342,12 @@ func login(base, email, password string) (string, string, error) {
 	return "", "", errors.New("login returned no bearer token")
 }
 
+// totpNow and totpSleep are enrolMFA's clock, replaced by its tests.
+var (
+	totpNow   = time.Now
+	totpSleep = time.Sleep
+)
+
 func enrolMFA(base, sessionID string) (string, string, error) {
 	initBody, _ := json.Marshal(map[string]string{"session_id": sessionID})
 	status, raw, err := postJSON(base+"/api/v1/auth/login/mfa/enroll/initiate", "", initBody)
@@ -368,11 +374,26 @@ func enrolMFA(base, sessionID string) (string, string, error) {
 	// read them. Drift is not silent: a period change makes enrolment reject
 	// this code and the seed fails loudly at the enrol step.
 	const totpPeriod, totpDigits = 30, 6
-	code := totp.Code(key, uint64(time.Now().UTC().Unix()/totpPeriod), totpDigits)
-	doneBody, _ := json.Marshal(map[string]string{"session_id": sessionID, "code": code})
-	status, raw, err = postJSON(base+"/api/v1/auth/login/mfa/enroll/complete", "", doneBody)
+	complete := func() (int, []byte, error) {
+		code := totp.Code(key, uint64(totpNow().UTC().Unix()/totpPeriod), totpDigits)
+		doneBody, _ := json.Marshal(map[string]string{"session_id": sessionID, "code": code})
+		return postJSON(base+"/api/v1/auth/login/mfa/enroll/complete", "", doneBody)
+	}
+	status, raw, err = complete()
 	if err != nil {
 		return "", "", err
+	}
+	// A step is single-use PER USER (TOTP-SINGLE-USE-1): when the account
+	// signed in with TOTP during this step — a re-seed right after a sign-in —
+	// the step is spent even under the new secret, and the code is refused as
+	// invalid_code. Wait for the next step to begin and try once more.
+	if status == http.StatusUnauthorized && strings.Contains(string(raw), `"invalid_code"`) {
+		now := totpNow().UTC()
+		totpSleep(now.Truncate(totpPeriod*time.Second).Add(totpPeriod*time.Second).Sub(now) + 500*time.Millisecond)
+		status, raw, err = complete()
+		if err != nil {
+			return "", "", err
+		}
 	}
 	if status < 200 || status >= 300 {
 		return "", "", fmt.Errorf("mfa enroll complete → %d: %s", status, truncate(raw))
@@ -638,7 +659,8 @@ SEEDED TEST CREDENTIALS — disposable dev database only
   org_admin         %s / %s
     TOTP secret     %s
   org_user          %s / %s
-    (no TOTP yet — enrolled on this account's first login)
+    (no TOTP: signs in with the password alone — OSS asks TOTP of admins,
+     and of an org_user only under an organization mfa_policy "required")
   client_id         %s
   client_secret     %s
   redirect_uri      %s

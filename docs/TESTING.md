@@ -64,6 +64,23 @@ rationale was false, both login paths do a plain RFC 6238 window match.)
 | admin-reset | destructive: `recover-site-admin` on the populated appliance — old password refused, new password through first-login enrolment to working authority, tenant data surviving by id (TEST-spec R2) |
 | auth503-scan | LAST: store errors the appliance logged and answered as 503 (AUTH-503) are scanned, never swallowed |
 
+After the e2e half, `test-full-mint` runs **`make devseed-live`** (owner
+ruling u, 2026-10-07): the `make dev-seed` path proved end to end on a
+disposable project of its own (`identuum-devseed`, Postgres on 25513, the
+app on 27113, from `deployment/docker-compose.dev.yml`). Each step prints
+`check OK:` or `check FAILED:`: preflight (both ports free, else refused
+naming the holder), up, health, seed (devseed with `--container --json`, as
+`dev-seed` runs it), credentials (`TestDevseedLive`: site_admin and
+org_admin sign in with the password and a TOTP code from the printed secret;
+org_user signs in with the password alone, since TOTP is asked of admins
+only here; the client authenticates at the token endpoint and a wrong secret
+gets `invalid_client`), second run (a re-seed refuses: the org_admin already
+has TOTP and devseed keeps no copy of the secret), and teardown
+(`down --volumes` of that project only, also on failure). The `--json` output
+goes to a mode-600 file in a fresh `mktemp` directory, left in place and
+never printed. It adds about 50 seconds to a mint. Run it alone with
+`make devseed-live`.
+
 Teardown destroys the appliance and its volume before AND after. The record
 (`GATE-RUN.e2e-full.txt`, gitignored in identuum-ui) is minted as the LAST
 act of a slice close, post-commit at clean HEAD; the wiki check's

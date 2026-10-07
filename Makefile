@@ -2055,6 +2055,69 @@ dev-seed: protected-guard
 	go run ./tools/devseed --issuer http://127.0.0.1:$(DEV_APP_PORT) \
 		--container $(DEV_APP_CONTAINER) --i-know-this-is-a-dev-database
 
+## devseed-live (OSS-DEVSEED-LIVE, owner ruling u, 2026-10-07): dev-seed proved
+## end to end on a DISPOSABLE appliance of its own — project identuum-devseed
+## from deployment/docker-compose.dev.yml, Postgres on 25513, app on 27113 (the
+## P-087 variables) — so the owner's dev stack and the e2e harness are never
+## touched. Every step prints `check OK:` or `check FAILED:` and decides the exit:
+##   preflight      both host ports free, else refused naming the holder;
+##   up             oss-up builds the tree and starts the project;
+##   health         /health answers within 120s;
+##   seed           devseed as dev-seed runs it (--container) plus --json;
+##   credentials    TestDevseedLive (tools/devseed/live_test.go) signs in as
+##                  site_admin and org_admin with password + a TOTP code from
+##                  the printed secret, signs org_user in with its password
+##                  alone (TOTP is asked of admins only here), and authenticates the client
+##                  at the token endpoint (a wrong secret gets invalid_client);
+##   second run     a re-seed refuses as devseed documents (the org_admin
+##                  already has TOTP, and devseed keeps no copy of the secret);
+##   teardown       `down --volumes` of identuum-devseed ONLY, also on failure,
+##                  then 0 containers and 0 volumes of that project remain.
+## The --json output (passwords, TOTP secrets, the client secret) goes to a
+## mode-600 file in a fresh mktemp directory that is left for the owner; this
+## recipe prints only check names. test-full-mint runs it after the e2e half.
+DEVSEED_LIVE_PROJECT := identuum-devseed
+DEVSEED_LIVE_PG_PORT := 25513
+DEVSEED_LIVE_APP_PORT := 27113
+.PHONY: devseed-live
+devseed-live:
+	@set -u; p=$(DEVSEED_LIVE_PROJECT); app=$(DEVSEED_LIVE_APP_PORT); \
+	export IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_PG_HOST_PORT=$(DEVSEED_LIVE_PG_PORT) DEV_APP_PORT="$$app"; \
+	dc() { $(COMPOSE_CMD) -p "$$p" -f deployment/docker-compose.dev.yml --profile app "$$@"; }; \
+	dir=$$(mktemp -d "$${TMPDIR:-/tmp}/devseed-live.XXXXXX"); chmod 700 "$$dir"; fails=0; \
+	ok() { echo "devseed-live: check OK: $$1"; }; \
+	bad() { echo "devseed-live: check FAILED: $$1"; fails=$$((fails+1)); }; \
+	teardown() { dc down --volumes >"$$dir/down.log" 2>&1; \
+		c=$$(docker ps -aq --filter "label=com.docker.compose.project=$$p" | wc -l | tr -d ' '); \
+		v=$$(docker volume ls -q --filter "label=com.docker.compose.project=$$p" | wc -l | tr -d ' '); \
+		if [ "$$c" = 0 ] && [ "$$v" = 0 ]; then ok "teardown — project $$p down --volumes, 0 containers and 0 volumes left"; \
+		else bad "teardown — project $$p still has $$c container(s) and $$v volume(s)"; fi; }; \
+	finish() { teardown; echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; \
+		if [ "$$fails" -eq 0 ]; then echo "devseed-live: green"; exit 0; fi; echo "devseed-live: RED — $$fails check(s) failed"; exit 1; }; \
+	dc down --volumes >"$$dir/predown.log" 2>&1 || true; \
+	for port in $(DEVSEED_LIVE_PG_PORT) $$app; do \
+		holder=$$(docker ps --filter "publish=$$port" --format '{{.Names}}' | tr '\n' ' '); \
+		[ -n "$$holder" ] || holder=$$(lsof -nP -iTCP:"$$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $$1" pid "$$2}' | sort -u | tr '\n' ' '); \
+		if [ -n "$$holder" ]; then echo "devseed-live: check FAILED: preflight — host port $$port is taken by: $$holder(refused; nothing was started)"; exit 1; fi; \
+	done; ok "preflight — ports $(DEVSEED_LIVE_PG_PORT) and $$app free"; \
+	if $(MAKE) --no-print-directory oss-up >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
+	i=0; until curl -fsS --max-time 2 "http://127.0.0.1:$$app/health" >/dev/null 2>&1; do \
+		i=$$((i+1)); if [ $$i -ge 60 ]; then bad "health — no answer on 127.0.0.1:$$app within 120s"; finish; fi; sleep 2; done; \
+	ok "health — 127.0.0.1:$$app answers"; \
+	if (umask 077; go run ./tools/devseed --issuer "http://127.0.0.1:$$app" --container "$$p" \
+		--i-know-this-is-a-dev-database --json >"$$dir/seed.json" 2>"$$dir/seed.err"); then ok "seed — devseed --container --json exit 0"; \
+	else bad "seed — devseed exit non-zero (stderr in $$dir/seed.err)"; finish; fi; \
+	IDENTUUM_DEVSEED_LIVE_CREDS="$$dir/seed.json" go test ./tools/devseed -count=1 -run '^TestDevseedLive$$' -v >"$$dir/credentials.log" 2>&1; rc=$$?; \
+	grep -E '^    --- (PASS|FAIL): TestDevseedLive/' "$$dir/credentials.log" | sed -E 's/^    --- PASS: TestDevseedLive\//devseed-live: check OK: credentials — /; s/^    --- FAIL: TestDevseedLive\//devseed-live: check FAILED: credentials — /; s/ \([0-9.]+s\)$$//; s/_/ /g'; \
+	n=$$(grep -cE '^    --- PASS: TestDevseedLive/' "$$dir/credentials.log"); \
+	if [ "$$rc" -eq 0 ] && [ "$$n" -eq 4 ]; then ok "credentials — 4 of 4 sign-in checks"; else bad "credentials — go test exit $$rc, $$n of 4 passed (log: $$dir/credentials.log)"; fi; \
+	(umask 077; go run ./tools/devseed --issuer "http://127.0.0.1:$$app" --container "$$p" \
+		--i-know-this-is-a-dev-database --json >"$$dir/seed2.json" 2>"$$dir/seed2.err"); rc=$$?; \
+	answer=$$(grep -oE '[a-z_]+ login: [^ ]+ already has TOTP enrolled' "$$dir/seed2.err" | head -1); \
+	if [ "$$rc" -ne 0 ] && [ -n "$$answer" ]; then ok "second run — refused as documented: $$answer"; \
+	else bad "second run — exit $$rc without the documented refusal (stderr in $$dir/seed2.err)"; fi; \
+	finish
+
 ## dev-reset: DESTRUCTIVE one-command path to a known-good, seeded stack:
 ## drop the database volume, start Postgres, RECREATE the app so its
 ## entrypoint re-applies migrations, wait for health, then seed.
@@ -2980,6 +3043,9 @@ test-full-mint:
 	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
 	$(MAKE) -C ../identuum-ui e2e-$(E2E_TIER)
 	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-$(E2E_TIER).txt
+	@# OSS-DEVSEED-LIVE (owner ruling u, 2026-10-07): after the e2e half, the
+	@# owner's `make dev-seed` path proved live on its own disposable project.
+	$(MAKE) --no-print-directory devseed-live
 	@# The mint ran and both halves checked out. The record it wrote IS the
 	@# marker: the next decision reads its heads (THE-ONE-MINT-RECORD).
 	@echo "test-full: MINT PAID — ../identuum-ui/GATE-RUN.e2e-$(E2E_TIER).txt is the record of record for this pair."
