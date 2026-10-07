@@ -100,9 +100,15 @@ DEV_APP_CONTAINER ?= $(DEV_COMPOSE_PROJECT)
 ## containers and their compose project; no target or proof stops, removes,
 ## recreates or renames them (agent-rules.md §H-bis).
 PROTECTED_CONTAINERS := identuum-idp-oss-postgres identuum-idp-oss
+## The app's host port, container port, listen address and issuer in
+## deployment/docker-compose.dev.yml (${DEV_APP_PORT:-7113}). EXPORTED like
+## DEV_PG_HOST_PORT, so `DEV_APP_PORT=17113 make oss-up dev-smoke` moves the
+## container and the probes together (owner ruling t, 2026-10-07: the e2e-full
+## harness runs on 17113 beside a dev stack on 7113). dev-ports-selftest pins it.
 DEV_APP_PORT ?= 7113
+export DEV_APP_PORT
 DEV_HEALTH_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/health
-DEV_COMPONENT_URL ?= http://127.0.0.1:7113/api/v1/component
+DEV_COMPONENT_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/api/v1/component
 DEV_SYSTEM_INFO_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/system/info
 
 # DB URL for the DEV STACK / app — the human's live database. NOT used by the
@@ -758,12 +764,37 @@ witness-mint-test:
 ## script-tests (OSS-QUEUE-TRIAGE, 2026-10-02): the three script proofs no
 ## plan or CI job ran — verify-check-test.sh pinned VERIFY_PLAN at 34 against
 ## a 35-entry plan, red and unseen. Each builds its own throwaway repository.
+## dev-ports-selftest (OSS-TEST-FULL-PORTS, owner ruling t, 2026-10-07): the
+## dev compose app's host port, container port, issuer and listen address all
+## come from ${DEV_APP_PORT:-7113}, no other line of the file names 7113, and
+## the Makefile defaults DEV_APP_PORT to 7113, exports it and builds its probe
+## URLs from it. The files are parameters so the check can be shown red on old
+## copies.
+DEV_PORTS_COMPOSE ?= deployment/docker-compose.dev.yml
+DEV_PORTS_MAKEFILE ?= Makefile
+.PHONY: dev-ports-selftest
+dev-ports-selftest:
+	@set -u; c="$(DEV_PORTS_COMPOSE)"; m="$(DEV_PORTS_MAKEFILE)"; n=0; fails=0; \
+	pin() { n=$$((n+1)); if grep -qxF -- "$$2" "$$3"; then echo "  ok    $$1"; else echo "  FAIL  $$1: $$3 lacks the line: $$2"; fails=$$((fails+1)); fi; }; \
+	pin "compose publishes the app on DEV_APP_PORT" '      - "127.0.0.1:$${DEV_APP_PORT:-7113}:$${DEV_APP_PORT:-7113}"' "$$c"; \
+	pin "compose issuer follows DEV_APP_PORT" '      IDENTUUM_IDP_OSS_ISSUER: "http://localhost:$${DEV_APP_PORT:-7113}"' "$$c"; \
+	pin "compose listen follows DEV_APP_PORT" '      IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:$${DEV_APP_PORT:-7113}"' "$$c"; \
+	n=$$((n+1)); stray=$$(grep -nE '7113' "$$c" | grep -vE '^[0-9]+:[[:space:]]*#' | grep -vF ':-7113}' || true); \
+	if [ -z "$$stray" ]; then echo "  ok    no other compose line names 7113"; else echo "  FAIL  compose names 7113 outside the DEV_APP_PORT default: $$stray"; fails=$$((fails+1)); fi; \
+	pin "Makefile defaults DEV_APP_PORT to 7113" 'DEV_APP_PORT ?= 7113' "$$m"; \
+	pin "Makefile exports DEV_APP_PORT to compose" 'export DEV_APP_PORT' "$$m"; \
+	pin "dev-smoke health probe follows DEV_APP_PORT" 'DEV_HEALTH_URL ?= http://127.0.0.1:$$(DEV_APP_PORT)/health' "$$m"; \
+	pin "dev-smoke component probe follows DEV_APP_PORT" 'DEV_COMPONENT_URL ?= http://127.0.0.1:$$(DEV_APP_PORT)/api/v1/component' "$$m"; \
+	pin "dev-smoke build probe follows DEV_APP_PORT" 'DEV_SYSTEM_INFO_URL ?= http://127.0.0.1:$$(DEV_APP_PORT)/system/info' "$$m"; \
+	[ $$fails -eq 0 ] && echo "check OK: dev-ports-selftest $$n case(s): the dev app's port, issuer and listen come from DEV_APP_PORT, default 7113" || { echo "check FAILED: dev-ports-selftest $$fails of $$n case(s)"; exit 1; }
+
 .PHONY: script-tests
 script-tests:
 	@$(MAKE) --no-print-directory protected-guard-selftest
 	@$(MAKE) --no-print-directory record-home-paths-selftest
 	@$(MAKE) --no-print-directory test-full-dispatch-selftest
 	@$(MAKE) --no-print-directory claim-guard-selftest
+	@$(MAKE) --no-print-directory dev-ports-selftest
 	@bash scripts/verify-check-test.sh
 	@bash scripts/ci-integration-record-test.sh
 	@bin=$$(mktemp "$${TMPDIR:-/tmp}/ci-witness.XXXXXX"); \
@@ -2568,13 +2599,13 @@ oss-up: protected-guard oss-build
 	@# the entrypoint still has to migrate before it serves — so this target
 	@# cannot claim 7113 is answering, and does not. The probes below are
 	@# commands to run ONCE it is serving, not a statement that they work now.
-	@echo "OSS app container STARTING on 127.0.0.1:7113 (Postgres on 127.0.0.1:$(DEV_PG_HOST_PORT))."
+	@echo "OSS app container STARTING on 127.0.0.1:$(DEV_APP_PORT) (Postgres on 127.0.0.1:$(DEV_PG_HOST_PORT))."
 	@echo "It is not serving yet — the entrypoint migrates first. Wait for health:"
-	@echo "  until curl -fsS --max-time 2 http://127.0.0.1:7113/health >/dev/null; do sleep 2; done"
+	@echo "  until curl -fsS --max-time 2 http://127.0.0.1:$(DEV_APP_PORT)/health >/dev/null; do sleep 2; done"
 	@echo "Then smoke it:"
-	@echo "  curl -s http://127.0.0.1:7113/system/info"
-	@echo "  curl -i http://127.0.0.1:7113/api/v1/organizations"
-	@echo "  curl -i http://127.0.0.1:7113/api/v1/organizations/00000000-0000-7000-0000-000000000000/protocol-settings"
+	@echo "  curl -s http://127.0.0.1:$(DEV_APP_PORT)/system/info"
+	@echo "  curl -i http://127.0.0.1:$(DEV_APP_PORT)/api/v1/organizations"
+	@echo "  curl -i http://127.0.0.1:$(DEV_APP_PORT)/api/v1/organizations/00000000-0000-7000-0000-000000000000/protocol-settings"
 
 ## oss-down: stop the OSS app container (Postgres preserved so the
 ## next `oss-up` is fast).

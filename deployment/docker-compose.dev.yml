@@ -30,6 +30,12 @@
 #   5513  identuum-idp-oss Postgres     <-- THIS FILE
 #   7113  identuum-idp-oss app          <-- THIS FILE (app profile)
 #
+# Both host ports are variables with the defaults above: DEV_PG_HOST_PORT and
+# DEV_APP_PORT, exported by the Makefile. DEV_APP_PORT is the app's host
+# port, its container port, its listen address and its issuer at once, so one
+# value moves all four (owner ruling t, 2026-10-07: identuum-ui's e2e-full
+# harness runs its appliance on 17113 beside a dev stack on 7113).
+#
 # CE / monolith / IDP-CE / AG / UI / auth-service / wiki services are NOT
 # included.
 #
@@ -119,12 +125,12 @@ services:
       postgres-idp-oss:
         condition: service_healthy
     ports:
-      - "127.0.0.1:7113:7113"
+      - "127.0.0.1:${DEV_APP_PORT:-7113}:${DEV_APP_PORT:-7113}"
     environment:
       # DB URL assembled inside the container only. Host stdout never sees it.
       IDENTUUM_IDP_OSS_DB: "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@postgres-idp-oss:5432/identuum_idp_oss?sslmode=disable"
-      IDENTUUM_IDP_OSS_ISSUER: "http://localhost:7113"
-      IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
+      IDENTUUM_IDP_OSS_ISSUER: "http://localhost:${DEV_APP_PORT:-7113}"
+      IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:${DEV_APP_PORT:-7113}"
       # At-rest AES key, overridable from the host env. STABLE BY DEFAULT
       # (SIGNING-KEY-SEAL-1): this dev app has no /app/data volume, so an empty
       # key made the entrypoint mint a fresh key PER CONTAINER INSTANCE — any
