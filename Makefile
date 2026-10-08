@@ -3061,14 +3061,25 @@ test-full-mint:
 	@# given. fast-up is bounded and idempotent; the e2e harness tears the
 	@# stack down at the end, so the test database is recreated next mint.
 	$(MAKE) --no-print-directory fast-up
-	$(MAKE) --no-print-directory verify-integration
-	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
 	@# OSS-DEVSEED-LIVE (owner ruling u, P-089): the owner's `make dev-seed`
 	@# path proved live on its own disposable project. BEFORE the e2e half
 	@# (owner ruling v, 2026-10-08): the e2e record is what the next test-full
 	@# reads as the mint, so a red devseed-live must stop the mint before that
 	@# record is written, or a re-run would answer MINT SATISFIED over it.
-	$(MAKE) --no-print-directory devseed-live
+	@# E2E-SPEED-1 (owner ruling ee, 2026-10-08): verify-integration runs
+	@# in the background while devseed-live runs in front. They share no
+	@# project and no port: the integration profile uses the test database
+	@# on 127.0.0.1:5513, devseed-live its own project identuum-devseed on
+	@# 25513 and 27113. Each keeps its own exit code; the integration log is
+	@# printed whole after both end, and the e2e half starts only when both
+	@# are green, so neither can be red under a written e2e record.
+	@log=$$(mktemp "$${TMPDIR:-/tmp}/verify-integration.XXXXXX"); \
+	$(MAKE) --no-print-directory verify-integration >"$$log" 2>&1 & ipid=$$!; \
+	$(MAKE) --no-print-directory devseed-live; drc=$$?; \
+	wait $$ipid; irc=$$?; cat "$$log"; rm -f "$$log"; \
+	echo "test-full-mint: verify-integration exit $$irc, devseed-live exit $$drc"; \
+	[ $$irc -eq 0 ] && [ $$drc -eq 0 ]
+	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
 	$(MAKE) -C ../identuum-ui e2e-$(E2E_TIER)
 	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-$(E2E_TIER).txt
 	@# The mint ran and both halves checked out. The record it wrote IS the
