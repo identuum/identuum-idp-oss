@@ -5,7 +5,15 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.9`
+
+identuum-ui `f13dee8` embedded (`v0.9.8` embedded `d009997`; the export is
+byte-identical to `c5899cc`'s, and `f13dee8`'s `package.json` says `0.9.9`,
+owner ruling q). The delta since `v0.9.8` (`git rev-list --count
+v0.9.8..HEAD` and `git diff --shortstat v0.9.8..HEAD`, measured at
+`ae3d24b`, before the notes commit) is 25 commits, 28 files, +1048/−117. No
+migration (the schema stays at `0051`). The endpoint count stays 159 (`go
+run ./tools/api-docgen --dry-run`).
 
 - **Breaking (0.x): an API resource no longer takes a token lifetime.**
   `POST /api/v1/api-resources` and `PUT /api/v1/api-resources/:id` refuse a
@@ -22,6 +30,23 @@ follows [Semantic Versioning](https://semver.org/).
   and never shown (owner rulings l, m and n, 2026-10-06). The unused
   60–86400 fields of the exported request types are removed. The embedded
   console (identuum-ui `c5899cc`) no longer offers, shows or sends it.
+- **API resource create and update read the body strictly.** A body with
+  data after its JSON object (a second document, trailing text) is refused
+  with `400` `{"error":"invalid request"}`, where the first object used to be
+  taken.
+
+For contributors (nothing in the binary changes):
+
+- `make test-full` runs beside a dev stack: the e2e harness uses host ports
+  17113 and 17108, the dev compose file takes `DEV_APP_PORT` (default 7113)
+  for its port, issuer and listen address (owner ruling t).
+- `make devseed-live` proves `make dev-seed` on its own disposable project
+  (25513, 27113) and every printed credential signs in; `test-full-mint`
+  runs it before the e2e half (owner rulings u and v). devseed's report says
+  an org_user signs in with its password alone, its enrolment retries once on
+  a spent TOTP step, and its errors carry status and error code only.
+- `go-test-race` (CI's test floor) refuses when a database setting it
+  declares with `--env` is absent; lictor v0.4.6 and grype v0.120.1 pins.
 
 ## `v0.9.8`
 
