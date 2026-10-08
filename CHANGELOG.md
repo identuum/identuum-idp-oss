@@ -15,6 +15,13 @@ follows [Semantic Versioning](https://semver.org/).
 - **`pkg/runtime`: `NewWithListener` and `Health`** (OSS-SEAM-2). A caller
   may hand the runtime a listener it bound, and read a health snapshot
   (serving, and the faults without URLs or secrets). `New` is unchanged.
+- **Schema readiness** (owner ruling y, OSS-SEAM-3). The server compares the
+  database's newest applied migration with the one it embeds. On a mismatch,
+  older or newer, it does not exit: it is NOT-SERVING (normal routes answer
+  503) with one fault, "schema at <found>, this server needs <wanted>: run
+  identuum-idp migrate", and it writes nothing to that database. A database
+  without the migrations table keeps today's error. New:
+  `migrations.RequireCurrent`.
 
 ## `v0.9.9`
 

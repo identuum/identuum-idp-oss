@@ -235,6 +235,11 @@ type Runtime struct {
 	// empty. Closed by Shutdown.
 	pool *pgxpool.Pool
 
+	// schemaMismatch is set by Start when the database schema is at another
+	// version than this binary embeds: the runtime is NOT-SERVING and takes
+	// no lease (owner ruling y, 2026-10-08).
+	schemaMismatch bool
+
 	// leaseCoordinator enforces the OSS single-replica boundary (A-2a):
 	// exactly one live instance may serve. nil when the operator set
 	// IDENTUUM_IDP_ALLOW_MULTI_REPLICA to knowingly run multi-replica.
@@ -469,7 +474,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 				"cannot finish on another, and each replica generates its own CSRF secret (tokens are not cross-validatable). "+
 				"Horizontal scaling / HA is a Professional+ commercial capability. Proceed only if you understand and accept "+
 				"this degradation.\n")
-	} else {
+	} else if !r.schemaMismatch {
 		leaseRepo := postgres.NewPgxInstanceLeaseRepository(r.pool)
 		coord := lease.NewCoordinator(
 			leaseRepo,
@@ -959,6 +964,21 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		pool.Close()
 		return api.OSSRouterDeps{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			redactURL(err, r.cfg.JWKSDBURL)
+	}
+	// Owner ruling y (2026-10-08): a schema at another version is NOT-SERVING
+	// (P-018), not an exit. Nothing after this point touches that schema: no
+	// services, so Start takes no lease, writes no setup token, reads or
+	// writes no signing key and starts no worker.
+	if err := requireCurrentSchema(ctx, pool); err != nil {
+		pool.Close()
+		var mismatch *postgres.SchemaVersionError
+		if !errors.As(err, &mismatch) {
+			return api.OSSRouterDeps{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+				redactURL(err, r.cfg.JWKSDBURL)
+		}
+		report.Fatal(schemaVersionFault, mismatch.Error())
+		r.schemaMismatch = true
+		return api.OSSRouterDeps{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	// P3-5: encrypt signing_keys.private_key at rest via the SAME env-keyed
 	// CryptoService posture that protects every other OSS at-rest secret.

@@ -1,13 +1,11 @@
 // Package migrations is the OSS seam for the embedded OSS migration
 // filesystem and a minimal Apply helper.
 //
-// MOVED under internal/ (P-061, THE-THREE-DIRS, 2026-09-07): this was
-// pkg/migrations, a public import path offered to downstream callers
-// such as the identuum-idp-ce overlay. Measured at d461bd7, nobody
-// outside this module imported it, so it is no longer a public contract;
-// internal→pkg later is not a breaking change, the reverse is. Nothing
-// but the import path changed. The sentences below describe the seam as
-// designed; read "public" as "formerly public".
+// It moved under internal/ by P-061 (THE-THREE-DIRS, 2026-09-07) and is not
+// a public contract. The public seam is pkg/migrations (OSS-SEAM-1, P-091,
+// 2026-10-08), a facade over this package. The sentences below describe
+// this shim's original design; where they say "public" or "CE", read
+// pkg/migrations.
 //
 // It was the canonical import path for downstream callers that need to
 // embed and run the OSS baseline migrations without crossing an

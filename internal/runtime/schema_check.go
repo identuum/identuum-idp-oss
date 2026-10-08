@@ -6,6 +6,8 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/identuum/identuum-idp-oss/internal/postgres"
 )
 
 // migrationsTable is goose's version table, as internal/pkg/migrations names
@@ -36,4 +38,19 @@ func requireMigratedSchema(ctx context.Context, q schemaQuerier) error {
 		return errNotMigrated
 	}
 	return nil
+}
+
+// schemaVersionFault names the NOT-SERVING fault of a schema at another
+// version than this binary embeds.
+const schemaVersionFault = "schema-version"
+
+// requireCurrentSchema compares the newest applied migration with the newest
+// embedded one (owner ruling y, 2026-10-08): a *postgres.SchemaVersionError
+// on a mismatch, another error when the version cannot be read.
+func requireCurrentSchema(ctx context.Context, q schemaQuerier) error {
+	var found int64
+	if err := q.QueryRow(ctx, postgres.AppliedSchemaVersionSQL).Scan(&found); err != nil {
+		return fmt.Errorf("runtime: could not read the database schema version: %w", err)
+	}
+	return postgres.CheckSchemaVersion(found)
 }

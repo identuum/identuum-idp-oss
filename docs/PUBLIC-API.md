@@ -26,6 +26,12 @@ The set is exactly these nine directories under `pkg/`, enforced by
 - `pkg/migrations` — `Apply(ctx, db)` brings a database to `Current()` with
   the OSS migrations embedded in this module, the same files, version table
   (`goose_db_version`) and lock as `identuum-idp migrate`.
+  `RequireCurrent(ctx, db)` writes nothing and returns nil when the database
+  is at `Current()`, or a `*VersionError` (`Found`, `Wanted`) when it is
+  older or newer. `pkg/runtime` makes the same check at `Start`: a schema at
+  another version is NOT-SERVING with one fatal fault, "schema at <found>,
+  this server needs <wanted>: run identuum-idp migrate" (owner ruling y,
+  2026-10-08).
 - `pkg/features`, `pkg/licenseprovider`, `pkg/oidc`, `pkg/pkce`, `pkg/totp`,
   `pkg/uiserve`, `pkg/webauthn` — as before.
 

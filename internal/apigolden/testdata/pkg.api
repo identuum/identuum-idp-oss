@@ -46,9 +46,12 @@ package pkg/licenseprovider
   type Provider = internallp.Provider
   type StarterProvider = internallp.StarterProvider
 package pkg/migrations
+  func (e *VersionError) Error() string
   func Apply(ctx context.Context, db *sql.DB) ([]Result, error)
   func Current() string
+  func RequireCurrent(ctx context.Context, db *sql.DB) error
   type Result struct { Source string Applied bool }
+  type VersionError struct { Found, Wanted int64 }
 package pkg/oidc
   func (m *OpaqueMinter) Mint(_ context.Context, _ TokenClaims) (wireToken string, storeKey string, err error)
   func NewOpaqueMinter() *OpaqueMinter
