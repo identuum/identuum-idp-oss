@@ -29,8 +29,9 @@ func (r verifyDomainFakeResolver) LookupTXT(context.Context, string) ([]string, 
 // row was flipped to verified (repository.OrganizationDomainRepository).
 type verifyDomainFakeRepo struct {
 	repository.OrganizationDomainRepository
-	row      *domain.OrganizationDomain
-	verified bool
+	row       *domain.OrganizationDomain
+	verified  bool
+	verifyErr error // returned by SetOrganizationDomainVerified when set
 }
 
 func (r *verifyDomainFakeRepo) GetOrganizationDomainByID(context.Context, uuid.UUID) (*domain.OrganizationDomain, error) {
@@ -38,8 +39,43 @@ func (r *verifyDomainFakeRepo) GetOrganizationDomainByID(context.Context, uuid.U
 }
 
 func (r *verifyDomainFakeRepo) SetOrganizationDomainVerified(context.Context, uuid.UUID, time.Time) error {
+	if r.verifyErr != nil {
+		return r.verifyErr
+	}
 	r.verified = true
 	return nil
+}
+
+// V7-333 (owner ruling cc): a domain another organization already verified
+// may be added as pending, but verifying it answers 409 — not 500 — and the
+// answer does not name the other organization.
+func TestVerifyOrganizationDomain_VerifiedByAnotherOrganizationIs409(t *testing.T) {
+	rawToken := "proof-token-abc123"
+	sum := sha256.Sum256([]byte(rawToken))
+	expected := hex.EncodeToString(sum[:])
+	orgID, domainID := uuid.New(), uuid.New()
+	exp := time.Now().Add(time.Hour)
+	repo := &verifyDomainFakeRepo{
+		row: &domain.OrganizationDomain{ID: domainID, OrganizationID: orgID, Domain: "shared.example.test",
+			VerificationTokenHash: &expected, VerificationTokenExpiresAt: &exp},
+		verifyErr: domain.ErrOrganizationDomainVerifiedByOther,
+	}
+	verifier := service.NewDNSDomainProofVerifier(service.DNSDomainProofVerifierOptions{
+		Resolver: verifyDomainFakeResolver{records: []string{"identuum-domain-verification=" + rawToken}},
+	})
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.POST("/o/:id/d/:domain_id/verify", HandleVerifyOrganizationDomain(OrganizationDomainsHandlerDeps{
+		OrganizationDomainService: service.NewOrganizationDomainService(nil, repo, verifier), Audit: audit.NoopService{},
+	}))
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/o/"+orgID.String()+"/d/"+domainID.String()+"/verify", nil))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("verifying a domain another organization verified answered %d; want 409", w.Code)
+	}
+	if repo.verified {
+		t.Fatal("the row was marked verified")
+	}
 }
 
 func (r *verifyDomainFakeRepo) IncrementOrganizationDomainVerificationAttempts(context.Context, uuid.UUID, uuid.UUID) error {

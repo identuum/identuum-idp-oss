@@ -25,6 +25,11 @@ func (m refreshSubjects) GetByID(_ context.Context, id uuid.UUID) (*domain.User,
 	return nil, domain.ErrUserNotFound
 }
 
+// GetByIDWithOrg: these users carry their organization's policy themselves.
+func (m refreshSubjects) GetByIDWithOrg(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	return m.GetByID(ctx, id)
+}
+
 func TestIssueRefresh_TheSubjectMustBeOfTheAppsOrganization(t *testing.T) {
 	orgA, orgB := uuid.New(), uuid.New()
 	inA, inB := &domain.User{ID: uuid.New(), OrganizationID: orgA}, &domain.User{ID: uuid.New(), OrganizationID: orgB}

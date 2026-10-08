@@ -279,6 +279,9 @@ func HandleVerifyOrganizationDomain(deps OrganizationDomainsHandlerDeps) gin.Han
 			c.JSON(http.StatusBadRequest, gin.H{"error": "txt record does not match expected proof"})
 		case errors.Is(err, service.ErrDomainVerificationLookupFailed):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "dns lookup failed"})
+		case errors.Is(err, domain.ErrOrganizationDomainVerifiedByOther):
+			// V7-333 (owner ruling cc): 409, naming no other organization.
+			c.JSON(http.StatusConflict, gin.H{"error": "domain already verified by another organization"})
 		case errors.Is(err, domain.ErrOrganizationDomainNotFound),
 			errors.Is(err, service.ErrOrganizationDomainNotFound()):
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})

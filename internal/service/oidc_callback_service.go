@@ -235,8 +235,14 @@ func (s *OIDCCallbackService) HandleCallback(ctx context.Context, providerID uui
 	// The provider lookup already enforces this in SQL; this explicit gate
 	// is defense in depth, independent of provider-lookup caching. Same
 	// predicate as the token-exchange fix (IsOperational).
-	if org, orgErr := s.orgs.GetByID(ctx, provider.OrganizationID); orgErr != nil || org == nil || !org.IsOperational() {
+	org, orgErr := s.orgs.GetByID(ctx, provider.OrganizationID)
+	if orgErr != nil || org == nil || !org.IsOperational() {
 		return nil, ErrCallbackStateInvalid
+	}
+	// F3 (SEC-MFA-REVIEW-2026-10-08): a local_only organization admits no
+	// upstream sign-in, whatever providers remain active.
+	if org.AuthPolicy == domain.AuthPolicyLocalOnly {
+		return nil, ErrCallbackForbidden
 	}
 	doc, err := s.discovery.Discover(ctx, provider.Config.IssuerURL)
 	if err != nil {
@@ -276,10 +282,22 @@ func (s *OIDCCallbackService) HandleCallback(ctx context.Context, providerID uui
 		return nil, err
 	}
 	applyClaimMapping(eu, claims, provider.Config.ClaimMapping)
+	// F2: an organization that requires MFA admits an upstream sign-in only
+	// when the upstream explicitly reports MFA or more. No acr, a password
+	// acr and an unrecognised (assumed) acr are refused, before any user is
+	// provisioned. Administrators are refused below whatever the acr.
+	if org.MFAPolicy == orgMFAPolicyRequired {
+		if rung, assumed := auth.MapUpstreamACRToLadder(eu.UpstreamACR); assumed || !auth.ACRMeetsFloor(rung, auth.ACRMFA) {
+			return nil, ErrCallbackForbidden
+		}
+	}
 	user, err := s.resolveLocalUser(ctx, provider, eu)
 	if err != nil {
 		return nil, err
 	}
+	// F5: the organization's session cap applies (the user projections the
+	// callback resolves carry no organization columns).
+	user.OrgMaxSessionsPerUser = &org.MaxSessionsPerUser
 
 	// 7. MINT the local session (REUSE UserSessionService — the SAME path
 	// password/browser login uses; no parallel session store), stamping the
@@ -370,7 +388,12 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 	// 1. ExternalID FIRST — a returning user is bound to their stable
 	// issuer|sub, so a provider-side email change cannot hijack another
 	// account.
+	// F3: administrators authenticate locally only; an administrator is
+	// never signed in, or linked, through an upstream provider.
 	if u, err := s.users.GetByExternalID(ctx, orgID, eu.ExternalID); err == nil && u != nil {
+		if u.Role == domain.RoleOrgAdmin || u.Role == domain.RoleSiteAdmin {
+			return nil, ErrCallbackForbidden
+		}
 		return u, nil
 	} else if err != nil && !errors.Is(err, domain.ErrUserNotFound) {
 		return nil, ErrCallbackProvisionFailed
@@ -380,6 +403,9 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 	// already bound to a DIFFERENT external identity. Otherwise link this
 	// identity so the next login matches by ExternalID.
 	if u, err := s.users.GetByEmailAndOrgID(ctx, orgID, eu.Email); err == nil && u != nil {
+		if u.Role == domain.RoleOrgAdmin || u.Role == domain.RoleSiteAdmin {
+			return nil, ErrCallbackForbidden
+		}
 		if u.ExternalID != nil && *u.ExternalID != "" && *u.ExternalID != eu.ExternalID {
 			return nil, ErrCallbackForbidden
 		}

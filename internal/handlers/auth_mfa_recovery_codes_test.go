@@ -106,8 +106,11 @@ func (r *recoveryStubUserRepo) GetByEmailAndOrgID(context.Context, uuid.UUID, st
 func (r *recoveryStubUserRepo) GetByExternalID(context.Context, uuid.UUID, string) (*domain.User, error) {
 	panic("recoveryStubUserRepo.GetByExternalID not expected")
 }
-func (r *recoveryStubUserRepo) GetByIDWithOrg(context.Context, uuid.UUID) (*domain.User, error) {
-	panic("recoveryStubUserRepo.GetByIDWithOrg not expected")
+
+// GetByIDWithOrg answers as GetByID: these fixtures keep any organization
+// policy on the stored user itself (MFA self-disable reads it here, F4).
+func (r *recoveryStubUserRepo) GetByIDWithOrg(ctx context.Context, id uuid.UUID) (*domain.User, error) {
+	return r.GetByID(ctx, id)
 }
 func (r *recoveryStubUserRepo) Delete(context.Context, uuid.UUID, uuid.UUID) error {
 	panic("recoveryStubUserRepo.Delete not expected")

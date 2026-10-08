@@ -563,6 +563,12 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		if orgErr != nil || org == nil || !org.IsOperational() {
 			return nil, ErrAuthorizeLoginRequired
 		}
+		// F7 (owner ruling bb): an organization that requires MFA is a floor
+		// whatever the client asked: a session below it gets the MFA step-up
+		// (or the honest unmet error), never a code.
+		if org.MFAPolicy == orgMFAPolicyRequired && (authSession == nil || !auth.ACRMeetsFloor(authSession.EffectiveACR(), auth.ACRMFA)) {
+			return nil, s.stepUpFor(ctx, req.Principal.UserID, auth.ACRMFA)
+		}
 	}
 
 	// R6: clamp the requested scope to the client's registered scope set

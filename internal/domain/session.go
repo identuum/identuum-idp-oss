@@ -185,6 +185,8 @@ type SessionValidationInfo struct {
 	OrgActive      bool
 	OrgDeleted     bool
 	OrganizationID uuid.UUID
+	// OrgMFAPolicy is the organization's mfa_policy ("" when unknown).
+	OrgMFAPolicy string
 }
 
 // CanBeUsedForAuth checks if session can be used considering user and org status.

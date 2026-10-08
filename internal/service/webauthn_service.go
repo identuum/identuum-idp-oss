@@ -144,7 +144,28 @@ type webAuthnValidator interface {
 	BeginRegistration(user webauthn.User, opts ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	FinishRegistration(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, error)
 	BeginLogin(user webauthn.User, opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-	FinishLogin(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, error)
+	// FinishLogin validates the assertion and reports the user-verification
+	// bit of THIS assertion's authenticator data.
+	FinishLogin(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, bool, error)
+}
+
+// libValidator is the production webAuthnValidator. F1
+// (SEC-MFA-REVIEW-2026-10-08): the library's Credential.Flags.UserVerified
+// is the credential's history and stays true once set, so the current
+// assertion's UV bit is read from the parsed authenticator data after the
+// library has validated the assertion.
+type libValidator struct{ *webauthn.WebAuthn }
+
+func (v libValidator) FinishLogin(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, bool, error) {
+	parsed, err := protocol.ParseCredentialRequestResponse(request)
+	if err != nil {
+		return nil, false, err
+	}
+	credential, err := v.ValidateLogin(user, session, parsed)
+	if err != nil {
+		return nil, false, err
+	}
+	return credential, parsed.Response.AuthenticatorData.Flags.HasUserVerified(), nil
 }
 
 // WebAuthnServiceConfig holds the dependencies AND per-deployment
@@ -251,7 +272,7 @@ func NewWebAuthnService(cfg WebAuthnServiceConfig) (*WebAuthnService, error) {
 		logger = zap.NewNop()
 	}
 	return &WebAuthnService{
-		validator:   w,
+		validator:   libValidator{w},
 		userRepo:    cfg.UserRepo,
 		credRepo:    cfg.CredRepo,
 		sessionRepo: cfg.SessionRepo,
@@ -557,16 +578,16 @@ func (s *WebAuthnService) FinishLogin(ctx context.Context, sessionID string, req
 	if err != nil {
 		return nil, nil, false, err
 	}
-	credential, err := s.validator.FinishLogin(wUser, sessionData, request)
+	// The validator reports the user-verification (UV) bit of THIS
+	// assertion, so the login-finish handler can apply the org MFA-policy
+	// gate (UV-verified WebAuthn satisfies MFA; a presence-only assertion
+	// does not). F1: the credential's stored flag is history, not this
+	// ceremony's result.
+	credential, assertionUV, err := s.validator.FinishLogin(wUser, sessionData, request)
 	if err != nil {
 		return nil, nil, false, ErrWebAuthnAssertionInvalid
 	}
-	// Surface the authenticator's user-verification (UV) flag from the
-	// assertion result so the login-finish handler can apply the
-	// org MFA-policy gate (UV-verified WebAuthn satisfies MFA; a
-	// presence-only assertion does not). This does NOT alter any
-	// attestation / assertion / origin / RP-ID / uniqueness check above.
-	userVerified = credential.Flags.UserVerified
+	userVerified = assertionUV
 	stored, err := s.credRepo.GetByCredentialID(ctx, credential.ID)
 	if err != nil {
 		if errors.Is(err, repository.ErrWebAuthnCredentialNotFound) {

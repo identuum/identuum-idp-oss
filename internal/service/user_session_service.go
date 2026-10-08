@@ -47,6 +47,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
@@ -278,6 +279,11 @@ var (
 	// ErrUserSessionUnavailable means authoritative session or account state
 	// could not be consulted. It is not an authentication verdict.
 	ErrUserSessionUnavailable = errors.New("service: user session state unavailable")
+
+	// ErrUserSessionMFARequired is returned when the organization now
+	// requires MFA and the session never completed it (owner ruling bb):
+	// the session is not renewed, and the user signs in again with MFA.
+	ErrUserSessionMFARequired = errors.New("service: user session needs MFA")
 
 	// ErrUserSessionReuse is returned when the supplied refresh
 	// token parses BUT the stored validator hash does not match.
@@ -560,6 +566,12 @@ func (s *UserSessionService) validateRefreshSubject(ctx context.Context, session
 	if info.UserDeleted || !info.UserActive || info.OrgDeleted || !info.OrgActive {
 		_ = s.repo.Revoke(ctx, session.ID, uuid.Nil, "user_or_org_inactive")
 		return ErrUserSessionInvalidGrant
+	}
+	// F7 (owner ruling bb): an organization that requires MFA renews only
+	// a session that did MFA (or was lifted to it by step-up). The weak
+	// session is not revoked; it is not renewed.
+	if info.OrgMFAPolicy == orgMFAPolicyRequired && !auth.ACRMeetsFloor(session.EffectiveACR(), auth.ACRMFA) {
+		return ErrUserSessionMFARequired
 	}
 	return nil
 }

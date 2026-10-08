@@ -185,6 +185,7 @@ func (r *PgxSessionRepository) GetSessionWithUserAndOrgStatus(ctx context.Contex
 	var userActive, userDeleted bool
 	var orgActive, orgDeleted *bool
 	var orgID *uuid.UUID
+	var orgMFAPolicy *string
 
 	var clientID *string
 	query := `
@@ -193,7 +194,8 @@ func (r *PgxSessionRepository) GetSessionWithUserAndOrgStatus(ctx context.Contex
 			s.created_at, s.expires_at, s.last_used_at, s.revoked_at,
 			s.revoked_reason, s.is_valid, s.acr, s.amr, s.remember_me, s.client_id,
 			NOT u.banned as user_active, (u.deleted_at IS NOT NULL) as user_deleted,
-			o.id as organization_id, o.active as org_active, (o.deleted_at IS NOT NULL) as org_deleted
+			o.id as organization_id, o.active as org_active, (o.deleted_at IS NOT NULL) as org_deleted,
+			o.mfa_policy
 		FROM sessions s
 		INNER JOIN users u ON s.user_id = u.id
 		LEFT JOIN organizations o ON u.organization_id = o.id
@@ -219,6 +221,7 @@ func (r *PgxSessionRepository) GetSessionWithUserAndOrgStatus(ctx context.Contex
 		&orgID,
 		&orgActive,
 		&orgDeleted,
+		&orgMFAPolicy,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -263,6 +266,9 @@ func (r *PgxSessionRepository) GetSessionWithUserAndOrgStatus(ctx context.Contex
 	}
 	if orgID != nil {
 		validationInfo.OrganizationID = *orgID
+	}
+	if orgMFAPolicy != nil {
+		validationInfo.OrgMFAPolicy = *orgMFAPolicy
 	}
 
 	if orgActive == nil {

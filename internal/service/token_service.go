@@ -15,6 +15,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/utils/uuidgen"
@@ -186,7 +187,8 @@ func (s *TokenService) WithRefreshTokenService(rts *RefreshTokenService) *TokenS
 
 // RefreshSubjectLookup resolves the user a refresh token was issued for.
 type RefreshSubjectLookup interface {
-	GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error)
+	// GetByIDWithOrg returns the user with the organization's policy.
+	GetByIDWithOrg(ctx context.Context, id uuid.UUID) (*domain.User, error)
 }
 
 // WithRefreshSubjectLookup wires the D-027 check at the refresh grant: an app
@@ -540,17 +542,22 @@ func (s *TokenService) IssueRefresh(ctx context.Context, client *AuthenticatedCl
 	}
 	// D-027: a refresh continues a sign-in, and a user signs in only to apps of
 	// their own organization. An app with no organization stays available to
-	// every organization. The token is already consumed, so a refusal ends it.
-	if s.refreshSubjects != nil && client.Kind == AuthenticatedClientKindOAuth && client.OrganizationID != uuid.Nil {
+	// every organization. F7 (owner ruling bb): an organization that requires
+	// MFA renews only a family whose sign-in did MFA. The token is already
+	// consumed, so a refusal ends it.
+	if s.refreshSubjects != nil && client.Kind == AuthenticatedClientKindOAuth {
 		subject, parseErr := uuid.Parse(consumed.Subject)
 		if parseErr != nil {
 			return nil, ErrTokenServiceInvalidGrant
 		}
-		user, lookupErr := s.refreshSubjects.GetByID(ctx, subject)
+		user, lookupErr := s.refreshSubjects.GetByIDWithOrg(ctx, subject)
 		if lookupErr != nil && !errors.Is(lookupErr, domain.ErrUserNotFound) {
 			return nil, domain.AuthStoreUnavailable("user", lookupErr)
 		}
-		if lookupErr != nil || user == nil || user.OrganizationID != client.OrganizationID {
+		if lookupErr != nil || user == nil || (client.OrganizationID != uuid.Nil && user.OrganizationID != client.OrganizationID) {
+			return nil, ErrTokenServiceInvalidGrant
+		}
+		if user.MFAPolicy != nil && *user.MFAPolicy == orgMFAPolicyRequired && !auth.ACRMeetsFloor(consumed.AuthACR, auth.ACRMFA) {
 			return nil, ErrTokenServiceInvalidGrant
 		}
 	}

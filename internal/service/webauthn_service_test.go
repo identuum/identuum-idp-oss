@@ -52,6 +52,8 @@ type stubValidator struct {
 	finishReg   func(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, error)
 	beginLogin  func(user webauthn.User, opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	finishLogin func(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, error)
+	// uv is the user-verification bit the stubbed assertion carries.
+	uv bool
 }
 
 func (s *stubValidator) BeginRegistration(user webauthn.User, opts ...webauthn.RegistrationOption) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
@@ -63,8 +65,9 @@ func (s *stubValidator) FinishRegistration(user webauthn.User, session webauthn.
 func (s *stubValidator) BeginLogin(user webauthn.User, opts ...webauthn.LoginOption) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	return s.beginLogin(user, opts...)
 }
-func (s *stubValidator) FinishLogin(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, error) {
-	return s.finishLogin(user, session, request)
+func (s *stubValidator) FinishLogin(user webauthn.User, session webauthn.SessionData, request *http.Request) (*webauthn.Credential, bool, error) {
+	cred, err := s.finishLogin(user, session, request)
+	return cred, err == nil && s.uv, err
 }
 
 // memUserRepoForWebAuthn satisfies the WebAuthnUserRepo seam.

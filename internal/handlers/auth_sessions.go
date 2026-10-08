@@ -692,6 +692,9 @@ func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "refresh_unavailable"})
 			case errors.Is(err, service.ErrUserSessionInvalidGrant):
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_grant"})
+			case errors.Is(err, service.ErrUserSessionMFARequired):
+				// Owner ruling bb: sign in again with MFA.
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "mfa_required"})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			}

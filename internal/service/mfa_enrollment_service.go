@@ -465,7 +465,8 @@ type MFAEnrollmentCompleteResult struct {
 //     The lost pending row is acceptable; pending rows are
 //     short-lived ephemera.
 func (s *MFAEnrollmentService) Complete(ctx context.Context, pendingID uuid.UUID, code string) (*MFAEnrollmentCompleteResult, error) {
-	return s.complete(ctx, pendingID, code, nil)
+	res, err := s.complete(ctx, pendingID, code, nil)
+	return s.forSignIn(ctx, res, err)
 }
 
 // complete is Complete; hashedCodes, when non-nil, replaces the recovery
@@ -563,6 +564,36 @@ func (s *MFAEnrollmentService) complete(ctx context.Context, pendingID uuid.UUID
 // logged, returned, included in errors, or surfaced via the
 // result fields.
 func (s *MFAEnrollmentService) VerifyAndConsume(ctx context.Context, pendingID uuid.UUID, code string) (*MFAEnrollmentCompleteResult, error) {
+	res, err := s.verifyAndConsume(ctx, pendingID, code)
+	return s.forSignIn(ctx, res, err)
+}
+
+// forSignIn finishes a pending-MFA sign-in with the organization-bearing
+// user (SEC-MFA-REVIEW-2026-10-08): its session cap reaches the session
+// (F5), and the local-credential rule is applied again, so an organization
+// that turned idp_only after the password step gets no org_user session
+// (F6). A refusal is ErrMFAEnrollmentInvalid, the answer every other failed
+// completion gets.
+func (s *MFAEnrollmentService) forSignIn(ctx context.Context, res *MFAEnrollmentCompleteResult, err error) (*MFAEnrollmentCompleteResult, error) {
+	if err != nil || res == nil || res.User == nil {
+		return res, err
+	}
+	user, err := s.users.GetByIDWithOrg(ctx, res.User.ID)
+	if err != nil || user == nil {
+		return nil, fmt.Errorf("service: mfa sign-in reload of the user failed: %w", errors.Join(err, ErrMFAEnrollmentInvalid))
+	}
+	policy := ""
+	if user.OrgAuthPolicy != nil {
+		policy = *user.OrgAuthPolicy
+	}
+	if !IsLocalCredentialFlowAllowed(user, policy).Allowed {
+		return nil, ErrMFAEnrollmentInvalid
+	}
+	res.User = user
+	return res, nil
+}
+
+func (s *MFAEnrollmentService) verifyAndConsume(ctx context.Context, pendingID uuid.UUID, code string) (*MFAEnrollmentCompleteResult, error) {
 	row, err := s.pending.GetByID(ctx, pendingID)
 	if err != nil {
 		if errors.Is(err, repository.ErrMFAPendingSessionNotFound) {
@@ -831,7 +862,10 @@ func (s *MFAEnrollmentService) DisableSelfWithProof(ctx context.Context, userID 
 	if userID == uuid.Nil {
 		return "", ErrMFAEnrollmentInvalid
 	}
-	user, err := s.users.GetByID(ctx, userID)
+	// F4 (SEC-MFA-REVIEW-2026-10-08): the organization-bearing user, so the
+	// organization's MFA policy decides; GetByID carries no policy and read
+	// "required" as optional.
+	user, err := s.users.GetByIDWithOrg(ctx, userID)
 	if err != nil || user == nil {
 		return "", ErrMFAEnrollmentInvalid
 	}

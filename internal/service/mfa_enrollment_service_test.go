@@ -203,6 +203,9 @@ func (s *stubUserRepoForMFAEnroll) GetByID(_ context.Context, id uuid.UUID) (*do
 		return nil, domain.ErrUserNotFound
 	}
 	cp := *u
+	// As the real repository: GetByID does not join the organization, so
+	// its policy columns are absent (F4, F5, F6). GetByIDWithOrg has them.
+	cp.MFAPolicy, cp.OrgAuthPolicy, cp.OrgMaxSessionsPerUser = nil, nil, nil
 	return &cp, nil
 }
 

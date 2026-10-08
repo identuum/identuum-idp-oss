@@ -236,7 +236,14 @@ type ConsumeResult struct {
 	Audience   string
 	ClientID   string
 	ClientKind domain.RefreshTokenKind
+	// AuthACR is the acr of the sign-in that started the family ("" when
+	// the family records none). Rotation copies it with the metadata.
+	AuthACR string
 }
+
+// RefreshMetadataAuthACR is the refresh-family metadata key for the acr of
+// the sign-in that started the family (F7, owner ruling bb).
+const RefreshMetadataAuthACR = "auth_acr"
 
 // Consume validates the supplied wire token, atomically rotates
 // the row (old revoked + replaced_by, new inserted), and returns
@@ -404,7 +411,13 @@ func (s *RefreshTokenService) Consume(ctx context.Context, in ConsumeRefreshToke
 		Audience:   row.Audience,
 		ClientID:   row.ClientID,
 		ClientKind: row.ClientKind,
+		AuthACR:    metadataString(row.Metadata, RefreshMetadataAuthACR),
 	}, nil
+}
+
+func metadataString(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+	return s
 }
 
 // revokeReuseLineage revokes the compromised refresh lineage on reuse
@@ -697,6 +710,8 @@ var refreshTokenAllowedMetadataKeys = map[string]struct{}{
 	"client_kind": {},
 	"reason":      {},
 	"grant_type":  {},
+	// An acr URN names an assurance level; it is no secret (F7).
+	RefreshMetadataAuthACR: {},
 }
 
 func sanitizeRefreshMetadata(in map[string]any) map[string]any {

@@ -517,6 +517,9 @@ func handleAuthorizationCodeGrant(c *gin.Context, deps TokenHandlerDeps) (*servi
 				Scope:     effectiveScope,
 				Audience:  consumed.Audience,
 				AccessJTI: access.JTI,
+				// F7 (owner ruling bb): the sign-in's acr, for the MFA floor
+				// the refresh grant applies at every renewal.
+				Metadata: map[string]any{service.RefreshMetadataAuthACR: session.EffectiveACR()},
 			})
 			if refreshErr == nil && issued != nil {
 				resp.RefreshToken = issued.Token

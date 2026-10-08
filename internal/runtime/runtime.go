@@ -1175,7 +1175,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	sessionRepo := repository.SessionRepository(repos.Session)
 	// FUNC-M15: every sign-in session records the user's last_login_at.
 	userSessionSvc := service.NewUserSessionService(report, repos.Session, service.UserSessionServiceOptions{}).
-		WithLastLoginRecorder(userRepo)
+		WithLastLoginRecorder(userRepo).
+		WithAudit(auditSvc) // V7A-03: the max-sessions eviction is audited
 	orgRoleSvc = orgRoleSvc.WithSessionRevoker(userSessionSvc)
 
 	// MFA at-rest protection (all-tiers AES-256-GCM invariant). The TOTP
@@ -1239,7 +1240,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	}
 	localLoginSvc := service.NewLocalLoginService(report, repos.User, userSessionSvc, mfaVerifier).
 		WithLoginRiskService(loginRiskForMode(loginRiskSvc, insecureDevMode)).
-		WithRegistrationStates(repos.Registration) // D-021, ruling b
+		WithRegistrationStates(repos.Registration). // D-021, ruling b
+		WithAudit(auditSvc)                         // V7A-03: the local-password policy refusal is audited
 
 	mfaIssuer := "Identuum"
 	mfaEnrollmentSvc := service.NewMFAEnrollmentService(report, service.MFAEnrollmentRepoOptions{

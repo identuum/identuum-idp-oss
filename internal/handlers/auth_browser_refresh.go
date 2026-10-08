@@ -44,6 +44,9 @@ func HandleBrowserSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "refresh_unavailable"})
 			} else if errors.Is(err, service.ErrUserSessionInvalidGrant) || errors.Is(err, service.ErrUserSessionReuse) {
 				c.JSON(http.StatusUnauthorized, gin.H{"reason": "refresh_refused"})
+			} else if errors.Is(err, service.ErrUserSessionMFARequired) {
+				// Owner ruling bb: sign in again with MFA.
+				c.JSON(http.StatusUnauthorized, gin.H{"reason": "mfa_required"})
 			} else {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "refresh_unavailable"})
 			}
