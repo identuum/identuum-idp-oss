@@ -1,12 +1,13 @@
 // Package migrations is the OSS seam for the embedded OSS migration
 // filesystem and a minimal Apply helper.
 //
-// It moved under internal/ by P-061 (THE-THREE-DIRS, 2026-09-07) and is not
-// a public contract. The public seam is pkg/migrations (OSS-SEAM-1, P-091,
-// 2026-10-08), a facade over this package. Since OSS-SEAM-2 Apply runs the
-// one goose call internal/postgres makes for the migrate command. The
-// sentences below describe this shim's original design; where they say
-// "public" or "CE", read pkg/migrations.
+// MOVED under internal/ (P-061, THE-THREE-DIRS, 2026-09-07): this was
+// pkg/migrations, a public import path offered to downstream callers
+// such as the identuum-idp-ce overlay. Measured at d461bd7, nobody
+// outside this module imported it, so it is no longer a public contract;
+// internal→pkg later is not a breaking change, the reverse is. Nothing
+// but the import path changed. The sentences below describe the seam as
+// designed; read "public" as "formerly public".
 //
 // It was the canonical import path for downstream callers that need to
 // embed and run the OSS baseline migrations without crossing an
@@ -24,8 +25,10 @@
 //     convention established by the prior T1 seam slice, so CE had a
 //     single, predictable import root (github.com/identuum/identuum-idp-oss/pkg/*);
 //     CE never took this one up, hence the move.
-//   - (Until OSS-SEAM-2 it carried no internal/ dependency; it now
-//     delegates to internal/postgres, so the module makes one goose call.)
+//   - It carries no dependency on internal/ subtrees, so a CE binary
+//     that only wants to apply OSS migrations does not transitively
+//     pull in internal/postgres, internal/service, or any other OSS
+//     runtime package.
 //
 // Version table posture:
 //   - The OSS Apply helper applies migrations using goose's default
@@ -43,8 +46,8 @@
 //     point OSS at a non-default table and silently lose history.
 //
 // SECURITY contract:
-//   - The package depends on the OSS top-level migrations package and
-//     internal/postgres (for the goose call). It carries no DB URL,
+//   - The package depends only on the OSS top-level migrations
+//     package, goose, and the standard library. It carries no DB URL,
 //     no credentials, no secrets, no envelope material, and no network
 //     surface.
 //   - The OSS module must never import identuum-idp-ce.
@@ -54,9 +57,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io/fs"
 
-	"github.com/identuum/identuum-idp-oss/internal/postgres"
+	goosev3 "github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
+
 	coremigrations "github.com/identuum/identuum-idp-oss/migrations"
 )
 
@@ -78,12 +84,12 @@ const DefaultVersionTable = "goose_db_version"
 // Matches the value internal/postgres.RunMigrations uses today so a
 // caller switching from the internal helper to this public seam sees
 // no behavioural change.
-const LockPeriodSeconds = postgres.MigrationLockPeriodSeconds
+const LockPeriodSeconds uint64 = 5
 
 // LockMaxRetries caps the advisory-lock retry attempts used by Apply.
 // Total wait budget = LockPeriodSeconds × LockMaxRetries seconds.
-// It is internal/postgres.RunMigrations's own value.
-const LockMaxRetries = postgres.MigrationLockMaxRetries
+// Matches internal/postgres.RunMigrations.
+const LockMaxRetries uint64 = 24
 
 // EmbedFS is the embedded OSS migration filesystem. It is a var alias
 // of the same embed.FS declared in the top-level migrations package,
@@ -96,7 +102,8 @@ const LockMaxRetries = postgres.MigrationLockMaxRetries
 var EmbedFS = coremigrations.EmbedFS
 
 // Result is the per-source outcome of a single migration step. The
-// shape mirrors the internal/postgres.MigrationResult type it is copied from.
+// shape mirrors the internal/postgres.MigrationResult type but lives
+// in this public package so the seam has no internal/* dependency.
 type Result struct {
 	// Source is the migration file path inside EmbedFS (e.g.
 	// "0001_identity_credentials.sql").
@@ -151,15 +158,38 @@ func ApplyFS(ctx context.Context, db *sql.DB, fsys fs.FS) ([]Result, error) {
 	if fsys == nil {
 		return nil, errors.New("migrations: nil fs.FS passed to ApplyFS")
 	}
-	// OSS-SEAM-2: the one goose call is internal/postgres's, which the
-	// migrate command runs; this seam no longer keeps a second copy of it.
-	report, err := postgres.RunMigrationsReportFS(ctx, db, fsys)
+
+	locker, err := lock.NewPostgresSessionLocker(
+		lock.WithLockTimeout(LockPeriodSeconds, LockMaxRetries),
+	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("migrations: lock setup failed: %w", err)
 	}
-	out := make([]Result, 0, len(report.Results))
-	for _, r := range report.Results {
-		out = append(out, Result{Source: r.Source, Applied: r.Applied})
+
+	provider, err := goosev3.NewProvider(
+		goosev3.DialectPostgres,
+		db,
+		fsys,
+		goosev3.WithSessionLocker(locker),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("migrations: provider setup failed: %w", err)
+	}
+
+	results, err := provider.Up(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("migrations: apply failed: %w", err)
+	}
+
+	out := make([]Result, 0, len(results))
+	for _, r := range results {
+		if r == nil || r.Source == nil {
+			continue
+		}
+		out = append(out, Result{
+			Source:  r.Source.Path,
+			Applied: !r.Empty,
+		})
 	}
 	return out, nil
 }
