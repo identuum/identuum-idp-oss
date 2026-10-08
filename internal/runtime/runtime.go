@@ -75,6 +75,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/setup"
 	"github.com/identuum/identuum-idp-oss/internal/uiexport"
 	"github.com/identuum/identuum-idp-oss/logger"
+	"github.com/identuum/identuum-idp-oss/pkg/extension"
 )
 
 // Config is the operator-facing configuration for the OSS runtime.
@@ -186,6 +187,11 @@ type Config struct {
 	// none. Operators fronting the app with a proxy MUST set it or client
 	// IPs will be the proxy's.
 	TrustedProxies []string
+
+	// Restrictions are deny-only extension restrictions, run on the API
+	// resource writes after the OSS checks (OSS-SEAM-4). Empty keeps OSS as
+	// it is; the binary sets none.
+	Restrictions []extension.Restriction
 }
 
 // Runtime is the OSS in-process IDP lifecycle handle.
@@ -1093,7 +1099,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	clientSvc := service.NewClientService(report, repos.Client)
 	// H7: an audience is never the issuer or an application's client id.
 	apiResourceSvc := service.NewAPIResourceService(report, repos.APIResource).
-		WithReservedAudiences(service.ReservedAudienceChecker(resolvedIssuer, repos.Client))
+		WithReservedAudiences(service.ReservedAudienceChecker(resolvedIssuer, repos.Client)).
+		WithRestrictions(r.cfg.Restrictions)
 	scopeTemplateSvc := service.NewScopeTemplateService(report, repos.ScopeTemplate)
 	userRepo := repository.UserRepository(repos.User)
 	orgRepo := repository.OrganizationRepository(repos.Organization)

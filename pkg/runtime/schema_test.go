@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -110,9 +111,29 @@ func rowCounts(t *testing.T, db *sql.DB) map[string]string {
 	return out
 }
 
+// lockedBuffer collects the runtime's output; the cleanup driver may write
+// from its own goroutine.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // startOn builds a runtime on dsn with the single-replica lease ON (no
-// override), starts it on its own listener and returns it with the address.
-func startOn(t *testing.T, dsn, dataDir string) (*runtime.Runtime, string, error) {
+// override) and the cleanup driver enabled, starts it on its own listener
+// and returns it with the address and its output.
+func startOn(t *testing.T, dsn, dataDir string) (*runtime.Runtime, string, *lockedBuffer, error) {
 	t.Helper()
 	ln := listen(t)
 	getenv := func(k string) string {
@@ -121,12 +142,13 @@ func startOn(t *testing.T, dsn, dataDir string) (*runtime.Runtime, string, error
 		}
 		return os.Getenv(k)
 	}
+	out := &lockedBuffer{}
 	rt, err := runtime.NewWithListener(runtime.Options{Issuer: "http://localhost:7113", DatabaseURL: dsn,
-		DataDir: dataDir, Stdout: io.Discard, Stderr: io.Discard, Getenv: getenv}, ln)
+		DataDir: dataDir, Stdout: out, Stderr: out, Getenv: getenv, RevocationCleanupInterval: time.Hour}, ln)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rt, ln.Addr().String(), rt.Start(context.Background())
+	return rt, ln.Addr().String(), out, rt.Start(context.Background())
 }
 
 func body(t *testing.T, addr, path string) (int, string) {
@@ -165,9 +187,15 @@ func TestSchemaVersionMismatch_IsNotServingAndWritesNothing(t *testing.T) {
 			tc.setup(t, db)
 			before := rowCounts(t, db)
 			dataDir := t.TempDir()
-			rt, addr, err := startOn(t, dsn, dataDir)
+			rt, addr, out, err := startOn(t, dsn, dataDir)
 			if err != nil {
 				t.Fatalf("a schema at another version is NOT-SERVING, not a Start error: %v", err)
+			}
+			// OSS-SEAM-4 proof 7: no worker and no lease on that schema.
+			for _, line := range []string{"cleanup driver started", "lease acquired"} {
+				if strings.Contains(out.String(), line) {
+					t.Errorf("Start printed %q while NOT-SERVING on a schema at another version", line)
+				}
 			}
 			reason := fmt.Sprintf("schema at %d, this server needs %d: run identuum-idp migrate", tc.found, want)
 			if code, _ := body(t, addr, "/api/v1/component"); code != http.StatusServiceUnavailable {
@@ -213,7 +241,7 @@ func TestSchemaVersionMismatch_IsNotServingAndWritesNothing(t *testing.T) {
 // answer, a Start error that says to migrate.
 func TestSchemaVersion_MissingTableKeepsTodaysError(t *testing.T) {
 	dsn, _ := scratchDatabase(t, "identuum_idp_oss_test_seam3_empty")
-	rt, _, err := startOn(t, dsn, t.TempDir())
+	rt, _, _, err := startOn(t, dsn, t.TempDir())
 	if err == nil {
 		_ = shutdown(t, rt)
 		t.Fatal("Start on a database without migrations succeeded")

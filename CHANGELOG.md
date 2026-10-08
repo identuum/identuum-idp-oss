@@ -22,6 +22,11 @@ follows [Semantic Versioning](https://semver.org/).
   identuum-idp migrate", and it writes nothing to that database. A database
   without the migrations table keeps today's error. New:
   `migrations.RequireCurrent`.
+- **`pkg/extension`: deny-only restrictions** (owner rulings z and aa,
+  OSS-SEAM-4). `runtime.Options.Restrictions` may refuse an API resource
+  create, update or delete after every OSS check passed: 403 `restricted` or
+  `license_required`, 409 `quota_exceeded`. An error or a panic is 403
+  `restricted`. Without restrictions nothing changes.
 
 ## `v0.9.9`
 

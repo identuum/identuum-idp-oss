@@ -17,7 +17,20 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
+	"github.com/identuum/identuum-idp-oss/pkg/extension"
 )
+
+// writeExtensionDenial answers an extension denial with its stable code
+// (owner ruling aa: 403, or 409 for quota_exceeded) and reports whether err
+// was one.
+func writeExtensionDenial(c *gin.Context, err error) bool {
+	var d *extension.Denial
+	if !errors.As(err, &d) {
+		return false
+	}
+	c.JSON(d.Status(), gin.H{"error": string(d.Code)})
+	return true
+}
 
 // APIResourcesHandlerDeps wires the API-resource admin group.
 //
@@ -357,6 +370,9 @@ func HandleCreateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			Scopes:         req.Scopes,
 		})
 		if err != nil {
+			if writeExtensionDenial(c, err) {
+				return
+			}
 			switch {
 			case errors.Is(err, service.ErrAPIResourceForbidden):
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
@@ -429,6 +445,9 @@ func HandleUpdateAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			Scopes:   req.Scopes,
 		})
 		if err != nil {
+			if writeExtensionDenial(c, err) {
+				return
+			}
 			// THE-SIXTEEN-ELSES: 404 only for the real miss (a foreign-org
 			// id reads identically); an audience rename into UNIQUE
 			// (org_id, audience) is an honest 409; unknown faults say so.
@@ -482,6 +501,9 @@ func HandleDeleteAPIResource(deps APIResourcesHandlerDeps) gin.HandlerFunc {
 			// errors here are infrastructure faults (THE-SIXTEEN-ELSES).
 			if errors.Is(err, service.ErrAPIResourceForbidden) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			if writeExtensionDenial(c, err) {
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})

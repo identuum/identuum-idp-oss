@@ -143,6 +143,7 @@
         "internal/service/**",
         "internal/utils/**",
         "logger/**",
+        "pkg/extension/**",
         "pkg/oidc/**",
         "ratelimit/**",
         "types/**"
@@ -317,6 +318,7 @@
         "internal/uiexport/**",
         "internal/utils/**",
         "logger/**",
+        "pkg/extension/**",
         "ratelimit/**"
       ]
     },
@@ -347,6 +349,7 @@
         "internal/audit/**",
         "internal/crypto/**",
         "internal/domain/**",
+        "internal/extensionmint/**",
         "internal/jwtpolicy/**",
         "internal/lifecycle/**",
         "internal/metrics/**",
@@ -354,6 +357,7 @@
         "internal/repository/**",
         "internal/utils/**",
         "logger/**",
+        "pkg/extension/**",
         "pkg/oidc/**",
         "pkg/pkce/**",
         "pkg/totp/**",
@@ -450,6 +454,14 @@
         "pkg/licenseprovider/**",
         "types/**"
       ]
+    },
+    {
+      "name": "pkg_extension",
+      "packages": [
+        "internal/extensionmint/**",
+        "pkg/extension/**"
+      ],
+      "may_import": []
     },
     {
       "name": "pkg_features",

@@ -7,8 +7,19 @@ binary's commands — is not an API and may change in any release.
 
 ## The packages
 
-The set is exactly these nine directories under `pkg/`, enforced by
+The set is exactly these ten directories under `pkg/`, enforced by
 `make api-surface`:
+
+- `pkg/extension` — deny-only restrictions a linked module adds to OSS
+  decisions (owner rulings z and aa, 2026-10-08). OSS builds an immutable
+  `Decision` (actor, tenant, operation, target, required scopes) after its
+  own authentication, tenant authority and base checks, and before any
+  write; a downstream module cannot build one. Each `Restriction` in
+  `runtime.Options.Restrictions` may refuse it. A `*Denial` answers 403 with
+  `restricted` or `license_required`, or 409 with `quota_exceeded`; any other
+  error, and a panic, is 403 `restricted`. A restriction never turns an OSS
+  refusal into an allow. Covered operations: API resource create, update and
+  delete. With no restrictions OSS behaves as before.
 
 - `pkg/runtime` — builds and runs the OSS IdP in the caller's process:
   `New(Options)`, then `Start` and `Shutdown`; `Done`, `ServeErr`,

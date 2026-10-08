@@ -14,6 +14,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/utils/uuidgen"
+	"github.com/identuum/identuum-idp-oss/pkg/extension"
 )
 
 // APIResourceService is the OSS-narrow API-resource admin surface.
@@ -26,6 +27,8 @@ type APIResourceService struct {
 	// reserved, when wired, reports an audience that no API resource may
 	// carry: the issuer, or an application's client id (H7).
 	reserved func(ctx context.Context, audience string) (bool, error)
+	// restrictions are the extension restrictions of the writes (OSS-SEAM-4).
+	restrictions []extension.Restriction
 }
 
 func NewAPIResourceService(report *lifecycle.StartupReport, repo repository.APIResourceRepository) *APIResourceService {
@@ -172,6 +175,9 @@ func (s *APIResourceService) Create(ctx context.Context, actor *domain.Principal
 	if err := s.checkAudience(ctx, resource.Audience); err != nil {
 		return nil, "", err
 	}
+	if err := s.restrict(ctx, actor, extension.OperationAPIResourceCreate, resource.ID); err != nil {
+		return nil, "", err
+	}
 	if err := s.repo.Create(ctx, resource, opts.Scopes); err != nil {
 		return nil, "", err
 	}
@@ -230,6 +236,11 @@ func (s *APIResourceService) Update(ctx context.Context, actor *domain.Principal
 		if err := domain.ValidateAPIScopes(opts.Scopes); err != nil {
 			return nil, fmt.Errorf("%w: %v", errAPIResourceInvalid, err)
 		}
+	}
+	if err := s.restrict(ctx, actor, extension.OperationAPIResourceUpdate, resource.ID); err != nil {
+		return nil, err
+	}
+	if opts.Scopes != nil {
 		// ATOMIC: the field update AND the scope replacement commit in ONE
 		// transaction (mirrors Create). A failure in either step rolls BOTH
 		// back — no partial write (fields committed but scopes stale). The
@@ -256,6 +267,15 @@ func (s *APIResourceService) Delete(ctx context.Context, actor *domain.Principal
 	org, err := apiResourceActorOrg(actor)
 	if err != nil {
 		return err
+	}
+	// A restriction sees only a resource of the actor's own organization; a
+	// miss keeps today's idempotent delete of nothing.
+	if len(s.restrictions) > 0 {
+		if r, getErr := s.repo.GetByID(ctx, id, &org); getErr == nil && r != nil {
+			if err := s.restrict(ctx, actor, extension.OperationAPIResourceDelete, id); err != nil {
+				return err
+			}
+		}
 	}
 	return s.repo.Delete(ctx, id, &org)
 }

@@ -35,6 +35,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	internalruntime "github.com/identuum/identuum-idp-oss/internal/runtime"
+	"github.com/identuum/identuum-idp-oss/pkg/extension"
 )
 
 // Options configures a Runtime. Each field maps to exactly one field of the
@@ -72,6 +73,9 @@ type Options struct {
 	// CORSAllowedOrigins and TrustedProxies are copied, never retained.
 	CORSAllowedOrigins []string
 	TrustedProxies     []string
+	// Restrictions are deny-only extension restrictions on the operations
+	// pkg/extension names; nil or empty runs OSS as it is. Copied.
+	Restrictions []extension.Restriction
 }
 
 // Lifecycle is the consumer-facing view of a running Runtime.
@@ -174,6 +178,7 @@ func (o Options) config() internalruntime.Config {
 		MetricsAddr:               o.MetricsAddr,
 		CORSAllowedOrigins:        slices.Clone(o.CORSAllowedOrigins),
 		TrustedProxies:            slices.Clone(o.TrustedProxies),
+		Restrictions:              slices.Clone(o.Restrictions),
 	}
 }
 

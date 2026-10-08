@@ -2,12 +2,14 @@ package runtime
 
 import (
 	"bytes"
+	"context"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	internalruntime "github.com/identuum/identuum-idp-oss/internal/runtime"
+	"github.com/identuum/identuum-idp-oss/pkg/extension"
 )
 
 // optionToConfig names, for every Options field, the private Config field it
@@ -27,6 +29,7 @@ var optionToConfig = map[string]string{
 	"MetricsAddr":               "MetricsAddr",
 	"CORSAllowedOrigins":        "CORSAllowedOrigins",
 	"TrustedProxies":            "TrustedProxies",
+	"Restrictions":              "Restrictions",
 }
 
 // OSS-SEAM-2: a fault reason leaves Health with no URL and no secret-named
@@ -73,6 +76,7 @@ func TestOptions_MapEveryConfigField(t *testing.T) {
 		Getenv:  func(k string) string { getenvCalled = k; return "" },
 		DataDir: "data", UIPublicBaseURL: "ui-url", UIStaticDir: "ui-dir", MetricsAddr: "metrics",
 		CORSAllowedOrigins: []string{"https://a.test"}, TrustedProxies: []string{"10.0.0.1"},
+		Restrictions: []extension.Restriction{noRestriction{name: "a"}},
 	}
 	cfg := opts.config()
 	ov, cv := reflect.ValueOf(opts), reflect.ValueOf(cfg)
@@ -97,7 +101,13 @@ func TestOptions_MapEveryConfigField(t *testing.T) {
 
 	// The slices are copies: a caller's later change does not reach the runtime.
 	opts.CORSAllowedOrigins[0], opts.TrustedProxies[0] = "changed", "changed"
-	if cfg.CORSAllowedOrigins[0] != "https://a.test" || cfg.TrustedProxies[0] != "10.0.0.1" {
+	opts.Restrictions[0] = noRestriction{name: "changed"}
+	if cfg.CORSAllowedOrigins[0] != "https://a.test" || cfg.TrustedProxies[0] != "10.0.0.1" || cfg.Restrictions[0] != (noRestriction{name: "a"}) {
 		t.Error("Config shares the caller's slices")
 	}
 }
+
+// noRestriction allows everything; it only marks a slice entry.
+type noRestriction struct{ name string }
+
+func (noRestriction) Check(context.Context, extension.Decision) error { return nil }

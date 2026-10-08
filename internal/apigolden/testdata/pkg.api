@@ -1,3 +1,22 @@
+package pkg/extension
+  const LicenseRequired Code = "license_required"
+  const OperationAPIResourceCreate = "api_resource.create"
+  const OperationAPIResourceDelete = "api_resource.delete"
+  const OperationAPIResourceUpdate = "api_resource.update"
+  const QuotaExceeded Code = "quota_exceeded"
+  const Restricted Code = "restricted"
+  func (d *Denial) Error() string
+  func (d *Denial) Status() int
+  func (d Decision) Actor() string
+  func (d Decision) IsZero() bool
+  func (d Decision) Operation() string
+  func (d Decision) RequiredScopes() []string
+  func (d Decision) Target() string
+  func (d Decision) Tenant() string
+  type Code string
+  type Decision struct { _unexported struct{} }
+  type Denial struct { Code Code }
+  type Restriction interface { Check(context.Context, Decision) error }
 package pkg/features
   const AnomalyDetection = internalfeatures.AnomalyDetection
   const AppendOnlyAudit = internalfeatures.AppendOnlyAudit
@@ -80,7 +99,7 @@ package pkg/runtime
   type Fault struct { Component string Fatal bool Reason string }
   type HealthSnapshot struct { Serving bool Faults []Fault }
   type Lifecycle interface { Start(ctx context.Context) error Shutdown(ctx context.Context) error Done() <-chan struct{} ServeErr() error }
-  type Options struct { Addr string Issuer string DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string }
+  type Options struct { Addr string Issuer string DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string Restrictions []extension.Restriction }
   type Runtime struct { _unexported struct{} }
 package pkg/totp
   func Code(key []byte, counter uint64, digits int) string
