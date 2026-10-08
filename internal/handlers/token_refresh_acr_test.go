@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/identuum/identuum-idp-oss/auth"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -17,7 +16,7 @@ import (
 // organization's MFA floor at every later renewal.
 func TestToken_OfflineAccessFamilyRecordsTheSignInACR(t *testing.T) {
 	r, codes, refresh, _, session := newAuthCodeEngineWithRefreshSvc(t)
-	session.Acr = auth.ACRMFA
+	session.Acr = service.ACRMFA
 	verifier, challenge := authCodePKCEPair(t)
 	created, _ := codes.Create(context.Background(), service.CreateAuthorizationCodeInput{
 		ClientID: "cli-1", UserID: session.UserID, SessionID: session.ID,
@@ -43,7 +42,7 @@ func TestToken_OfflineAccessFamilyRecordsTheSignInACR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consume: %v", err)
 	}
-	if consumed.AuthACR != auth.ACRMFA {
-		t.Fatalf("the family records acr %q; want the sign-in's %q", consumed.AuthACR, auth.ACRMFA)
+	if consumed.AuthACR != service.ACRMFA {
+		t.Fatalf("the family records acr %q; want the sign-in's %q", consumed.AuthACR, service.ACRMFA)
 	}
 }
