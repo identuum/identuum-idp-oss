@@ -73,8 +73,11 @@ func TestNewWithListener_Ownership(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if rt.Start(context.Background()) == nil || rt.Start(context.Background()) == nil {
-			t.Fatal("Start without a database must fail, twice")
+		if rt.Start(context.Background()) == nil {
+			t.Fatal("Start without a database must fail")
+		}
+		if rt.Start(context.Background()) == nil {
+			t.Fatal("a second Start without a database must fail too")
 		}
 		if ln.closes.Load() != 0 {
 			t.Fatal("a failed Start closed the listener; Shutdown owns that")

@@ -32,8 +32,8 @@ var optionToConfig = map[string]string{
 // OSS-SEAM-2: a fault reason leaves Health with no URL and no secret-named
 // value, and an ordinary reason is unchanged.
 func TestScrubReason(t *testing.T) {
-	got := scrubReason("connect postgres://idp:hunter2@db:5432/idp failed; password=hunter2 token=abc.def")
-	for _, leak := range []string{"postgres://", "hunter2", "abc.def", "@db"} {
+	got := scrubReason("connect postgres://idp:dev-idp-not-a-secret@db:5432/idp failed; password=dev-idp-not-a-secret token=abc.def")
+	for _, leak := range []string{"postgres://", "dev-idp-not-a-secret", "abc.def", "@db"} {
 		if strings.Contains(got, leak) {
 			t.Errorf("the scrubbed reason still carries %q", leak)
 		}
