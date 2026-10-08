@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -107,6 +109,17 @@ func (s *OrganizationService) Create(ctx context.Context, opts CreateOrganizatio
 	return created, nil
 }
 
+// defaultMaxSessionsPerUser is the session limit of an organization created
+// without one: the operator's DEFAULT_MAX_SESSIONS_PER_USER when it is a
+// positive number, otherwise 10. V1-025 (testbook): a fixed 10 here meant the
+// operator default never applied.
+func defaultMaxSessionsPerUser() int {
+	if n, err := strconv.Atoi(os.Getenv("DEFAULT_MAX_SESSIONS_PER_USER")); err == nil && n > 0 {
+		return n
+	}
+	return 10
+}
+
 // buildOrganization is the shared normalization + validation step used by
 // Create and CreateWithInitialAdmin — one place decides slugs, policy
 // defaults, and domain canonicalization.
@@ -124,7 +137,7 @@ func buildOrganization(opts CreateOrganizationOptions) (*domain.Organization, er
 	now := time.Now().UTC()
 	maxSess := opts.MaxSessionsPerUser
 	if maxSess <= 0 {
-		maxSess = 10
+		maxSess = defaultMaxSessionsPerUser()
 	}
 	mfa := opts.MFAPolicy
 	if mfa == "" {

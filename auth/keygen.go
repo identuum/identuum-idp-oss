@@ -15,6 +15,18 @@ import (
 	"github.com/identuum/identuum-idp-oss/logger"
 )
 
+// newKID returns "<prefix>-<UTC time to the second>-<16 random hex digits>".
+// V6-110 (testbook): the time alone made two keys generated in the same
+// second share a kid; the crypto/rand suffix keeps every new kid distinct.
+// Existing kids are stored values and do not change.
+func newKID(prefix string) (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("failed to generate key id: %w", err)
+	}
+	return fmt.Sprintf("%s-%s-%x", prefix, time.Now().UTC().Format("20060102-150405"), b), nil
+}
+
 // GenerateEdDSAKey generates a new Ed25519 key pair and returns it as a SigningKey struct
 func GenerateEdDSAKey() (*domain.SigningKey, error) {
 	// Generate Ed25519 key pair
@@ -45,8 +57,10 @@ func GenerateEdDSAKey() (*domain.SigningKey, error) {
 		Bytes: publicKeyBytes,
 	})
 
-	// Generate key ID with timestamp
-	kid := fmt.Sprintf("eddsa-%s", time.Now().UTC().Format("20060102-150405"))
+	kid, err := newKID("eddsa")
+	if err != nil {
+		return nil, err
+	}
 
 	return &domain.SigningKey{
 		KID:        kid,
@@ -88,8 +102,10 @@ func GenerateES256Key() (*domain.SigningKey, error) {
 		Bytes: publicKeyBytes,
 	})
 
-	// Generate key ID with timestamp
-	kid := fmt.Sprintf("es256-%s", time.Now().UTC().Format("20060102-150405"))
+	kid, err := newKID("es256")
+	if err != nil {
+		return nil, err
+	}
 
 	return &domain.SigningKey{
 		KID:        kid,
@@ -134,7 +150,10 @@ func GenerateRS256Key() (*domain.SigningKey, error) {
 		Bytes: publicKeyBytes,
 	})
 
-	kid := fmt.Sprintf("rs256-%s", time.Now().UTC().Format("20060102-150405"))
+	kid, err := newKID("rs256")
+	if err != nil {
+		return nil, err
+	}
 
 	return &domain.SigningKey{
 		KID:        kid,

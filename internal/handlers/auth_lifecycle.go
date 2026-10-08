@@ -170,7 +170,7 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:surface=auth-lifecycle
 		// docgen:method=GET
 		// docgen:path=/api/v1/auth/verify-email
-		// docgen:summary=Verify an email address via a one-time token. Idempotent — re-clicking the link after success returns 200. Single-use semantics enforced server-side.
+		// docgen:summary=Verify an email address via a one-time token. Single use — a second use of the same link answers 400 invalid_token, as every other failure does.
 		// docgen:tier=oss
 		// docgen:auth=public
 		// docgen:notes=No Set-Cookie. 400 invalid_token collapses every failure mode (bad / expired / consumed / unknown user). Raw token never logged. Rate-limited per IP (429 past the window). Audited as email_verified.
@@ -349,8 +349,9 @@ type verifyEmailResponse struct {
 }
 
 // HandleVerifyEmail consumes a verification token from the query
-// string. Returns 200 on success / 400 invalid_token otherwise.
-// Idempotent — already-verified users see 200.
+// string. Returns 200 on success / 400 invalid_token otherwise. The token
+// is single use: a repeated link answers 400 invalid_token too, the one
+// answer for every failure (V6-037, judge ruling 2026-10-08).
 func HandleVerifyEmail(deps AccountLifecycleHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.Query("token")

@@ -764,7 +764,7 @@ endpoints:
     path: "/api/v1/auth/verify-email"
     handler: "HandleVerifyEmail"
     registrar: ""
-    summary: "Verify an email address via a one-time token. Idempotent — re-clicking the link after success returns 200. Single-use semantics enforced server-side."
+    summary: "Verify an email address via a one-time token. Single use — a second use of the same link answers 400 invalid_token, as every other failure does."
     tier: "oss"
     auth: "public"
     request_schema: ""
