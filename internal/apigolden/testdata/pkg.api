@@ -1,0 +1,134 @@
+package pkg/features
+  const AnomalyDetection = internalfeatures.AnomalyDetection
+  const AppendOnlyAudit = internalfeatures.AppendOnlyAudit
+  const AuditExport = internalfeatures.AuditExport
+  const AuthorizationServer = internalfeatures.AuthorizationServer
+  const Core = internalfeatures.Core
+  const DatabaseBackups = internalfeatures.DatabaseBackups
+  const DynamicClientRegistration = internalfeatures.DynamicClientRegistration
+  const DynamicVault = internalfeatures.DynamicVault
+  const FIPS = internalfeatures.FIPS
+  const FailClosedAudit = internalfeatures.FailClosedAudit
+  const HardwareBinding = internalfeatures.HardwareBinding
+  const LDAP = internalfeatures.LDAP
+  const LimitM2MSessions = internalfeatures.LimitM2MSessions
+  const LimitSPIFFEBundleSizeBytes = internalfeatures.LimitSPIFFEBundleSizeBytes
+  const LimitSPIFFEPeers = internalfeatures.LimitSPIFFEPeers
+  const LimitTenants = internalfeatures.LimitTenants
+  const LimitUserSessions = internalfeatures.LimitUserSessions
+  const LimitUsers = internalfeatures.LimitUsers
+  const MCPServer = internalfeatures.MCPServer
+  const MFA = internalfeatures.MFA
+  const OIDCFederation = internalfeatures.OIDCFederation
+  const PAR = internalfeatures.PAR
+  const PublicRegistration = internalfeatures.PublicRegistration
+  const SCIM = internalfeatures.SCIM
+  const SPIFFEFederation = internalfeatures.SPIFFEFederation
+  const SSO = internalfeatures.SSO
+  const StaticVault = internalfeatures.StaticVault
+  const WebAuthn = internalfeatures.WebAuthn
+  const Webhooks = internalfeatures.Webhooks
+  const WhiteLabel = internalfeatures.WhiteLabel
+  func NewStaticGate(enabled map[string]bool) StaticGate
+  type ClosedGate = internalfeatures.ClosedGate
+  type FeatureGate = internalfeatures.FeatureGate
+  type FeatureLimits = internalfeatures.FeatureLimits
+  type LicenseInfoProvider = internalfeatures.LicenseInfoProvider
+  type OpenGate = internalfeatures.OpenGate
+  type StarterFeatureGate = internalfeatures.StarterFeatureGate
+  type StarterFeatureLimits = internalfeatures.StarterFeatureLimits
+  type StaticGate = internalfeatures.StaticGate
+  var StarterFeatures
+  var StarterLimits
+package pkg/licenseprovider
+  func New() *StarterProvider
+  func NewStarterProvider() Provider
+  type Provider = internallp.Provider
+  type StarterProvider = internallp.StarterProvider
+package pkg/migrations
+  func Apply(ctx context.Context, db *sql.DB) ([]Result, error)
+  func Current() string
+  type Result struct { Source string Applied bool }
+package pkg/oidc
+  func (m *OpaqueMinter) Mint(_ context.Context, _ TokenClaims) (wireToken string, storeKey string, err error)
+  func NewOpaqueMinter() *OpaqueMinter
+  type AccessTokenMinter interface { Mint(ctx context.Context, claims TokenClaims) (wireToken string, storeKey string, err error) }
+  type IDTokenClaims struct { Issuer string Subject string Audience string Nonce string IssuedAt time.Time ExpiresAt time.Time JTI string Extra map[string]any SigningAlg string }
+  type IDTokenIssuer interface { IssueIDToken(ctx context.Context, claims IDTokenClaims) (idToken string, err error) }
+  type OpaqueMinter struct { }
+  type PrincipalRef struct { Subject string SessionID string }
+  type SubjectResolver interface { ResolveSubject(ctx context.Context, ref PrincipalRef) (bool, error) }
+  type TokenClaims struct { Issuer string Subject string ClientID string Audience string Scope string IssuedAt time.Time ExpiresAt time.Time JTI string ActorType string Extra map[string]any }
+package pkg/pkce
+  const MethodS256 = "S256"
+  func ValidVerifier(v string) bool
+  func Verify(codeVerifier, codeChallenge string) bool
+package pkg/runtime
+  func (r *Runtime) Addr() string
+  func (r *Runtime) Done() <-chan struct{}
+  func (r *Runtime) MetricsAddr() string
+  func (r *Runtime) ServeErr() error
+  func (r *Runtime) Serving() bool
+  func (r *Runtime) Shutdown(ctx context.Context) error
+  func (r *Runtime) Start(ctx context.Context) error
+  func New(opts Options) (*Runtime, error)
+  type Lifecycle interface { Start(ctx context.Context) error Shutdown(ctx context.Context) error Done() <-chan struct{} ServeErr() error }
+  type Options struct { Addr string Issuer string DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string }
+  type Runtime struct { _unexported struct{} }
+package pkg/totp
+  func Code(key []byte, counter uint64, digits int) string
+  func Match(key []byte, code string, now time.Time, opts Options) (matchedStep int64, ok bool)
+  type Options struct { Period uint64 Digits int Window int }
+package pkg/uiserve
+  const AssetCacheControl = "public, max-age=31536000, immutable"
+  const BFFPrefix = "/bff"
+  const DefaultLogoutTimeout = 5 * time.Second
+  const LogoutPath = BFFPrefix + logoutTarget
+  const NotFoundBody = "404 page not found"
+  const RefreshPath = BFFPrefix + refreshTarget
+  const RequestHeader = "X-Requested-With"
+  const RequestHeaderValue = "identuum-ui"
+  const RuntimeConfigPath = "/api/runtime-config"
+  const Schema = "identuum-ui-vendor.v1"
+  const ShellCacheControl = "no-store"
+  const ShellContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; " + "connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+  const ShellReferrerPolicy = "no-referrer"
+  const StatusPath = "/api/status"
+  func Check(fsys fs.FS, m *Manifest) error
+  func DirFS(dir string) fs.FS
+  func Files(fsys fs.FS) (map[string]string, error)
+  func New(o Options) (http.Handler, error)
+  func Parse(raw []byte) (*Manifest, error)
+  func Select(dir, dirName string, embedded fs.FS) (fs.FS, string)
+  func TreeDigest(files map[string]string) string
+  type LogoutOptions struct { Target string Timeout time.Duration ClearCookies http.HandlerFunc UnconfirmedHeader string }
+  type Manifest struct { Schema string `json:"schema"` UICommit string `json:"ui_commit"` UILockfileSHA256 string `json:"ui_lockfile_sha256"` NodeVersion string `json:"node_version"` PnpmVersion string `json:"pnpm_version"` Files map[string]string `json:"files"` TreeDigest string `json:"tree_digest"` }
+  type Options struct { UI fs.FS Source string Edition string API http.Handler Reserved func(path string) bool AllowedOrigins []string ForwardPrefixes []string AllowedMethods func(method, path string) []string AccessCookie string RefreshCookie string ForwardCookies []string StaleTokenReasons []string Refresh http.HandlerFunc Logout LogoutOptions Status Status PublicBaseURL string }
+  type Status struct { Product string Healthy func() bool Extra func() map[string]any }
+package pkg/webauthn
+  const RoutePathCredentialDelete = "/api/v1/webauthn/credentials/:id"
+  const RoutePathCredentialsList = "/api/v1/webauthn/credentials"
+  const RoutePathLoginBegin = "/api/v1/auth/login/webauthn/begin"
+  const RoutePathLoginFinish = "/api/v1/auth/login/webauthn/finish"
+  const RoutePathRegisterBegin = "/api/v1/webauthn/register/begin"
+  const RoutePathRegisterFinish = "/api/v1/webauthn/register/finish"
+  const TTL = 5 * time.Minute
+  func NewInMemorySessionRepository() *InMemorySessionRepository
+  func NewService(cfg ServiceConfig) (*Service, error)
+  func RoutePaths() map[string]string
+  type Credential = domain.WebAuthnCredential
+  type CredentialRepository = repository.WebAuthnCredentialRepository
+  type InMemorySessionRepository = repository.InMemoryWebAuthnSessionRepository
+  type Service = service.WebAuthnService
+  type ServiceConfig = service.WebAuthnServiceConfig
+  type SessionRepository = repository.WebAuthnSessionRepository
+  type User = domain.User
+  type UserRepo = service.WebAuthnUserRepo
+  var ErrAssertionInvalid
+  var ErrCloneDetected
+  var ErrCredentialMissing
+  var ErrCredentialNotFound
+  var ErrCredentialNotYours
+  var ErrNoCredentials
+  var ErrSessionInvalid
+  var ErrTenantMismatch

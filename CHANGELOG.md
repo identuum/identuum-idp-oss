@@ -5,6 +5,14 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **Public Go API: `pkg/runtime` and `pkg/migrations`** (owner ruling w).
+  Narrow facades for a module that links identuum-idp-oss: `runtime.New`,
+  `Start`, `Shutdown` over the existing runtime, and `migrations.Apply` and
+  `Current`. No behaviour changes; the binary does not use them. The public
+  API and its compatibility promise are in `docs/PUBLIC-API.md`.
+
 ## `v0.9.9`
 
 identuum-ui `f13dee8` embedded (`v0.9.8` embedded `d009997`; the export is

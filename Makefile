@@ -1474,13 +1474,15 @@ clock-fuse-report:
 		echo "Each needs triage as FUSE or BENIGN; gating before that triage would fail every repo today."; \
 	fi
 
-## api-surface: the public API of this module is EXACTLY the seven pkg/
-## packages CE imports — features, licenseprovider, oidc, pkce, totp,
-## uiserve, webauthn — and nothing else under pkg/ (P-061, wiki/platform/decisions.md:
-## "that table IS the public-API decision"; executed by THE-THREE-DIRS,
-## d1b9830, which moved migrations, runtime and server under internal/pkg/;
-## uiserve added by the owner decision of 2026-09-24, one public serving
-## package imported by CE, PLAN-F-1).
+## api-surface: the public API of this module is EXACTLY these nine pkg/
+## packages — features, licenseprovider, migrations, oidc, pkce, runtime,
+## totp, uiserve, webauthn — and nothing else under pkg/ (P-061,
+## wiki/platform/decisions.md: "that table IS the public-API decision";
+## executed by THE-THREE-DIRS, d1b9830, which moved migrations, runtime and
+## server under internal/pkg/; uiserve added by the owner decision of
+## 2026-09-24, PLAN-F-1; migrations and runtime return as narrow facades by
+## owner ruling w, 2026-10-08, OSS-SEAM-1 — server stays internal). What each
+## exports is pinned by internal/apigolden; docs/PUBLIC-API.md says the promise.
 ##
 ## WHY A GATE AND NOT A COMMENT: a directory under pkg/ is a contract for
 ## free — the moment it exists, a downstream module can import it, and
@@ -1496,7 +1498,7 @@ clock-fuse-report:
 ## as well as verify (THE ONE-REPO RULE above ci-verify). Untracked
 ## directories count — the tree is the API, not the index — which is also
 ## how it is red-proved (an untracked pkg/decoy/ names `decoy`).
-API_SURFACE := features licenseprovider oidc pkce totp uiserve webauthn
+API_SURFACE := features licenseprovider migrations oidc pkce runtime totp uiserve webauthn
 api-surface:
 	@want="$$(printf '%s\n' $(API_SURFACE) | sort | tr '\n' ' ' | sed 's/ $$//')"; \
 	have="$$(find pkg -mindepth 1 -maxdepth 1 -type d | sed 's#^pkg/##' | sort | tr '\n' ' ' | sed 's/ $$//')"; \
