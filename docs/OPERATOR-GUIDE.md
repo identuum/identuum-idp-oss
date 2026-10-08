@@ -669,9 +669,14 @@ carry `actor_type` `service_account`. An application registered for
 
 ### Tokens for an API resource, and who may introspect them
 
-Every access token lives one hour, whatever its audience. An API resource
-has no lifetime of its own: create and update refuse a `token_ttl_secs`
-field with `400 unsupported_field`.
+An ordinary access token lives one hour, whatever its audience: a user's
+token and a `client_credentials` token for an API resource alike. An API
+resource has no lifetime of its own: create and update refuse a
+`token_ttl_secs` field with `400 unsupported_field`. The one exception is
+the agent-communication token (a `client_credentials` grant for an agent
+communication authorization): it keeps its own lifetime, 5 minutes by
+default, `IDENTUUM_IDP_AGENT_COMMUNICATION_TOKEN_TTL` up to 15 minutes, and
+never past its authorization's expiry.
 
 A `client_credentials` request with `audience=<an API resource's audience>`
 (one of the client's `allowed_audiences`) gets a token whose `aud` is that API

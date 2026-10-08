@@ -12,9 +12,12 @@ follows [Semantic Versioning](https://semver.org/).
   body that contains `token_ttl_secs` with `400`
   `{"error":"unsupported_field","field":"token_ttl_secs",...}`; the same
   request without it is served as before, and no API resource response
-  carries `token_ttl_secs` any more. The field never had an effect: every
-  access token, `client_credentials` and `authorization_code` alike, has the
-  one 1-hour lifetime, and issuance never read the stored value. The column
+  carries `token_ttl_secs` any more. The field never had an effect: an
+  ordinary access token, `client_credentials` for an API resource and
+  `authorization_code` alike, has the one 1-hour lifetime, and issuance never
+  read the stored value. The agent-communication token keeps its own
+  lifetime (5 minutes by default, at most 15, never past its authorization),
+  unchanged. The column
   stays and keeps its stored value as legacy data, never read for issuance
   and never shown (owner rulings l, m and n, 2026-10-06). The unused
   60–86400 fields of the exported request types are removed. The embedded

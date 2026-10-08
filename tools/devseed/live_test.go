@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base32"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -56,17 +57,34 @@ func TestDevseedLive(t *testing.T) {
 		}
 	})
 	t.Run("client secret authenticates at the token endpoint and a wrong one does not", func(t *testing.T) {
-		endpoint := tokenEndpoint(t, base)
-		status, code := tokenRequest(t, endpoint, creds.ClientID, creds.ClientSecret+"-wrong")
-		if status != http.StatusUnauthorized || code != "invalid_client" {
-			t.Fatalf("wrong secret: status %d, error %q; want 401 invalid_client", status, code)
+		if err := clientAuthCheck(tokenEndpoint(t, base), creds.ClientID, creds.ClientSecret); err != nil {
+			t.Fatal(err)
 		}
-		status, code = tokenRequest(t, endpoint, creds.ClientID, creds.ClientSecret)
-		if code == "invalid_client" || status == http.StatusUnauthorized {
-			t.Fatalf("right secret: status %d, error %q; the client did not authenticate", status, code)
-		}
-		t.Logf("right secret: status %d, error %q (authenticated; the grant is judged after)", status, code)
 	})
+}
+
+// clientAuthCheck proves the seeded client's secret authenticates at the
+// token endpoint and a wrong one does not. Both requests present a bogus
+// authorization code: the wrong secret must be refused 401 invalid_client
+// before the code is looked at, and the right one must get exactly 400
+// invalid_grant — authenticated, then the code refused. Any other answer,
+// a server failure or a body that is not JSON fails (review F2).
+func clientAuthCheck(endpoint, clientID, secret string) error {
+	status, code, err := tokenAnswer(endpoint, clientID, secret+"-wrong")
+	if err != nil {
+		return fmt.Errorf("wrong secret: %w", err)
+	}
+	if status != http.StatusUnauthorized || code != "invalid_client" {
+		return fmt.Errorf("wrong secret: status %d, error %q; want 401 invalid_client", status, code)
+	}
+	status, code, err = tokenAnswer(endpoint, clientID, secret)
+	if err != nil {
+		return fmt.Errorf("right secret: %w", err)
+	}
+	if status != http.StatusBadRequest || code != "invalid_grant" {
+		return fmt.Errorf("right secret: status %d, error %q; want 400 invalid_grant for the bogus code", status, code)
+	}
+	return nil
 }
 
 func readSeeded(t *testing.T, path string) seeded {
@@ -165,23 +183,31 @@ func tokenEndpoint(t *testing.T, base string) string {
 	return base + u.Path
 }
 
-func tokenRequest(t *testing.T, endpoint, clientID, secret string) (int, string) {
-	t.Helper()
-	form := url.Values{"grant_type": {"client_credentials"}, "scope": {"openid"}}
+// tokenAnswer redeems a bogus authorization code with the given client
+// credentials and returns the status and the error code. A body that does not
+// decode as JSON is an error; the code is reported only in its known shape.
+func tokenAnswer(endpoint, clientID, secret string) (int, string, error) {
+	form := url.Values{"grant_type": {"authorization_code"}, "code": {"devseed-live-bogus-code"},
+		"redirect_uri": {clientRedirectURI}}
 	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		t.Fatalf("token request: %v", err)
+		return 0, "", fmt.Errorf("token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.SetBasicAuth(url.QueryEscape(clientID), url.QueryEscape(secret))
 	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
 	if err != nil {
-		t.Fatalf("token request: %v", err)
+		return 0, "", fmt.Errorf("token request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	var p struct {
 		Error string `json:"error"`
 	}
-	_ = json.NewDecoder(resp.Body).Decode(&p)
-	return resp.StatusCode, p.Error
+	if err := json.NewDecoder(resp.Body).Decode(&p); err != nil {
+		return resp.StatusCode, "", fmt.Errorf("status %d with a body that is not JSON", resp.StatusCode)
+	}
+	if !errorCode.MatchString(p.Error) {
+		return resp.StatusCode, "", fmt.Errorf("status %d with no well-formed error code", resp.StatusCode)
+	}
+	return resp.StatusCode, p.Error, nil
 }

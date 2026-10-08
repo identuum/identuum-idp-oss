@@ -924,6 +924,9 @@ test-full-dispatch-selftest:
 	case_ "e2e-full owed -> E2E_TIER=full" "check OK: mint-reachability MINT REQUIRED — 1 reaching path; e2e-full owed: Makefile" 1 "dispatch: --no-print-directory test-full-mint E2E_TIER=full" "E2E_TIER=quick"; \
 	case_ "unknown line, exit 3 -> E2E_TIER=full" "mint-reachability: cannot evaluate" 3 "dispatch: --no-print-directory test-full-mint E2E_TIER=full" "E2E_TIER=quick"; \
 	case_ "exit 0 -> no dispatch" "check OK: mint-reachability SKIPPABLE — tier none" 0 "test-full: MINT SATISFIED" "dispatch:"; \
+	n=$$((n + 1)); order=$$(awk '$$0=="test-full-mint:"{r=1;next} r&&/^[^\t#]/{r=0} r&&/\$$\(MAKE\).*devseed-live/&&!d{d=NR} r&&/\$$\(MAKE\).*e2e-\$$\(E2E_TIER\)/&&!e{e=NR} END{print (d && e && d<e) ? "before" : "not-before"}' "$(DISPATCH_MAKEFILE)"); \
+	if [ "$$order" = before ]; then echo "  ok    test-full-mint runs devseed-live before the e2e half (owner ruling v)"; \
+	else fails=$$((fails + 1)); echo "  FAIL  test-full-mint does not run devseed-live before the e2e half (owner ruling v): a red devseed-live after a green e2e record leaves that record as the mint"; fi; \
 	if [ $$fails -ne 0 ]; then echo "test-full-dispatch-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
 	echo "check OK: test-full-dispatch-selftest $$n case(s): quick only when e2e-quick is owed, full otherwise, nothing on 0 (no stack, no container)"
 
@@ -2068,31 +2071,46 @@ dev-seed: protected-guard
 ##                  site_admin and org_admin with password + a TOTP code from
 ##                  the printed secret, signs org_user in with its password
 ##                  alone (TOTP is asked of admins only here), and authenticates the client
-##                  at the token endpoint (a wrong secret gets invalid_client);
+##                  at the token endpoint: a bogus code with the right secret
+##                  gets exactly 400 invalid_grant, a wrong secret 401
+##                  invalid_client, and nothing else passes;
 ##   second run     a re-seed refuses as devseed documents (the org_admin
 ##                  already has TOTP, and devseed keeps no copy of the secret);
-##   teardown       `down --volumes` of identuum-devseed ONLY, also on failure,
-##                  then 0 containers and 0 volumes of that project remain.
-## The --json output (passwords, TOTP secrets, the client secret) goes to a
-## mode-600 file in a fresh mktemp directory that is left for the owner; this
-## recipe prints only check names. test-full-mint runs it after the e2e half.
+##   teardown       `down --volumes` of identuum-devseed ONLY, on every exit
+##                  (EXIT, INT and TERM traps), then 0 containers and 0 volumes
+##                  of that project, counted by docker commands whose own
+##                  failure fails the check.
+## OSS-PRE-RELEASE-FIXES: before ANY docker command the project must be
+## identuum-devseed and not a PROTECTED_CONTAINERS name or the dev project, so
+## a command-line DEVSEED_LIVE_PROJECT cannot aim the cleanup at the owner's
+## stack. The --json output (passwords, TOTP secrets, the client secret) and
+## every log go to mode-600 files (umask 077) in a fresh mktemp directory that
+## is left for the owner; this recipe prints only check names. test-full-mint
+## runs it BEFORE the e2e half (owner ruling v, 2026-10-08, amends P-089).
 DEVSEED_LIVE_PROJECT := identuum-devseed
 DEVSEED_LIVE_PG_PORT := 25513
 DEVSEED_LIVE_APP_PORT := 27113
 .PHONY: devseed-live
 devseed-live:
-	@set -u; p=$(DEVSEED_LIVE_PROJECT); app=$(DEVSEED_LIVE_APP_PORT); \
+	@set -u; umask 077; p=$(DEVSEED_LIVE_PROJECT); app=$(DEVSEED_LIVE_APP_PORT); \
+	if [ "$$p" != identuum-devseed ]; then echo "devseed-live: REFUSED — project '$$p' is not identuum-devseed; this target only ever tears down its own project (no docker command was run)"; exit 2; fi; \
+	for n in $(PROTECTED_CONTAINERS) identuum-idp-oss-dev; do \
+		if [ "$$p" = "$$n" ]; then echo "devseed-live: REFUSED — project '$$p' is protected or the dev project (no docker command was run)"; exit 2; fi; \
+	done; \
 	export IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_PG_HOST_PORT=$(DEVSEED_LIVE_PG_PORT) DEV_APP_PORT="$$app"; \
 	dc() { $(COMPOSE_CMD) -p "$$p" -f deployment/docker-compose.dev.yml --profile app "$$@"; }; \
-	dir=$$(mktemp -d "$${TMPDIR:-/tmp}/devseed-live.XXXXXX"); chmod 700 "$$dir"; fails=0; \
+	dir=$$(mktemp -d "$${TMPDIR:-/tmp}/devseed-live.XXXXXX"); fails=0; cleaned=0; \
 	ok() { echo "devseed-live: check OK: $$1"; }; \
 	bad() { echo "devseed-live: check FAILED: $$1"; fails=$$((fails+1)); }; \
-	teardown() { dc down --volumes >"$$dir/down.log" 2>&1; \
-		c=$$(docker ps -aq --filter "label=com.docker.compose.project=$$p" | wc -l | tr -d ' '); \
-		v=$$(docker volume ls -q --filter "label=com.docker.compose.project=$$p" | wc -l | tr -d ' '); \
+	teardown() { \
+		if ! dc down --volumes >"$$dir/down.log" 2>&1; then bad "teardown — down --volumes of project $$p failed (log: $$dir/down.log)"; return; fi; \
+		if ! cs=$$(docker ps -aq --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log"); then bad "teardown — docker ps failed, so the containers of $$p were not counted"; return; fi; \
+		if ! vs=$$(docker volume ls -q --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log"); then bad "teardown — docker volume ls failed, so the volumes of $$p were not counted"; return; fi; \
+		c=$$(printf '%s' "$$cs" | grep -c .); v=$$(printf '%s' "$$vs" | grep -c .); \
 		if [ "$$c" = 0 ] && [ "$$v" = 0 ]; then ok "teardown — project $$p down --volumes, 0 containers and 0 volumes left"; \
 		else bad "teardown — project $$p still has $$c container(s) and $$v volume(s)"; fi; }; \
-	finish() { teardown; echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; \
+	cleanup() { [ "$$cleaned" = 1 ] && return 0; cleaned=1; teardown; echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; }; \
+	finish() { cleanup; trap - EXIT; \
 		if [ "$$fails" -eq 0 ]; then echo "devseed-live: green"; exit 0; fi; echo "devseed-live: RED — $$fails check(s) failed"; exit 1; }; \
 	dc down --volumes >"$$dir/predown.log" 2>&1 || true; \
 	for port in $(DEVSEED_LIVE_PG_PORT) $$app; do \
@@ -2100,6 +2118,7 @@ devseed-live:
 		[ -n "$$holder" ] || holder=$$(lsof -nP -iTCP:"$$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $$1" pid "$$2}' | sort -u | tr '\n' ' '); \
 		if [ -n "$$holder" ]; then echo "devseed-live: check FAILED: preflight — host port $$port is taken by: $$holder(refused; nothing was started)"; exit 1; fi; \
 	done; ok "preflight — ports $(DEVSEED_LIVE_PG_PORT) and $$app free"; \
+	trap 'cleanup' EXIT; trap 'bad "interrupted"; finish' INT TERM; \
 	if $(MAKE) --no-print-directory oss-up >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
 	i=0; until curl -fsS --max-time 2 "http://127.0.0.1:$$app/health" >/dev/null 2>&1; do \
 		i=$$((i+1)); if [ $$i -ge 60 ]; then bad "health — no answer on 127.0.0.1:$$app within 120s"; finish; fi; sleep 2; done; \
@@ -3041,11 +3060,14 @@ test-full-mint:
 	$(MAKE) --no-print-directory fast-up
 	$(MAKE) --no-print-directory verify-integration
 	@bash scripts/gate-witness.sh check . GATE-RUN.integration.txt
+	@# OSS-DEVSEED-LIVE (owner ruling u, P-089): the owner's `make dev-seed`
+	@# path proved live on its own disposable project. BEFORE the e2e half
+	@# (owner ruling v, 2026-10-08): the e2e record is what the next test-full
+	@# reads as the mint, so a red devseed-live must stop the mint before that
+	@# record is written, or a re-run would answer MINT SATISFIED over it.
+	$(MAKE) --no-print-directory devseed-live
 	$(MAKE) -C ../identuum-ui e2e-$(E2E_TIER)
 	@bash scripts/gate-witness.sh check ../identuum-ui GATE-RUN.e2e-$(E2E_TIER).txt
-	@# OSS-DEVSEED-LIVE (owner ruling u, 2026-10-07): after the e2e half, the
-	@# owner's `make dev-seed` path proved live on its own disposable project.
-	$(MAKE) --no-print-directory devseed-live
 	@# The mint ran and both halves checked out. The record it wrote IS the
 	@# marker: the next decision reads its heads (THE-ONE-MINT-RECORD).
 	@echo "test-full: MINT PAID — ../identuum-ui/GATE-RUN.e2e-$(E2E_TIER).txt is the record of record for this pair."

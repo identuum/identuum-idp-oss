@@ -48,6 +48,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -758,10 +759,20 @@ func extractID(raw []byte) (string, error) {
 	return "", fmt.Errorf("response carries no id: %s", truncate(raw))
 }
 
+// truncate describes a response for an error message WITHOUT quoting it: the
+// JSON `error` code when the body carries a well-formed one, otherwise only
+// the body's size. A body is never excerpted, so a credential in a malformed
+// or unexpected answer cannot reach stderr (OSS-PRE-RELEASE-FIXES, review F5).
 func truncate(raw []byte) string {
-	s := strings.TrimSpace(string(raw))
-	if len(s) > 300 {
-		return s[:300] + "…"
+	var p struct {
+		Error string `json:"error"`
 	}
-	return s
+	if json.Unmarshal(raw, &p) == nil && errorCode.MatchString(p.Error) {
+		return "error=" + p.Error
+	}
+	return fmt.Sprintf("body withheld (%d bytes)", len(raw))
 }
+
+// errorCode is the shape of an OAuth/OSS error code: lower-case words joined
+// by underscores, at most 64 bytes.
+var errorCode = regexp.MustCompile(`^[a-z][a-z_]{0,63}$`)
