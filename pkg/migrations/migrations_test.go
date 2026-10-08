@@ -45,7 +45,9 @@ func TestMigrations_ResultAndHistoryEqualTheMigrateCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open the test database: %v", err)
 	}
-	defer func() { _ = admin.Close() }()
+	// Closed by the FIRST cleanup registered, so it runs LAST: the scratch
+	// databases' DROPs below need it open (a defer would close it first).
+	t.Cleanup(func() { _ = admin.Close() })
 	ctx := context.Background()
 
 	// Two fresh scratch databases: one migrated by the public Apply, one by
@@ -57,7 +59,11 @@ func TestMigrations_ResultAndHistoryEqualTheMigrateCommand(t *testing.T) {
 		if _, err := admin.ExecContext(ctx, `CREATE DATABASE `+name); err != nil {
 			t.Fatalf("create %s: %v", name, err)
 		}
-		t.Cleanup(func() { _, _ = admin.ExecContext(ctx, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`) })
+		t.Cleanup(func() {
+			if _, err := admin.ExecContext(ctx, `DROP DATABASE IF EXISTS `+name+` WITH (FORCE)`); err != nil {
+				t.Errorf("drop the scratch database %s: %v", name, err)
+			}
+		})
 		u, err := url.Parse(dsn)
 		if err != nil {
 			t.Fatal("the test DSN is not a URL")
