@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 
 	goosev3 "github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
@@ -75,6 +76,13 @@ func (r MigrationReport) Applied() int {
 // provider's own source list (every migration the binary carries, applied
 // or not), Version the database's version after Up.
 func RunMigrationsReport(ctx context.Context, db *sql.DB) (MigrationReport, error) {
+	return RunMigrationsReportFS(ctx, db, migrations.EmbedFS)
+}
+
+// RunMigrationsReportFS is RunMigrationsReport over fsys: the one goose call
+// this module makes (OSS-SEAM-2; internal/pkg/migrations.ApplyFS delegates
+// here).
+func RunMigrationsReportFS(ctx context.Context, db *sql.DB, fsys fs.FS) (MigrationReport, error) {
 	if db == nil {
 		return MigrationReport{}, errors.New("postgres: nil *sql.DB passed to RunMigrations")
 	}
@@ -89,7 +97,7 @@ func RunMigrationsReport(ctx context.Context, db *sql.DB) (MigrationReport, erro
 	provider, err := goosev3.NewProvider(
 		goosev3.DialectPostgres,
 		db,
-		migrations.EmbedFS,
+		fsys,
 		goosev3.WithSessionLocker(locker),
 	)
 	if err != nil {

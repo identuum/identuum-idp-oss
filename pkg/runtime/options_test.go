@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -26,6 +27,20 @@ var optionToConfig = map[string]string{
 	"MetricsAddr":               "MetricsAddr",
 	"CORSAllowedOrigins":        "CORSAllowedOrigins",
 	"TrustedProxies":            "TrustedProxies",
+}
+
+// OSS-SEAM-2: a fault reason leaves Health with no URL and no secret-named
+// value, and an ordinary reason is unchanged.
+func TestScrubReason(t *testing.T) {
+	got := scrubReason("connect postgres://idp:hunter2@db:5432/idp failed; password=hunter2 token=abc.def")
+	for _, leak := range []string{"postgres://", "hunter2", "abc.def", "@db"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("the scrubbed reason still carries %q", leak)
+		}
+	}
+	if plain := "build attestation: not a FIPS build"; scrubReason(plain) != plain {
+		t.Error("an ordinary reason must not change")
+	}
 }
 
 // OSS-SEAM-1 proof 2: every configuration option is mapped, one to one, and

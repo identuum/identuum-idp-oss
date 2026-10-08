@@ -28,9 +28,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
+	"regexp"
 	"slices"
 	"time"
 
+	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	internalruntime "github.com/identuum/identuum-idp-oss/internal/runtime"
 )
 
@@ -95,6 +98,62 @@ func New(opts Options) (*Runtime, error) {
 		return nil, err
 	}
 	return &Runtime{rt: rt}, nil
+}
+
+// NewWithListener is New with a listener the caller bound (OSS-SEAM-2): Start
+// serves ln instead of binding Options.Addr, which may be empty or must name
+// ln's address. Ownership: the Runtime owns ln only when NewWithListener
+// returns no error, and then Shutdown closes it exactly once, whether or not
+// Start succeeded. On an error the caller still owns ln, open.
+func NewWithListener(opts Options, ln net.Listener) (*Runtime, error) {
+	rt, err := internalruntime.NewWithListener(opts.config(), ln)
+	if err != nil {
+		return nil, err
+	}
+	return &Runtime{rt: rt}, nil
+}
+
+// HealthSnapshot is a read-only view of the runtime's health: whether it
+// serves normal traffic, and the faults recorded since Start. A fatal fault
+// means NOT-SERVING: normal routes answer 503 while /health keeps answering.
+type HealthSnapshot struct {
+	Serving bool
+	Faults  []Fault
+}
+
+// Fault is one recorded fault. Reason never carries a URL or a credential:
+// anything URL-shaped or a secret-named value is replaced before it leaves.
+type Fault struct {
+	Component string
+	Fatal     bool
+	Reason    string
+}
+
+var (
+	urlShaped     = regexp.MustCompile(`[A-Za-z][A-Za-z0-9+.-]*://\S+`)
+	secretValued  = regexp.MustCompile(`(?i)\b(password|passwd|secret|token|key|dsn)=\S+`)
+	redactedValue = "[redacted]"
+)
+
+// Health returns the current snapshot; before Start it is not serving and has
+// no faults. The snapshot is a copy: changing it changes nothing.
+func (r *Runtime) Health() HealthSnapshot {
+	rep := r.rt.Report()
+	if rep == nil {
+		return HealthSnapshot{}
+	}
+	snap := HealthSnapshot{Serving: rep.Serving()}
+	for _, f := range rep.Faults() {
+		snap.Faults = append(snap.Faults, Fault{Component: f.Component, Fatal: f.Severity == lifecycle.SeverityFatal, Reason: scrubReason(f.Reason)})
+	}
+	return snap
+}
+
+// scrubReason removes anything URL-shaped and the value of a secret-named
+// key=value pair from a fault reason.
+func scrubReason(reason string) string {
+	reason = urlShaped.ReplaceAllString(reason, redactedValue)
+	return secretValued.ReplaceAllString(reason, "$1="+redactedValue)
 }
 
 // config maps every Options field to its private counterpart, copying the

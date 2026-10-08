@@ -2,17 +2,12 @@
 // IDP runtime lifecycle (open DB, wire services, mount the Gin route
 // surface, run a graceful HTTP server, drain).
 //
-// MOVED under internal/ (P-061, THE-THREE-DIRS, 2026-09-07): this was
-// pkg/runtime, a public import path offered to downstream callers such as
-// the identuum-idp-ce overlay. Measured at d461bd7, the only importer was
-// this module's own cmd/identuum-idp, so it is no longer a public
-// contract; internal→pkg later is not a breaking change, the reverse is.
-// Nothing but the import path changed. The sentences below describe the
-// seam as designed; read "public" as "formerly public".
-//
-// It was the canonical import path for downstream callers that need to
-// start the OSS runtime in-process without crossing the internal/
-// boundary.
+// This is the binary's own path (cmd/identuum-idp), not a public contract.
+// It moved under internal/ by P-061 (THE-THREE-DIRS, 2026-09-07). The public
+// seam is pkg/runtime (OSS-SEAM-1, P-091, 2026-10-08): a separate facade
+// with its own Options and no type aliases, over the same internal/runtime.
+// The sentences below describe this shim's original design; where they say
+// "public" or "CE", read pkg/runtime.
 //
 // Implementation note: this file is a thin shim over the existing
 // internal/runtime package. Config and Runtime are Go type aliases of

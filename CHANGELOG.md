@@ -12,6 +12,9 @@ follows [Semantic Versioning](https://semver.org/).
   `Start`, `Shutdown` over the existing runtime, and `migrations.Apply` and
   `Current`. No behaviour changes; the binary does not use them. The public
   API and its compatibility promise are in `docs/PUBLIC-API.md`.
+- **`pkg/runtime`: `NewWithListener` and `Health`** (OSS-SEAM-2). A caller
+  may hand the runtime a listener it bound, and read a health snapshot
+  (serving, and the faults without URLs or secrets). `New` is unchanged.
 
 ## `v0.9.9`
 

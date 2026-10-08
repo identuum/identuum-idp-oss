@@ -10,14 +10,14 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+
 	shim "github.com/identuum/identuum-idp-oss/internal/pkg/runtime"
-	"github.com/identuum/identuum-idp-oss/internal/postgres"
-	"github.com/identuum/identuum-idp-oss/internal/testsupport"
 	"github.com/identuum/identuum-idp-oss/pkg/runtime"
 )
 
@@ -31,27 +31,14 @@ import (
 // cannot be fixed and is compared by its constraint only: the Date header
 // (both must parse as an HTTP date) — that one field is a semantic proof. Nothing
 // of a response is printed; a difference names the request and the part.
+//
+// OSS-SEAM-2 proof 4: the candidate is built with NewWithListener on a
+// listener the test bound, and the corpus gains a cross-tenant denial with a
+// real token (signed by a seeded active key): an org_admin of one
+// organization asks for another organization.
 func TestRuntime_FacadeAnswersByteIdentical(t *testing.T) {
-	dsn := os.Getenv("IDENTUUM_IDP_TEST_DATABASE_URL")
-	if dsn == "" {
-		if os.Getenv("IDENTUUM_IDP_REQUIRE_DB_TESTS") != "" {
-			t.Fatal("IDENTUUM_IDP_REQUIRE_DB_TESTS is set but IDENTUUM_IDP_TEST_DATABASE_URL is not")
-		}
-		t.Skip("IDENTUUM_IDP_TEST_DATABASE_URL not set; skipping the byte-identity comparison")
-	}
-	if err := testsupport.RequireTestDatabase(dsn); err != nil {
-		t.Fatal(err)
-	}
-	db, err := postgres.OpenStdlibDB(dsn)
-	if err != nil {
-		t.Fatalf("open the test database: %v", err)
-	}
-	if _, err := postgres.RunMigrations(context.Background(), db); err != nil {
-		t.Fatalf("migrate the test database: %v", err)
-	}
-	_ = db.Close()
-	t.Setenv("IDENTUUM_IDP_ENCRYPTION_KEY", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
-	t.Setenv("IDENTUUM_IDP_ALLOW_MULTI_REPLICA", "true")
+	dsn := migratedTestDSN(t)
+	kid, priv := seedSigningKey(t, dsn)
 	dataDir := t.TempDir()
 	stop := func(name string, f func(context.Context) error) {
 		t.Cleanup(func() {
@@ -72,9 +59,14 @@ func TestRuntime_FacadeAnswersByteIdentical(t *testing.T) {
 		t.Fatalf("baseline Start: %v", err)
 	}
 	stop("baseline", base.Shutdown)
-	cand, err := runtime.New(runtime.Options{Addr: "127.0.0.1:0", Issuer: "http://localhost:7113", DatabaseURL: dsn,
-		Version: "seam1-identity", DataDir: dataDir, Stdout: io.Discard, Stderr: io.Discard})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		t.Fatal(err)
+	}
+	cand, err := runtime.NewWithListener(runtime.Options{Issuer: "http://localhost:7113", DatabaseURL: dsn,
+		Version: "seam1-identity", DataDir: dataDir, Stdout: io.Discard, Stderr: io.Discard}, ln)
+	if err != nil {
+		_ = ln.Close()
 		t.Fatal(err)
 	}
 	if err := cand.Start(context.Background()); err != nil {
@@ -102,6 +94,14 @@ func TestRuntime_FacadeAnswersByteIdentical(t *testing.T) {
 	basic := map[string]string{"Content-Type": "application/x-www-form-urlencoded",
 		"Authorization": "Basic dW5rbm93bi1jbGllbnQ6bm90LXRoZS1zZWNyZXQ="} // unknown-client:not-the-secret
 	bogus := map[string]string{"Authorization": "Bearer not-a-token"}
+	// A real token: an org_admin of organization A, signed by the seeded key
+	// for this issuer; it asks for organization B and must be refused.
+	orgA, orgB := uuid.NewString(), "00000000-0000-7000-8000-0000000000b2"
+	real := map[string]string{"Authorization": "Bearer " + signToken(t, kid, priv, jwt.MapClaims{
+		"iss": "http://localhost:7113", "aud": "http://localhost:7113", "sub": uuid.NewString(),
+		"org_id": orgA, "role": "org_admin", "actor_type": "user", "scope": "openid",
+		"jti": uuid.NewString(), "exp": jwt.NewNumericDate(time.Now().Add(time.Hour)),
+	})}
 	corpus := []struct {
 		name, method, path string
 		headers            map[string]string
@@ -121,6 +121,7 @@ func TestRuntime_FacadeAnswersByteIdentical(t *testing.T) {
 		{"tenant organization with a bogus bearer", http.MethodGet,
 			"/api/v1/organizations/00000000-0000-7000-8000-000000000001", bogus, ""},
 		{"tenant audit events without a principal", http.MethodGet, "/api/v1/audit/events", nil, ""},
+		{"cross-tenant organization with a real token", http.MethodGet, "/api/v1/organizations/" + orgB, real, ""},
 	}
 	for _, c := range corpus {
 		a := rawRequest(t, base.Addr(), c.method, c.path, c.headers, c.body)
@@ -128,6 +129,9 @@ func TestRuntime_FacadeAnswersByteIdentical(t *testing.T) {
 		if a.status != b.status {
 			t.Errorf("%s: status line differs", c.name)
 			continue
+		}
+		if strings.HasPrefix(c.name, "cross-tenant") && !strings.Contains(a.status, " 403 ") {
+			t.Errorf("%s: answered %q; an authenticated cross-tenant request must be refused 403, not rejected as unauthenticated", c.name, a.status)
 		}
 		if strings.Contains(a.status, " 404 ") || strings.Contains(a.status, " 5") {
 			t.Errorf("%s: answered %q; the corpus must reach a mounted route that answers", c.name, a.status)

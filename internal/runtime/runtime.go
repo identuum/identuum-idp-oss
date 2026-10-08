@@ -277,6 +277,51 @@ type Runtime struct {
 	// shutdownOnce ensures Shutdown is idempotent.
 	shutdownOnce sync.Once
 	shutdownErr  error
+
+	// given is the caller's listener (NewWithListener), owned by this
+	// Runtime from a successful constructor on: Start serves it instead of
+	// binding Addr, and Shutdown closes it exactly once. nil for New.
+	given *ownedListener
+}
+
+// ownedListener closes the caller's listener once, however many times Close
+// is called (the HTTP server's shutdown and Shutdown both close it).
+type ownedListener struct {
+	net.Listener
+	once sync.Once
+	err  error
+}
+
+func (l *ownedListener) Close() error {
+	l.once.Do(func() { l.err = l.Listener.Close() })
+	return l.err
+}
+
+// NewWithListener is New with a listener the caller bound (OSS-SEAM-2). The
+// Runtime owns ln only when it returns nil: on an error the caller still owns
+// ln, open. cfg.Addr may be empty (it becomes ln's address) or must equal it.
+func NewWithListener(cfg Config, ln net.Listener) (*Runtime, error) {
+	if ln == nil {
+		return nil, errors.New("runtime: NewWithListener needs a listener")
+	}
+	addr := ln.Addr().String()
+	if cfg.Addr == "" {
+		cfg.Addr = addr
+	} else if cfg.Addr != addr {
+		return nil, fmt.Errorf("runtime: Config.Addr %q is not the listener's address %q", cfg.Addr, addr)
+	}
+	r, err := New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	r.given = &ownedListener{Listener: ln}
+	return r, nil
+}
+
+// Report returns the runtime's startup report, nil before Start. Read-only
+// use only: callers project it (pkg/runtime.Health).
+func (r *Runtime) Report() *lifecycle.StartupReport {
+	return r.startupReport
 }
 
 // New validates cfg and returns a Runtime. New does NOT open the
@@ -495,13 +540,17 @@ func (r *Runtime) Start(ctx context.Context) error {
 		}
 	}
 
-	listener, err := net.Listen(listenNetwork(r.cfg.Addr), r.cfg.Addr)
-	if err != nil {
-		if r.pool != nil {
-			r.pool.Close()
-			r.pool = nil
+	var listener net.Listener = r.given
+	if r.given == nil {
+		bound, err := net.Listen(listenNetwork(r.cfg.Addr), r.cfg.Addr)
+		if err != nil {
+			if r.pool != nil {
+				r.pool.Close()
+				r.pool = nil
+			}
+			return fmt.Errorf("runtime: listen failed: %w", err)
 		}
-		return fmt.Errorf("runtime: listen failed: %w", err)
+		listener = bound
 	}
 	r.listener = listener
 
@@ -743,6 +792,11 @@ func (r *Runtime) Shutdown(ctx context.Context) error {
 			if err := r.srv.Shutdown(ctx); err != nil {
 				r.shutdownErr = fmt.Errorf("runtime: server shutdown: %w", err)
 			}
+		}
+		// The caller's listener is ours from NewWithListener on, served or
+		// not (Start may have failed before serving it); close it, once.
+		if r.given != nil {
+			_ = r.given.Close()
 		}
 
 		// Metrics server (if it was bound) shuts down best-effort. Its

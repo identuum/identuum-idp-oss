@@ -66,12 +66,16 @@ package pkg/pkce
 package pkg/runtime
   func (r *Runtime) Addr() string
   func (r *Runtime) Done() <-chan struct{}
+  func (r *Runtime) Health() HealthSnapshot
   func (r *Runtime) MetricsAddr() string
   func (r *Runtime) ServeErr() error
   func (r *Runtime) Serving() bool
   func (r *Runtime) Shutdown(ctx context.Context) error
   func (r *Runtime) Start(ctx context.Context) error
   func New(opts Options) (*Runtime, error)
+  func NewWithListener(opts Options, ln net.Listener) (*Runtime, error)
+  type Fault struct { Component string Fatal bool Reason string }
+  type HealthSnapshot struct { Serving bool Faults []Fault }
   type Lifecycle interface { Start(ctx context.Context) error Shutdown(ctx context.Context) error Done() <-chan struct{} ServeErr() error }
   type Options struct { Addr string Issuer string DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string }
   type Runtime struct { _unexported struct{} }

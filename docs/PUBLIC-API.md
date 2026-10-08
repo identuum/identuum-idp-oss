@@ -16,6 +16,13 @@ The set is exactly these nine directories under `pkg/`, enforced by
   runtime's configuration. The caller owns the process, its signals and the
   migration order; `Start` does not migrate. The HTTP engine, the database
   pool, repositories, services and keys are not exposed.
+  `NewWithListener(Options, net.Listener)` serves a listener the caller
+  bound: the runtime owns it only when the constructor succeeds, and then
+  `Shutdown` closes it exactly once; on a constructor error the caller still
+  owns it, open. `Health()` returns a read-only snapshot — whether the
+  runtime serves normal traffic, and its faults (component and reason, with
+  no URL or secret). After a fatal startup fault the runtime is NOT-SERVING:
+  normal routes answer 503 and `/health` keeps answering.
 - `pkg/migrations` — `Apply(ctx, db)` brings a database to `Current()` with
   the OSS migrations embedded in this module, the same files, version table
   (`goose_db_version`) and lock as `identuum-idp migrate`.

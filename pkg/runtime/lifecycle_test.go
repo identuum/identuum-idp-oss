@@ -50,7 +50,7 @@ func TestRuntime_MethodSetIsTheLifecycleOnly(t *testing.T) {
 		got = append(got, rt.Method(i).Name)
 	}
 	sort.Strings(got)
-	want := []string{"Addr", "Done", "MetricsAddr", "ServeErr", "Serving", "Shutdown", "Start"}
+	want := []string{"Addr", "Done", "Health", "MetricsAddr", "ServeErr", "Serving", "Shutdown", "Start"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("*runtime.Runtime methods = %v; want %v", got, want)
 	}
