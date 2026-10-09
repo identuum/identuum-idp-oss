@@ -207,12 +207,12 @@ jobs:
       # 2026.2.1 source tarball plus the two dominikh/go-tools PR 1834 patches,
       # each sha256-checked, built, cached and asserted as
       # "staticcheck 2026.2.1 (0.8.1)". The pins live in the action only; this
-      # job installs staticcheck nowhere else. The action's setup-go keeps its
-      # own module cache on (it takes no cache input); the cache step below
-      # restores over it.
-      - uses: ozgurcd/lictor/.github/actions/go-toolchain@d35a8ad07dc59bd76153f0ed7d3b1ade22c6cf04
+      # job installs staticcheck nowhere else. Disable setup-go's Go cache;
+      # THE-OSS-CI-CACHE step below owns this job's Go caches.
+      - uses: ozgurcd/lictor/.github/actions/go-toolchain@ebc66a54fb54fc45e9311ce3fe9ed67b79cd1441
         with:
           go-version-file: go.mod
+          cache: "false"
 
       - name: Name the Go version for the cache key
         id: go
