@@ -5,8 +5,66 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.10`
 
+A security patch release. identuum-ui `9e478fd` embedded (`v0.9.9`
+embedded `f13dee8`; `9e478fd`'s `package.json` says `0.9.10`, owner ruling
+q). The delta since `v0.9.9` (`git rev-list --count v0.9.9..HEAD` and `git
+diff --shortstat v0.9.9..HEAD`, measured at `b950bb8`, before the notes
+commit) is 37 commits, 77 files, +4062/−142. No migration (the schema stays
+at `0051`). The endpoint count stays 159 (`go run ./tools/api-docgen
+--dry-run`).
+
+### Security
+
+What an operator must do: **upgrade**. In an organization whose MFA policy
+is `required`, a user who signed in without a second factor keeps working
+until the next session refresh or token request, and must then complete MFA
+(owner ruling P-097). Nobody is signed out by the upgrade.
+
+- **Passkey sign-in and step-up read user verification from the assertion
+  itself.** A passkey assertion made without user verification no longer
+  counts as verified, whatever was recorded when the passkey was enrolled.
+- **Sign-in through an upstream identity provider follows the
+  organization's rules.** In an organization that requires MFA, an upstream
+  sign-in that does not prove a second factor is refused. An organization
+  set to local sign-in only refuses upstream sign-in, and an upstream
+  identity is never linked to an org_admin or site_admin account. The
+  organization's session limit applies to these sign-ins.
+- **MFA self-disable reads the organization's MFA policy.** Under a
+  `required` policy, a user cannot turn off their own second factor (`403`
+  `mfa_required_by_policy`).
+- **Completing MFA re-checks the organization.** The session limit and an
+  identity-provider-only sign-in policy apply when a pending sign-in
+  completes its second factor, as they do for a password sign-in.
+- **A policy change to `required` reaches existing sessions.** Session
+  refresh answers `401` `mfa_required`, `/authorize` asks for MFA step-up,
+  and the OAuth refresh grant answers `invalid_grant` unless its token family
+  was started by a sign-in with a second factor (owner ruling P-097).
+- **Domain verification conflict.** Verifying a domain that another
+  organization has already verified answers `409`, not `500`; adding such a
+  domain as pending still works and names no other organization (owner
+  ruling P-098).
+- **Audit events.** Policy denials at sign-in and session evictions are now
+  written to the audit log.
+- **Signing key IDs.** Two keys of one algorithm created in the same second
+  no longer share a `kid`: a new `kid` carries a random suffix. Stored keys
+  keep their `kid`.
+- **Toolchain:** Go 1.27.1 → 1.27.2 and `golang.org/x/net` v0.58.0 →
+  v0.60.0, for GO-2026-6611, GO-2026-6612, GO-2026-6613 and GO-2026-6617
+  (`net/http` and HTTP/2). `go mod tidy` also moved `golang.org/x/crypto`
+  v0.57.0, `x/sync` v0.23.0, `x/sys` v0.48.0 and `x/text` v0.42.0.
+
+### Other changes
+
+- **Organizations without a session limit** take
+  `DEFAULT_MAX_SESSIONS_PER_USER` when it is a positive number, and 10
+  otherwise, as before.
+- **Email verification links are single use**, as they always were; the
+  API documentation now says so.
+- **The embedded console** (identuum-ui `9e478fd`): the audit log's From and
+  To dates follow the Time range select, and an administrator who has not
+  activated reads as "activation pending".
 - **Public Go API: `pkg/runtime` and `pkg/migrations`** (owner ruling w).
   Narrow facades for a module that links identuum-idp-oss: `runtime.New`,
   `Start`, `Shutdown` over the existing runtime, and `migrations.Apply` and
@@ -27,6 +85,14 @@ follows [Semantic Versioning](https://semver.org/).
   create, update or delete after every OSS check passed: 403 `restricted` or
   `license_required`, 409 `quota_exceeded`. An error or a panic is 403
   `restricted`. Without restrictions nothing changes.
+
+For contributors (nothing in the binary changes):
+
+- `test-full-mint` runs `verify-integration` beside `devseed-live` (owner
+  ruling P-096).
+- CI builds staticcheck 2026.2.1 from its source tarball with two upstream
+  patches, each checked by sha256, as Homebrew does: the released v0.8.1
+  cannot read Go 1.27.2's export data.
 
 ## `v0.9.9`
 
