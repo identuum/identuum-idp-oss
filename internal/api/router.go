@@ -323,6 +323,11 @@ type OSSRouterDeps struct {
 	// client that asked.
 	SessionRelyingParties repository.SessionRelyingPartyRepository
 
+	// Background runs the end-session back-channel deliveries after the
+	// response. The runtime passes its DetachedWork, so Shutdown waits for
+	// them; nil means service.RunDetached, which nothing waits for.
+	Background service.BackgroundRunner
+
 	// BackchannelDeliveryAdminService, when wired, mounts the
 	// site_admin-only operator surface at
 	// /api/v1/admin/backchannel-logout-deliveries (list/get/replay).
@@ -1767,7 +1772,7 @@ func mountEndSession(router gin.IRouter, resolved OSSRouterDeps) {
 		SessionRPs:          relyingParties,
 		// The deliveries happen after the response: a slow relying party must
 		// not hold the user's sign-out.
-		Background:    service.RunDetached,
+		Background:    resolved.Background,
 		BrowserTokens: resolved.BrowserTokens,
 		Audit:         resolved.Audit,
 	})
@@ -1785,6 +1790,9 @@ func resolvedDeps(d OSSRouterDeps) OSSRouterDeps {
 	}
 	if d.Audit == nil {
 		d.Audit = audit.NoopService{}
+	}
+	if d.Background == nil {
+		d.Background = service.RunDetached
 	}
 	if d.FeatureGate == nil {
 		d.FeatureGate = features.OpenGate{}

@@ -831,7 +831,7 @@ func (r *Runtime) Shutdown(ctx context.Context) error {
 		// let the running mail finish while the pool is still open, within
 		// the shutdown budget.
 		if r.detached != nil && !r.detached.Wait(ctx) && r.cfg.Stderr != nil {
-			fmt.Fprintln(r.cfg.Stderr, "identuum-idp: serve: background work still running at shutdown (a reset, verification or registration mail may not have been sent)")
+			fmt.Fprintln(r.cfg.Stderr, "identuum-idp: serve: background work still running at shutdown (a reset, verification or registration mail, or a back-channel logout delivery, may not have been sent)")
 		}
 
 		// Close the pool LAST. Doing it before Shutdown can cause
@@ -962,6 +962,11 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// pre-serve configuration error surfaced through Start's error return
 	// (a legitimate startup boundary) — never a panic, never a degraded
 	// server that silently refuses auth.
+	//
+	// The detached work counter exists before anything that can be handed
+	// its Run (the mail services, the end-session deliveries), on every
+	// path into buildDeps, New and NewWithListener alike.
+	r.detached = &service.DetachedWork{}
 	if r.cfg.JWKSDBURL == "" {
 		return api.OSSRouterDeps{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			errors.New("runtime: no database URL configured — set IDENTUUM_IDP_DATABASE_URL to serve the IdP")
@@ -1439,7 +1444,6 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	})
 	fmt.Fprintln(r.cfg.Stdout, "identuum-idp: serve: email delivery:", emailMode)
 
-	r.detached = &service.DetachedWork{}
 	passwordResetSvc := service.NewPasswordResetService(service.PasswordResetServiceConfig{
 		Users:    repos.User,
 		Resets:   repos.PasswordReset,
@@ -1505,7 +1509,10 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	userProfileSvc := service.NewUserProfileService(report, repos.UserProfile)
 
 	deps := api.OSSRouterDeps{
-		Version:         r.cfg.Version,
+		Version: r.cfg.Version,
+		// The end-session back-channel deliveries are counted with the mail,
+		// so Shutdown waits for them before the pool closes.
+		Background:      r.detached.Run,
 		DiscoveryConfig: server.OIDCDiscoveryConfig{Issuer: r.cfg.Issuer},
 		// THE-UNUSABLE-TOKEN: the raw UI base URL — deliberately NOT
 		// linkBaseURL, which falls back to the issuer. /activate is a UI

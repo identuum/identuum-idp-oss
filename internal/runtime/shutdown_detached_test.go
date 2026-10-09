@@ -22,7 +22,7 @@ func TestShutdown_WaitsForDetachedWorkAndNamesWhatItCutOff(t *testing.T) {
 	expired, cancel := context.WithCancel(context.Background())
 	cancel()
 	_ = r.Shutdown(expired)
-	if !strings.Contains(stderr.String(), "background work still running") {
+	if !strings.Contains(stderr.String(), "background work still running") || !strings.Contains(stderr.String(), "back-channel logout delivery") {
 		t.Errorf("stderr = %q; want the cut-off background work named", stderr.String())
 	}
 }
