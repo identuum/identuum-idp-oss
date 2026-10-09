@@ -135,7 +135,7 @@ env:
 jobs:
   verify:
     name: Verify (ci-verify + integration lint)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # P2-24 (owner approved): an ephemeral Postgres so the DB-backed runtime
     # tests RUN here instead of skipping. They skipped in EVERY gate — local
     # and CI — and a skip is green, so the strongest tests in internal/runtime
@@ -348,7 +348,7 @@ jobs:
         # workflow-env tag, its sha256 checked before it is installed, the
         # printed version asserted against the same declaration. The binary
         # is removed from the tree after install so the checkout stays exactly
-        # the commit the record ties to. ubuntu-latest is x86_64: linux_amd64.
+        # the commit the record ties to. ubuntu-24.04 is x86_64: linux_amd64.
         run: |
           curl -sSfL -o yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
           echo "${YQ_SHA256}  yq" | sha256sum -c -
@@ -428,7 +428,7 @@ jobs:
 
   govulncheck:
     name: Govulncheck
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -460,7 +460,7 @@ jobs:
 
   integration:
     name: Integration Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     services:
       postgres:

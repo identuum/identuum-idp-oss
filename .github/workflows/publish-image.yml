@@ -63,7 +63,7 @@ permissions:
 jobs:
   publish:
     name: Build and push to GHCR
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       # P2-3: user-controlled inputs are exposed ONLY as env vars and referenced
       # as "$VERSION_TAG" / "$LATEST_TAG" in shell. They are NEVER placed inside
