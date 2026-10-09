@@ -289,8 +289,7 @@ that stood from 2026-09-03 to 2026-09-07):**
   passed this plan with `[EdDSA, ES256, RS256]` advertised; `d9ab771`
   (2026-09-03) de-advertised RS256 and rewrote this paragraph to say the plan
   "PASSES clean (34 conditions, zero findings)" without re-running it —
-  `git log --since=2026-09-03 -- conformance/` is empty. DECIDED (owner,
-  P-062 (b), 2026-09-07): discovery keeps `[EdDSA, ES256]`; RS256 stays
+  `git log --since=2026-09-03 -- conformance/` is empty. The signing policy is: discovery keeps `[EdDSA, ES256]`; RS256 stays
   registrable, mintable on request, testing-only, never default, NOT
   advertised; `OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported` is an
   EXPECTED failure — the one row in `conformance/expected-failures-config.json`
@@ -303,8 +302,8 @@ that stood from 2026-09-03 to 2026-09-07):**
   the default keyset — was measured and declined.
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
-  THE-SECOND-LOGIN's forced re-authentication retired the two stalls). 1872
-  conditions passed in the THE-ADDRESS-PHONE-CLAIMS measurement run (three
+  forced sign-in's forced re-authentication retired the two stalls). 1872
+  conditions passed in the address and phone claims measurement run (three
   more modules now RUN instead of skipping), ZERO condition failures and
   ZERO warnings (the success total is NOT a stable number — runs of
   identical code have counted 1691, 1720, 1722, 1749 and 1754;
@@ -317,24 +316,24 @@ that stood from 2026-09-03 to 2026-09-07):**
     state of that module class, exactly like the unregistered-redirect_uri
     error-page module).
   - 0 recorded WARNINGS — `conformance/expected-failures-basic.json` is
-    EMPTY (`[]`). THE-CONSENTED-SCOPE retired the four email-in-id_token /
-    unscoped-`name` warnings; THE-CODE-REUSE-REVOKER retired
-    `oidcc-codereuse-30seconds`; THE-CLAIMS-PARAMETER retired
-    `oidcc-claims-essential`; THE-PROFILE-CLAIMS retired `oidcc-scope-profile`
+    EMPTY (`[]`). consent scope enforcement retired the four email-in-id_token /
+    unscoped-`name` warnings; code-reuse revocation retired
+    `oidcc-codereuse-30seconds`; claims-parameter support retired
+    `oidcc-claims-essential`; profile claims retired `oidcc-scope-profile`
     (the full OIDC §5.1 profile is modeled and the conformance provisioner
     sets every field on the test user, so the 14-claim check passes
-    truthfully); THE-HONEST-ACR retired the LAST entry,
+    truthfully); honest authentication context retired the LAST entry,
     `oidcc-ensure-request-with-acr-values-succeeds` — measured, not faked:
     the suite requests every value in `acr_values_supported` (it sends
     `urn:identuum:loa:password urn:identuum:loa:mfa`), the password login
     the browser automation performs honestly satisfies the first, and the
     id_token now carries that performed acr (see "Honest acr" below).
   - 0 recorded SKIPS (`conformance/expected-skips-basic.json` is `[]`).
-    THE-JAR-REQUEST-OBJECT retired the LAST one — measured, not assumed:
+    request-object verification retired the LAST one — measured, not assumed:
     with `request_parameter_supported: true` and `none` advertised,
     `oidcc-unsigned-request-object-supported-correctly-or-rejected-as-unsupported`
     RAN and PASSED (49 successes, 0 failures, 0 warnings; see "Request
-    objects" below). THE-ADDRESS-PHONE-CLAIMS had retired the other
+    objects" below). address and phone claims had retired the other
     three — `oidcc-scope-address`, `oidcc-scope-phone` and, because every
     standard scope is now supported, `oidcc-scope-all` — measured, not
     assumed: the provisioner sets a real phone number and every address
@@ -349,7 +348,7 @@ that stood from 2026-09-03 to 2026-09-07):**
     correctly refuses without redirecting and the suite records the
     error-page screenshot for human review — REVIEW is an accepted terminal
     result, not a floor entry. `oidcc-ensure-request-object-with-redirect-uri`
-    left this list with THE-JAR-REQUEST-OBJECT: the module offers "error
+    left this list with request-object verification: the module offers "error
     page OR callback", the OP now resolves the object's registered
     redirect_uri over the query's invalid one and the suite completes the
     code flow — PASSED (50 successes, 0 failures, 0 warnings).
@@ -369,7 +368,7 @@ modules whose placeholder means "error page OR callback" — the suite then
 finishes the module before its callback arrives and the callback's
 submission dies with `runInBackground called after
 runFinalisationTaskInBackground()` (result INTERRUPTED; measured on
-`oidcc-ensure-request-object-with-redirect-uri` in THE-JAR-REQUEST-OBJECT).
+`oidcc-ensure-request-object-with-redirect-uri` in request-object verification).
 The second-login screenshot the `prompt=login` / `max_age=1` modules ask
 for (their `waitForPlaceholders` runs AFTER the callback, so without it
 they sit WAITING until the runner times out — measured: 162 log entries, 0
@@ -383,7 +382,7 @@ an `/oauth/authorize` URL showing an error.
 
 ## Consented scope on the access token — consent restricts, roles authorize
 
-THE-CONSENTED-SCOPE (2026-09-01). Owner ruling, verbatim: **"access-token
+consent scope enforcement (2026-09-01). **"access-token
 scope = consented OAuth scopes INTERSECTED with role-permitted scopes.
 Consent NARROWS, never grants beyond the role. Roles authorize; consent
 restricts."** Rule `TOKEN-SCOPE-INTERSECTION-1`.
@@ -419,7 +418,7 @@ restricts."** Rule `TOKEN-SCOPE-INTERSECTION-1`.
 
 ## Profile claims — the full OIDC §5.1 set, unset is never emitted
 
-THE-PROFILE-CLAIMS (2026-09-02, owner ruled the full profile). Rule
+profile claims (2026-09-02, the full profile was implemented). Rule
 `PROFILE-CLAIMS-TRUTHFUL-1`.
 
 - **Modeled** on `user_profiles` (migration 0035; one optional row per
@@ -451,9 +450,7 @@ THE-PROFILE-CLAIMS (2026-09-02, owner ruled the full profile). Rule
 
 ## Request objects — OIDC Core §6 / RFC 9101, by value, verified or refused
 
-Rule `REQUEST-OBJECT-VERIFIED-1` (THE-JAR-REQUEST-OBJECT, 2026-09-02; wiki
-decision P-027; rule `AUTHZ-REQUEST-OBJECT-REFUSED-1` re-worded through the
-ledger-diff gate). `/authorize` accepts `request=<JWT>`:
+Rule `REQUEST-OBJECT-VERIFIED-1`. `/authorize` accepts `request=<JWT>`:
 
 | object | verdict |
 |---|---|
@@ -489,8 +486,7 @@ skips the config plan. The floor verdict is always the FULL run's.
 
 ## Address and phone claims — real fields, unset never emitted, verified never true
 
-Rule `ADDRESS-PHONE-TRUTHFUL-1` (THE-ADDRESS-PHONE-CLAIMS, 2026-09-02; wiki
-decision P-025). The OIDC Core §5.1 `phone_number` and §5.1.1 structured
+Rule `ADDRESS-PHONE-TRUTHFUL-1`. The OIDC Core §5.1 `phone_number` and §5.1.1 structured
 `address` claims are modeled the PROFILE-CLAIMS way: optional columns on
 `user_profiles` (migration `0036_address_phone.sql`), `NULL` = unset = never
 emitted, no placeholders.
@@ -535,7 +531,7 @@ emitted, no placeholders.
 
 ## The `claims` request parameter — consent-gated, role-intersected
 
-THE-CLAIMS-PARAMETER (2026-09-02, owner ruled BUILD). OIDC Core §5.5 lets a
+claims-parameter support (2026-09-02, implemented). OIDC Core §5.5 lets a
 client ask for individual claims (`claims={"userinfo":{"name":{"essential":
 true}},"id_token":{"email":null}}`). Rule `CLAIMS-PARAM-CONSENT-1`.
 
@@ -552,7 +548,7 @@ true}},"id_token":{"email":null}}`). Rule `CLAIMS-PARAM-CONSENT-1`.
   (`oauth_consents.claims`, tokens like `userinfo:name`). A returning client
   asking for a claim not yet consented is sent to consent again
   (`ConsentService.Lookup` covers scope AND claims). `SkipConsent` clients
-  bypass for an identity-only request (`openid`, `profile`, `email`; D-026),
+  bypass for an identity-only request (`openid`, `profile`, `email`),
   as for scopes.
 - **Persisted on the code row** (`oauth_authorization_codes.requested_claims`,
   migration 0034) and honored at the exchange: the `userinfo` member rides on
@@ -573,7 +569,7 @@ true}},"id_token":{"email":null}}`). Rule `CLAIMS-PARAM-CONSENT-1`.
 
 ## Authorization-code reuse revokes what the code minted
 
-THE-CODE-REUSE-REVOKER (2026-09-02). RFC 6749 §4.1.2: on reuse of an
+code-reuse revocation (2026-09-02). RFC 6749 §4.1.2: on reuse of an
 authorization code the server MUST deny the request and SHOULD revoke all
 tokens previously issued based on that code. Rule `CODE-REUSE-REVOKES-1`.
 
@@ -606,8 +602,8 @@ tokens previously issued based on that code. Rule `CODE-REUSE-REVOKES-1`.
 
 ## Honest acr — the id_token says how the user actually authenticated
 
-Rules `ACR-HONEST-1` (THE-HONEST-ACR, 2026-09-02; wiki decision P-023) and
-`ACR-HONEST-2` (THE-PHISHING-RESISTANT-ACR, 2026-09-02; P-024). The OP
+Rules `ACR-HONEST-1` and
+`ACR-HONEST-2`. The OP
 never fakes an authentication context. Three honest contexts exist, and
 they are EXACTLY the values discovery advertises in `acr_values_supported`,
 in ladder order:
@@ -633,7 +629,7 @@ one (phishing-resistant covers mfa and password; mfa covers password), never
 the reverse.
 
 **Advertising the third value was MEASURED, not assumed** (DO-4 of
-THE-PHISHING-RESISTANT-ACR): the conformance suite requests EVERY advertised
+phishing-resistant authentication context): the conformance suite requests EVERY advertised
 value in one `acr_values` and its browser automation can only type a
 password. With three values advertised the run on 2026-09-02 was 36 modules,
 0 failures, 0 warnings, `oidcc-ensure-request-with-acr-values-succeeds`
@@ -699,12 +695,9 @@ the OP cannot keep.
 
 ## RS256 — testing only, NEVER the default
 
-Owner ruling (THE-PKCE-DECISION, 2026-09-01, verbatim): **"Add RS256 into the
-list BUT DO NOT USE except testing and put this into documentation
-CLEARLY."** Amended by THE-ADVERTISED-RS256 (2026-09-03): the "list" RS256
-belongs to is the per-client REGISTRATION allow-list, not the discovery
-document. Discovery advertises only what the issuer will sign an ID token
-with by policy. Confirmed by P-062 (b) (2026-09-07): the OIDC config
+RS256 is allowed for client registration and explicit testing requests, but
+is never the default and is not advertised in discovery. Discovery lists
+only the algorithms used by default. The OIDC config
 certification plan's `OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported`
 (Discovery 1.0 §3 — RS256 MUST be listed) is carried as the one EXPECTED
 failure in `conformance/expected-failures-config.json`, so this posture is
@@ -749,7 +742,7 @@ with `client_id` and `code_verifier` and no credential (discovery lists
 
 ## Forced re-authentication — prompt=login and max_age
 
-THE-SECOND-LOGIN (2026-09-01). The authorize endpoint honors OIDC Core
+forced sign-in (2026-09-01). The authorize endpoint honors OIDC Core
 §3.1.2.1's two re-authentication controls on an ALREADY-authenticated
 browser:
 
@@ -772,7 +765,7 @@ browser:
 
 ## Auth verdicts — 401 is a verdict, 503 is a store error (AUTH-503)
 
-THE-SESSION-REJECTION-ROOT-CAUSE (2026-09-02). Owner ruling: **"a store/infra
+authentication store-error handling (2026-09-02). **"a store/infra
 error on the auth path answers 503 with an ERROR log and a correlation id;
 401 is reserved for genuine verdicts. This changes STATUS and LOG, never the
 refusal."**
@@ -836,7 +829,7 @@ logged (count + lines) into the record — a fired transient is evidence,
 never a red phase, because the UI retries 503s and the assertion that
 matters is that no bare 401 was ever answered.
 
-**Logout when the store cannot answer (THE-LOGOUT-THAT-CANNOT-REVOKE,
+**Logout when the store cannot answer (logout store-error handling,
 2026-09-02).** The last collapse sites were the two logout handlers:
 `HandleEndSession` (`GET /api/v1/oidc/logout`) and
 `HandleFrontchannelLogout` read a cookie-session store error as "no
@@ -874,8 +867,8 @@ SESSION-REJECTION second-probe diagnostics are gone.
 
 ## What the suite does NOT cover (known, recorded — not forgotten)
 
-- **Backup / restore** — there is no product backup procedure yet to test;
-  deferred until one is decided (see `maintainers/TEST-spec-status.md`).
+- **Backup / restore** — the [operator procedure](OPERATOR-GUIDE.md#upgrading-and-rolling-back)
+  is documented, but this suite does not exercise restoration.
 - **Commercial-edition (CE) features** — out of scope for this repository's
   suite by rule; the affected tests are skipped by name and counted, and
   the count may not grow.

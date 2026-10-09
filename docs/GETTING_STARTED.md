@@ -1,259 +1,136 @@
-# Getting Started with identuum-idp-oss
+# Building and running from source
 
-This guide will help you get from a clean clone to a locally running instance of the Identuum Identity Provider OSS (Starter tier).
+This guide is for developers working from a source checkout. To install the
+published product, use the [README's self-hosted install](../README.md#self-hosted-install-single-node).
+For backups, upgrades and recovery, use the [operator guide](OPERATOR-GUIDE.md).
 
 ## Prerequisites
 
-Before starting, ensure you have:
+- Git and Go at the version specified by [go.mod](../go.mod).
+- PostgreSQL 18 or newer; the initial migration uses its built-in `uuidv7()`.
+- Docker and the Compose plugin for the optional local development stack.
+- PostgreSQL client tools (`psql`, `createdb`) for database-backed tests.
+- `staticcheck` at the version and build used by CI. The current Homebrew
+  build includes the Go export-data compatibility patches used by CI's
+  `go-toolchain` action; the upstream `go install ...@latest` build does not.
+  `make toolchain-parity` checks the installed tools against the CI pins.
 
-- Go installed at the version go.mod's `go` line names (1.27.2 today)
-- Docker and Docker Compose plugin installed
-- `staticcheck` installed: `brew install staticcheck` (Homebrew's 2026.2.1 build carries the patches that read Go 1.27 export data; CI builds the same through the lictor `go-toolchain` action). `go install honnef.co/go/tools/cmd/staticcheck@latest` builds v0.8.1 without them and fails on this repository.
-- Git installed
-
-## Quick Start
-
-### 1. Clone the Repository
+## Build and validate
 
 ```bash
 git clone https://github.com/identuum/identuum-idp-oss.git
 cd identuum-idp-oss
-```
-
-### 2. Build and Test
-
-Run basic validation:
-
-```bash
 make validate
+go build -o identuum-idp ./cmd/identuum-idp
 ```
 
-This command will:
-- Clean any existing database state
-- Start a local PostgreSQL container
-- Run all unit tests
-- Run integration tests against the local database
-- Stop the PostgreSQL container
+`make validate` runs `make build`, `make test` and `make staticcheck`: it
+builds the packages, runs the untagged unit tests, and checks both untagged
+and integration-tagged code with staticcheck. It does not start, reset or
+stop a database, and it does not execute the integration tests.
 
-## Local Configuration
+The binary embeds the console export already committed to this repository.
+A separate frontend checkout is not required to build it. Run
+`./identuum-idp help` for the commands and flags.
 
-The project uses environment variables for configuration. A sample configuration file is provided:
+## Run the local development stack
+
+The development Compose file builds the application from this checkout:
 
 ```bash
-cp dev.env.example dev.env.local
+IDENTUUM_IDP_UI_PUBLIC_BASE_URL=http://localhost:7113 make oss-up
 ```
 
-Edit `dev.env.local` to adjust settings if needed, although the defaults are suitable for local development.
+This starts the development application on `http://localhost:7113` and
+PostgreSQL on loopback port 5513. If either port is occupied, use
+`DEV_APP_PORT` and `DEV_PG_HOST_PORT` with free ports and set
+`IDENTUUM_IDP_UI_PUBLIC_BASE_URL` to the application's browser-facing URL.
+Use the same values on subsequent Make commands. Keep the default development
+project name; do not point these targets at an existing product installation.
 
-> **Single-replica by design.** identuum-idp-oss runs as **exactly one
-> replica**. Its rate limiting, WebAuthn ceremony state, and browser
-> CSRF secret are per-process and would be silently broken across
-> replicas, so a DB-backed instance lease lets only one live instance
-> serve — a second instance refuses to serve (`503`, with the fault on
-> `GET /health`) instead. Rolling deploys still work: the outgoing
-> instance releases the lease (or its heartbeat lapses after the TTL)
-> and the incoming instance takes over. Horizontal scaling / HA is a
-> Professional+ commercial capability; set
-> `IDENTUUM_IDP_ALLOW_MULTI_REPLICA=true` to knowingly run multi-replica
-> (a loud startup WARNING states what degrades). See the README's
-> "Single-replica by design" section for details.
+The two Compose files have different database settings:
 
-## Database Setup
+| Configuration | Database | PostgreSQL user | Network |
+| --- | --- | --- | --- |
+| Product: `deployment/docker-compose.yml` | `identuum_idp` | `identuum_idp` | Internal Compose network; no published database port |
+| Development: `deployment/docker-compose.dev.yml` | `identuum_idp_oss` | `idp_oss_user` | Loopback port 5513 by default |
 
-### PostgreSQL Requirements
+Use the settings of the file you actually run. The development app uses a
+fixed public test encryption key by default. It is suitable only for
+disposable development data; never use it for a product installation.
 
-The identuum-idp-oss requires a PostgreSQL database with version 18 or higher (due to migration 0001 requiring PG18+ built-in uuidv7() function).
-
-### Local Development Environment
-
-For local development, the project uses Docker Compose to run PostgreSQL:
+Open the application URL after `/health` answers successfully. A fresh
+database takes you to `/setup`. Use the setup code shown by the application
+to complete the wizard and create the site administrator. The wizard is the
+product bootstrap path; `bootstrap` is a separate one-shot operator command.
+See [first sign-in](OPERATOR-GUIDE.md#sign-in-the-first-time) for MFA enrolment.
 
 ```bash
-make fast-up
+curl -fsS http://localhost:7113/health
 ```
 
-This will start a PostgreSQL container running on port 5513.
-
-To stop and remove containers (volume preserved):
-
-```bash
-make fast-down
-```
-
-To perform a full clean reset (stop containers AND remove the named volume):
-
-```bash
-make fast-clean
-```
-
-## Migrations
-
-Database migrations are embedded in the binary and applied by the `identuum-idp migrate <url>` one-shot subcommand (the container entrypoint runs it automatically before serving; the integration test harness applies them too). The project includes 30 migration files (`migrations/0001`–`0030`) that create the necessary database schema.
-
-## Starting the Service Locally
-
-### Option 1: Using Docker Compose (Recommended for local demo)
-
-```bash
-make oss-up
-```
-
-This will:
-- Build the OSS application image
-- Start PostgreSQL and the OSS application container
-- The service will be available at `http://localhost:7113`
-
-To stop:
+`/health` reports `healthy`, `degraded` or `not_serving`; see
+[Check health](OPERATOR-GUIDE.md#check-health) for its fields and the separate
+database readiness check. To stop only the development app while keeping its
+database and volume:
 
 ```bash
 make oss-down
 ```
 
-### Option 2: Direct Binary Execution
+## Run the binary against your own development database
 
-Build the binary:
+Configure `IDENTUUM_IDP_DATABASE_URL`, `IDENTUUM_IDP_ISSUER`,
+`IDENTUUM_IDP_LISTEN`, `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` and
+`IDENTUUM_IDP_DATA_DIR` for your development installation. Database URLs
+contain credentials: keep them out of logs and command transcripts. Supply
+`IDENTUUM_IDP_ENCRYPTION_KEY` through your local secret configuration. The
+binary still accepts `AUTH_SERVICE_ENCRYPTION_KEY` for compatibility, but new
+configurations should use the Identuum name. Keep the same key between runs;
+existing encrypted MFA and signing-key records depend on it.
 
-```bash
-go build -o identuum-idp ./cmd/identuum-idp
-```
+Apply the embedded migrations using `./identuum-idp migrate <database-url>`
+before starting `./identuum-idp` with those settings. The migrations are in
+[`migrations/`](../migrations/); do not infer schema compatibility from a
+documentation count. The default action serves the application. A missing or
+invalid encryption key leaves the process alive but not serving, with a fault
+on `/health`. A fresh database then uses the same setup wizard as the product
+install. Recovery is described in
+[Reset the site_admin password](OPERATOR-GUIDE.md#reset-the-site_admin-password-break-glass).
 
-Apply migrations (one-shot `migrate` subcommand — takes the Postgres URL as a
-positional argument; the URL is never printed):
+## Database-backed integration tests
 
-```bash
-./identuum-idp migrate "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss?sslmode=disable"
-```
-
-Start the service. The default action (no subcommand) serves the full OSS IdP;
-configuration comes from flags or the environment. Serving REQUIRES the at-rest
-encryption key (`IDENTUUM_IDP_ENCRYPTION_KEY`, or its `AUTH_SERVICE_ENCRYPTION_KEY`
-fallback) — without it the process comes up NOT-SERVING (503 on every route) by
-design. The `0000…0001` value below is a well-known PUBLIC dev key — local dev
-only; production supplies its own via the environment:
-
-```bash
-IDENTUUM_IDP_ENCRYPTION_KEY=000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f \
-  ./identuum-idp \
-    --database-url "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss?sslmode=disable" \
-    --issuer "http://localhost:7113" \
-    --listen 127.0.0.1:7113
-```
-
-Equivalently, every flag has an environment default, so you can export
-`IDENTUUM_IDP_DATABASE_URL`, `IDENTUUM_IDP_ISSUER`, and `IDENTUUM_IDP_LISTEN`
-(see `dev.env.example`) and run `./identuum-idp` with no flags. Run
-`./identuum-idp help` for the full surface.
-
-## Initial Admin and Recovery Flow
-
-After starting the service, you need to bootstrap it with an admin user.
-
-### Bootstrap Process
+Use a dedicated disposable test database. The Make targets create and migrate
+`identuum_idp_oss_test`; the suite refuses database names without the `_test`
+suffix and truncates test data. Never use an installation's real database.
 
 ```bash
-IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<choose-a-strong-local-demo-password>' \
-make oss-bootstrap
+make fast-up
+make integration-test
 ```
 
-This creates a site_admin user with:
-- Email: site_admin@system.local
-- Role: SiteAdmin
-- The provided password is used to set the admin password
+`fast-up` starts or reuses a compatible local PostgreSQL. Do not stop a reused
+server that belongs to another installation. If you started a separate
+development stack solely for this work, `make fast-down` stops that stack
+while preserving its volume. These commands are separate from `make validate`.
 
-### Recovery Process
+The full maintainer close gate is `make verify`. It includes additional
+repository policies and requires the maintainer environment; it is not a
+fresh-clone prerequisite. See the [maintainer documentation](maintainers/README.md).
 
-If you lose access to the bootstrap password, you can reset it. The reset
-also ends every signed-in session of `site_admin` (see the operator guide,
-"Reset the site_admin password").
+## API documentation
 
-**From a repository checkout** (developer / demo stack):
-
-```bash
-IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<choose-new-local-demo-password>' \
-make oss-recover-site-admin
-```
-
-**Image-only (no repository)** — the runtime image is distroless (no shell
-inside it), so recovery execs the binary DIRECTLY. `recover-site-admin`
-with no database-url argument reads the container's own
-`IDENTUUM_IDP_DATABASE_URL` (the container already knows its database):
-
-```bash
-docker exec \
-  -e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<choose-new-password>' \
-  <container> /app/identuum-idp recover-site-admin
-```
-
-If your database URL is not in the container's environment, pass it as the
-single positional argument instead (it is never echoed):
-
-```bash
-docker exec \
-  -e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<choose-new-password>' \
-  <container> /app/identuum-idp recover-site-admin '<postgres-dsn>'
-```
-
-The same two forms apply to the `bootstrap` and `show-setup-code`
-subcommands. Do NOT wrap these in `sh -c` — there is no shell in the
-image.
-
-## Health Check and Basic Verification
-
-Once the service is running, verify it's operational:
-
-```bash
-curl -s http://localhost:7113/system/info
-curl -i http://localhost:7113/api/v1/organizations
-curl -i http://localhost:7113/api/v1/organizations/00000000-0000-7000-0000-000000000000/protocol-settings
-```
-
-Confirm the health endpoint reports healthy:
-
-```bash
-curl -s http://localhost:7113/health
-# → {"status":"healthy", ...}
-```
-
-## API Documentation
-
-The identuum-idp-oss has a canonical 130 endpoints (pinned in-process by `tools/api-docgen/canonical_count_test.go` — see `AGENTS.md` for the full count history). Run the documentation generator:
+[`openapi.yaml`](../openapi.yaml) describes the shipped API. To inspect the
+annotation-derived endpoint inventory without updating it:
 
 ```bash
 make api-docgen-dry-run
 ```
 
-This generates an API documentation file showing all available endpoints and their properties.
+Use the generator output for the current endpoint inventory instead of a
+count copied into this guide.
 
-## Security Reporting
+## Security reporting
 
-If you discover any security vulnerabilities in this software, please contact the Identuum security team at:
-- **Security Contact**: contact@identuum.ai
-
-## Troubleshooting
-
-### Common First-run Problems
-
-1. **Port 7113 already in use**: If a previous container or process is using port 7113, stop it before running `make oss-up`.
-
-2. **Database connection issues**: Ensure PostgreSQL is running via `make fast-up` and check `dev.env.local` for correct database credentials.
-
-3. **Missing dependencies**: install staticcheck with `brew install staticcheck` (see Prerequisites; the `go install ...@latest` build cannot read Go 1.27 export data). `make toolchain-parity` reports any tool whose version differs from CI's.
-
-4. **Container startup issues**: If `make oss-up` fails, manually run `make fast-up` first to verify the PostgreSQL container starts correctly.
-
-### Verification Commands
-
-After setting up your environment, verify everything is working:
-
-```bash
-# Verify database setup
-make fast-up
-make integration-test
-make fast-down
-
-# Test that all validation checks pass
-go build ./...
-go test ./... -count=1
-staticcheck ./...
-govulncheck ./...
-```
+Report vulnerabilities privately to **contact@identuum.ai**, following
+[SECURITY.md](../SECURITY.md).

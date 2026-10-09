@@ -4,6 +4,9 @@ Copyright © 2026 Ozgur Demir. All rights reserved.
 
 ## Project Status
 
+This project is pre-1.0; interfaces and operational requirements may change
+between releases.
+
 This repository is currently published for public inspection and
 evaluation only.
 
@@ -199,8 +202,7 @@ customer install path.
 > **Scope of this slice.** Production hardening (HA Postgres, external
 > KMS, reverse proxy with TLS, generated-on-first-boot DB credentials,
 > backup automation, OSS-to-CE upgrade overlay) is intentionally out
-> of scope; each is queued in the maintainers' planning wiki
-> (private) as its own future slice.
+> of scope for the single-node appliance.
 
 ### Single-replica by design
 
@@ -220,8 +222,8 @@ each instance acquires a **DB-backed singleton lease** and heartbeats
 it. An instance that cannot acquire a live lease **refuses to serve**:
 it stays alive but returns `503` on normal routes, reports the fault on
 `GET /health`, keeps `/livez` up, and logs a loud `ERROR` naming the
-incumbent — it never serves with broken per-process security (this is
-the P-018 NOT-SERVING-JUST-ALERTING posture; it never panics or exits).
+incumbent — it never serves with broken per-process security and never
+panics or exits on that fault.
 
 **Rolling deploys still work.** On graceful shutdown the outgoing
 instance releases the lease and the incoming instance acquires it
@@ -239,7 +241,7 @@ never a silent bypass.
 
 | Requirement | Notes |
 |-------------|-------|
-| Go | 1.27.1 or newer — `go.mod`'s `go 1.27.1` line is authoritative; only needed for building from source |
+| Go | Use the version specified by [`go.mod`](go.mod); only needed for building from source |
 | PostgreSQL | **18 or newer** — migration 0001 uses the built-in `uuidv7()` introduced in PG 18 |
 | Docker + Compose plugin | Used by the customer-facing single-node install AND the developer `dev-*` / `fast-*` Make targets |
 | `staticcheck` | `go install honnef.co/go/tools/cmd/staticcheck@latest` |
@@ -473,9 +475,11 @@ time.
 - [`SECURITY.md`](SECURITY.md) — vulnerability disclosure
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — bug reports, feature requests and pull requests
 - [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — community standards
-- [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES) — third-party licences
+- [`THIRD_PARTY_NOTICES`](THIRD_PARTY_NOTICES) — third-party licences;
+  `identuum-idp licenses` prints the notices from the binary (in an image-only
+  install: `docker compose exec identuum-idp /app/identuum-idp licenses`)
 - [`docs/GETTING_STARTED.md`](docs/GETTING_STARTED.md) — extended
-  walk-through
+  from-source developer guide
 - [`docs/OPERATOR-GUIDE.md`](docs/OPERATOR-GUIDE.md) — operating an install
 - [`deployment/README.md`](deployment/README.md) — the compose install and
   the release artefacts

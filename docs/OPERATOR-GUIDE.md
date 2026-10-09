@@ -44,6 +44,14 @@ It prints `NOT-SERVING — the database does not answer at boot`, retries
 every other route with 503. When the database answers, it applies migrations
 and starts serving; nothing needs restarting.
 
+`GET /health` returns a JSON body with `status`, `version`, `mode` (`oss`)
+and `tier` (`starter`). A healthy startup reports `status: healthy` and HTTP
+200. Optional startup faults report `status: degraded` and HTTP 200; a fatal
+startup fault reports `status: not_serving` and HTTP 503. Both fault cases
+include a `faults` array; the healthy body omits it. This endpoint reads the
+startup report, so a healthy response does not replace the database probe
+at `/readyz`.
+
 ## Listen addresses: IPv4 by default, IPv6 opt-in
 
 IPv4 is the default everywhere; IPv6 is supported and opt-in.
@@ -134,6 +142,113 @@ unchanged. Removing or replacing them, for example with a proxy-wide
 - **Bare binary:** the setup code goes to `IDENTUUM_IDP_DATA_DIR`, or when that
   is unset to `<user config dir>/identuum-idp` — never the working directory.
 
+## Upgrading and rolling back
+
+Read the release notes for the version you want to install, including any
+intermediate upgrade steps. Check whether it adds a database migration and
+whether it changes the PostgreSQL major version. The procedure below keeps
+the existing PostgreSQL major version; a major-version upgrade needs its own
+database upgrade plan. Plan a maintenance window and keep the old image
+available. Run these commands from the directory containing your installed
+`docker-compose.yml`.
+
+Before upgrading, run `identuum-idp audit-preupgrade <database-url>` with the
+target release's binary against the existing database while the old release
+still serves. It performs read-only checks for stored values that newer
+validation rules refuse. Exit `0` means clean, `1` means findings to fix
+through the current API before retrying, and `2` means the audit could not
+run. Keep database credentials private; do not put a real URL in logs or
+reports. See [the pre-upgrade audit](TESTING-OPERATORS.md#the-pre-upgrade-audit-audit-preupgrade)
+for the findings and remedies.
+
+### Back up before replacing the image
+
+Pause the IdP so no application writes occur between the backup and the
+upgrade. Leave PostgreSQL running. Protect the backup directory: the dump
+contains account data and the encryption key unlocks encrypted records.
+
+```bash
+umask 077
+mkdir upgrade-backup
+cp docker-compose.yml upgrade-backup/docker-compose.yml
+docker compose stop identuum-idp
+docker cp identuum-idp-oss:/app/data/encryption-key upgrade-backup/encryption-key
+docker compose exec -T postgres pg_dump -U identuum_idp identuum_idp > upgrade-backup/database.sql
+```
+
+Use a new backup directory for each upgrade. Check that each command
+succeeded and the dump is non-empty; keep a protected copy off the host and
+rehearse restoration on a separate disposable installation. If you supply
+`IDENTUUM_IDP_ENCRYPTION_KEY` yourself, back up that configured key in your
+secret store instead of copying the generated file. A database backup alone
+cannot recover encrypted records without the matching key. If a backup fails,
+leave the old compose file in place and start the old IdP again.
+
+### Install the new release
+
+Download the selected release's compose file and its checksum to a temporary
+directory. Replace `vX.Y.Z` with that release's tag:
+
+```bash
+mkdir upgrade-download
+curl -fsSL https://github.com/identuum/identuum-idp-oss/releases/download/vX.Y.Z/docker-compose.yml -o upgrade-download/docker-compose.yml
+curl -fsSL https://github.com/identuum/identuum-idp-oss/releases/download/vX.Y.Z/docker-compose.yml.sha256 -o upgrade-download/docker-compose.yml.sha256
+(cd upgrade-download && shasum -a 256 -c docker-compose.yml.sha256)
+```
+
+Check the checksum before proceeding. Reapply your existing settings to the
+downloaded file, including the database password, public URL, bind address
+and externally supplied encryption key. Keep the same Compose project and
+volume names. Then replace the installed file and start the release:
+
+```bash
+cp upgrade-download/docker-compose.yml docker-compose.yml
+docker compose up -d
+```
+
+The appliance applies embedded migrations before it serves. Check container
+health, `/health`, `/readyz`, the running version and a normal sign-in. Never
+run `docker compose down -v`: it deletes the installation's data volumes.
+
+### Restore the previous release
+
+Stop the new IdP and restore the saved compose file:
+
+```bash
+docker compose stop identuum-idp
+cp upgrade-backup/docker-compose.yml docker-compose.yml
+```
+
+If the new release added a migration, restore the pre-upgrade dump before
+starting the old binary. An old binary refuses a newer schema; this is not a
+migration-down command. Restore into an empty database so tables added by
+the failed upgrade cannot remain behind. The following commands delete the
+current database, create it again and restore the plain SQL dump. Run them
+only after checking your backup, with the IdP stopped and PostgreSQL running:
+
+```bash
+docker compose exec -T postgres dropdb --force -U identuum_idp identuum_idp
+docker compose exec -T postgres createdb -U identuum_idp -O identuum_idp identuum_idp
+docker compose exec -T postgres psql -X -v ON_ERROR_STOP=1 -U identuum_idp -d identuum_idp < upgrade-backup/database.sql
+```
+
+Restoration discards database changes made after the backup, including new
+accounts, sessions and audit rows. Keep a copy of the failed upgrade's data
+before restoring if you need to investigate it. If the release added no
+migration, restore the dump only when the release notes require it or data
+recovery is needed. Keep the data volume and its matching encryption key;
+if the key was lost or changed, restore the saved file to `/app/data/encryption-key`
+in the persistent data volume with its original ownership and restrictive
+permissions, or restore your externally supplied key from the secret store.
+Do this before starting the old IdP:
+
+```bash
+docker compose up -d
+```
+
+Check health and sign-in again. A rollback also restores any defects fixed
+by the new release.
+
 ## Diagnose the appliance
 
 ```
@@ -204,7 +319,7 @@ the following are stale:
 
 ## An organization's administrator lost every factor (break-glass)
 
-A site administrator does not reset a tenant user's authenticator (D-025),
+A site administrator does not reset a tenant user's authenticator,
 so when an organization's org_admin has lost the authenticator, the
 recovery codes and every passkey, the operator resets it from the host:
 
@@ -468,7 +583,7 @@ manage, or to hand it over in person.
 ## Self-registration
 
 Strangers can sign up for an organization only when **two switches** are on;
-both are **off** by default (D-021).
+both are **off** by default.
 
 1. **The instance switch** (site admin) is the ceiling. While it is off no
    organization accepts sign-ups, whatever its own setting:
@@ -574,7 +689,7 @@ re-issue.
 ### Creating a user with a password instead (API)
 
 The invite is the console's way. Over the API an administrator may instead
-set the first password (owner ruling D-017):
+set the first password:
 
 ```
 POST /api/v1/users   {"email": "…", "password": "…", "role": "org_user"}
@@ -602,7 +717,7 @@ POST /api/v1/users/<user-id>/invite
 
 The answer has the email, a new `invite_token`, `invite_url` (or
 `invite_url_unavailable`) and `expires_at`. A verified user (one who has
-redeemed, or was created with a password under D-017) is not pending:
+redeemed, or was created with an administrator-set password) is not pending:
 `409 user_not_pending`.
 
 A user created with a password in `v0.7.0` or earlier is still unverified
@@ -712,7 +827,7 @@ application. An application's `/authorize` asks for its own sign-in at
 `/api/v1/auth/browser-login`, even right after a console sign-in, and
 RP-initiated logout (`end_session`) ends that OpenID Connect sign-in, not the
 console's. Signing out of the console does not sign anyone out of an
-application either. This is deliberate (owner ruling D-023): an administration
+application either. This is deliberate: an administration
 console is not a single sign-on session for applications, so a console session
 can never grant application access silently.
 
@@ -747,7 +862,7 @@ GET /.well-known/openid-configuration
   enrolled one); being signed in to the console does not carry over. The first
   authorization of a client shows a consent page (**Approve** / **Deny**); the
   decision is remembered. An organization admin may mark an application the
-  organization runs itself **First-party (skip consent)** (D-018, D-026): its
+  organization runs itself **First-party (skip consent)**: its
   users are not asked for sign-in itself (`openid`, `profile`, `email`); a
   request for more, such as `offline_access` or an API resource, still shows
   the consent page, and so does `prompt=consent`. Only a confidential
@@ -755,7 +870,7 @@ GET /.well-known/openid-configuration
   not one created through dynamic client registration). Turning it on asks for
   your current authenticator code, and the change is audited with who made it.
 - **First sign-in under an MFA policy:** a user who must change an admin-set
-  password (D-017) and has no authenticator enrols one on the same sign-in
+  password and has no authenticator enrols one on the same sign-in
   page — the key and its `otpauth://` link, the recovery codes once, then a
   code.
 - **Refresh:** request `offline_access` to receive a refresh token;
@@ -764,7 +879,7 @@ GET /.well-known/openid-configuration
 - **Sign-out:** `GET /api/v1/oidc/logout?id_token_hint=…` ends the IdP's
   browser session (the next `/authorize` asks for a sign-in again). With a
   registered `post_logout_redirect_uri` the browser returns there; without one
-  the IdP shows its own "You are signed out" page (D-018). A request that
+  the IdP shows its own "You are signed out" page. A request that
   carries no verified `id_token_hint` while the browser holds a session first
   shows a "Sign out?" page, and the session ends when the person follows its
   link (any page can fire a GET at this endpoint, so it asks). Access tokens

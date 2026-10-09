@@ -50,7 +50,8 @@ administrator password — that is created during the wizard.
   `localhost:7104`. An install still on `v0.5.x` merges it once, as
   [`../docs/releases/v0.6.0.md`](../docs/releases/v0.6.0.md), "Upgrading
   from v0.5.x", describes; for any later upgrade, read the "Upgrading"
-  section of the release you are installing, in `../docs/releases/`
+  section of the release you are installing and the general
+  [Upgrading and rolling back procedure](../docs/OPERATOR-GUIDE.md#upgrading-and-rolling-back)
 - No `.env.example`, no `openssl`, no `Makefile`, no manual database
   URL, no manual issuer URL, no manual signing-key generation, no
   manual bootstrap, no source checkout
@@ -79,8 +80,7 @@ Compose project network, but you can use your own password:
 
 ### What is intentionally out of scope
 
-Each of these is its own follow-up slice tracked under
-`wiki/platform/idp-appliance-install-ux.md`:
+The single-node appliance does not provide these features:
 
 - Generated-on-first-boot DB credentials (current default is a
   fixed-string Compose-internal password; Postgres is not exposed on
@@ -101,6 +101,9 @@ manual so a release is always an explicit maintainer act. Dispatch it on the
 tag (`gh workflow run publish-image.yml --ref vX.Y.Z -f version_tag=vX.Y.Z
 -f latest_tag=false`): any other dispatch ref is refused before anything is
 built, because the image's provenance records the dispatch ref.
+
+For the complete release order, follow the
+[release checklist](../docs/maintainers/RELEASE.md).
 
 ### Releasing: the compose asset
 
