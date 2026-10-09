@@ -629,11 +629,28 @@ func (s *MFAEnrollmentService) verifyAndConsume(ctx context.Context, pendingID u
 	// The user's turn spans the count, the code check and the recorded miss,
 	// so guesses sent in parallel over several handles are counted one by one
 	// instead of all reading the same count.
-	release := s.verifyTurns.lock(user.ID.String())
+	//
+	// OSS-MFA-BUDGET-1 (P-103): with the proof budget wired, its misses (step-up,
+	// disable, regenerate, skip-consent, the sign-in code step) are added to this
+	// count, and the turn is the budget's, which every proof route takes too: one
+	// allowance and one turn for every second-factor code check of the user.
+	var release func()
+	if s.proofFailures != nil {
+		release = s.proofFailures.Hold(user.ID)
+	} else {
+		release = s.verifyTurns.lock(user.ID.String())
+	}
 	defer release()
 	recent, oldest, cntErr := s.pending.CountRecentFailedVerifyAttempts(ctx, user.ID, s.now().Add(-s.userFailureWindow))
 	if cntErr != nil {
 		return nil, fmt.Errorf("service: mfa count recent failed verify attempts: %w", cntErr)
+	}
+	if s.proofFailures != nil {
+		proofN, proofOldest, proofErr := s.proofFailures.proofMisses(ctx, user.ID)
+		if proofErr != nil {
+			return nil, fmt.Errorf("service: mfa count recent proof failures: %w", proofErr)
+		}
+		recent, oldest = recent+proofN, earliest(oldest, proofOldest)
 	}
 	if recent >= s.maxUserFailures {
 		wait := oldest.Add(s.userFailureWindow).Sub(s.now())

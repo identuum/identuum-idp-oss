@@ -1234,7 +1234,12 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// service). A miss on one spends from all. The misses are kept in
 	// mfa_proof_failures, so a restart does not reset them, and the cleanup
 	// ticker sweeps the rows that left the window (Start).
-	totpProofBudget := service.NewTOTPFailureBudget(service.DefaultTOTPFailureBudgetMax, service.DefaultTOTPFailureBudgetWindow, nil).WithStore(repos.MFAProofFailure)
+	// OSS-MFA-BUDGET-1 (P-103): the pending sign-in misses count too, and the
+	// enrolment service's sign-in step adds this budget's misses to its own
+	// count under the same per-user turn: one allowance for every check.
+	totpProofBudget := service.NewTOTPFailureBudget(service.DefaultTOTPFailureBudgetMax, service.DefaultTOTPFailureBudgetWindow, nil).
+		WithStore(repos.MFAProofFailure).
+		WithSignInFailures(repos.MFAPendingLoginSession)
 	r.proofBudget = totpProofBudget
 	mfaVerifier := service.NewMFAVerifierService(report, service.EncryptedTOTPSecretResolver{Cipher: mfaCipher}, service.MFAVerifierOptions{Replay: r.totpReplayGuard, Failures: totpProofBudget})
 	loginRiskSvc := service.NewLoginRiskService(report, repos.LoginAttempt, service.LoginRiskServiceOptions{Logger: serviceLogger()})

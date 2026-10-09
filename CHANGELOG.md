@@ -7,6 +7,13 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **One wrong-code allowance per user for every second-factor check**
+  (OSS-MFA-BUDGET-1, P-103). The sign-in code step and the proof routes
+  (step-up, MFA disable, recovery-code regenerate, skip-consent) now spend
+  one allowance of 5 wrong codes in 15 minutes, where they had 5 each. At
+  the bound every code of that user, right or wrong, is refused with the
+  route's usual answer until the oldest miss leaves the window; a sign-in
+  code and a proof code checked at the same time take turns.
 - **`pkg/extension`: entitlements and quotas on API resource create**
   (OSS-SEAM-5, P-094, P-095). `runtime.Options.Entitlements` and
   `runtime.Options.Quotas` bound a create: OSS counts and inserts in one

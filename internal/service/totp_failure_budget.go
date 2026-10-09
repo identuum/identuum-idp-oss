@@ -29,6 +29,13 @@ type ProofFailureStore interface {
 	DeleteProofFailuresBefore(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
+// SignInFailureCounter counts a user's wrong codes on the pending sign-in step
+// (failed_attempts on their verify-kind pending rows) since a time, with the
+// oldest counted row's time. The pending-session repository satisfies it.
+type SignInFailureCounter interface {
+	CountRecentFailedVerifyAttempts(ctx context.Context, user uuid.UUID, since time.Time) (int, time.Time, error)
+}
+
 // TOTPFailureBudget counts the wrong TOTP codes one USER presents across the
 // routes that prove an authenticated caller holds the second factor: step-up,
 // self-service MFA disable, recovery-code regenerate, and turning "skip
@@ -50,6 +57,9 @@ type TOTPFailureBudget struct {
 	misses map[uuid.UUID][]time.Time
 	turns  keyedMutex
 	store  ProofFailureStore
+	// signIn, when wired, adds the user's pending sign-in misses to the
+	// count: one allowance for every second-factor code check (P-103).
+	signIn SignInFailureCounter
 }
 
 // Hold gives one user's proof attempt its turn: the caller holds it across
@@ -105,6 +115,20 @@ func (b *TOTPFailureBudget) prune(user uuid.UUID) []time.Time {
 	return kept
 }
 
+// WithSignInFailures adds the user's pending sign-in misses to every count
+// (OSS-MFA-BUDGET-1, P-103): with it, a wrong code on the sign-in step and a
+// wrong code on a proof route spend the same allowance.
+func (b *TOTPFailureBudget) WithSignInFailures(c SignInFailureCounter) *TOTPFailureBudget {
+	if b == nil {
+		return nil
+	}
+	b.signIn = c
+	return b
+}
+
+// CountsSignInMisses reports whether the pending sign-in misses are counted.
+func (b *TOTPFailureBudget) CountsSignInMisses() bool { return b != nil && b.signIn != nil }
+
 // Exhausted reports whether the user has used up the budget. A store that
 // cannot be read reports true: the proof is refused rather than unbounded.
 func (b *TOTPFailureBudget) Exhausted(ctx context.Context, user uuid.UUID) bool {
@@ -114,29 +138,50 @@ func (b *TOTPFailureBudget) Exhausted(ctx context.Context, user uuid.UUID) bool 
 
 // Spent is Exhausted with the wait: how long until the user's oldest counted
 // miss leaves the window, so the sign-in code step can say when to try again
-// (FUNC-M3). A store that cannot be read reports spent with no wait (0).
+// (FUNC-M3). The count is the proof-route misses plus, when wired, the pending
+// sign-in misses. A store that cannot be read reports spent with no wait (0).
 func (b *TOTPFailureBudget) Spent(ctx context.Context, user uuid.UUID) (bool, time.Duration) {
 	if b == nil {
 		return false, 0
 	}
+	n, oldest, err := b.proofMisses(ctx, user)
+	if err == nil && b.signIn != nil {
+		var sn int
+		var soldest time.Time
+		sn, soldest, err = b.signIn.CountRecentFailedVerifyAttempts(ctx, user, b.now().Add(-b.window))
+		n, oldest = n+sn, earliest(oldest, soldest)
+	}
+	if err != nil {
+		logger.ErrorContext(ctx, "totp proof budget: store unavailable; refusing the proof", zap.Error(err))
+		return true, 0
+	}
+	if n < b.max {
+		return false, 0
+	}
+	return true, oldest.Add(b.window).Sub(b.now())
+}
+
+// proofMisses counts the user's proof-route misses in the window, with the
+// oldest one's time; the pending sign-in step adds them to its own count.
+func (b *TOTPFailureBudget) proofMisses(ctx context.Context, user uuid.UUID) (int, time.Time, error) {
 	if b.store != nil {
-		n, oldest, err := b.store.CountProofFailuresSince(ctx, user, b.now().Add(-b.window))
-		if err != nil {
-			logger.ErrorContext(ctx, "totp proof budget: store unavailable; refusing the proof", zap.Error(err))
-			return true, 0
-		}
-		if n < b.max {
-			return false, 0
-		}
-		return true, oldest.Add(b.window).Sub(b.now())
+		return b.store.CountProofFailuresSince(ctx, user, b.now().Add(-b.window))
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	kept := b.prune(user)
-	if len(kept) < b.max {
-		return false, 0
+	if len(kept) == 0 {
+		return 0, time.Time{}, nil
 	}
-	return true, kept[0].Add(b.window).Sub(b.now())
+	return len(kept), kept[0], nil
+}
+
+// earliest is the earlier of two times, a zero time counting as none.
+func earliest(a, b time.Time) time.Time {
+	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
+		return b
+	}
+	return a
 }
 
 // Record counts one wrong code for the user.
