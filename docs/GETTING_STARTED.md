@@ -6,9 +6,9 @@ This guide will help you get from a clean clone to a locally running instance of
 
 Before starting, ensure you have:
 
-- Go 1.26 or higher installed
+- Go installed at the version go.mod's `go` line names (1.27.2 today)
 - Docker and Docker Compose plugin installed
-- `staticcheck` installed (`go install honnef.co/go/tools/cmd/staticcheck@latest`)
+- `staticcheck` installed: `brew install staticcheck` (Homebrew's 2026.2.1 build carries the patches that read Go 1.27 export data; CI builds the same through the lictor `go-toolchain` action). `go install honnef.co/go/tools/cmd/staticcheck@latest` builds v0.8.1 without them and fails on this repository.
 - Git installed
 
 ## Quick Start
@@ -235,7 +235,7 @@ If you discover any security vulnerabilities in this software, please contact th
 
 2. **Database connection issues**: Ensure PostgreSQL is running via `make fast-up` and check `dev.env.local` for correct database credentials.
 
-3. **Missing dependencies**: Install required tools with: `go install honnef.co/go/tools/cmd/staticcheck@latest`
+3. **Missing dependencies**: install staticcheck with `brew install staticcheck` (see Prerequisites; the `go install ...@latest` build cannot read Go 1.27 export data). `make toolchain-parity` reports any tool whose version differs from CI's.
 
 4. **Container startup issues**: If `make oss-up` fails, manually run `make fast-up` first to verify the PostgreSQL container starts correctly.
 
