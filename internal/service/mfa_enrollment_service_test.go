@@ -109,6 +109,24 @@ func (s *stubPendingRepo) Create(_ context.Context, row *domain.MFAPendingLoginS
 	return &out, nil
 }
 
+// GetLatestLiveEnroll mirrors the pgx query: the user's newest enrol-kind
+// row with a secret, neither consumed nor expired at now.
+func (s *stubPendingRepo) GetLatestLiveEnroll(ctx context.Context, userID uuid.UUID, now time.Time) (*domain.MFAPendingLoginSession, error) {
+	var best *domain.MFAPendingLoginSession
+	for _, row := range s.rows {
+		if row.UserID != userID || row.Kind != domain.MFAPendingKindEnroll || row.Secret == nil || row.ConsumedAt != nil || !row.ExpiresAt.After(now) {
+			continue
+		}
+		if best == nil || row.CreatedAt.After(best.CreatedAt) || (row.CreatedAt.Equal(best.CreatedAt) && row.ID.String() > best.ID.String()) {
+			best = row
+		}
+	}
+	if best == nil {
+		return nil, repository.ErrMFAPendingSessionNotFound
+	}
+	return s.GetByID(ctx, best.ID)
+}
+
 func (s *stubPendingRepo) GetByID(_ context.Context, id uuid.UUID) (*domain.MFAPendingLoginSession, error) {
 	row, ok := s.rows[id]
 	if !ok {

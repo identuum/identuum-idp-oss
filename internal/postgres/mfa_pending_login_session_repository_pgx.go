@@ -73,11 +73,29 @@ func (r *PgxMFAPendingLoginSessionRepository) GetByID(ctx context.Context, id uu
 SELECT id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts
 FROM   mfa_pending_login_sessions
 WHERE  id = $1`
+	return r.getOne(ctx, q, id)
+}
+
+// GetLatestLiveEnroll returns the user's newest enrol-kind row that holds a
+// candidate secret and is neither consumed nor expired at now (OSS-HARDEN-1).
+// user_id is indexed (0017); ids are UUIDv7, so id breaks a created_at tie in
+// creation order.
+func (r *PgxMFAPendingLoginSessionRepository) GetLatestLiveEnroll(ctx context.Context, userID uuid.UUID, now time.Time) (*domain.MFAPendingLoginSession, error) {
+	const q = `
+SELECT id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts
+FROM   mfa_pending_login_sessions
+WHERE  user_id = $1 AND kind = 'enroll' AND secret IS NOT NULL AND consumed_at IS NULL AND expires_at > $2
+ORDER  BY created_at DESC, id DESC
+LIMIT  1`
+	return r.getOne(ctx, q, userID, now)
+}
+
+func (r *PgxMFAPendingLoginSessionRepository) getOne(ctx context.Context, q string, args ...any) (*domain.MFAPendingLoginSession, error) {
 	var out domain.MFAPendingLoginSession
 	var kind string
 	var secret *string
 	var codesJSON []byte
-	if err := r.db.QueryRow(ctx, q, id).Scan(
+	if err := r.db.QueryRow(ctx, q, args...).Scan(
 		&out.ID, &out.UserID, &kind, &secret, &codesJSON, &out.RememberMe, &out.CreatedAt, &out.ExpiresAt, &out.ConsumedAt, &out.FailedAttempts,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

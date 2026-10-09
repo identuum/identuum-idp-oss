@@ -98,9 +98,6 @@ type MFAEnrollmentService struct {
 	// verifyTurns gives one user's pending sign-in verifications their turn
 	// across the per-user count, the code check and the recorded miss.
 	verifyTurns keyedMutex
-	// selfEnroll remembers each user's newest account-settings enrolment
-	// (FUNC-M1, mfa_self_enroll.go).
-	selfEnroll selfEnrollments
 }
 
 // MFAEnrollmentServiceOptions tunes the service. Zero values fall

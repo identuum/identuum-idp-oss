@@ -175,6 +175,10 @@ func (recoveryPendingRepoStub) Create(_ context.Context, row *domain.MFAPendingL
 func (recoveryPendingRepoStub) GetByID(context.Context, uuid.UUID) (*domain.MFAPendingLoginSession, error) {
 	return nil, repository.ErrMFAPendingSessionNotFound
 }
+
+func (recoveryPendingRepoStub) GetLatestLiveEnroll(context.Context, uuid.UUID, time.Time) (*domain.MFAPendingLoginSession, error) {
+	return nil, repository.ErrMFAPendingSessionNotFound
+}
 func (recoveryPendingRepoStub) UpdateSecret(context.Context, uuid.UUID, string, []string) error {
 	return nil
 }

@@ -46,6 +46,12 @@ type MFAPendingLoginSessionRepository interface {
 	// the caller is responsible for not logging those fields.
 	GetByID(ctx context.Context, id uuid.UUID) (*domain.MFAPendingLoginSession, error)
 
+	// GetLatestLiveEnroll returns the user's newest enrol-kind row that holds
+	// a candidate secret and is neither consumed nor expired at now, or
+	// ErrMFAPendingSessionNotFound. Account-settings self-enrolment finds its
+	// row with it, so the row survives a restart (OSS-HARDEN-1).
+	GetLatestLiveEnroll(ctx context.Context, userID uuid.UUID, now time.Time) (*domain.MFAPendingLoginSession, error)
+
 	// UpdateSecret persists the candidate secret + recovery codes
 	// onto an existing pending row. Used by /enroll/initiate to
 	// store the generated material in-place so /enroll/complete

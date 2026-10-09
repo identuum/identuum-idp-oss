@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 )
 
 // mfa_self_enroll.go — FUNC-M1: a signed-in user adds an authenticator from
@@ -20,11 +20,12 @@ import (
 // let a stolen cookie arm the thief's authenticator); a wrong password counts
 // on the per-user proof budget the other proof routes share, so a spent
 // budget answers sign-in's wait. The candidate secret lives on a pending
-// enrol-kind row bound to the user, and the service remembers the user's
-// newest one (the console reaches these routes through the browser boundary,
-// which forwards no cookie, so no handle travels on the wire; the instance
-// lease keeps one serving process, and a restart only means starting again).
-// The recovery codes are minted at complete and shown once.
+// enrol-kind row bound to the user, and complete finds the user's newest live
+// one in the database (the console reaches these routes through the browser
+// boundary, which forwards no cookie, so no handle travels on the wire; until
+// OSS-HARDEN-1 the service remembered the row in process memory, and a
+// restart meant starting again). The recovery codes are minted at complete
+// and shown once.
 
 var (
 	// ErrMFASelfAlreadyEnrolled — the user already has an authenticator.
@@ -40,35 +41,6 @@ type MFASelfEnrollStart struct {
 	Secret     string
 	OtpauthURL string
 	ExpiresAt  time.Time
-}
-
-// selfEnrollments maps a user to the pending row of their newest
-// self-enrolment.
-type selfEnrollments struct {
-	mu   sync.Mutex
-	byID map[uuid.UUID]uuid.UUID
-}
-
-func (e *selfEnrollments) set(user, pending uuid.UUID) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.byID == nil {
-		e.byID = map[uuid.UUID]uuid.UUID{}
-	}
-	e.byID[user] = pending
-}
-
-func (e *selfEnrollments) get(user uuid.UUID) (uuid.UUID, bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	id, ok := e.byID[user]
-	return id, ok
-}
-
-func (e *selfEnrollments) drop(user uuid.UUID) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	delete(e.byID, user)
 }
 
 // InitiateSelf verifies the user's current password and starts an enrolment.
@@ -100,7 +72,6 @@ func (s *MFAEnrollmentService) InitiateSelf(ctx context.Context, userID uuid.UUI
 	if err != nil {
 		return nil, err
 	}
-	s.selfEnroll.set(user.ID, row.ID)
 	return &MFASelfEnrollStart{Secret: res.Secret, OtpauthURL: res.OtpauthURL, ExpiresAt: res.ExpiresAt}, nil
 }
 
@@ -117,30 +88,25 @@ func (s *MFAEnrollmentService) CompleteSelf(ctx context.Context, userID uuid.UUI
 		return nil, err
 	}
 	if user.MFAEnabled {
-		s.selfEnroll.drop(user.ID)
 		return nil, ErrMFASelfAlreadyEnrolled
 	}
-	pendingID, ok := s.selfEnroll.get(user.ID)
-	if !ok {
+	row, err := s.pending.GetLatestLiveEnroll(ctx, user.ID, s.now())
+	if errors.Is(err, repository.ErrMFAPendingSessionNotFound) || (err == nil && (row == nil || row.UserID != user.ID)) {
 		return nil, ErrMFASelfNotStarted
 	}
-	row, err := s.pending.GetByID(ctx, pendingID)
-	if err != nil || row == nil || row.UserID != user.ID {
-		s.selfEnroll.drop(user.ID)
-		return nil, ErrMFASelfNotStarted
+	if err != nil {
+		return nil, fmt.Errorf("service: mfa self-enrolment lookup: %w", err)
 	}
 	codes, err := generateRecoveryCodes(s.codeCount, s.codeBytes)
 	if err != nil {
 		return nil, fmt.Errorf("service: mfa self-enrolment recovery codes: %w", err)
 	}
-	if _, err := s.complete(ctx, pendingID, strings.TrimSpace(code), hashRecoveryCodes(codes)); err != nil {
+	if _, err := s.complete(ctx, row.ID, strings.TrimSpace(code), hashRecoveryCodes(codes)); err != nil {
 		if errors.Is(err, ErrMFAEnrollmentExpired) || errors.Is(err, ErrMFAEnrollmentAlreadyConsumed) || errors.Is(err, ErrMFAEnrollmentNotFound) {
-			s.selfEnroll.drop(user.ID)
 			return nil, ErrMFASelfNotStarted
 		}
 		return nil, err
 	}
-	s.selfEnroll.drop(user.ID)
 	return codes, nil
 }
 
