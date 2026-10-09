@@ -30,6 +30,8 @@ var optionToConfig = map[string]string{
 	"CORSAllowedOrigins":        "CORSAllowedOrigins",
 	"TrustedProxies":            "TrustedProxies",
 	"Restrictions":              "Restrictions",
+	"Entitlements":              "Entitlements",
+	"Quotas":                    "Quotas",
 }
 
 // OSS-SEAM-2: a fault reason leaves Health with no URL and no secret-named
@@ -77,6 +79,7 @@ func TestOptions_MapEveryConfigField(t *testing.T) {
 		DataDir: "data", UIPublicBaseURL: "ui-url", UIStaticDir: "ui-dir", MetricsAddr: "metrics",
 		CORSAllowedOrigins: []string{"https://a.test"}, TrustedProxies: []string{"10.0.0.1"},
 		Restrictions: []extension.Restriction{noRestriction{name: "a"}},
+		Entitlements: noEntitlements{}, Quotas: noQuota{},
 	}
 	cfg := opts.config()
 	ov, cv := reflect.ValueOf(opts), reflect.ValueOf(cfg)
@@ -111,3 +114,14 @@ func TestOptions_MapEveryConfigField(t *testing.T) {
 type noRestriction struct{ name string }
 
 func (noRestriction) Check(context.Context, extension.Decision) error { return nil }
+
+// noEntitlements and noQuota only mark the Entitlements and Quotas options.
+type noEntitlements struct{}
+
+func (noEntitlements) Snapshot(context.Context) (extension.EntitlementSnapshot, error) {
+	return extension.EntitlementSnapshot{}, nil
+}
+
+type noQuota struct{}
+
+func (noQuota) Ceiling(context.Context, extension.QuotaFacts) (int64, error) { return 0, nil }
