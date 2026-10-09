@@ -64,6 +64,27 @@ type BackchannelLogoutServiceOptions struct {
 	AllowPlainHTTP bool
 }
 
+// BackchannelPrivateReceiverOptions returns the TEST options that let a
+// delivery reach a receiver on loopback or a private network over plain
+// http: a plain http.Client in place of the SSRF-guarded one and the https
+// rule off (OSS-BACKCHANNEL-TEST-SEAM; the mirror of
+// UpstreamPrivateIssuerOptions). The client follows no redirect, as the
+// default client's policy for a POST: a logout token goes to the registered
+// receiver or not at all. Wired ONLY by
+// IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER (internal/runtime).
+func BackchannelPrivateReceiverOptions(timeout time.Duration) BackchannelLogoutServiceOptions {
+	return BackchannelLogoutServiceOptions{
+		HTTPClient: &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		Timeout:        timeout,
+		AllowPlainHTTP: true,
+	}
+}
+
 // NewBackchannelLogoutService constructs the service. tokens
 // required.
 func NewBackchannelLogoutService(report *lifecycle.StartupReport, tokens *LogoutTokenService, opts BackchannelLogoutServiceOptions) *BackchannelLogoutService {

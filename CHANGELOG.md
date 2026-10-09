@@ -7,6 +7,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **A test setting for back-channel logout against a local receiver.** The
+  new **test** setting `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER=true`
+  (off by default, logged as a `WARNING` at startup) lets a client register
+  a plain-`http` `backchannel_logout_uri` and lets the delivery reach a
+  receiver on loopback or a private network, so the delivered path can be
+  tested end to end on one machine. It mirrors
+  `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER`. With it unset nothing
+  changes: registration still requires `https` and the delivery client
+  still refuses loopback and private addresses. Do not use it in production.
 - **`recover-site-admin` ends every session of the recovered
   administrator** (OSS-RECOVER-REVOKE). After the password and MFA reset the
   command revokes every `site_admin` session and refresh token and denylists

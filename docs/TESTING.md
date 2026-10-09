@@ -124,3 +124,18 @@ scripts derive-and-enforce the floors; Go tests cover the backend
 Findings the harness measures but does not fix are recorded in the wiki
 repo page's Open items (currently AUTH-503, RECOVER-REVOKE) with pins that
 flip red when the product changes.
+
+## Test-only product settings
+
+Two default-off settings let a test stack on one machine exercise paths the
+shipped guards otherwise refuse; the appliance logs a `WARNING` at startup
+while either is on, and neither belongs in production.
+`IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER=true` lets upstream OIDC
+sign-in reach a local provider. `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER=true`
+lets a client register a plain-`http` `backchannel_logout_uri` and lets
+back-channel logout deliveries reach a receiver on loopback or a private
+network, so the delivered and replayed paths (the `delivered` delivery row,
+the `user_session.backchannel_logout.delivered` audit event, and a replay
+after a receiver refusal) can be run against a local receiver. Unit tests
+pin the default: `TestBackchannel_DefaultClientRefusesLoopbackReceiver`
+and `TestBackchannelReceiverOptions_DefaultOffAndLoggedWhenOn`.

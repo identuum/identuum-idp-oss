@@ -913,3 +913,18 @@ docker exec identuum-idp-oss /app/identuum-idp version
 
 Prints the version and the commit the image was built from, for example
 `identuum-idp-oss 0.7.0 (commit 1a2b3c4d5e6f)`.
+
+## Test-only settings (never in production)
+
+Two settings exist for testing on one machine. Both are off by default, and
+the appliance logs a `WARNING` at startup while either is on. Do not set
+them in production: each turns off a guard that protects your network.
+
+- `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER=true` lets upstream OIDC
+  sign-in reach a provider on loopback or a private network over `http`.
+  See [the upstream login guide](guides/oidc-upstream-login.md).
+- `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER=true` lets a client
+  register a plain-`http` `backchannel_logout_uri` and lets back-channel
+  logout deliveries reach a receiver on loopback or a private network.
+  Without it, registration requires `https` and the delivery client refuses
+  loopback and private addresses.

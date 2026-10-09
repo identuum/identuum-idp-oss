@@ -1107,7 +1107,15 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	clientRepo := repository.ClientRepository(repos.Client)
 	apiResourceRepo := repository.APIResourceRepository(repos.APIResource)
 	scopeTemplateRepo := repository.ScopeTemplateRepository(repos.ScopeTemplate)
+	// OSS-BACKCHANNEL-TEST-SEAM: the default-off test setting for a back-channel
+	// receiver on loopback or a private network (logged when on); otherwise the
+	// guarded default. Read once; it governs registration here and delivery
+	// below.
+	backchannelOpts, backchannelPrivate := backchannelReceiverOptions(r.cfg.Getenv, r.cfg.Stderr)
 	clientSvc := service.NewClientService(report, repos.Client)
+	if backchannelPrivate {
+		clientSvc.WithPlainHTTPBackchannelLogoutURIs()
+	}
 	// H7: an audience is never the issuer or an application's client id.
 	apiResourceSvc := service.NewAPIResourceService(report, repos.APIResource).
 		WithReservedAudiences(service.ReservedAudienceChecker(resolvedIssuer, repos.Client)).
@@ -1338,7 +1346,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	logoutTokenSvc := service.NewLogoutTokenService(report, keyService, service.LogoutTokenServiceOptions{
 		Issuer: tokenSvcIssuer,
 	})
-	backchannelLogoutSvc := service.NewBackchannelLogoutService(report, logoutTokenSvc, service.BackchannelLogoutServiceOptions{}).
+	backchannelLogoutSvc := service.NewBackchannelLogoutService(report, logoutTokenSvc, backchannelOpts).
 		WithDeliveryRepository(repos.BackchannelLogoutDelivery).
 		WithDueProcessorClientLookup(clientSvc)
 	backchannelDeliveryAdminSvc := service.NewBackchannelDeliveryAdminService(report,

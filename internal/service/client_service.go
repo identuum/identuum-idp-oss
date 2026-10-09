@@ -35,6 +35,30 @@ import (
 type ClientService struct {
 	repo      repository.ClientRepository
 	saBinding ServiceAccountBindingValidator
+	// plainHTTPBackchannelLogoutURIs accepts a plain-http backchannel_logout_uri
+	// on create and update. Set ONLY by the TEST setting
+	// IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER (OSS-BACKCHANNEL-TEST-SEAM);
+	// the front-channel URI is never relaxed.
+	plainHTTPBackchannelLogoutURIs bool
+}
+
+// WithPlainHTTPBackchannelLogoutURIs lets a client register a plain-http
+// backchannel_logout_uri, so a test receiver on loopback or a private network
+// can be registered. The runtime calls it only when
+// IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER is on (and logged).
+func (s *ClientService) WithPlainHTTPBackchannelLogoutURIs() *ClientService {
+	s.plainHTTPBackchannelLogoutURIs = true
+	return s
+}
+
+// validateBackchannelLogoutURI is the registration rule for
+// backchannel_logout_uri: https, absolute, no fragment, no userinfo — or
+// plain http as well under the test switch above.
+func (s *ClientService) validateBackchannelLogoutURI(raw string) error {
+	if s.plainHTTPBackchannelLogoutURIs {
+		return domain.ValidatePlainHTTPLogoutURI(raw)
+	}
+	return domain.ValidateLogoutURI(raw)
 }
 
 // ServiceAccountBindingValidator is the optional seam ClientService
@@ -251,7 +275,7 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 	if err := domain.ValidateLogoutURI(opts.FrontchannelLogoutURI); err != nil {
 		return nil, "", err
 	}
-	if err := domain.ValidateLogoutURI(opts.BackchannelLogoutURI); err != nil {
+	if err := s.validateBackchannelLogoutURI(opts.BackchannelLogoutURI); err != nil {
 		return nil, "", err
 	}
 
@@ -427,7 +451,7 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 		client.FrontchannelLogoutSessionRequired = *opts.FrontchannelLogoutSessionRequired
 	}
 	if opts.BackchannelLogoutURI != nil {
-		if err := domain.ValidateLogoutURI(*opts.BackchannelLogoutURI); err != nil {
+		if err := s.validateBackchannelLogoutURI(*opts.BackchannelLogoutURI); err != nil {
 			return nil, err
 		}
 		client.BackchannelLogoutURI = *opts.BackchannelLogoutURI

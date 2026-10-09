@@ -123,6 +123,19 @@ func isLoopbackRedirectHost(host string) bool {
 //
 // Returns nil on success or an ErrInvalidRequest-wrapped sentinel.
 func ValidateLogoutURI(raw string) error {
+	return validateLogoutURI(raw, true)
+}
+
+// ValidatePlainHTTPLogoutURI is ValidateLogoutURI with the https rule off:
+// a plain-http URI passes, everything else is judged as before. It exists for
+// ONE caller, the TEST setting IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER
+// (OSS-BACKCHANNEL-TEST-SEAM), which registers a back-channel receiver on a
+// private network through it. Production registration uses ValidateLogoutURI.
+func ValidatePlainHTTPLogoutURI(raw string) error {
+	return validateLogoutURI(raw, false)
+}
+
+func validateLogoutURI(raw string, requireHTTPS bool) error {
 	s := strings.TrimSpace(raw)
 	if s == "" {
 		return nil
@@ -134,7 +147,7 @@ func ValidateLogoutURI(raw string) error {
 	if u.Host == "" {
 		return fmt.Errorf("%w: logout_uri %q must be absolute", ErrInvalidRequest, s)
 	}
-	if u.Scheme != "https" {
+	if u.Scheme != "https" && (requireHTTPS || u.Scheme != "http") {
 		return fmt.Errorf("%w: logout_uri %q must use https", ErrInvalidRequest, s)
 	}
 	if u.Fragment != "" || strings.Contains(s, "#") {
