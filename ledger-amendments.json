@@ -1,5 +1,26 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "bd701cbee7b6fc581f00e38162e73d435e288b4a",
-  "changes": []
+  "base_commit": "7acbdc07469f47a1820618fba3fce53720a463e3",
+  "changes": [
+    {
+      "rule_id": "RECOVER-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "OSS-RECOVER-REVOKE (2026-10-09): recover_test.go now drives recoverSiteAdminCore through recoverDeps (users plus the session and refresh revocation sinks) and adds the two RECOVER-2 tests; the RECOVER-1 sentinel-guard tests are unchanged in substance. Rehashed aaca81397daf -\u003e bab0d1b18285."
+    },
+    {
+      "rule_id": "RECOVER-2",
+      "change_class": "rule_added",
+      "reason": "OSS-RECOVER-REVOKE (2026-10-09): new rule RECOVER-2, armed on cmd/identuum-idp/recover_test.go @ unit: recover-site-admin ends every session and refresh token of the recovered site_admin, denylists the linked access-token JTIs, and exits non-zero on a revocation failure. Red-proved on the signature-only tree before the fix."
+    },
+    {
+      "rule_id": "RECOVER-3",
+      "change_class": "rule_added",
+      "reason": "OSS-RECOVER-REVOKE (2026-10-09): new rule RECOVER-3, armed on cmd/identuum-idp/recover_integration_test.go @ integration: against the live schema a pre-recovery site_admin session, refresh token and linked access JTI are refused after recover-site-admin while another user's stay live. Red-proved against the test database before the fix."
+    },
+    {
+      "rule_id": "RECOVER-4",
+      "change_class": "rule_added",
+      "reason": "OSS-RECOVER-REVOKE (2026-10-09): new rule RECOVER-4, armed on cmd/identuum-idp/recover_test.go @ unit: a recover-site-admin run whose session or refresh-token revocation fails exits non-zero, says the credential reset happened, names the remedy, and never prints the success line. Red-proved on the signature-only tree before the fix (rc = 0 although revoking the sessions failed)."
+    }
+  ]
 }
