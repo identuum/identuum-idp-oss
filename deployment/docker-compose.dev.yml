@@ -88,7 +88,7 @@ services:
       # pointed at the port the stack actually published.
       - "127.0.0.1:${DEV_PG_HOST_PORT:-5513}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U idp_oss_user -d identuum_idp_oss"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U idp_oss_user -d identuum_idp_oss"]
       interval: 3s
       timeout: 5s
       retries: 15

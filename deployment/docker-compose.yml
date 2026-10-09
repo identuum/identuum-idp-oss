@@ -139,7 +139,7 @@ services:
       POSTGRES_PASSWORD: dev-identuum_idp-not-a-secret
       POSTGRES_DB: identuum_idp
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U identuum_idp -d identuum_idp"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U identuum_idp -d identuum_idp"]
       interval: 3s
       timeout: 5s
       retries: 20

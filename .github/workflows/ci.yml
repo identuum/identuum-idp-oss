@@ -170,7 +170,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U ci -d identuum_ci_test"
+          --health-cmd "pg_isready -h 127.0.0.1 -U ci -d identuum_ci_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -499,7 +499,7 @@ jobs:
         ports:
           - 5513:5432
         options: >-
-          --health-cmd "pg_isready -U idp_oss_user -d identuum_idp_oss_test"
+          --health-cmd "pg_isready -h 127.0.0.1 -U idp_oss_user -d identuum_idp_oss_test"
           --health-interval 3s
           --health-timeout 5s
           --health-retries 15

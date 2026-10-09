@@ -1979,7 +1979,7 @@ fast-up: protected-guard
 		if command -v pg_isready > /dev/null 2>&1; then \
 			pg_isready -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -t $$probe_t > /dev/null 2>&1 && break; \
 		else \
-			run_bounded $$probe_t $(COMPOSE_CMD) -f $(COMPOSE_FILE) exec -T postgres-idp-oss pg_isready; \
+			run_bounded $$probe_t $(COMPOSE_CMD) -f $(COMPOSE_FILE) exec -T postgres-idp-oss pg_isready -h 127.0.0.1; \
 			[ $$RB_RC -eq 0 ] && break; \
 		fi; \
 		if [ $$(date +%s) -ge $$deadline ]; then expired=1; break; fi; \
