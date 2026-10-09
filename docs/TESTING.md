@@ -61,7 +61,7 @@ rationale was false, both login paths do a plain RFC 6238 window match.)
 | skip-ceiling | devloop skips must not exceed the committed ceiling (22, every one a named environment gate) |
 | coverage | UI route coverage derived from the run's own traces (floor 52 of 54; the 2 dark are the CE pair) |
 | closure | outside-matrix closure: session and class endpoints accounted for |
-| admin-reset | destructive: `recover-site-admin` on the populated appliance — old password refused, new password through first-login enrolment to working authority, tenant data surviving by id (TEST-spec R2) |
+| admin-reset | destructive: `recover-site-admin` on the populated appliance — old password refused, a site_admin session minted before the reset refused after it, new password through first-login enrolment to working authority, tenant data surviving by id (TEST-spec R2) |
 | auth503-scan | LAST: store errors the appliance logged and answered as 503 (AUTH-503) are scanned, never swallowed |
 
 After the e2e half, `test-full-mint` runs **`make devseed-live`** (owner

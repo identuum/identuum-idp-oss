@@ -7,6 +7,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **`recover-site-admin` ends every session of the recovered
+  administrator** (OSS-RECOVER-REVOKE). After the password and MFA reset the
+  command revokes every `site_admin` session and refresh token and denylists
+  the access tokens linked to those refresh tokens, so a session minted
+  before the recovery is refused after it; other users are untouched. If the
+  revocation fails the command exits non-zero, says the reset happened, and
+  tells the operator to run it again; it never reports success over live
+  sessions. Before, the command updated the user row only and a pre-reset
+  session stayed live to token expiry.
 - **One wrong-code allowance per user for every second-factor check**
   (OSS-MFA-BUDGET-1, P-103). The sign-in code step and the proof routes
   (step-up, MFA disable, recovery-code regenerate, skip-consent) now spend

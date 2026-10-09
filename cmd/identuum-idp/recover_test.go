@@ -18,6 +18,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -25,6 +26,43 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
+
+// recoverSessionSink records whose sessions recover-site-admin ended and can
+// fail on demand (OSS-RECOVER-REVOKE).
+type recoverSessionSink struct {
+	users []uuid.UUID
+	err   error
+}
+
+func (s *recoverSessionSink) RevokeByUserID(_ context.Context, userID uuid.UUID, _ string) error {
+	if s.err != nil {
+		return s.err
+	}
+	s.users = append(s.users, userID)
+	return nil
+}
+
+// recoverRefreshSink records whose refresh tokens (and linked access JTIs)
+// recover-site-admin ended and can fail on demand.
+type recoverRefreshSink struct {
+	users []uuid.UUID
+	n     int64
+	err   error
+}
+
+func (s *recoverRefreshSink) RevokeAllForUser(_ context.Context, userID uuid.UUID) (int64, error) {
+	if s.err != nil {
+		return 0, s.err
+	}
+	s.users = append(s.users, userID)
+	return s.n, nil
+}
+
+// recoverDepsFor wires the fake user repository with sinks that never fail,
+// for the tests that are about the user row and not the revocation.
+func recoverDepsFor(repo *memUserRepo) recoverDeps {
+	return recoverDeps{Users: repo, Sessions: &recoverSessionSink{}, Refresh: &recoverRefreshSink{}}
+}
 
 // seedBootstrappedSiteAdmin returns a memUserRepo containing exactly
 // one row that mirrors what `--bootstrap` produces. Tests mutate the
@@ -107,7 +145,7 @@ func TestRecoverSiteAdminCore_HappyPath(t *testing.T) {
 	opts := recoverOptions{Password: "new-demo-password-not-printed"}
 	var stdout, stderr bytes.Buffer
 
-	rc := recoverSiteAdminCore(context.Background(), repo, opts, &stdout, &stderr)
+	rc := recoverSiteAdminCore(context.Background(), recoverDepsFor(repo), opts, &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("expected rc=0, got %d (stderr=%s)", rc, stderr.String())
 	}
@@ -170,7 +208,7 @@ func TestRecoverSiteAdminCore_MissingSiteAdmin(t *testing.T) {
 	repo := &memUserRepo{}
 	opts := recoverOptions{Password: "demo-only"}
 	var stdout, stderr bytes.Buffer
-	rc := recoverSiteAdminCore(context.Background(), repo, opts, &stdout, &stderr)
+	rc := recoverSiteAdminCore(context.Background(), recoverDepsFor(repo), opts, &stdout, &stderr)
 	if rc == 0 {
 		t.Fatalf("expected non-zero rc when site_admin absent, got 0 (stdout=%s)", stdout.String())
 	}
@@ -191,13 +229,20 @@ func TestRecoverSiteAdminCore_RefusesWrongSentinelID(t *testing.T) {
 	// is keyed by a non-sentinel UUIDv7. Recovery must refuse.
 	repo.users[0].ID = uuid.MustParse("01900000-0000-7000-8000-000000abcdef")
 
+	sessions := &recoverSessionSink{}
+	refresh := &recoverRefreshSink{}
 	var stdout, stderr bytes.Buffer
-	rc := recoverSiteAdminCore(context.Background(), repo, recoverOptions{Password: "demo-only"}, &stdout, &stderr)
+	rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: sessions, Refresh: refresh}, recoverOptions{Password: "demo-only"}, &stdout, &stderr)
 	if rc == 0 {
 		t.Fatal("expected non-zero rc on sentinel ID drift")
 	}
 	if !strings.Contains(stderr.String(), "does not match domain.SiteAdminID") {
 		t.Fatalf("expected sentinel-mismatch error, got %q", stderr.String())
+	}
+	// A refusal ends nothing: the drifted row's sessions are not the
+	// site_admin's to revoke.
+	if len(sessions.users) != 0 || len(refresh.users) != 0 {
+		t.Fatalf("a refusal revoked sessions %v / refresh tokens %v", sessions.users, refresh.users)
 	}
 }
 
@@ -208,7 +253,7 @@ func TestRecoverSiteAdminCore_RefusesWrongRole(t *testing.T) {
 	repo.users[0].Role = domain.RoleOrgAdmin
 
 	var stdout, stderr bytes.Buffer
-	rc := recoverSiteAdminCore(context.Background(), repo, recoverOptions{Password: "demo-only"}, &stdout, &stderr)
+	rc := recoverSiteAdminCore(context.Background(), recoverDepsFor(repo), recoverOptions{Password: "demo-only"}, &stdout, &stderr)
 	if rc == 0 {
 		t.Fatal("expected non-zero rc on role drift")
 	}
@@ -223,7 +268,7 @@ func TestRecoverSiteAdminCore_Idempotent(t *testing.T) {
 	repo := seedBootstrappedSiteAdmin(t)
 	for i, pw := range []string{"first-pw", "second-pw", "third-pw"} {
 		var stdout, stderr bytes.Buffer
-		rc := recoverSiteAdminCore(context.Background(), repo, recoverOptions{Password: pw}, &stdout, &stderr)
+		rc := recoverSiteAdminCore(context.Background(), recoverDepsFor(repo), recoverOptions{Password: pw}, &stdout, &stderr)
 		if rc != 0 {
 			t.Fatalf("invocation %d: expected rc=0, got %d (stderr=%s)", i, rc, stderr.String())
 		}
@@ -245,7 +290,7 @@ func TestRecoverSiteAdminCore_NeverLeaksPassword(t *testing.T) {
 	const secret = "recover-marker-zzz-never-printed"
 	repo := seedBootstrappedSiteAdmin(t)
 	var stdout, stderr bytes.Buffer
-	rc := recoverSiteAdminCore(context.Background(), repo, recoverOptions{Password: secret}, &stdout, &stderr)
+	rc := recoverSiteAdminCore(context.Background(), recoverDepsFor(repo), recoverOptions{Password: secret}, &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("expected rc=0, got %d", rc)
 	}
@@ -259,5 +304,70 @@ func TestRecoverSiteAdminCore_NeverLeaksPassword(t *testing.T) {
 		if strings.Contains(buf.String(), secret) {
 			t.Fatalf("%s contained recovery password marker", name)
 		}
+	}
+}
+
+// --- OSS-RECOVER-REVOKE: the recovery ends what the old credentials minted ---
+
+// RULE: RECOVER-2
+func TestRecoverSiteAdminCore_EndsTheSiteAdminsSessionsAndTokens(t *testing.T) {
+	t.Parallel()
+
+	repo := seedBootstrappedSiteAdmin(t)
+	sessions := &recoverSessionSink{}
+	refresh := &recoverRefreshSink{n: 3}
+	var stdout, stderr bytes.Buffer
+	rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: sessions, Refresh: refresh},
+		recoverOptions{Password: "new-demo-password-not-printed"}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("expected rc=0, got %d (stderr=%s)", rc, stderr.String())
+	}
+	siteAdminID := uuid.MustParse(domain.SiteAdminID)
+	// Exactly the site_admin's sessions and refresh tokens end — once each,
+	// nobody else's.
+	if len(sessions.users) != 1 || sessions.users[0] != siteAdminID {
+		t.Errorf("sessions revoked for %v, want exactly the site_admin %s", sessions.users, siteAdminID)
+	}
+	if len(refresh.users) != 1 || refresh.users[0] != siteAdminID {
+		t.Errorf("refresh tokens revoked for %v, want exactly the site_admin %s", refresh.users, siteAdminID)
+	}
+	for _, want := range []string{"site_admin password updated", "sessions_revoked=true", "refresh_tokens_revoked=3"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Errorf("stdout lacks %q: %q", want, stdout.String())
+		}
+	}
+}
+
+// RULE: RECOVER-4
+func TestRecoverSiteAdminCore_RevocationFailureExitsNonZero(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		sessions *recoverSessionSink
+		refresh  *recoverRefreshSink
+	}{
+		{"sessions", &recoverSessionSink{err: errors.New("sessions store down")}, &recoverRefreshSink{}},
+		{"refresh tokens", &recoverSessionSink{}, &recoverRefreshSink{err: errors.New("refresh store down")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			repo := seedBootstrappedSiteAdmin(t)
+			var stdout, stderr bytes.Buffer
+			rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: tc.sessions, Refresh: tc.refresh},
+				recoverOptions{Password: "new-demo-password-not-printed"}, &stdout, &stderr)
+			if rc == 0 {
+				t.Fatalf("rc = 0 although revoking the %s failed", tc.name)
+			}
+			// Never a success line over live sessions.
+			if strings.Contains(stdout.String(), "site_admin password updated") {
+				t.Errorf("success was reported with the %s still live: %q", tc.name, stdout.String())
+			}
+			for _, want := range []string{"revoking the site_admin's " + tc.name + " failed", "run recover-site-admin again"} {
+				if !strings.Contains(stderr.String(), want) {
+					t.Errorf("stderr lacks %q: %q", want, stderr.String())
+				}
+			}
+		})
 	}
 }

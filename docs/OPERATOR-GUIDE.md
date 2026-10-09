@@ -163,17 +163,28 @@ completes it refuses (the stale file is ignored).
 docker exec -e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<new-password>' identuum-idp-oss /app/identuum-idp recover-site-admin
 ```
 
-Resets the `site_admin@system.local` password and clears its MFA enrollment
-so the operator can sign in again. The password travels only through the
-exec environment (mind your host shell history) and is never echoed.
+Resets the `site_admin@system.local` password, clears its MFA enrollment
+and ends every signed-in session of that administrator, so the operator can
+sign in again and whoever held the old credentials cannot. The password
+travels only through the exec environment (mind your host shell history)
+and is never echoed.
 
 ### What this invalidates (the aftermath)
 
 The reset rewrites `password_hash` AND wipes the MFA enrollment
 (`mfa_enabled=false`, `mfa_secret=""`, `mfa_recovery_codes=[]` —
-cmd/identuum-idp/recover.go). The moment the command returns, ALL of the
-following are stale:
+cmd/identuum-idp/recover.go) AND revokes every session, refresh token and
+linked access token of `site_admin`. The moment the command returns, ALL of
+the following are stale:
 
+- **Every signed-in session.** Browser and API sessions of `site_admin`
+  minted before the reset are refused from then on, refresh tokens no
+  longer rotate, and the access tokens linked to them are denylisted. This
+  is what makes the command a recovery from a compromised administrator,
+  not only from a forgotten password. If the command exits non-zero saying
+  the revocation failed, the password and MFA were still reset: fix the
+  cause and run it again (it is idempotent) until it reports
+  `sessions_revoked=true`; until then treat the old sessions as live.
 - **The authenticator app entry.** The old TOTP seed no longer exists
   server-side; delete the entry. On the **next login** the IdP forces a
   fresh enrolment and shows the new base32 seed **once, at that moment**

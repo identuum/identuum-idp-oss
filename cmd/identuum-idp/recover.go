@@ -53,6 +53,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	"github.com/identuum/identuum-idp-oss/internal/repository"
+	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
 // envRecoverPassword names the only env-var the recovery path reads.
@@ -90,6 +91,28 @@ func loadRecoverOptions(getenv func(string) string) (recoverOptions, error) {
 	return recoverOptions{Password: pw}, nil
 }
 
+// recoverDeps is what recoverSiteAdminCore needs: the user row it rewrites
+// and the two sinks that end everything the old credentials minted
+// (OSS-RECOVER-REVOKE, 2026-10-09). Interfaces, so the unit tests drive the
+// state machine with in-memory fakes; runRecoverSiteAdmin wires the real
+// repositories and services.
+type recoverDeps struct {
+	Users repository.UserRepository
+	// Sessions ends every session of the user: the same sink an operator
+	// MFA reset uses (reset-org-admin-mfa). A session-gated bearer is
+	// refused by the liveness check from then on.
+	Sessions interface {
+		RevokeByUserID(ctx context.Context, userID uuid.UUID, reason string) error
+	}
+	// Refresh ends every refresh token of the user and denylists the
+	// access-token JTIs linked to them: RefreshTokenService.RevokeAllForUser
+	// with the TokenRevocationService wired, the same path a password change
+	// takes.
+	Refresh interface {
+		RevokeAllForUser(ctx context.Context, userID uuid.UUID) (int64, error)
+	}
+}
+
 // recoverSiteAdminCore is the pure state machine. It is idempotent in
 // the sense that repeated runs target the same single sentinel row and
 // always result in the SAME user existing with the latest password.
@@ -111,10 +134,17 @@ func loadRecoverOptions(getenv func(string) string) (recoverOptions, error) {
 //   - mfa_recovery_codes = [] (cleared)
 //   - requires_password_change = false
 //
+// Effects beyond the row (OSS-RECOVER-REVOKE, 2026-10-09): every session
+// of the site_admin is revoked, every refresh token is revoked and the
+// access-token JTIs linked to them are denylisted — the same sinks a
+// password change and the operator MFA reset use. A revocation failure
+// exits non-zero after the row update and names the remedy; the success
+// line is never printed over live sessions.
+//
 // Untouched: id, email, role, organization_id, auth_source,
 // email_verified, banned, deleted_at, external_id, oidc_linked,
 // oidc_issuer, activation_token_*, verification_token_hash, name.
-func recoverSiteAdminCore(ctx context.Context, userRepo repository.UserRepository, opts recoverOptions, stdout, stderr io.Writer) (rc int) {
+func recoverSiteAdminCore(ctx context.Context, deps recoverDeps, opts recoverOptions, stdout, stderr io.Writer) (rc int) {
 	defer func() {
 		opts.Password = ""
 	}()
@@ -130,7 +160,7 @@ func recoverSiteAdminCore(ctx context.Context, userRepo repository.UserRepositor
 		return 1
 	}
 
-	existing, err := userRepo.GetByEmailAndOrgID(ctx, systemOrgID, domain.SiteAdminEmail)
+	existing, err := deps.Users.GetByEmailAndOrgID(ctx, systemOrgID, domain.SiteAdminEmail)
 	switch {
 	case errors.Is(err, domain.ErrUserNotFound):
 		fmt.Fprintf(stderr, "identuum-idp: recover: %s does not exist — run 'identuum-idp bootstrap' first\n", domain.SiteAdminEmail)
@@ -168,7 +198,7 @@ func recoverSiteAdminCore(ctx context.Context, userRepo repository.UserRepositor
 		RequiresPasswordChange: &requiresChangeFalse,
 	}
 
-	updated, err := userRepo.Update(ctx, existing.ID, existing.OrganizationID, update)
+	updated, err := deps.Users.Update(ctx, existing.ID, existing.OrganizationID, update)
 	if err != nil {
 		fmt.Fprintln(stderr, "identuum-idp: recover: update site_admin failed:", err)
 		return 1
@@ -178,9 +208,40 @@ func recoverSiteAdminCore(ctx context.Context, userRepo repository.UserRepositor
 		return 1
 	}
 
-	fmt.Fprintf(stdout, "identuum-idp: recover: site_admin password updated (id=%s, email=%s, mfa_reset=true, requires_password_change=false)\n", updated.ID, updated.Email)
+	// What the old credentials minted ends here, or the command fails: a
+	// recovery that leaves a compromised administrator's sessions live is
+	// not a recovery (OSS-RECOVER-REVOKE). The row update above has already
+	// committed, so a failure says so and names the remedy instead of
+	// claiming success over live sessions.
+	if deps.Sessions == nil || deps.Refresh == nil {
+		fmt.Fprintln(stderr, "identuum-idp: recover: the password and MFA were reset, but no revocation sink is wired — a defect in the command, not in the database")
+		fmt.Fprintln(stderr, recoverRevocationAdvice)
+		return 1
+	}
+	if err := deps.Sessions.RevokeByUserID(ctx, updated.ID, recoverRevocationReason); err != nil {
+		fmt.Fprintln(stderr, "identuum-idp: recover: the password and MFA were reset, but revoking the site_admin's sessions failed:", err)
+		fmt.Fprintln(stderr, recoverRevocationAdvice)
+		return 1
+	}
+	refreshRevoked, err := deps.Refresh.RevokeAllForUser(ctx, updated.ID)
+	if err != nil {
+		fmt.Fprintln(stderr, "identuum-idp: recover: the password and MFA were reset, but revoking the site_admin's refresh tokens failed:", err)
+		fmt.Fprintln(stderr, recoverRevocationAdvice)
+		return 1
+	}
+
+	fmt.Fprintf(stdout, "identuum-idp: recover: site_admin password updated (id=%s, email=%s, mfa_reset=true, requires_password_change=false, sessions_revoked=true, refresh_tokens_revoked=%d)\n", updated.ID, updated.Email, refreshRevoked)
 	return 0
 }
+
+// recoverRevocationReason is written to sessions.revoked_reason for every
+// site_admin session the recovery ends.
+const recoverRevocationReason = "site_admin_recovered"
+
+// recoverRevocationAdvice is what the operator does when the credential
+// reset landed but the revocation did not: the command is idempotent, so a
+// second run re-applies the same password and ends what is still live.
+const recoverRevocationAdvice = "identuum-idp: recover: sessions and tokens minted before this recovery may still be live — fix the cause and run recover-site-admin again (it is idempotent); until a run reports sessions_revoked=true, treat the old sessions as live"
 
 // runRecoverSiteAdmin is the CLI entrypoint wired into the
 // --recover-site-admin flag in main.go's switch. It opens a pgxpool
@@ -210,10 +271,14 @@ func runRecoverSiteAdmin(ctx context.Context, databaseURL string, stdout, stderr
 	// nil key cipher (the key repository is fail-closed: a nil cipher can
 	// never write plaintext).
 	repos := postgres.NewPgxRepositories(pool, nil)
-	if repos == nil || repos.User == nil {
+	if repos == nil || repos.User == nil || repos.Session == nil || repos.RefreshToken == nil || repos.TokenRevocation == nil {
 		fmt.Fprintln(stderr, "identuum-idp: recover: repository factory returned nil")
 		return 1
 	}
+	// The refresh service with the JTI denylist wired, so RevokeAllForUser
+	// ends the refresh tokens AND the access tokens linked to them.
+	refresh := service.NewRefreshTokenService(nil, repos.RefreshToken, service.RefreshTokenServiceOptions{}).
+		WithTokenRevocationService(service.NewTokenRevocationService(nil, repos.TokenRevocation))
 
-	return recoverSiteAdminCore(ctx, repos.User, opts, stdout, stderr)
+	return recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: refresh}, opts, stdout, stderr)
 }

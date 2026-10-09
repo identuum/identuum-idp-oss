@@ -162,7 +162,9 @@ This creates a site_admin user with:
 
 ### Recovery Process
 
-If you lose access to the bootstrap password, you can reset it.
+If you lose access to the bootstrap password, you can reset it. The reset
+also ends every signed-in session of `site_admin` (see the operator guide,
+"Reset the site_admin password").
 
 **From a repository checkout** (developer / demo stack):
 
