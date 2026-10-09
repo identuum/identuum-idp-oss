@@ -74,7 +74,7 @@ it fires — which side moves.
 | Tool | Declared in | Authority when they differ |
 | --- | --- | --- |
 | `rulefloor` | workflow env `RULEFLOOR_VERSION` (+ `RULEFLOOR_SHA256`) | **Latest stable**, per the fourth standing rule. Neither side wins by being CI or local: the pin is the RECORD, and the fix is to bump the pin to latest stable and install that here. A version below latest stable belongs in the held table above with its reason. |
-| `staticcheck` | workflow env `STATICCHECK_VERSION` | Latest stable, as above. |
+| `staticcheck` | workflow env `STATICCHECK_VERSION` (the version `make toolchain-parity` compares); CI's binary comes from the lictor `go-toolchain` action, pinned by commit in `ci.yml`, which holds the source and patch pins and asserts `staticcheck 2026.2.1 (0.8.1)` | Latest stable, as above. A bump moves the action's commit and `STATICCHECK_VERSION` together; CI asserts they agree. |
 | `grype` | workflow env `GRYPE_VERSION` | Latest stable, as above. |
 | `govulncheck` | workflow env `GOVULNCHECK_VERSION` | Latest stable, as above. |
 | `go` | **`go.mod`'s `go` directive** — not re-declared in the workflow | go.mod is authoritative for BOTH sides. CI's `setup-go` derives from it; this machine must match it. Changing the toolchain means changing go.mod, never the pin. |

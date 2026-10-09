@@ -202,13 +202,21 @@ jobs:
         # workflow directory makes a second install route fail before tools run.
         run: bash scripts/rulefloor-install-gate.sh .github/workflows
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        id: go
+      # OSS-TOOLCHAIN-ADOPT (2026-10-09): Go and staticcheck come from the
+      # shared lictor action, pinned by commit: setup-go from go.mod, then the
+      # 2026.2.1 source tarball plus the two dominikh/go-tools PR 1834 patches,
+      # each sha256-checked, built, cached and asserted as
+      # "staticcheck 2026.2.1 (0.8.1)". The pins live in the action only; this
+      # job installs staticcheck nowhere else. The action's setup-go keeps its
+      # own module cache on (it takes no cache input); the cache step below
+      # restores over it.
+      - uses: ozgurcd/lictor/.github/actions/go-toolchain@d35a8ad07dc59bd76153f0ed7d3b1ade22c6cf04
         with:
           go-version-file: go.mod
-          # THE-OSS-CI-CACHE (2026-09-08): setup-go's own cache is OFF in the
-          # two jobs that compile — one mechanism owns the caches below.
-          cache: false
+
+      - name: Name the Go version for the cache key
+        id: go
+        run: echo "go-version=$(go env GOVERSION | sed 's/^go//')" >> "$GITHUB_OUTPUT"
 
       # THE-OSS-CI-CACHE (2026-09-08) — the pattern identuum-idp-ce proved
       # (its c6ec08a; run 34290503253: validate 244 → 95 s, every job a hit).
@@ -220,8 +228,8 @@ jobs:
       # go-test-race ~103 s, staticcheck 13 s + its install 8 s. GOCACHE is
       # content-addressed (a stale entry is a MISS, never a wrong build),
       # GOMODCACHE is verified against go.sum on use, and the tool builds
-      # (staticcheck via go install, rulefloor via go build — 1 s here) are
-      # ordinary compiles GOCACHE covers. The version asserts in this
+      # (rulefloor via go build — 1 s here; staticcheck now comes cached from
+      # the lictor action) are ordinary compiles GOCACHE covers. The version asserts in this
       # workflow cover the binaries on PATH, not cache contents. The run id
       # in the key makes every green run save a fresh snapshot; the
       # restore-keys prefix restores the newest prior run of the SAME job.
@@ -249,44 +257,17 @@ jobs:
 
       # ci-verify runs staticcheck, grype, yq (the workflow-yaml parse) and the
       # RULE-FLOOR.md ledger gate — install their binaries first. govulncheck
-      # is NOT installed here: it has its own job.
-      - name: Install staticcheck (brew-identical build, and prove its version)
-        # OWNER RULE (2026-08-27): CI workflows always pin the LATEST
-        # stable tool version — pinned (never rolling @latest, which
-        # re-scopes silently) and bumped deliberately the moment a new
-        # stable ships. v0.8.1 == staticcheck 2026.2.1, latest stable.
-        # THE-UNWATCHED-FOUR: the install derives from the workflow-env
-        # declaration and the printed version is asserted — staticcheck
-        # prints its module version in parentheses, e.g.
-        # "staticcheck 2026.2.1 (0.8.1)".
-        # OSS-SEC-MFA-FIXES item 12 (owner, 2026-10-09): `go install`ed,
-        # v0.8.1 carries golang.org/x/tools v0.44.1-0.20260420230617, which
-        # cannot read go1.27.2's export data ("export data version 5 is
-        # greater than maximum supported version 4"). CI builds what brew
-        # builds: the 2026.2.1 source tarball plus the two dominikh/go-tools
-        # PR 1834 patches (x/tools v0.51.0), each checked against its
-        # sha256 before use. Drop the patches at the first upstream release
-        # that supports Go 1.27.x.
-        env:
-          STATICCHECK_TAG: "2026.2.1"
-          STATICCHECK_SOURCE_SHA256: 8d807cd909f4481d6777f7707e5ae75dcc399e14d68ff14a3c814731826e0dfc
-          STATICCHECK_PATCH1: 4ff8b865d12b49f3af67daf2294023336987dad5
-          STATICCHECK_PATCH1_SHA256: 19f123d3f405f779e82a739d3d6e7e3b289659b496ac82bd699586465b06ecc4
-          STATICCHECK_PATCH2: 01bcfe17fb93153091b35df4036a1d73087817ab
-          STATICCHECK_PATCH2_SHA256: 52ce80f83d597020938bb7c463070f3c133802995029faeb632e3fc385fb4d8a
+      # is NOT installed here: it has its own job. staticcheck came with Go
+      # from the lictor action above.
+      - name: Prove staticcheck matches the declared version
+        # THE-UNWATCHED-FOUR: STATICCHECK_VERSION stays the one declaration
+        # toolchain-parity compares with the local staticcheck; this step ties
+        # it to the binary the action put on PATH (it prints its module version
+        # in parentheses, "staticcheck 2026.2.1 (0.8.1)"), so a bump of the
+        # action and a stale declaration cannot pass together.
         run: |
-          src="$RUNNER_TEMP/staticcheck-src"
-          mkdir -p "$src"
-          curl -fsSL -o "$src/src.tar.gz" "https://github.com/dominikh/go-tools/archive/refs/tags/${STATICCHECK_TAG}.tar.gz"
-          curl -fsSL -o "$src/p1.patch" "https://github.com/dominikh/go-tools/commit/${STATICCHECK_PATCH1}.patch?full_index=1"
-          curl -fsSL -o "$src/p2.patch" "https://github.com/dominikh/go-tools/commit/${STATICCHECK_PATCH2}.patch?full_index=1"
-          printf '%s  %s\n' "$STATICCHECK_SOURCE_SHA256" "$src/src.tar.gz" "$STATICCHECK_PATCH1_SHA256" "$src/p1.patch" "$STATICCHECK_PATCH2_SHA256" "$src/p2.patch" | sha256sum -c -
-          tar -xzf "$src/src.tar.gz" -C "$src"
-          patch -d "$src/go-tools-${STATICCHECK_TAG}" -p1 < "$src/p1.patch"
-          patch -d "$src/go-tools-${STATICCHECK_TAG}" -p1 < "$src/p2.patch"
-          (cd "$src/go-tools-${STATICCHECK_TAG}" && go build -trimpath -o "$(go env GOPATH)/bin/staticcheck" ./cmd/staticcheck)
           staticcheck --version
-          staticcheck --version | grep -F "staticcheck ${STATICCHECK_TAG} (${STATICCHECK_VERSION#v})"
+          staticcheck --version | grep -F "(${STATICCHECK_VERSION#v})"
 
       - name: Install rulefloor (brew-identical build)
         # THE-SAME-BINARY (2026-08-27): CI builds rulefloor from the SAME
