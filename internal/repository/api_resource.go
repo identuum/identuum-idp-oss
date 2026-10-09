@@ -2,10 +2,28 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
+
+// ErrQuotaExceeded is CreateUnderCeiling's refusal: the organization already
+// holds ceiling API resources.
+var ErrQuotaExceeded = errors.New("repository: quota exceeded")
+
+// APIResourceQuotaStore is the quota-bound create of an APIResourceRepository
+// (OSS-SEAM-5). A repository without it cannot serve a quota, and the service
+// then refuses the create.
+type APIResourceQuotaStore interface {
+	// CountByOrg is how many API resources an organization holds.
+	CountByOrg(ctx context.Context, orgID uuid.UUID) (int64, error)
+	// CreateUnderCeiling is Create when the organization holds fewer than
+	// ceiling API resources, and ErrQuotaExceeded otherwise. The count and the
+	// insert are one transaction, serialized per organization, so concurrent
+	// creates cannot pass the ceiling; a failed insert writes nothing.
+	CreateUnderCeiling(ctx context.Context, resource *domain.APIResource, scopes []domain.APIScope, ceiling int64) error
+}
 
 // APIResourceRepository governs database operations for API Resources and their scopes
 type APIResourceRepository interface {

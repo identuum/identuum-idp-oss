@@ -5,6 +5,16 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **`pkg/extension`: entitlements and quotas on API resource create**
+  (OSS-SEAM-5, P-094, P-095). `runtime.Options.Entitlements` and
+  `runtime.Options.Quotas` bound a create: OSS counts and inserts in one
+  transaction under a lock per organization, so concurrent creates cannot
+  pass the ceiling (409 `quota_exceeded`); an error, a panic or an
+  unavailable snapshot is 403 `restricted`. A ceiling never bypasses an OSS
+  check. With neither set nothing changes.
+
 ## `v0.9.10`
 
 A security patch release. identuum-ui `9e478fd` embedded (`v0.9.9`

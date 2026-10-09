@@ -20,6 +20,15 @@ The set is exactly these ten directories under `pkg/`, enforced by
   error, and a panic, is 403 `restricted`. A restriction never turns an OSS
   refusal into an allow. Covered operations: API resource create, update and
   delete. With no restrictions OSS behaves as before.
+  Entitlements and quotas (OSS-SEAM-5), on API resource create only:
+  `runtime.Options.Entitlements` reports a snapshot, and
+  `runtime.Options.Quotas` returns a ceiling for a `QuotaFacts` (tenant,
+  family, count) that only OSS builds. A ceiling is not a permit: after the
+  restrictions, OSS counts and inserts in one transaction under a lock per
+  organization, and a create at the ceiling answers 409 `quota_exceeded`. An
+  error, a panic, an unavailable snapshot or a negative ceiling is 403
+  `restricted` and writes nothing. A ceiling never bypasses an OSS check. With
+  neither set OSS behaves as before.
 
 - `pkg/runtime` — builds and runs the OSS IdP in the caller's process:
   `New(Options)`, then `Start` and `Shutdown`; `Done`, `ServeErr`,

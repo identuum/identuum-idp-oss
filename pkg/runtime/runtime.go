@@ -76,6 +76,11 @@ type Options struct {
 	// Restrictions are deny-only extension restrictions on the operations
 	// pkg/extension names; nil or empty runs OSS as it is. Copied.
 	Restrictions []extension.Restriction
+	// Entitlements and Quotas bound API resource create (OSS-SEAM-5): an
+	// error, a panic or an unavailable snapshot is 403 restricted, and a
+	// create past the ceiling is 409 quota_exceeded. Nil runs OSS as it is.
+	Entitlements extension.Entitlements
+	Quotas       extension.QuotaPolicy
 }
 
 // Lifecycle is the consumer-facing view of a running Runtime.
@@ -179,6 +184,8 @@ func (o Options) config() internalruntime.Config {
 		CORSAllowedOrigins:        slices.Clone(o.CORSAllowedOrigins),
 		TrustedProxies:            slices.Clone(o.TrustedProxies),
 		Restrictions:              slices.Clone(o.Restrictions),
+		Entitlements:              o.Entitlements,
+		Quotas:                    o.Quotas,
 	}
 }
 

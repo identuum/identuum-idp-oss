@@ -33,6 +33,49 @@ func init() {
 		return Decision{actor: f.Actor, tenant: f.Tenant, operation: f.Operation, target: f.Target,
 			scopes: append([]string(nil), f.RequiredScopes...)}
 	}
+	extensionmint.NewQuotaFacts = func(tenant, family string, count int64) any {
+		return QuotaFacts{tenant: tenant, family: family, count: count}
+	}
+}
+
+// The resource families a QuotaFacts names.
+const QuotaFamilyAPIResource = "api_resource"
+
+// QuotaFacts is what OSS counted before one create (OSS-SEAM-5). It is
+// immutable, and only OSS builds one. Count is read before the create is
+// serialized; OSS counts again under the tenant's lock before it writes.
+type QuotaFacts struct {
+	tenant, family string
+	count          int64
+}
+
+// Tenant is the organization id the create acts in.
+func (q QuotaFacts) Tenant() string { return q.tenant }
+
+// Family is one of the QuotaFamily constants.
+func (q QuotaFacts) Family() string { return q.family }
+
+// Count is how many objects of the family the tenant holds.
+func (q QuotaFacts) Count() int64 { return q.count }
+
+// EntitlementSnapshot is the licensed state an extension reports. A snapshot
+// that is not Available is a denial, as is an error reading it.
+type EntitlementSnapshot struct {
+	Available bool
+}
+
+// Entitlements reports the licensed state. OSS reads it before a quota-bound
+// create; an error, a panic or an unavailable snapshot is 403 restricted.
+type Entitlements interface {
+	Snapshot(context.Context) (EntitlementSnapshot, error)
+}
+
+// QuotaPolicy returns the most objects of a family a tenant may hold. It is a
+// ceiling, not a permit: OSS creates only while its own count, taken under
+// the tenant's lock, is below it, and answers 409 quota_exceeded otherwise.
+// An error, a panic or a negative ceiling is 403 restricted.
+type QuotaPolicy interface {
+	Ceiling(context.Context, QuotaFacts) (int64, error)
 }
 
 // Actor is the acting user or client id.

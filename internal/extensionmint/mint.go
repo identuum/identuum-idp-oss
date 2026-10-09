@@ -13,3 +13,7 @@ type Fields struct {
 // NewDecision returns a pkg/extension.Decision holding f. It is nil only
 // before pkg/extension initialises, which happens before any importer runs.
 var NewDecision func(f Fields) any
+
+// NewQuotaFacts returns a pkg/extension.QuotaFacts (OSS-SEAM-5), set the
+// same way as NewDecision.
+var NewQuotaFacts func(tenant, family string, count int64) any

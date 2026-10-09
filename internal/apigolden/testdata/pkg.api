@@ -4,6 +4,7 @@ package pkg/extension
   const OperationAPIResourceDelete = "api_resource.delete"
   const OperationAPIResourceUpdate = "api_resource.update"
   const QuotaExceeded Code = "quota_exceeded"
+  const QuotaFamilyAPIResource = "api_resource"
   const Restricted Code = "restricted"
   func (d *Denial) Error() string
   func (d *Denial) Status() int
@@ -13,9 +14,16 @@ package pkg/extension
   func (d Decision) RequiredScopes() []string
   func (d Decision) Target() string
   func (d Decision) Tenant() string
+  func (q QuotaFacts) Count() int64
+  func (q QuotaFacts) Family() string
+  func (q QuotaFacts) Tenant() string
   type Code string
   type Decision struct { _unexported struct{} }
   type Denial struct { Code Code }
+  type EntitlementSnapshot struct { Available bool }
+  type Entitlements interface { Snapshot(context.Context) (EntitlementSnapshot, error) }
+  type QuotaFacts struct { _unexported struct{} }
+  type QuotaPolicy interface { Ceiling(context.Context, QuotaFacts) (int64, error) }
   type Restriction interface { Check(context.Context, Decision) error }
 package pkg/features
   const AnomalyDetection = internalfeatures.AnomalyDetection
@@ -99,7 +107,7 @@ package pkg/runtime
   type Fault struct { Component string Fatal bool Reason string }
   type HealthSnapshot struct { Serving bool Faults []Fault }
   type Lifecycle interface { Start(ctx context.Context) error Shutdown(ctx context.Context) error Done() <-chan struct{} ServeErr() error }
-  type Options struct { Addr string Issuer string DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string Restrictions []extension.Restriction }
+  type Options struct { Addr string Issuer string DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string Restrictions []extension.Restriction Entitlements extension.Entitlements Quotas extension.QuotaPolicy }
   type Runtime struct { _unexported struct{} }
 package pkg/totp
   func Code(key []byte, counter uint64, digits int) string

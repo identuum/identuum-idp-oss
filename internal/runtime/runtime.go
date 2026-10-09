@@ -192,6 +192,12 @@ type Config struct {
 	// resource writes after the OSS checks (OSS-SEAM-4). Empty keeps OSS as
 	// it is; the binary sets none.
 	Restrictions []extension.Restriction
+
+	// Entitlements and Quotas bound API resource create (OSS-SEAM-5): fail
+	// closed, and a ceiling OSS enforces per organization. Nil keeps OSS as it
+	// is; the binary sets neither.
+	Entitlements extension.Entitlements
+	Quotas       extension.QuotaPolicy
 }
 
 // Runtime is the OSS in-process IDP lifecycle handle.
@@ -1100,7 +1106,8 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	// H7: an audience is never the issuer or an application's client id.
 	apiResourceSvc := service.NewAPIResourceService(report, repos.APIResource).
 		WithReservedAudiences(service.ReservedAudienceChecker(resolvedIssuer, repos.Client)).
-		WithRestrictions(r.cfg.Restrictions)
+		WithRestrictions(r.cfg.Restrictions).
+		WithQuotas(r.cfg.Entitlements, r.cfg.Quotas)
 	scopeTemplateSvc := service.NewScopeTemplateService(report, repos.ScopeTemplate)
 	userRepo := repository.UserRepository(repos.User)
 	orgRepo := repository.OrganizationRepository(repos.Organization)

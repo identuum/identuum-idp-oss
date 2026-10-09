@@ -18,6 +18,9 @@ import (
 // PgxAPIResourceRepository implements APIResourceRepository using pgx
 type PgxAPIResourceRepository struct {
 	db DBTX
+	// quotaCounted runs after a quota-bound create has counted under its
+	// lock and before it inserts; tests hold a create there. Nil otherwise.
+	quotaCounted func()
 }
 
 // NewPgxAPIResourceRepository creates a new pgx api_resource repository
@@ -26,7 +29,29 @@ func NewPgxAPIResourceRepository(db DBTX) *PgxAPIResourceRepository {
 }
 
 // Compile-time check
-var _ repository.APIResourceRepository = (*PgxAPIResourceRepository)(nil)
+var (
+	_ repository.APIResourceRepository = (*PgxAPIResourceRepository)(nil)
+	_ repository.APIResourceQuotaStore = (*PgxAPIResourceRepository)(nil)
+)
+
+// CountByOrg is how many API resources an organization holds (OSS-SEAM-5).
+func (r *PgxAPIResourceRepository) CountByOrg(ctx context.Context, orgID uuid.UUID) (int64, error) {
+	var n int64
+	err := r.db.QueryRow(ctx, `SELECT count(*) FROM api_resources WHERE org_id = $1`, orgID).Scan(&n)
+	return n, err
+}
+
+// CreateUnderCeiling is Create when the organization holds fewer than ceiling
+// API resources (OSS-SEAM-5). A transaction-scoped advisory lock keyed by the
+// organization serializes the count and the insert, so two creates for the
+// last slot cannot both pass; a failed insert rolls back and frees the slot.
+func (r *PgxAPIResourceRepository) CreateUnderCeiling(ctx context.Context, resource *domain.APIResource, scopes []domain.APIScope, ceiling int64) error {
+	return r.create(ctx, resource, scopes, &ceiling)
+}
+
+func (r *PgxAPIResourceRepository) Create(ctx context.Context, resource *domain.APIResource, scopes []domain.APIScope) error {
+	return r.create(ctx, resource, scopes, nil)
+}
 
 // audienceConflict reports a unique violation on api_resources — the audience
 // is unique across the installation (H7), and (org_id, audience) before it —
@@ -40,7 +65,7 @@ func audienceConflict(err error) error {
 	return err
 }
 
-func (r *PgxAPIResourceRepository) Create(ctx context.Context, resource *domain.APIResource, scopes []domain.APIScope) error {
+func (r *PgxAPIResourceRepository) create(ctx context.Context, resource *domain.APIResource, scopes []domain.APIScope, ceiling *int64) error {
 	timer := prometheus.NewTimer(metrics.DBQueryDuration.WithLabelValues("api_resource_repo", "create", "all"))
 	defer timer.ObserveDuration()
 
@@ -57,6 +82,22 @@ func (r *PgxAPIResourceRepository) Create(ctx context.Context, resource *domain.
 		return err
 	}
 	defer tx.Rollback(ctx)
+
+	if ceiling != nil {
+		if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('api_resources.quota:' || $1::text, 0))`, resource.OrganizationID); err != nil {
+			return fmt.Errorf("failed to lock the organization's quota: %w", err)
+		}
+		var n int64
+		if err := tx.QueryRow(ctx, `SELECT count(*) FROM api_resources WHERE org_id = $1`, resource.OrganizationID).Scan(&n); err != nil {
+			return fmt.Errorf("failed to count resources: %w", err)
+		}
+		if r.quotaCounted != nil {
+			r.quotaCounted()
+		}
+		if n >= *ceiling {
+			return repository.ErrQuotaExceeded
+		}
+	}
 
 	query := `
 		INSERT INTO api_resources (id, org_id, name, audience, active, token_ttl_secs, resource_secret_hash, created_at, updated_at)

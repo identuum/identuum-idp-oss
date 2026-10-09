@@ -29,6 +29,9 @@ type APIResourceService struct {
 	reserved func(ctx context.Context, audience string) (bool, error)
 	// restrictions are the extension restrictions of the writes (OSS-SEAM-4).
 	restrictions []extension.Restriction
+	// entitlements and quotas bound API resource create (OSS-SEAM-5).
+	entitlements extension.Entitlements
+	quotas       extension.QuotaPolicy
 }
 
 func NewAPIResourceService(report *lifecycle.StartupReport, repo repository.APIResourceRepository) *APIResourceService {
@@ -178,7 +181,7 @@ func (s *APIResourceService) Create(ctx context.Context, actor *domain.Principal
 	if err := s.restrict(ctx, actor, extension.OperationAPIResourceCreate, resource.ID); err != nil {
 		return nil, "", err
 	}
-	if err := s.repo.Create(ctx, resource, opts.Scopes); err != nil {
+	if err := s.createRow(ctx, resource, opts.Scopes); err != nil {
 		return nil, "", err
 	}
 	return resource, plaintext, nil
