@@ -366,9 +366,36 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 // "leave unchanged"; a supplied value is validated and applied per the field
 // table on UpdateClientOptions; non-nil slices replace the prior value.
 func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts UpdateClientOptions) (*domain.Client, error) {
+	return s.updateClient(ctx, id, opts, nil)
+}
+
+// UpdateClientReportingPrior is UpdateClient that also answers the client as
+// this update read it, before any change was applied (OSS-REVIEW-FIXES-3,
+// review OSS-PKCE-REVIEW-2026-10-10 R4): an audited before value comes from
+// the row the update changed, never from a separate read that may have failed.
+func (s *ClientService) UpdateClientReportingPrior(ctx context.Context, id uuid.UUID, opts UpdateClientOptions) (domain.Client, *domain.Client, error) {
+	var prior domain.Client
+	client, err := s.updateClient(ctx, id, opts, &prior)
+	if err != nil {
+		return domain.Client{}, nil, err
+	}
+	return prior, client, nil
+}
+
+// updateClient is UpdateClient; prior, when not nil, receives the client as
+// read, before the change. A store that cannot be read answers
+// AuthStoreUnavailable, as GetClient does, and a missing client not-found;
+// neither writes anything.
+func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts UpdateClientOptions, prior *domain.Client) (*domain.Client, error) {
 	client, err := s.repo.GetClientByID(ctx, id)
+	if err != nil && !errors.Is(err, domain.ErrClientNotFound) {
+		return nil, domain.AuthStoreUnavailable("client", err)
+	}
 	if err != nil || client == nil {
 		return nil, errClientNotFound
+	}
+	if prior != nil {
+		*prior = *client
 	}
 	// THE-UNVALIDATED-REST: a SUPPLIED value must pass the same rule create
 	// applies. THE-SILENT-DROP: Name is now a POINTER, because `!= ""` could

@@ -665,21 +665,21 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		// Prior state, read ONLY when this update touches the scope, the SA
 		// binding or skip_consent — it gives the scope cap the scopes the app
 		// already holds, decides whether the SA-subject link/unlink audit event
-		// below fires and which SA an unbind names, and gives the skip_consent
-		// change its before value (D-018(b)). An unreadable prior judges every
-		// scope, never fewer.
+		// below fires and which SA an unbind names, and decides whether
+		// skip_consent is being turned on (D-018(b)). An unreadable prior judges
+		// every scope, never fewer. The audited before values are NOT taken from
+		// here: they come from the row the update itself read and changed
+		// (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW-2026-10-10 R4).
 		var priorSA *uuid.UUID
 		var priorSkip, priorDynamic, priorPublic bool
-		priorPKCERequired := true
 		var priorScope string
-		if req.Scope != nil || req.ServiceAccountID != nil || req.SkipConsent != nil || req.PKCERequired != nil {
+		if req.Scope != nil || req.ServiceAccountID != nil || req.SkipConsent != nil {
 			if prior, perr := deps.ClientService.GetClient(c.Request.Context(), id); perr == nil && prior != nil {
 				priorSA = prior.ServiceAccountID
 				priorSkip = prior.SkipConsent
 				priorDynamic = prior.DynamicallyRegistered
 				priorPublic = prior.IsPublic
 				priorScope = prior.Scope
-				priorPKCERequired = !prior.PKCEOptOut
 			}
 		}
 		if req.Scope != nil && !requireClientScopeWithinActor(c, *req.Scope, priorScope) {
@@ -704,7 +704,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 				return
 			}
 		}
-		client, err := deps.ClientService.UpdateClient(c.Request.Context(), id, service.UpdateClientOptions{
+		before, client, err := deps.ClientService.UpdateClientReportingPrior(c.Request.Context(), id, service.UpdateClientOptions{
 			Name:                              req.Name,
 			Scope:                             req.Scope,
 			ServiceAccountID:                  req.ServiceAccountID,
@@ -735,7 +735,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		c.JSON(http.StatusOK, toSafeClient(client))
 		meta := map[string]any{"client_id": client.ClientID}
 		if req.SkipConsent != nil {
-			meta["skip_consent_before"] = priorSkip
+			meta["skip_consent_before"] = before.SkipConsent
 			meta["skip_consent_after"] = client.SkipConsent
 			if turningSkipOn {
 				meta["mfa_verified"] = true
@@ -744,7 +744,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		// OSS-PUBLIC-CLIENT-PKCE-OPTION: who changed "PKCE required" (the
 		// actor fields) and from what to what.
 		if req.PKCERequired != nil {
-			meta["pkce_required_before"] = priorPKCERequired
+			meta["pkce_required_before"] = !before.PKCEOptOut
 			meta["pkce_required_after"] = !client.PKCEOptOut
 		}
 		_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
