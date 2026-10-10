@@ -86,8 +86,10 @@ IPv4 is the default everywhere; IPv6 is supported and opt-in.
   sign-in answer `429 login_throttled` with `Retry-After`, the right password
   included; the sign-in page says to wait. At the code step, five wrong codes
   for one user in fifteen minutes (any sign-in, any address) make every code,
-  the right one included, answer the same `429` until the oldest leaves the
-  window; the code step's per-address limits answer the same way. Step-up and
+  the right one included, answer the same `429`; each miss counts for at
+  least fifteen minutes, and pending sign-in misses may stay counted up to the
+  sign-in handle's lifetime (five minutes) longer. The code step's
+  per-address limits answer the same way. Step-up and
   the other second-factor proofs (MFA disable, recovery-code regenerate,
   skip consent) have their own budget of five wrong codes in fifteen minutes
   and answer the same wait (the step-up page says to wait). A success
@@ -906,12 +908,22 @@ GET /.well-known/openid-configuration
   that page then continues to the `post_logout_redirect_uri` on its own (a
   few seconds at most, whether or not the application answers), or is the
   "You are signed out" page when there is no redirect. The frame lets the
-  application's logout page run its own script with its own origin's
-  storage and cookies (sandbox `allow-scripts allow-same-origin`), so a
-  page that clears a sign-in marker or calls the application's logout API
-  works; it cannot navigate, submit or script the page that frames it. A
-  logout page registered on the IdP's own origin runs its script without
-  `allow-same-origin`. A frame that loads is not proof that the application
+  application's logout page run its own script. When the page's origin is
+  positively different from the IdP's, the script also gets its own origin's
+  storage and cookies (sandbox `allow-scripts allow-same-origin`), so a page
+  that clears a sign-in marker or calls the application's logout API works;
+  it cannot navigate, submit or script the page that frames it. Origins are
+  compared as a browser computes them (numeric port with the default
+  dropped, IDNA host in lower-case ASCII, canonical IP literal), so a page
+  on the IdP's own origin under another spelling, such as `:0443`, a
+  punycode alias or a long-form IPv6 literal, counts as the IdP's origin. A
+  logout page on the IdP's own origin, or one whose origin cannot be
+  compared with certainty, runs its script without `allow-same-origin`, in
+  an opaque origin with no access to its origin's storage or cookies.
+  **Logout pages that clear browser storage must be served from an origin
+  different from the issuer's;** on the issuer's own origin they are not
+  supported. Back-channel logout (`backchannel_logout_uri`) is the
+  alternative. A frame that loads is not proof that the application
   cleared its session: the IdP continues after a bounded wait either way.
 - **private_key_jwt:** the token endpoint accepts the client assertion with
   or without `client_id`; without it the assertion's `iss` (which must equal

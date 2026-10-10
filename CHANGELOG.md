@@ -20,21 +20,30 @@ follows [Semantic Versioning](https://semver.org/).
   key is still reused, a rotating-only RSA key still gets a new active one,
   and the option off still creates nothing. No migration.
 - **Front-channel logout frames let the application's logout page run its
-  script** (OSS-REVIEW-FIXES-1, review finding F1). The hidden frames the
+  script** (OSS-REVIEW-FIXES-1, review finding F1; OSS-PUBLIC-CLIENT-PKCE-OPTION,
+  review OSS-FIXES-REVIEW-2026-10-10 R1 and R2). The hidden frames the
   `end_session` page and `GET /api/v1/oidc/frontchannel-logout` load now
-  carry `sandbox="allow-scripts allow-same-origin"` for a logout page on
-  another origin than the IdP's, so a page that clears its sign-in marker
-  from storage or calls its own logout API works; it still cannot navigate,
-  submit or script the page that frames it (no `allow-top-navigation`,
-  `allow-forms` or `allow-popups`, and the page's own policy, `frame-ancestors
-  'none'`, `form-action 'none'` and `base-uri 'none'`, is unchanged). A logout
-  page registered on the IdP's own origin, or one the IdP cannot compare
-  against, gets `allow-scripts` alone, never both. Before, every frame was
-  `sandbox="allow-same-origin"` without `allow-scripts`: the page loaded,
-  its script never ran, and the IdP continued as if the application had been
-  told.
-- **A wrong sign-in code counts against the shared allowance for fifteen
-  minutes from when it was entered** (OSS-REVIEW-FIXES-1, review finding
+  carry `sandbox="allow-scripts allow-same-origin"` for a logout page whose
+  origin is positively different from the IdP's, so a page on its own origin
+  that clears its sign-in marker from storage or calls its own logout API
+  works; it still cannot navigate, submit or script the page that frames it
+  (no `allow-top-navigation`, `allow-forms` or `allow-popups`, and the page's
+  own policy, `frame-ancestors 'none'`, `form-action 'none'` and `base-uri
+  'none'`, is unchanged). Origins are compared as a browser computes them:
+  the port as a number with the default dropped, the host mapped through IDNA
+  to lower-case ASCII, IP literals in canonical form. A logout page on the
+  IdP's own origin under any such spelling (for example `:0443`, a punycode
+  alias, or a long-form IPv6 literal), or one whose origin cannot be
+  canonicalized with certainty, gets `allow-scripts` alone, never both. Its
+  script runs in an opaque origin without its origin's storage or cookies,
+  so a logout page that must clear browser storage is not supported on the
+  issuer's own origin: serve it from a different origin, or use back-channel
+  logout. Before, every frame was `sandbox="allow-same-origin"` without
+  `allow-scripts`: the page loaded, its script never ran, and the IdP
+  continued as if the application had been told.
+- **A wrong sign-in code counts against the shared allowance for at least
+  fifteen minutes; pending sign-in misses may stay counted up to the handle
+  lifetime longer** (OSS-REVIEW-FIXES-1, review finding
   F4; P-103). The sign-in code step keeps one wrong-code counter per sign-in
   attempt handle and no attempt times, and the shared allowance aged those
   misses from the handle's creation: five wrong codes entered four minutes
@@ -67,7 +76,8 @@ follows [Semantic Versioning](https://semver.org/).
   stored return URL: started from the console, the console's `access_token`
   and `refresh_token` cookies only; started for an application's
   `/authorize` (the return URL is the authorize request), the IdP's own
-  browser-session cookie only. An application's `/authorize` therefore still
+  browser-session cookie only. An edition without a console minter uses the
+  browser-session cookie for both. An application's `/authorize` therefore still
   asks for its own sign-in right after a console sign-in through the
   provider, and `end_session` and the console's sign-out never end each
   other's session. Before, the callback planted both families from one
@@ -77,10 +87,11 @@ follows [Semantic Versioning](https://semver.org/).
 - **An upstream sign-in whose console credentials cannot be minted is
   refused, never half-committed** (OSS-REVIEW-FIXES-1, review finding F2).
   The provider callback now mints every credential before it writes any
-  cookie: when the console's access token cannot be minted (the signing key
-  cannot be read), it answers `503 temporarily unavailable, try again` with
-  no cookie of any kind and no redirect, revokes the session it had just
-  created and audits `auth.oidc_login.failure` (`reason`
+  cookie: when a console-purpose sign-in's access token cannot be minted (the
+  signing key cannot be read), it answers `503 temporarily unavailable, try
+  again` with no cookie of any kind and no redirect, attempts to revoke the
+  new session and audits whether cleanup succeeded, in
+  `auth.oidc_login.failure` (`reason`
   `console_token_issue_failed`, `provider_id`, `session_id`,
   `session_revoked`), exactly as it does when the browser-session token
   cannot be issued. Before, it planted the browser-session and refresh
@@ -136,8 +147,9 @@ follows [Semantic Versioning](https://semver.org/).
   `503 temporarily unavailable, try again` with no cookie of any kind and no
   redirect, audits `auth.oidc_login.failure` (`reason`
   `browser_session_token_issue_failed`, `provider_id`, `session_id`,
-  `session_revoked`) and revokes the session it had just created, exactly as
-  the browser sign-in has since P2-8. Before, it planted the raw refresh token
+  `session_revoked`) and attempts to revoke the new session, recording in
+  `session_revoked` whether cleanup succeeded, exactly as the browser sign-in
+  has since P2-8. Before, it planted the raw refresh token
   as the browser-session cookie — a cookie that authenticates nothing — and
   sent the person on "signed in". A working token store is unchanged.
 - **A client assertion may name the issuer as its audience**

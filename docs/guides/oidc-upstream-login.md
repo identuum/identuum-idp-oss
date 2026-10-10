@@ -117,18 +117,20 @@ callback redirect URI.
    ONE sign-in the flow was started for, and redirects to the stored return URL. A sign-in
    started from the console (`return_to` is a console page) sets the same `access_token` and
    `refresh_token` cookies a password sign-in sets and nothing else: the person lands in the
-   console signed in, and refresh and sign-out then work as after a password sign-in. A
+   console signed in, and refresh and sign-out then work as after a password sign-in (an
+   edition without a console minter sets the browser-session cookie instead). A
    sign-in started for an application's `/authorize` (`return_to` is the authorize request)
    sets only the IdP's own browser-session cookie, and the resumed `/authorize` finds it.
    Console and application sign-ins stay separate (operator guide, "Console and application
    sign-ins are separate"): a console sign-in through the provider never signs the person in
    to an application, and `end_session` and the console's sign-out never end each other's
    session. Every credential is minted before any cookie is written: if the IdP's own
-   browser-session token cannot be issued, or the console's access token cannot be minted,
-   the callback fails closed exactly as the browser sign-in does: `503 temporarily
-   unavailable, try again`, no cookie, no redirect, the just-created session revoked, and
-   `auth.oidc_login.failure` audited (`reason` `browser_session_token_issue_failed` or
-   `console_token_issue_failed`, `session_revoked`). A browser that already held another
+   browser-session token cannot be issued, or a console-purpose sign-in's access token cannot
+   be minted, the callback fails closed exactly as the browser sign-in does: `503 temporarily
+   unavailable, try again`, no cookie, no redirect; it attempts to revoke the new session and
+   audits whether cleanup succeeded, in `auth.oidc_login.failure` (`reason`
+   `browser_session_token_issue_failed` or `console_token_issue_failed`, `session_revoked`
+   true or false). A failed cleanup does not change the refusal: no credential is issued. A browser that already held another
    user's console cookies keeps them untouched by the refusal and never receives a half
    sign-in beside them. The person retries the sign-in.
 

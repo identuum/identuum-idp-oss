@@ -5,11 +5,14 @@ import (
 	"encoding/base64"
 	"html"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"golang.org/x/net/idna"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
@@ -53,14 +56,23 @@ const (
 // (OSS-REVIEW-FIXES-1, review finding F1). The receiver's script must run: a
 // relying party that clears its sign-in marker from storage or calls its own
 // logout API is script-dependent, and a frame with no allow-scripts loaded
-// it, fired load, and told the OP nothing had gone wrong. A receiver on
-// another origin than the OP's also gets allow-same-origin, so it runs with
-// its own origin's storage and cookies; it still cannot script, navigate or
-// submit anything in the page that frames it (cross-origin, and no
-// allow-top-navigation, allow-forms or allow-popups). A receiver on the OP's
-// own origin, or on an origin the OP cannot compare against, gets
-// allow-scripts alone: allow-scripts with allow-same-origin on a same-origin
-// document lets it lift its own sandbox.
+// it, fired load, and told the OP nothing had gone wrong. A receiver whose
+// origin is positively different from the OP's also gets allow-same-origin,
+// so it runs with its own origin's storage and cookies; it still cannot
+// script, navigate or submit anything in the page that frames it
+// (cross-origin, and no allow-top-navigation, allow-forms or allow-popups).
+//
+// Every other receiver gets allow-scripts alone: one on the OP's own origin
+// under any spelling a browser treats as that origin (a zero-padded default
+// port, an IDNA host in Unicode or punycode, an IPv6 literal written long or
+// short; FRONTCHANNEL-SANDBOX-ORIGIN-1, review OSS-FIXES-REVIEW-2026-10-10
+// R1), and one whose origin, or the OP's, cannot be canonicalized with
+// certainty. allow-scripts with allow-same-origin on a same-origin document
+// would let it read the page that frames it and lift its own sandbox, so
+// that pair is never granted to it. The price (R2): such a receiver's script
+// runs in an opaque origin, without its origin's storage or cookies. A
+// receiver that must clear browser storage is served from an origin other
+// than the issuer's; back-channel logout is the alternative.
 func frontchannelFrameSandbox(src, issuer string) string {
 	rp, op := webOrigin(src), webOrigin(issuer)
 	if rp != "" && op != "" && rp != op {
@@ -69,18 +81,74 @@ func frontchannelFrameSandbox(src, issuer string) string {
 	return "allow-scripts"
 }
 
-// webOrigin is the origin a browser gives raw: lower-case scheme and host,
-// the scheme's default port dropped; "" when raw is not an absolute URL.
+// webOrigin is raw's origin as a browser computes it, so that two spellings
+// of one origin compare equal: the scheme (http or https), the host mapped
+// through IDNA to lower-case ASCII (an IP literal in its canonical form, one
+// trailing dot dropped), and the port as a number with the scheme's default
+// dropped. It answers "" for anything it cannot canonicalize with certainty —
+// another scheme, userinfo, a host a browser would read as an IPv4 address
+// written other than as four decimal parts, a host IDNA refuses, a port out
+// of range — and the caller then treats the origin as possibly the OP's own.
 func webOrigin(raw string) string {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
+	if err != nil || u.User != nil || u.Opaque != "" || u.Host == "" {
 		return ""
 	}
-	scheme, host := strings.ToLower(u.Scheme), strings.ToLower(u.Host)
-	if (scheme == "https" && strings.HasSuffix(host, ":443")) || (scheme == "http" && strings.HasSuffix(host, ":80")) {
-		host = host[:strings.LastIndex(host, ":")]
+	defaultPort := map[string]int{"http": 80, "https": 443}[u.Scheme]
+	if defaultPort == 0 {
+		return ""
 	}
-	return scheme + "://" + host
+	host := canonicalOriginHost(u.Host, u.Hostname())
+	if host == "" {
+		return ""
+	}
+	origin := u.Scheme + "://" + host
+	if p := u.Port(); p != "" {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 || n > 65535 {
+			return ""
+		}
+		if n != defaultPort {
+			origin += ":" + strconv.Itoa(n)
+		}
+	}
+	return origin
+}
+
+// canonicalOriginHost is the host part of webOrigin; rawHost is the URL's
+// host with its port, hostname the same without port or IPv6 brackets.
+func canonicalOriginHost(rawHost, hostname string) string {
+	if strings.HasPrefix(rawHost, "[") {
+		addr, err := netip.ParseAddr(hostname)
+		if err != nil || !addr.Is6() || addr.Zone() != "" {
+			return ""
+		}
+		return "[" + addr.String() + "]"
+	}
+	ascii, err := idna.Lookup.ToASCII(strings.TrimSuffix(hostname, "."))
+	if err != nil || ascii == "" {
+		return ""
+	}
+	ascii = strings.ToLower(ascii)
+	labels := strings.Split(ascii, ".")
+	if last := labels[len(labels)-1]; isNumericHostLabel(last) {
+		// A browser reads this host as an IPv4 address, in any of several
+		// notations; only the plain dotted-decimal one is trusted here.
+		addr, err := netip.ParseAddr(ascii)
+		if err != nil || !addr.Is4() || addr.String() != ascii {
+			return ""
+		}
+	}
+	return ascii
+}
+
+// isNumericHostLabel reports whether a host's last label makes a browser
+// parse the host as IPv4: decimal digits, or 0x followed by hex digits.
+func isNumericHostLabel(label string) bool {
+	if hex, ok := strings.CutPrefix(label, "0x"); ok {
+		return strings.Trim(hex, "0123456789abcdef") == ""
+	}
+	return label != "" && strings.Trim(label, "0123456789") == ""
 }
 
 // renderFrontchannelFanoutPage writes the page that loads each front-channel

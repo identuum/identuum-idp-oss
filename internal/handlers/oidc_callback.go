@@ -278,9 +278,11 @@ func upstreamSignInPurposeOf(returnURL string) upstreamSignInPurpose {
 // refuseUpstreamSignIn is the one way a completed upstream sign-in is refused
 // after the callback service minted its session: no cookie of any kind, no
 // redirect, the browser login's 503 text (a non-credential signal; the
-// provider did sign the person in). The session the callback service created
-// is revoked so a refused sign-in leaves nothing live (OSS-HARDENING-2 item
-// 2); the audit names the reason and says whether that revocation happened.
+// provider did sign the person in). It attempts to revoke the session the
+// callback service created, so a refused sign-in normally leaves nothing live
+// (OSS-HARDENING-2 item 2); a store outage can make that attempt fail, and
+// the audit names the reason and says whether the revocation happened. The
+// refusal stands either way: no credential is delivered.
 func refuseUpstreamSignIn(c *gin.Context, deps OIDCCallbackHandlerDeps, res *service.OIDCCallbackResult, providerID uuid.UUID, ip, ua, reason string) {
 	revoked := false
 	if deps.UserSession != nil {
