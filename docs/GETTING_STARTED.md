@@ -8,30 +8,85 @@ For backups, upgrades and recovery, use the [operator guide](OPERATOR-GUIDE.md).
 
 - Git and Go at the version specified by [go.mod](../go.mod).
 - PostgreSQL 18 or newer; the initial migration uses its built-in `uuidv7()`.
-- Docker and the Compose plugin for the optional local development stack.
+- Docker and the Compose plugin for the optional local development stack and
+  full `make validate` check; the Docker engine must be running for these.
 - PostgreSQL client tools (`psql`, `createdb`) for database-backed tests.
 - `staticcheck` at the version and build used by CI. The current Homebrew
   build includes the Go export-data compatibility patches used by CI's
   `go-toolchain` action; the upstream `go install ...@latest` build does not.
   `make toolchain-parity` checks the installed tools against the CI pins.
 
-## Build and validate
+## First build and source checks
+
+For a first build, leave `IDENTUUM_IDP_TEST_DATABASE_URL` unset. Some
+untagged database-backed tests skip when that variable is unset; setting it
+opts those tests into using a database.
 
 ```bash
 git clone https://github.com/identuum/identuum-idp-oss.git
 cd identuum-idp-oss
-make validate
+make build
+make test
+make staticcheck
 go build -o identuum-idp ./cmd/identuum-idp
 ```
 
-`make validate` runs `make build`, `make test` and `make staticcheck`: it
-builds the packages, runs the untagged unit tests, and checks both untagged
-and integration-tagged code with staticcheck. It does not start, reset or
-stop a database, and it does not execute the integration tests.
+- `make build` compiles all packages with `go build ./...`.
+- `make test` runs the untagged tests with `go test ./... -count=1`; it does
+  not start or stop Docker. Database-backed tests can run when configured as
+  described above; build-tagged integration tests are excluded.
+- `make staticcheck` analyzes both untagged and integration-tagged code. It
+  does not execute the integration tests.
+
+The final `go build` command writes the runnable `identuum-idp` binary.
 
 The binary embeds the console export already committed to this repository.
 A separate frontend checkout is not required to build it. Run
 `./identuum-idp help` for the commands and flags.
+
+### Full validation with a disposable Docker database
+
+`make validate` is the full build, test and static-analysis check, including
+the database-backed integration tests. It requires Docker with the Compose
+plugin, a running Docker engine and the PostgreSQL client tools. **It resets
+the selected development stack's database volume before running. Do not use
+it with development data you need to keep.**
+
+With the default settings, it performs these steps after the source checks:
+
+1. Compile the integration-tagged packages with `go build -tags integration ./...`.
+2. Run `fast-clean`: Compose `down --volumes` with the app profile stops and
+   removes the `identuum-idp-oss-dev` app (if present), the
+   `identuum-idp-oss-dev-postgres` container and the
+   `identuum-idp-oss-dev_default` network. It deletes the named volume
+   `identuum-idp-oss-dev_postgres-idp-oss-data-v18`, including its database data.
+3. Run `fast-up`: reuse a compatible PostgreSQL already answering on
+   `127.0.0.1:5513`, or start PostgreSQL 18 in the development Compose stack.
+   Starting the stack creates its PostgreSQL container, network and volume;
+   the app profile is not enabled for this step. An incompatible server on
+   the port is refused rather than stopped.
+4. Run `integration-test`: create `identuum_idp_oss_test` if absent, apply its
+   migrations, build `bin/identuum-idp`, run the integration-tagged tests
+   across all packages serially, and run the integration Rulefloor checks.
+   The tests truncate test data and replay setup.
+5. Run `fast-down`: Compose `down` with the app profile stops and removes the
+   selected development containers and network. It preserves the newly
+   created database volume. An earlier failed step prevents this final step;
+   teardown is not guaranteed on failure.
+
+These names come from `deployment/docker-compose.dev.yml` and its default
+project `identuum-idp-oss-dev`. `IDENTUUM_IDP_COMPOSE_PROJECT` changes the
+project-scoped names; `COMPOSE_FILE` selects the Compose file. The
+`protected-guard` prerequisite refuses the protected names `identuum-idp-oss`
+and `identuum-idp-oss-postgres`, or the published `deployment/docker-compose.yml`.
+It does not protect data in the selected development volume from `fast-clean`.
+
+`DEV_PG_HOST_PORT` changes the Compose port and `fast-up` probe, but `test-db`
+still creates its database on port **5513**. Keep that default for this chain.
+`IDENTUUM_IDP_TEST_DATABASE_URL` can direct the tests to another database;
+`test-db` still creates and migrates the default test database. A reused server
+can therefore have test data changed even though it was not started by this
+command. Use only disposable test data.
 
 ## Run the local development stack
 
@@ -112,7 +167,9 @@ make integration-test
 `fast-up` starts or reuses a compatible local PostgreSQL. Do not stop a reused
 server that belongs to another installation. If you started a separate
 development stack solely for this work, `make fast-down` stops that stack
-while preserving its volume. These commands are separate from `make validate`.
+while preserving its volume. `make validate` runs this integration sequence
+too, with a destructive `fast-clean` before it and `fast-down` after a
+successful run, as described above.
 
 The full maintainer close gate is `make verify`. It includes additional
 repository policies and requires the maintainer environment; it is not a

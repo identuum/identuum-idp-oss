@@ -253,25 +253,37 @@ never a silent bypass.
 
 ## Build and test from source
 
-You need Go (as `go.mod` names it), Docker for a disposable PostgreSQL 18, and
-the PostgreSQL client tools (`psql`, `createdb`):
+For a first build, use Go as `go.mod` names it. Leave
+`IDENTUUM_IDP_TEST_DATABASE_URL` unset: untagged database-backed tests skip
+without it; setting it opts those tests into database access. Docker with a
+running engine, the Compose plugin and PostgreSQL client tools (`psql`,
+`createdb`) are needed for the optional integration sequence below.
 
 ```bash
 git clone https://github.com/identuum/identuum-idp-oss.git
 cd identuum-idp-oss
 
-go build -o identuum-idp ./cmd/identuum-idp   # the binary, UI embedded
-go test ./...                                  # unit tests; no database
+make build                                    # compile all packages
+make test                                     # untagged tests; see database note above
+make staticcheck                              # analyze untagged and integration-tagged code
+go build -o identuum-idp ./cmd/identuum-idp      # the binary, UI embedded
 
 # Integration tests against a disposable PostgreSQL 18 on 127.0.0.1:5513.
-make fast-up               # start it
+make fast-up               # start or reuse a compatible server
 make test-db               # create and migrate the dedicated *_test database
 make ci-integration-test   # the integration suite (-tags integration)
-make fast-down             # remove it
+make fast-down             # remove this development stack's containers; preserve its volume
 ```
 
 The integration suite refuses any database whose name does not end in
 `_test`: it truncates tables and replays setup.
+
+`make validate` also runs the integration checks and **first deletes the
+selected development stack's database volume**. See the
+[source guide](docs/GETTING_STARTED.md#full-validation-with-a-disposable-docker-database)
+for the exact containers, volume, ports, reuse behavior and teardown limits.
+Do not run it against development data you need to keep. The source guide
+also describes the patched `staticcheck` installation these checks require.
 
 Maintainers' gates (`make verify` and the release records) are described in
 [docs/maintainers/README.md](docs/maintainers/README.md).
