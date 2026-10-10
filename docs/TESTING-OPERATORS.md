@@ -88,8 +88,12 @@ docker stop scratch-oss-pg               # --rm removes the container and its da
 
 `DEV_PG_HOST_PORT` alone is enough: every test database URL follows it, and
 `make fast-up` reuses the server it finds on that port. The one exception to
-the 5513 refusal is the hosted CI job's own service database
-(`identuum_idp_oss_test`, only when `CI=true` and `GITHUB_ACTIONS=true`).
+the 5513 refusal is the hosted Integration Tests job's own service database
+(`identuum_idp_oss_test`, only on a Linux host with `CI=true`,
+`GITHUB_ACTIONS=true`, `GITHUB_JOB=integration` and `RUNNER_OS=Linux`). On
+macOS the exception never applies, whatever the environment says. On Linux it
+trusts those four values, which GitHub Actions sets for that job; it does not
+check which server answers on 5513.
 
 If you also set `IDENTUUM_IDP_TEST_DATABASE_URL` or `OSS_TEST_DB_URL`,
 `DEV_PG_HOST_PORT` does not rewrite it: the URL is checked, and accepted only
@@ -109,14 +113,20 @@ and any other option. The driver lets `host`, `hostaddr`, `port`, `dbname`,
 `database` and `service` options replace the server or the database the URL
 appears to name, so none of them is accepted. `PGHOSTADDR` and `PGSERVICE`
 in your environment are refused too. `make test-db` creates the database the
-URL names (`identuum_idp_oss_test` when you set none). The
-`IDENTUUM_IDP_ALLOW_NON_TEST_DB` escape is for running Go tests by hand; no
-make target honours it.
+URL names (`identuum_idp_oss_test` when you set none).
+
+The same rules apply to `make test`, to `go-test-race` (the CI test step) and
+inside every database-backed Go test, so `go test ./...` run by hand is
+refused in the same way. A database-backed test needs `DEV_PG_HOST_PORT` set
+to the scratch server's port next to `IDENTUUM_IDP_TEST_DATABASE_URL`. There
+is no escape variable: `IDENTUUM_IDP_ALLOW_NON_TEST_DB` no longer has any
+effect.
 
 `tools/integration-witness` (the runner behind `verify-integration`) applies
 the same rules, and has no default: run on its own, it refuses unless
 `IDENTUUM_IDP_TEST_DATABASE_URL` and `DEV_PG_HOST_PORT` are set and agree.
-`scripts/ci-integration-record.sh` runs only in the hosted CI job.
+`scripts/ci-integration-record.sh` runs only in the hosted Integration Tests
+job.
 
 The appliance phases of `make test-full` use their own PostgreSQL (port
 15513, project `identuum-e2e`), and `devseed-live` its own (port 25513,

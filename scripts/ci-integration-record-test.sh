@@ -30,7 +30,7 @@ cd "$scratch/repo"
 cat > Makefile <<'MAKE'
 .PHONY: test-db ci-integration-test rulefloor-integration
 test-db ci-integration-test rulefloor-integration:
-	@printf '%s\n' '$@ hosted=$(CI)/$(GITHUB_ACTIONS)' >> "@SCRATCH@/trace"
+	@printf '%s\n' '$@ hosted=$(CI)/$(GITHUB_ACTIONS)/$(GITHUB_JOB)/$(RUNNER_OS)' >> "@SCRATCH@/trace"
 	@echo 'check OK: fixture $@'
 	@if [ -e "@SCRATCH@/fail-$@" ]; then exit 7; fi
 MAKE
@@ -48,20 +48,23 @@ assert() {
 	if "$@"; then echo "PASS $label"; else echo "FAIL $label"; exit 1; fi
 }
 # OSS-MINT-GUARD-2 (review OSS-MINT-ISOLATION M3): the recorder runs only in
-# the hosted job. Without CI=true and GITHUB_ACTIONS=true every verb refuses
-# before git, lictor, a record write or a Make target.
-for markers in 'none' 'CI=true' 'GITHUB_ACTIONS=true' 'CI=1 GITHUB_ACTIONS=true'; do
+# the hosted job. Without CI=true, GITHUB_ACTIONS=true and (OSS-MINT-GUARD-3,
+# review OSS-MINT-GUARD-2 G1) GITHUB_JOB=integration and RUNNER_OS=Linux every
+# verb refuses before git, lictor, a record write or a Make target.
+for markers in 'none' 'CI=true' 'GITHUB_ACTIONS=true' 'CI=1 GITHUB_ACTIONS=true' 'CI=true GITHUB_ACTIONS=true' \
+	'CI=true GITHUB_ACTIONS=true GITHUB_JOB=verify RUNNER_OS=Linux' 'CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=macOS' \
+	'CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration'; do
 	for verb in init 'step test-db' finalize; do
 		result=0
 		# shellcheck disable=SC2086
-		env -u CI -u GITHUB_ACTIONS $( [ "$markers" = none ] || echo $markers ) bash scripts/ci-integration-record.sh $verb > "$scratch/local.log" 2>&1 || result=$?
+		env -u CI -u GITHUB_ACTIONS -u GITHUB_JOB -u RUNNER_OS $( [ "$markers" = none ] || echo $markers ) bash scripts/ci-integration-record.sh $verb > "$scratch/local.log" 2>&1 || result=$?
 		assert "local ($markers) $verb refused" test "$result" -ne 0
 		assert "local ($markers) $verb says why" grep -q 'runs only in the hosted CI job' "$scratch/local.log"
 		assert "local ($markers) $verb wrote no record" test ! -e "$record"
 		assert "local ($markers) $verb ran no target" test ! -e "$TRACE"
 	done
 done
-export CI=true GITHUB_ACTIONS=true
+export CI=true GITHUB_ACTIONS=true RUNNER_OS=Linux
 run() { bash scripts/ci-integration-record.sh "$@"; }
 run init > "$scratch/run.log" 2>&1
 assert 'single declared plan' grep -qx 'plan: test-db ci-integration-test rulefloor-integration' "$record"
@@ -79,9 +82,10 @@ run step rulefloor-integration >> "$scratch/run.log" 2>&1
 run finalize >> "$scratch/run.log" 2>&1
 assert 'green record' grep -qx 'result: green' "$record"
 assert 'commit tie' grep -qx "tree: commit=$GITHUB_SHA" "$record"
-# lictor hands a step neither CI nor GITHUB_ACTIONS, so each target sees the
-# hosted markers only because the recorder passes them on its command line.
-assert 'commands run once in their original order, each told it is the hosted runner' test "$(cat "$TRACE")" = "$(printf 'test-db hosted=true/true\nci-integration-test hosted=true/true\nrulefloor-installation\nrulefloor-integration hosted=true/true')"
+# lictor hands a step none of CI, GITHUB_ACTIONS, GITHUB_JOB and RUNNER_OS, so
+# each target sees the hosted markers only because the recorder passes them on
+# its command line.
+assert 'commands run once in their original order, each told it is the hosted runner' test "$(cat "$TRACE")" = "$(printf 'test-db hosted=true/true/integration/Linux\nci-integration-test hosted=true/true/integration/Linux\nrulefloor-installation\nrulefloor-integration hosted=true/true/integration/Linux')"
 cp "$record" "$scratch/green"
 failures=0
 check_case() {

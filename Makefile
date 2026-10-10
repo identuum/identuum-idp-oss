@@ -117,9 +117,10 @@ DEV_SYSTEM_INFO_URL ?= http://127.0.0.1:$(DEV_APP_PORT)/system/info
 OSS_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss?sslmode=disable
 
 # DB URL for the INTEGRATION SUITES — a dedicated *_test database, separate from
-# the dev DB (TEST-DB-ISOLATION-1). The harness refuses any DSN whose database
-# name does not end in "_test" (internal/testsupport.RequireTestDatabase),
-# absent IDENTUUM_IDP_ALLOW_NON_TEST_DB. Create it once with `make test-db`.
+# the dev DB (TEST-DB-ISOLATION-1). The harness refuses any DSN that is not a
+# *_test database on 127.0.0.1:$(DEV_PG_HOST_PORT) (internal/testsupport.
+# RequireTestDatabase, the policy of test-db-endpoint below; no environment
+# escape since OSS-MINT-GUARD-3). Create it once with `make test-db`.
 # Its port IS DEV_PG_HOST_PORT (OSS-MINT-ISOLATION, 2026-10-10), so a
 # port-only override moves create, migrate, suites and rule teeth together;
 # test-db-endpoint refuses an explicit URL on any other server.
@@ -1221,7 +1222,7 @@ ci-verify:
 	$(GATE_RECORD_DRIVER) "$(LICTOR)" witness run --repo "$(CURDIR)" \
 		--record GATE-RUN.ci.txt --label "$(CI_VERIFY_GATE)" \
 		--env IDENTUUM_IDP_TEST_DATABASE_URL --env IDENTUUM_IDP_REQUIRE_DB_TESTS \
-		--env IDENTUUM_IDP_ALLOW_MULTI_REPLICA \
+		--env IDENTUUM_IDP_ALLOW_MULTI_REPLICA --env DEV_PG_HOST_PORT \
 		--cites 'the ci-verify target in Makefile is the single declared CI gate set; its subtraction from verify is documented in the ci-verify header comments' -- \
 		$(CI_VERIFY_PLAN)
 
@@ -1265,9 +1266,13 @@ endef
 ## recipe by name and the record states each one present or absent, never its
 ## value. A declared name that is absent is refused here (exit 2), before any
 ## test runs: through lictor 17 DB-backed tests once skipped under a green
-## record (measured, OSS-CI-ENV).
+## record (measured, OSS-CI-ENV). unit-db-endpoint judges the test URL first
+## (OSS-MINT-GUARD-3, review OSS-MINT-GUARD-2 G1): the CI job's service is
+## 127.0.0.1:5432/identuum_ci_test, so ci-verify also declares DEV_PG_HOST_PORT
+## and the job sets it to 5432; without it the port defaults to 5513 and the
+## URL is refused.
 .PHONY: go-test-race
-go-test-race:
+go-test-race: unit-db-endpoint
 	@for name in IDENTUUM_IDP_TEST_DATABASE_URL IDENTUUM_IDP_REQUIRE_DB_TESTS IDENTUUM_IDP_ALLOW_MULTI_REPLICA; do \
 		printenv "$$name" >/dev/null || { echo "go-test-race: REFUSED — $$name is not set; ci-verify declares it with --env and the CI job sets it" >&2; exit 2; }; \
 	done
@@ -2304,8 +2309,9 @@ build-binary:
 	go build -trimpath -ldflags "-s -w -X main.buildVersion=$(VERSION) -X github.com/identuum/identuum-idp-oss/internal/buildinfo.Commit=$(COMMIT)" -o bin/identuum-idp ./cmd/identuum-idp
 	./bin/identuum-idp --version
 
-## test: run all unit tests (excludes build-tagged integration tests).
-test:
+## test: run all unit tests (excludes build-tagged integration tests). A set
+## IDENTUUM_IDP_TEST_DATABASE_URL is judged first (unit-db-endpoint).
+test: unit-db-endpoint
 	go test ./... -count=1
 
 ## staticcheck: run staticcheck on all packages including integration tests.
@@ -2574,8 +2580,14 @@ integration-inventory:
 ## host:port disagrees with DEV_PG_HOST_PORT, a non-loopback host, a non-URL
 ## DSN, and (OSS-MINT-GUARD-2, review OSS-MINT-ISOLATION M1/M2) a _test URL
 ## whose options redirect the driver's port, host or database, a non-_test
-## database, and PGHOSTADDR. The hosted exception is accepted only with both
-## CI=true and GITHUB_ACTIONS=true. The full URL case table runs through this
+## database, and PGHOSTADDR. The hosted exception is accepted only on a Linux
+## host with CI=true, GITHUB_ACTIONS=true, GITHUB_JOB=integration and
+## RUNNER_OS=Linux; off Linux the full declaration is refused too, and the two
+## booleans alone are refused everywhere (OSS-MINT-GUARD-3, review
+## OSS-MINT-GUARD-2 G1). go-test-race and test (unit-db-endpoint) refuse the
+## owner's 5513, an option redirect, the former escape beside a non-_test
+## database and the two booleans alone before go runs, and run go once for a
+## scratch URL or none; ci-verify declares DEV_PG_HOST_PORT to lictor. The full URL case table runs through this
 ## guard in tools/integration-witness/endpoint_test.go. dev.env.example
 ## assigns no test URL (review OSS-MINT-COVERAGE C3), counted by name only.
 ## The caller's own settings are unset first, so the CI job's URL cannot leak in.
@@ -2587,7 +2599,7 @@ test-db-endpoint-selftest:
 	for c in psql createdb pg_isready go docker rulefloor curl; do \
 		printf '#!/bin/sh\necho "%s $$*" >> "%s/calls"\n' "$$c" "$$d" > "$$d/bin/$$c"; chmod +x "$$d/bin/$$c"; done; \
 	printf '#!/bin/sh\necho "lictor $$*" >> "%s/calls"\necho "$$*" > "%s/lictor.args"\necho "port=$$DEV_PG_HOST_PORT" >> "%s/lictor.args"\ncase "$$IDENTUUM_IDP_TEST_DATABASE_URL" in *@127.0.0.1:"$$DEV_PG_HOST_PORT"/*) echo url=agrees;; *) echo url=disagrees;; esac >> "%s/lictor.args"\n' "$$d" "$$d" "$$d" "$$d" > "$$d/bin/lictor"; chmod +x "$$d/bin/lictor"; \
-	run() { (cd "$$d/w" && env -u IDENTUUM_IDP_TEST_DATABASE_URL -u IDENTUUM_IDP_DATABASE_URL -u OSS_TEST_DB_URL -u DEV_PG_HOST_PORT -u LICTOR -u GATE_RECORD_DRIVER -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u CI -u GITHUB_ACTIONS -u PGHOSTADDR -u PGSERVICE -u IDENTUUM_IDP_ALLOW_NON_TEST_DB PATH="$$d/bin:$$PATH" "$$@"); }; \
+	run() { (cd "$$d/w" && env -u IDENTUUM_IDP_TEST_DATABASE_URL -u IDENTUUM_IDP_DATABASE_URL -u OSS_TEST_DB_URL -u DEV_PG_HOST_PORT -u LICTOR -u GATE_RECORD_DRIVER -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u CI -u GITHUB_ACTIONS -u GITHUB_JOB -u RUNNER_OS -u PGHOSTADDR -u PGSERVICE -u IDENTUUM_IDP_ALLOW_NON_TEST_DB -u IDENTUUM_IDP_REQUIRE_DB_TESTS -u IDENTUUM_IDP_ALLOW_MULTI_REPLICA PATH="$$d/bin:$$PATH" "$$@"); }; \
 	dry() { label=$$1; port=$$2; other=$$3; shift 3; n=$$((n + 1)); out=$$(run $(MAKE) --no-print-directory -n test-db ci-integration-test rulefloor-integration "$$@" 2>&1); miss=; \
 		url="postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:$$port/identuum_idp_oss_test?sslmode=disable"; \
 		printf '%s\n' "$$out" | grep -qF -- "psql -h 127.0.0.1 -p $$port " || miss="$$miss psql"; \
@@ -2597,8 +2609,11 @@ test-db-endpoint-selftest:
 		printf '%s\n' "$$out" | grep -qE -- "(127\.0\.0\.1:|localhost:|-p )$$other([^0-9]|$$)" && miss="$$miss names-$$other"; \
 		if [ -z "$$miss" ]; then echo "  ok    $$label"; else echo "  FAIL  $$label: missing or wrong:$$miss"; fails=$$((fails + 1)); fi; }; \
 	refuse() { label=$$1; shift; n=$$((n + 1)); rm -f "$$d/calls"; out=$$(run "$$@" 2>&1); rc=$$?; \
-		if [ $$rc -ne 0 ] && [ ! -s "$$d/calls" ] && printf '%s\n' "$$out" | grep -q 'test-db-endpoint: REFUSED'; then echo "  ok    refused before any command: $$label"; \
-		else echo "  FAIL  $$label: exit $$rc, refusal line $$(printf '%s\n' "$$out" | grep -c 'test-db-endpoint: REFUSED'), calls: $$(cut -d' ' -f1 "$$d/calls" 2>/dev/null | tr '\n' ' ')"; fails=$$((fails + 1)); fi; }; \
+		if [ $$rc -ne 0 ] && [ ! -s "$$d/calls" ] && printf '%s\n' "$$out" | grep -q -- '-db-endpoint: REFUSED'; then echo "  ok    refused before any command: $$label"; \
+		else echo "  FAIL  $$label: exit $$rc, refusal line $$(printf '%s\n' "$$out" | grep -c -- '-db-endpoint: REFUSED'), calls: $$(cut -d' ' -f1 "$$d/calls" 2>/dev/null | tr '\n' ' ')"; fails=$$((fails + 1)); fi; }; \
+	runs() { label=$$1; shift; n=$$((n + 1)); rm -f "$$d/calls"; out=$$(run "$$@" 2>&1); rc=$$?; \
+		if [ $$rc -eq 0 ] && grep -q '^go test ' "$$d/calls" 2>/dev/null; then echo "  ok    judged, then ran go test: $$label"; \
+		else echo "  FAIL  $$label: exit $$rc, calls: $$(cut -d' ' -f1-2 "$$d/calls" 2>/dev/null | tr '\n' ' ')"; fails=$$((fails + 1)); fi; }; \
 	accept() { label=$$1; shift; n=$$((n + 1)); rm -f "$$d/calls"; out=$$(run "$$@" 2>&1); rc=$$?; \
 		if [ $$rc -eq 0 ] && [ ! -s "$$d/calls" ]; then echo "  ok    accepted: $$label"; else echo "  FAIL  $$label: exit $$rc"; fails=$$((fails + 1)); fi; }; \
 	dry "DEV_PG_HOST_PORT=35514 only: every site uses 35514, none names 5513" 35514 5513 DEV_PG_HOST_PORT=35514; \
@@ -2615,8 +2630,25 @@ test-db-endpoint-selftest:
 	refuse "PGHOSTADDR set beside a scratch port" env DEV_PG_HOST_PORT=35514 PGHOSTADDR=10.0.0.1 $(MAKE) --no-print-directory test-db; \
 	refuse "the disposable-database escape does not admit a non-_test database" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/identuum_idp_oss $(MAKE) --no-print-directory test-db; \
 	refuse "5513 with CI=true but no GITHUB_ACTIONS" env CI=true $(MAKE) --no-print-directory test-db; \
-	refuse "hosted markers, but another database on 5513" env CI=true GITHUB_ACTIONS=true IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test $(MAKE) --no-print-directory test-db; \
-	accept "the hosted runner's own database on 5513 with CI=true and GITHUB_ACTIONS=true" env CI=true GITHUB_ACTIONS=true $(MAKE) --no-print-directory test-db-endpoint; \
+	hosted='CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=Linux'; \
+	refuse "the hosted job's declaration, but another database on 5513" env $$hosted IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test $(MAKE) --no-print-directory test-db; \
+	refuse "the two CI booleans alone do not admit 5513 (review OSS-MINT-GUARD-2 G1)" env CI=true GITHUB_ACTIONS=true $(MAKE) --no-print-directory test-db; \
+	refuse "another job's declaration does not admit 5513" env CI=true GITHUB_ACTIONS=true GITHUB_JOB=verify RUNNER_OS=Linux $(MAKE) --no-print-directory test-db; \
+	if [ "$$(command -p uname -s)" = Linux ]; then \
+		accept "Linux host: the Integration Tests job's own database on 5513" env $$hosted $(MAKE) --no-print-directory test-db-endpoint; \
+	else refuse "$$(command -p uname -s) host: even the full hosted declaration never admits 5513 off Linux" env $$hosted $(MAKE) --no-print-directory test-db; fi; \
+	rt='IDENTUUM_IDP_REQUIRE_DB_TESTS=1 IDENTUUM_IDP_ALLOW_MULTI_REPLICA=1'; \
+	for t in go-test-race test; do \
+		refuse "$$t: a _test URL on the owner's 5513" env $$rt IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: a _test URL whose port option redirects to 5513" env DEV_PG_HOST_PORT=35514 $$rt "IDENTUUM_IDP_TEST_DATABASE_URL=$$u?port=5513" $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: the former escape beside a non-_test database" env DEV_PG_HOST_PORT=35514 $$rt IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/identuum_idp_oss $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: the two CI booleans alone on 5513" env CI=true GITHUB_ACTIONS=true $$rt IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test $(MAKE) --no-print-directory $$t; \
+		runs "$$t: a _test URL on the selected scratch port" env DEV_PG_HOST_PORT=35514 $$rt IDENTUUM_IDP_TEST_DATABASE_URL=$$u $(MAKE) --no-print-directory $$t; \
+	done; \
+	runs "test: no test URL set, so no database to judge" $(MAKE) --no-print-directory test; \
+	n=$$((n + 1)); rm -f "$$d/lictor.args"; run env DEV_PG_HOST_PORT=5432 $(MAKE) --no-print-directory ci-verify > /dev/null 2>&1; \
+	if grep -qF -- '--env DEV_PG_HOST_PORT' "$$d/lictor.args" 2>/dev/null; then echo "  ok    ci-verify hands lictor DEV_PG_HOST_PORT by --env, so go-test-race judges the CI URL against the job's port"; \
+	else echo "  FAIL  ci-verify does not declare DEV_PG_HOST_PORT to lictor"; fails=$$((fails + 1)); fi; \
 	n=$$((n + 1)); ex=$$(grep -cE '^[[:space:]]*(export[[:space:]]+)?IDENTUUM_IDP_TEST_DATABASE_URL=' "$(dir $(TEST_DB_ENDPOINT_MAKEFILE))dev.env.example"); \
 	if [ "$$ex" = 0 ]; then echo "  ok    dev.env.example assigns no IDENTUUM_IDP_TEST_DATABASE_URL, so the guarded targets derive it"; \
 	else echo "  FAIL  dev.env.example assigns IDENTUUM_IDP_TEST_DATABASE_URL $$ex time(s) (value not read)"; fails=$$((fails + 1)); fi; \
@@ -2672,22 +2704,30 @@ test-db: test-db-endpoint bin/integration-witness
 ## literal 127.0.0.1 or localhost on DEV_PG_HOST_PORT, a database of letters,
 ## digits and underscores ending in _test, and no option but one sslmode;
 ## every other option, percent escape, host list, socket directory or fragment
-## is refused rather than resolved. tools/integration-witness checkTestURL is
-## the same policy in Go, and its endpoint_test.go runs one case table through
-## both (TEST-DB-ENDPOINT-1). PGHOSTADDR and PGSERVICE are refused too: either
-## can send psql and createdb elsewhere despite their -h and -p.
+## is refused rather than resolved. tools/testdburl is the same policy in Go
+## (the integration witness and internal/testsupport.RequireTestDatabase, which
+## every DB-backed suite calls, both judge with it), and
+## tools/integration-witness/endpoint_test.go runs one case table through both
+## (TEST-DB-ENDPOINT-1). PGHOSTADDR and PGSERVICE are refused too: either can
+## send psql and createdb elsewhere despite their -h and -p.
 ## PORT 5513 (judge ruling Q1(a)): the owner's PostgreSQL. Every local entry
 ## refuses it, including the 5513 default when nothing is set; the one
-## exception is the hosted CI runner's own identuum_idp_oss_test, and only when
-## CI=true and GITHUB_ACTIONS=true (scripts/ci-integration-record.sh passes
-## both to each step, because lictor hands a step neither).
-## IDENTUUM_IDP_ALLOW_NON_TEST_DB is not consulted: it is the hand-run suites'
-## disposable-database escape, and no make entry honours it.
+## exception is the hosted Integration Tests job's own identuum_idp_oss_test,
+## and only when the host is Linux (`command -p uname -s`, never a variable)
+## and CI=true, GITHUB_ACTIONS=true, GITHUB_JOB=integration and RUNNER_OS=Linux
+## (scripts/ci-integration-record.sh passes the four to each step, because
+## lictor hands a step none of them). WHAT THAT BINDING PROVES (review
+## OSS-MINT-GUARD-2 G1): off Linux — the owner's macOS workstation, where 5513
+## is the protected server — the exception cannot apply whatever the
+## environment says; on Linux it rests on the four declarations GitHub Actions
+## sets for that job, which a caller who sets all four deliberately can
+## imitate; it does not prove that the server on 5513 is the job's service
+## container. IDENTUUM_IDP_ALLOW_NON_TEST_DB is consulted nowhere.
 ## Messages name the variable and the rule, never the URL.
-.PHONY: test-db-endpoint
-test-db-endpoint:
-	@port='$(DEV_PG_HOST_PORT)'; hosted='$(CI)/$(GITHUB_ACTIONS)'; \
-	no() { echo "test-db-endpoint: REFUSED — $$*" >&2; exit 2; }; \
+## TEST_DB_JUDGE is the policy itself, shared with unit-db-endpoint below.
+define TEST_DB_JUDGE
+port='$(DEV_PG_HOST_PORT)'; hosted='$(CI)/$(GITHUB_ACTIONS)/$(GITHUB_JOB)/$(RUNNER_OS)/'"$$(command -p uname -s)"; \
+	no() { echo "$@: REFUSED — $$*" >&2; exit 2; }; \
 	case "$$port" in ''|0*|*[!0-9]*) no "DEV_PG_HOST_PORT is not a port number";; esac; \
 	[ "$$port" -le 65535 ] || no "DEV_PG_HOST_PORT is not a port number"; \
 	[ -z "$${PGHOSTADDR:-}$${PGSERVICE:-}" ] || no "PGHOSTADDR or PGSERVICE is set, and either can send psql and createdb to another server than 127.0.0.1:$$port; unset them"; \
@@ -2700,11 +2740,33 @@ test-db-endpoint:
 		case "$$db" in ''|*[!A-Za-z0-9_]*) no "$$n's database name is not plain letters, digits and underscores";; *_test) ;; *) no "$$n's database $$db does not end in _test";; esac; \
 		case "$$q" in '') ;; '?sslmode='*) m=$${q#\?sslmode=}; case "$$m" in ''|*[!a-z-]*) no "$$n carries an sslmode that is not a plain mode name";; esac;; \
 			*) no "$$n carries a connection option other than one sslmode; host, hostaddr, port, dbname, database and service options can send the driver to another server or database, so none is accepted";; esac; \
-		if [ "$$port" = 5513 ] && { [ "$$hosted" != true/true ] || [ "$$db" != identuum_idp_oss_test ]; }; then \
-			no "port 5513 is the owner's PostgreSQL; a local test run never uses it (only the hosted CI runner's own identuum_idp_oss_test, with CI=true and GITHUB_ACTIONS=true). Set DEV_PG_HOST_PORT to a scratch server's port, for example DEV_PG_HOST_PORT=35599 make fast-up"; fi; }; \
+		if [ "$$port" = 5513 ] && { [ "$$hosted" != true/true/integration/Linux/Linux ] || [ "$$db" != identuum_idp_oss_test ]; }; then \
+			no "port 5513 is the owner's PostgreSQL; a local test run never uses it (only the hosted Integration Tests job's own identuum_idp_oss_test, on a Linux runner with CI=true, GITHUB_ACTIONS=true, GITHUB_JOB=integration and RUNNER_OS=Linux). Set DEV_PG_HOST_PORT to a scratch server's port, for example DEV_PG_HOST_PORT=35599 make fast-up"; fi; };
+endef
+.PHONY: test-db-endpoint
+test-db-endpoint:
+	@$(TEST_DB_JUDGE) \
 	judge OSS_TEST_DB_URL '$(OSS_TEST_DB_URL)'; \
 	if [ -n "$${IDENTUUM_IDP_TEST_DATABASE_URL:-}" ]; then judge IDENTUUM_IDP_TEST_DATABASE_URL "$$IDENTUUM_IDP_TEST_DATABASE_URL"; fi; \
 	echo "test-db-endpoint: every test database URL names 127.0.0.1:$$port and a _test database"
+
+## unit-db-endpoint (OSS-MINT-GUARD-3, review OSS-MINT-GUARD-2 G1): the
+## prerequisite of the runners that hand the caller's environment to
+## `go test ./...` — go-test-race (ci-verify's test floor) and test. Their
+## DB-backed unit suites (internal/runtime, pkg/runtime, pkg/migrations,
+## cmd/identuum-idp, internal/pkg/runtime) open IDENTUUM_IDP_TEST_DATABASE_URL
+## when it is set, and pkg/migrations DROPs and CREATEs databases on its
+## server. A set URL is judged by TEST_DB_JUDGE above, exactly as
+## test-db-endpoint judges it, before any command runs; an unset one is no
+## database (those suites skip, or fail under IDENTUUM_IDP_REQUIRE_DB_TESTS).
+## RequireTestDatabase applies the same policy inside each suite, so a bare
+## `go test` is refused too.
+.PHONY: unit-db-endpoint
+unit-db-endpoint:
+	@$(TEST_DB_JUDGE) \
+	if [ -n "$${IDENTUUM_IDP_TEST_DATABASE_URL:-}" ]; then judge IDENTUUM_IDP_TEST_DATABASE_URL "$$IDENTUUM_IDP_TEST_DATABASE_URL"; \
+		echo "unit-db-endpoint: IDENTUUM_IDP_TEST_DATABASE_URL names 127.0.0.1:$$port and a _test database"; \
+	else echo "unit-db-endpoint: IDENTUUM_IDP_TEST_DATABASE_URL is not set, so no suite opens a database"; fi
 
 ci-integration-test: test-db-endpoint
 	@# -p 1 serializes PACKAGES. The DB-backed integration packages

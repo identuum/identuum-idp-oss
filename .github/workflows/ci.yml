@@ -162,10 +162,10 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: dev-ci-not-a-secret
           # THE-CI-TEETH: must end in _test — testsupport.RequireTestDatabase
-          # refuses any other name (these suites TRUNCATE), and the escape
-          # env IDENTUUM_IDP_ALLOW_NON_TEST_DB is deliberately NEVER set in
-          # CI. Measured before the rename: every DB-backed runtime test
-          # FAILED with the refusal against "identuum_ci".
+          # refuses any other name (these suites TRUNCATE), and it has no
+          # escape variable since OSS-MINT-GUARD-3. Measured before the
+          # rename: every DB-backed runtime test FAILED with the refusal
+          # against "identuum_ci".
           POSTGRES_DB: identuum_ci_test
         ports:
           - 5432:5432
@@ -176,6 +176,11 @@ jobs:
           --health-retries 10
     env:
       IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:5432/identuum_ci_test?sslmode=disable
+      # The selected test server's port (OSS-MINT-GUARD-3): go-test-race's
+      # unit-db-endpoint guard and testsupport.RequireTestDatabase accept the
+      # URL above only when it names 127.0.0.1:$DEV_PG_HOST_PORT; ci-verify
+      # declares it with --env so it reaches the recipe.
+      DEV_PG_HOST_PORT: "5432"
       IDENTUUM_IDP_REQUIRE_DB_TESTS: "1"
       # The single-replica lease contends when tests share one DB; the runtime
       # tests set this themselves locally, and CI matches (A-2a memory note).

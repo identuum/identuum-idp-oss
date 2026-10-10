@@ -62,9 +62,9 @@ make fast-up
 # the test URL follows it; an explicit IDENTUUM_IDP_TEST_DATABASE_URL must
 # name the same 127.0.0.1 port and a _test database with no option but
 # sslmode, or the run is refused before it connects (docs/TESTING-OPERATORS.md
-# lists the accepted forms). IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 admits a
-# genuinely disposable non-_test database to hand-run Go tests only; no make
-# target honours it.
+# lists the accepted forms). The Go tests apply the same check themselves,
+# so a hand-run `go test` needs DEV_PG_HOST_PORT too; there is no escape
+# variable.
 make integration-test
 
 # Tear it down.

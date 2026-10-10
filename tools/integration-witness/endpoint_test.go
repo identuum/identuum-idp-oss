@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -15,14 +16,19 @@ import (
 // endpointCase is ONE row of the accepted-URL policy, shared by the witness
 // and the Makefile's test-db-endpoint guard: the same table is run through
 // both, so the two implementations cannot drift apart unnoticed. The selected
-// scratch port is 35599 unless the row says otherwise; hosted rows set
-// CI=true and GITHUB_ACTIONS=true, the hosted runner's own declaration.
+// scratch port is 35599 unless the row says otherwise; hosted rows set the
+// Integration Tests job's own declaration (CI=true, GITHUB_ACTIONS=true,
+// GITHUB_JOB=integration, RUNNER_OS=Linux), and markersOnly rows set the two
+// booleans alone. A hosted row is accepted only on a Linux host: the hosted
+// exception never applies on another operating system, whatever the
+// environment says (review OSS-MINT-GUARD-2 G1).
 type endpointCase struct {
-	label  string
-	url    string
-	port   string
-	hosted bool
-	accept bool
+	label       string
+	url         string
+	port        string
+	hosted      bool
+	markersOnly bool
+	accept      bool
 	// dialed is the host:port an accepted row's preflight must dial.
 	dialed string
 }
@@ -80,6 +86,7 @@ func endpointCases() []endpointCase {
 		// database is excepted, and only when both markers are set.
 		{label: "5513 locally", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test", port: "5513"},
 		{label: "hosted, but another database on 5513", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test", port: "5513", hosted: true},
+		{label: "the two CI booleans alone on 5513", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable", port: "5513", markersOnly: true},
 		{label: "no port selected", url: base, port: ""},
 		{label: "port not a number", url: base, port: "35599x"},
 		{label: "port out of range", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:70000/x_test", port: "70000"},
@@ -88,10 +95,18 @@ func endpointCases() []endpointCase {
 
 func caseEnv(c endpointCase) map[string]string {
 	env := map[string]string{"IDENTUUM_IDP_TEST_DATABASE_URL": c.url, "DEV_PG_HOST_PORT": c.port}
-	if c.hosted {
+	if c.hosted || c.markersOnly {
 		env["CI"], env["GITHUB_ACTIONS"] = "true", "true"
 	}
+	if c.hosted {
+		env["GITHUB_JOB"], env["RUNNER_OS"] = "integration", "Linux"
+	}
 	return env
+}
+
+// accepted is a row's verdict on this host: a hosted row only on Linux.
+func (c endpointCase) accepted() bool {
+	return c.accept && (!c.hosted || runtime.GOOS == "linux")
 }
 
 type fakeConn struct{ net.Conn }
@@ -131,13 +146,13 @@ func TestRule_WITNESS_EXPLICIT_DB_1(t *testing.T) {
 			var out bytes.Buffer
 			code := run(mode, w.deps(caseEnv(c)), &out)
 			name := c.label + " " + strings.Join(append([]string{"mode"}, mode...), " ")
-			if c.accept && len(mode) == 1 && mode[0] == "-check-url" {
+			if c.accepted() && len(mode) == 1 && mode[0] == "-check-url" {
 				if code != 0 || w.dials != 0 || w.suites != 0 {
 					t.Errorf("%s: want accepted with no dial and no suite; got exit %d, %d dial(s), %d suite run(s)", name, code, w.dials, w.suites)
 				}
 				continue
 			}
-			if c.accept {
+			if c.accepted() {
 				if code != 0 || w.dials != 1 || w.dialed != c.dialed {
 					t.Errorf("%s: want accepted and one dial to %s; got exit %d, %d dial(s) to the expected endpoint=%v", name, c.dialed, code, w.dials, w.dialed == c.dialed)
 				}
@@ -192,10 +207,10 @@ func TestRule_TEST_DB_ENDPOINT_1(t *testing.T) {
 			t.Fatalf("%s: make did not run: %v", c.label, runErr)
 		}
 		refused := strings.Contains(string(out), "test-db-endpoint: REFUSED")
-		if c.accept && (code != 0 || refused) {
+		if c.accepted() && (code != 0 || refused) {
 			t.Errorf("%s: the Makefile guard refused an accepted URL (exit %d)", c.label, code)
 		}
-		if !c.accept && (code != 2 || !refused) {
+		if !c.accepted() && (code != 2 || !refused) {
 			t.Errorf("%s: the Makefile guard accepted a refused URL (exit %d, refusal line %v)", c.label, code, refused)
 		}
 		if strings.Contains(string(out), "dev-u-not-a-secret") {

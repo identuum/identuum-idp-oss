@@ -8,18 +8,22 @@ refuse() { echo "ci-integration-record: REFUSED — $*" >&2; exit 1; }
 # records the hosted job's targets against the runner's own service database
 # on 5513, the one place a test run may use that port. It runs only there,
 # refusing before git, lictor, a record or a Make target. Locally, use
-# `DEV_PG_HOST_PORT=<scratch port> make verify-integration`.
-if [ "${CI:-}" != true ] || [ "${GITHUB_ACTIONS:-}" != true ]; then
-	refuse 'this recorder runs only in the hosted CI job (CI=true and GITHUB_ACTIONS=true); locally run DEV_PG_HOST_PORT=<scratch port> make verify-integration'
+# `DEV_PG_HOST_PORT=<scratch port> make verify-integration`. OSS-MINT-GUARD-3
+# (review OSS-MINT-GUARD-2 G1): "there" is the Integration Tests job, whose
+# service is published on 5513 — GITHUB_JOB=integration on a Linux runner —
+# not any job that sets the two CI booleans.
+if [ "${CI:-}" != true ] || [ "${GITHUB_ACTIONS:-}" != true ] || [ "${GITHUB_JOB:-}" != integration ] || [ "${RUNNER_OS:-}" != Linux ]; then
+	refuse 'this recorder runs only in the hosted CI job (CI=true, GITHUB_ACTIONS=true, GITHUB_JOB=integration, RUNNER_OS=Linux); locally run DEV_PG_HOST_PORT=<scratch port> make verify-integration'
 fi
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 record=GATE-RUN.ci-integration.txt
 # lictor hands a step only its environment allowlist, so the hosted markers
-# reach each target's test-db-endpoint guard as make arguments.
+# reach each target's test-db-endpoint guard, and through make's export of
+# command-line variables each suite's RequireTestDatabase, as make arguments.
 plan=(
-	'test-db=make test-db CI=true GITHUB_ACTIONS=true'
-	'ci-integration-test=make ci-integration-test CI=true GITHUB_ACTIONS=true'
-	'rulefloor-integration=make rulefloor-integration CI=true GITHUB_ACTIONS=true'
+	'test-db=make test-db CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=Linux'
+	'ci-integration-test=make ci-integration-test CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=Linux'
+	'rulefloor-integration=make rulefloor-integration CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=Linux'
 )
 names=()
 for entry in "${plan[@]}"; do names+=("${entry%%=*}"); done
