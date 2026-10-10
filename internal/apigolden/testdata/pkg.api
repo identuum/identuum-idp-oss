@@ -107,7 +107,7 @@ package pkg/runtime
   type Fault struct { Component string Fatal bool Reason string }
   type HealthSnapshot struct { Serving bool Faults []Fault }
   type Lifecycle interface { Start(ctx context.Context) error Shutdown(ctx context.Context) error Done() <-chan struct{} ServeErr() error }
-  type Options struct { Addr string Issuer string DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string Restrictions []extension.Restriction Entitlements extension.Entitlements Quotas extension.QuotaPolicy }
+  type Options struct { Addr string Issuer string AdvertiseRS256 bool DatabaseURL string RevocationCleanupInterval time.Duration Version string Stdout, Stderr io.Writer Getenv func(string) string DataDir string UIPublicBaseURL string UIStaticDir string MetricsAddr string CORSAllowedOrigins []string TrustedProxies []string Restrictions []extension.Restriction Entitlements extension.Entitlements Quotas extension.QuotaPolicy }
   type Runtime struct { _unexported struct{} }
 package pkg/totp
   func Code(key []byte, counter uint64, digits int) string
