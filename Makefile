@@ -2537,14 +2537,14 @@ test-db-endpoint-selftest:
 	dry "nothing set: create, migrate, suite and rulefloor keep the 5513 default" 5513 35514; \
 	dry "DEV_PG_HOST_PORT=35514 only: every site uses 35514, none names 5513" 35514 5513 DEV_PG_HOST_PORT=35514; \
 	for t in test-db ci-integration-test rulefloor-integration integration-test verify-integration test-full-mint; do \
-		refuse "$$t: test URL on 5513 while DEV_PG_HOST_PORT=35514" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1:5513/x_test $(MAKE) --no-print-directory $$t; done; \
-	refuse "OSS_TEST_DB_URL on 5513 while DEV_PG_HOST_PORT=35514" $(MAKE) --no-print-directory test-db DEV_PG_HOST_PORT=35514 OSS_TEST_DB_URL=postgres://u:p@127.0.0.1:5513/x_test; \
-	refuse "test URL on 35514 with the port left at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db; \
-	refuse "test URL without a port (5432) with the port at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1/x_test $(MAKE) --no-print-directory test-db; \
-	refuse "test URL on a non-loopback host" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@db.example:5513/x_test $(MAKE) --no-print-directory test-db; \
+		refuse "$$t: test URL on 5513 while DEV_PG_HOST_PORT=35514" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test $(MAKE) --no-print-directory $$t; done; \
+	refuse "OSS_TEST_DB_URL on 5513 while DEV_PG_HOST_PORT=35514" $(MAKE) --no-print-directory test-db DEV_PG_HOST_PORT=35514 OSS_TEST_DB_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test; \
+	refuse "test URL on 35514 with the port left at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db; \
+	refuse "test URL without a port (5432) with the port at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1/x_test $(MAKE) --no-print-directory test-db; \
+	refuse "test URL on a non-loopback host" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@db.example:5513/x_test $(MAKE) --no-print-directory test-db; \
 	refuse "a keyword DSN the guard cannot read" env 'IDENTUUM_IDP_TEST_DATABASE_URL=host=127.0.0.1 port=5513 dbname=x_test' $(MAKE) --no-print-directory test-db; \
 	accept "nothing set" $(MAKE) --no-print-directory test-db-endpoint; \
-	accept "port and both URLs on 35514 (127.0.0.1 and localhost)" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db-endpoint OSS_TEST_DB_URL=postgres://u:p@localhost:35514/x_test; \
+	accept "port and both URLs on 35514 (127.0.0.1 and localhost)" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db-endpoint OSS_TEST_DB_URL=postgres://u:dev-u-not-a-secret@localhost:35514/x_test; \
 	n=$$((n + 1)); rm -f "$$d/lictor.args"; run env DEV_PG_HOST_PORT=35514 $(MAKE) --no-print-directory verify-integration > /dev/null 2>&1; \
 	if grep -qF -- '--env DEV_PG_HOST_PORT' "$$d/lictor.args" 2>/dev/null && grep -qF -- '--env IDENTUUM_IDP_TEST_DATABASE_URL' "$$d/lictor.args" && grep -qx 'port=35514' "$$d/lictor.args" && grep -qx 'url=agrees' "$$d/lictor.args"; then \
 		echo "  ok    verify-integration hands lictor DEV_PG_HOST_PORT=35514 and a test URL on 127.0.0.1:35514 by --env"; \
@@ -2582,7 +2582,7 @@ test-db: test-db-endpoint
 test-db-endpoint:
 	@port='$(DEV_PG_HOST_PORT)'; \
 	case "$$port" in ''|*[!0-9]*) echo "test-db-endpoint: REFUSED — DEV_PG_HOST_PORT is not a port number" >&2; exit 2;; esac; \
-	judge() { case "$$2" in postgres://*|postgresql://*) ;; *) echo "test-db-endpoint: REFUSED — $$1 is not a postgres:// URL, so its server cannot be checked; write it as postgres://USER:PASSWORD@127.0.0.1:$$port/NAME_test" >&2; return 2;; esac; \
+	judge() { case "$$2" in postgres://*|postgresql://*) ;; *) echo "test-db-endpoint: REFUSED — $$1 is not a postgres:// URL, so its server cannot be checked; write it as a postgres:// URL on 127.0.0.1:$$port" >&2; return 2;; esac; \
 		hp=$${2#*://}; hp=$${hp%%[/?]*}; hp=$${hp##*@}; host=$${hp%:*}; p=$${hp##*:}; [ "$$host" = "$$hp" ] && p=5432; \
 		case "$$host:$$p" in "127.0.0.1:$$port"|"localhost:$$port") return 0;; esac; \
 		echo "test-db-endpoint: REFUSED — $$1 names $$host:$$p but DEV_PG_HOST_PORT is $$port: test-db would create the database on 127.0.0.1:$$port and then migrate and test another server. Point both at the same scratch server, or set only DEV_PG_HOST_PORT and let the URL follow it." >&2; return 2; }; \
@@ -3144,6 +3144,7 @@ test-full:
 ## the tier the sibling runs is the record this target checks.
 E2E_TIER ?= full
 test-full-mint: test-db-endpoint
+test-full-mint:
 	@case "$(E2E_TIER)" in full|quick) ;; *) echo "test-full-mint: E2E_TIER must be full or quick, got '$(E2E_TIER)'"; exit 2;; esac
 	@# THE-UNRUN-SUITE (P-041): the integration profile runs HERE, before the
 	@# appliance phases, because the mint is the one place a database is a
