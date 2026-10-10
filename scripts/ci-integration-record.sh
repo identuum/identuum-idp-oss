@@ -20,11 +20,14 @@ root=$(cd "$(dirname "$0")/.." && pwd -P)
 record=GATE-RUN.ci-integration.txt
 # lictor hands a step only its environment allowlist, so the job's port
 # reaches each target's test-db-endpoint guard, and through make's export of
-# command-line variables each suite's RequireTestDatabase, as a make argument.
+# command-line variables each suite's RequireTestDatabase, as a make argument:
+# @PORT@ is replaced by $port when the step runs. The entries stay literal
+# single-quoted lines because the Makefile's ci-witness reads the plan from
+# them without executing this file.
 plan=(
-	"test-db=make test-db DEV_PG_HOST_PORT=$port"
-	"ci-integration-test=make ci-integration-test DEV_PG_HOST_PORT=$port"
-	"rulefloor-integration=make rulefloor-integration DEV_PG_HOST_PORT=$port"
+	'test-db=make test-db DEV_PG_HOST_PORT=@PORT@'
+	'ci-integration-test=make ci-integration-test DEV_PG_HOST_PORT=@PORT@'
+	'rulefloor-integration=make rulefloor-integration DEV_PG_HOST_PORT=@PORT@'
 )
 names=()
 for entry in "${plan[@]}"; do names+=("${entry%%=*}"); done
@@ -58,7 +61,7 @@ step|finalize)
 	[ "$completed" -lt "${#plan[@]}" ] || refuse 'all planned targets have already run'
 	[ "$2" = "${names[$completed]}" ] || refuse "next target is ${names[$completed]}, not $2"
 	if grep '^target:' "$record" | grep -v ' exit=0$' >/dev/null; then refuse 'a previous target failed'; fi
-	witness step -- "${plan[$completed]}"; exit $?
+	witness step -- "${plan[$completed]//@PORT@/$port}"; exit $?
 	;;
 *) refuse 'expected init, step or finalize';;
 esac
