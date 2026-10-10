@@ -3143,7 +3143,6 @@ test-full:
 ## E2E_TIER: full (default) or quick — test-full passes the classifier's tier;
 ## the tier the sibling runs is the record this target checks.
 E2E_TIER ?= full
-test-full-mint: test-db-endpoint
 test-full-mint:
 	@case "$(E2E_TIER)" in full|quick) ;; *) echo "test-full-mint: E2E_TIER must be full or quick, got '$(E2E_TIER)'"; exit 2;; esac
 	@# THE-UNRUN-SUITE (P-041): the integration profile runs HERE, before the
@@ -3175,3 +3174,6 @@ test-full-mint:
 	@# The mint ran and both halves checked out. The record it wrote IS the
 	@# marker: the next decision reads its heads (THE-ONE-MINT-RECORD).
 	@echo "test-full: MINT PAID — ../identuum-ui/GATE-RUN.e2e-$(E2E_TIER).txt is the record of record for this pair."
+# The endpoint guard on its own line, after the recipe: the recipe's tests
+# find it by its header line (OSS-MINT-ISOLATION).
+test-full-mint: test-db-endpoint
