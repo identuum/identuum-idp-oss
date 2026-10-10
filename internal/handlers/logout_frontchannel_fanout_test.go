@@ -135,11 +135,18 @@ func TestEndSession_ContinuesToThePostLogoutRedirectAfterTheFrames(t *testing.T)
 		t.Errorf("iframe srcs = %q; want the two relying parties' frames", iframeSrcs(body))
 	}
 	const location = "https://a.example/after?state=xyz"
-	// Without script the browser continues by the refresh; with script as
-	// soon as every frame has loaded, and never later than the script's own
-	// timeout; a person can also follow the link.
-	if !strings.Contains(body, `<meta http-equiv="refresh" content="`) || !strings.Contains(body, `;url=`+location+`"`) {
-		t.Errorf("the page carries no refresh to %s: %q", location, body)
+	// Exactly one navigation: with script as soon as every frame has loaded,
+	// and never later than the script's own timeout; without script by the
+	// refresh, which lives under noscript so a scripted browser never also
+	// fires it (the conformance suite's browser did both, and its second
+	// post_logout_redirect arrival failed the module); a person can also
+	// follow the link.
+	refresh := `<meta http-equiv="refresh" content="` + frontchannelRefreshAfter + `;url=` + location + `">`
+	if !strings.Contains(body, "<noscript>"+refresh+"</noscript>") {
+		t.Errorf("the page's refresh to %s is not under noscript: %q", location, body)
+	}
+	if strings.Count(body, `http-equiv="refresh"`) != 1 {
+		t.Errorf("the page carries %d refreshes; want exactly one, under noscript", strings.Count(body, `http-equiv="refresh"`))
 	}
 	if !strings.Contains(body, `id="continue" href="`+location+`"`) {
 		t.Errorf("the page carries no continue link to %s", location)

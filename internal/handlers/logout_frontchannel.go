@@ -41,8 +41,8 @@ func (f *frontchannelFanout) add(rp *domain.Client, issuer string, sid uuid.UUID
 
 // frontchannelContinueAfter is how long the page's script waits for the
 // frames before it continues anyway; the refresh the page carries for a
-// browser without script waits a little longer. A relying party that never
-// answers must not hold the person's sign-out.
+// browser without script (under noscript) waits a little longer. A relying
+// party that never answers must not hold the person's sign-out.
 const (
 	frontchannelContinueAfter = "3000"
 	frontchannelRefreshAfter  = "5"
@@ -82,7 +82,12 @@ func renderFrontchannelFanoutPage(c *gin.Context, srcs []string, continueTo stri
 	var b strings.Builder
 	b.WriteString("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n")
 	if continueTo != "" {
-		b.WriteString("  <meta http-equiv=\"refresh\" content=\"" + frontchannelRefreshAfter + ";url=" + html.EscapeString(continueTo) + "\">\n")
+		// Exactly one navigation: the script below continues; a browser
+		// without script continues by this refresh, which lives under
+		// noscript so a scripted browser never also fires it (the
+		// conformance suite's browser followed both, and the second
+		// post_logout_redirect arrival failed its module).
+		b.WriteString("  <noscript><meta http-equiv=\"refresh\" content=\"" + frontchannelRefreshAfter + ";url=" + html.EscapeString(continueTo) + "\"></noscript>\n")
 		b.WriteString("  <title>Signing out — Identuum</title>\n")
 	} else {
 		b.WriteString("  <title>Signed out — Identuum</title>\n")
