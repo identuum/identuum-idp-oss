@@ -889,26 +889,52 @@ COMPOSE_PIN_MAKEFILE ?= $(abspath Makefile)
 .PHONY: compose-pin-selftest
 compose-pin-selftest:
 	@d=$$(mktemp -d "$${TMPDIR:-/tmp}/compose-pin.XXXXXX"); trap 'rm -rf "$$d"' EXIT; n=0; fails=0; \
-	mkdir -p "$$d/bin" "$$d/w/deployment" "$$d/tmp"; ln -s "$(COMPOSE_PIN_MAKEFILE)" "$$d/w/Makefile"; : > "$$d/w/deployment/docker-compose.dev.yml"; \
+	mkdir -p "$$d/bin" "$$d/w/deployment" "$$d/tmp" "$$d/tmp2" "$$d/fixed"; : > "$$d/w/deployment/docker-compose.dev.yml"; \
+	sed "s#^override DEVSEED_LIVE_LOCK := /tmp/identuum-devseed.lock\$$#override DEVSEED_LIVE_LOCK := $$d/fixed/identuum-devseed.lock#" "$(COMPOSE_PIN_MAKEFILE)" > "$$d/w/Makefile"; \
+	[ "$$(grep -c "^override DEVSEED_LIVE_LOCK := $$d/fixed/identuum-devseed.lock\$$" "$$d/w/Makefile")" = 1 ] || { echo "check FAILED: compose-pin-selftest — the Makefile does not declare DEVSEED_LIVE_LOCK as the one fixed path /tmp/identuum-devseed.lock"; exit 1; }; \
 	printf '%s\n' '#!/bin/sh' \
 		'echo "docker $$* | cpn=$${COMPOSE_PROJECT_NAME-unset} cro=$${COMPOSE_REMOVE_ORPHANS-unset} iicp=$${IDENTUUM_IDP_COMPOSE_PROJECT-unset}" >> "$$STUB_D/calls"' \
+		'S="$$STUB_D/state"; mkdir -p "$$S/c" "$$S/n" "$$S/v"; V=identuum-devseed_postgres-idp-oss-data-v18' \
 		'case " $$* " in' \
 		'*" config --volumes "*) echo postgres-idp-oss-data-v18; exit 0;;' \
 		'*" config --networks "*) echo default; exit 0;;' \
+		'*" config --services "*) printf "postgres-idp-oss\napp\n"; exit 0;;' \
 		'*" config --format json "*) echo "{\"name\":\"identuum-devseed\",\"volumes\":{\"postgres-idp-oss-data-v18\":{\"name\":\"identuum-devseed_postgres-idp-oss-data-v18\"}},\"networks\":{\"default\":{\"name\":\"identuum-devseed_default\"}}}"; exit 0;;' \
-		'*" up "*) if [ -e "$$STUB_D/late" ]; then : > "$$STUB_D/foreign-volume"; fi;;' \
+		'*" compose "*" up "*) inv=; for a in "$$@"; do case "$$a" in *invocation.json) inv=$$(sed -n "s/.*\"io.identuum.harness.invocation\":\"\([0-9a-f]*\)\".*/\1/p" "$$a");; esac; done' \
+		'  if [ -e "$$STUB_D/late" ]; then echo "2026-10-10T00:00:09Z - -" > "$$S/v/$$V"; else echo "2026-10-10T00:00:01Z identuum-devseed $${inv:--}" > "$$S/v/$$V"; fi' \
+		'  echo "identuum-devseed_default identuum-devseed $${inv:--}" > "$$S/n/n1"; echo "identuum-devseed-postgres identuum-devseed $${inv:--}" > "$$S/c/c1"; echo "identuum-devseed identuum-devseed $${inv:--}" > "$$S/c/c2"; exit 0;;' \
+		'*" compose "*) exit 0;;' \
 		'esac' \
-		'case "$$1 $$2" in "ps -aq"|"volume ls"|"network ls") if [ -e "$$STUB_D/leftover" ]; then echo deadbeef; fi;; esac' \
-		'case "$$1 $$2 $$3" in "volume ls --format") if [ -e "$$STUB_D/foreign-volume" ]; then echo identuum-devseed_postgres-idp-oss-data-v18; fi;; "network ls --format") if [ -e "$$STUB_D/foreign-network" ]; then echo identuum-devseed_default; fi;; esac' \
+		'q=; fmt=; filt=; prev=; last=; for a in "$$@"; do case "$$prev" in --filter) filt="$$filt $$a";; --format) fmt="$$a";; esac; case "$$a" in -q|-aq) q=1;; esac; prev="$$a"; last="$$a"; done' \
+		'match() { for g in $$filt; do case "$$g" in label=com.docker.compose.project=*) [ "$$2" = "$${g#*project=}" ] || return 1;; label=io.identuum.harness.invocation=*) [ "$$3" = "$${g#*invocation=}" ] || return 1;; name=*) m="$${g#name=^/\?}"; [ "$$1" = "$${m%?}" ] || return 1;; *) return 1;; esac; done; return 0; }' \
+		'proj=; case "$$filt" in *project=*) proj=1;; esac' \
+		'case "$$1 $$2" in' \
+		'"ps "*) for f in "$$S"/c/*; do [ -e "$$f" ] || continue; read -r nm pj iv < "$$f"; match "$$nm" "$$pj" "$$iv" || continue; if [ -n "$$q" ]; then echo "$${f##*/}"; else echo "$${f##*/} $$nm"; fi; done; [ -n "$$proj" ] && [ -e "$$STUB_D/leftover" ] && echo deadbeef; exit 0;;' \
+		'"network ls") for f in "$$S"/n/*; do [ -e "$$f" ] || continue; read -r nm pj iv < "$$f"; match "$$nm" "$$pj" "$$iv" || continue; if [ -n "$$q" ]; then echo "$${f##*/}"; else case "$$fmt" in *.ID*) echo "$${f##*/} $$nm";; *) echo "$$nm";; esac; fi; done; [ -n "$$proj" ] && [ -e "$$STUB_D/leftover" ] && echo deadbeef; [ -z "$$filt" ] && [ -e "$$STUB_D/foreign-network" ] && echo identuum-devseed_default; exit 0;;' \
+		'"volume ls") for f in "$$S"/v/*; do [ -e "$$f" ] || continue; read -r ct pj iv < "$$f"; match "$${f##*/}" "$$pj" "$$iv" || continue; echo "$${f##*/}"; done; [ -n "$$proj" ] && [ -e "$$STUB_D/leftover" ] && echo deadbeef; [ -z "$$filt" ] && [ -e "$$STUB_D/foreign-volume" ] && echo "$$V"; exit 0;;' \
+		'"network inspect") [ -e "$$S/n/$$last" ] || exit 1; read -r nm pj iv < "$$S/n/$$last"; echo "$$last $$iv"; exit 0;;' \
+		'"volume inspect") [ -e "$$S/v/$$last" ] || exit 1; read -r ct pj iv < "$$S/v/$$last"; case "$$fmt" in *index*) echo "$$ct $$iv";; *) echo "$$ct";; esac; exit 0;;' \
+		'"network rm") rm -f "$$S/n/$$last"; exit 0;;' \
+		'"volume rm") rm -f "$$S/v/$$last"; exit 0;;' \
+		'"inspect "*) [ -e "$$S/c/$$last" ] || exit 1; read -r nm pj iv < "$$S/c/$$last"; echo "$$last $$iv"; exit 0;;' \
+		'"rm "*) rm -f "$$S/c/$$last"; exit 0;;' \
+		'esac' \
 		'exit 0' > "$$d/bin/docker"; \
-	for c in curl go; do printf '#!/bin/sh\necho "%s $$*" >> "%s/other"\nexit 0\n' "$$c" "$$d" > "$$d/bin/$$c"; done; \
+	printf '%s\n' '#!/bin/sh' 'echo "curl $$*" >> "$$STUB_D/other"' 'S="$$STUB_D/state"; V=identuum-devseed_postgres-idp-oss-data-v18' \
+		'if [ -e "$$STUB_D/replace-volume" ] && [ -e "$$S/v/$$V" ]; then read -r ct pj iv < "$$S/v/$$V"; echo "2026-10-10T00:00:05Z $$pj $$iv" > "$$S/v/$$V"; fi' \
+		'if [ -e "$$STUB_D/foreign-container" ]; then echo "identuum-devseed-intruder-1 identuum-devseed someone-else" > "$$S/c/f1"; fi' \
+		'exit 0' > "$$d/bin/curl"; \
+	printf '#!/bin/sh\necho "go $$*" >> "%s/other"\nexit 0\n' "$$d" > "$$d/bin/go"; \
 	printf '#!/bin/sh\nexit 1\n' > "$$d/bin/lsof"; chmod +x "$$d/bin/docker" "$$d/bin/curl" "$$d/bin/go" "$$d/bin/lsof"; \
-	run() { rm -f "$$d/calls"; (cd "$$d/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS -u IDENTUUM_IDP_COMPOSE_PROJECT -u DEV_APP_CONTAINER STUB_D="$$d" TMPDIR="$$d/tmp" PATH="$$d/bin:$$PATH" "$$@") > "$$d/out" 2>&1; }; \
+	run() { rm -rf "$$d/calls" "$$d/state"; (cd "$$d/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS -u IDENTUUM_IDP_COMPOSE_PROJECT -u DEV_APP_CONTAINER STUB_D="$$d" TMPDIR="$$d/tmp" PATH="$$d/bin:$$PATH" "$$@") > "$$d/out" 2>&1; }; \
 	verdict() { n=$$((n + 1)); if [ -z "$$2" ]; then echo "  ok    $$1"; else echo "  FAIL  $$1:$$2"; fails=$$((fails + 1)); fi; }; \
 	pinned() { want=$$1; miss=; c=$$(grep -c ' compose ' "$$d/calls" 2>/dev/null); [ "$${c:-0}" -ge "$$2" ] || miss="$$miss only-$${c:-0}-compose-calls"; \
 		grep ' compose ' "$$d/calls" 2>/dev/null | grep -vF -- " -p $$want " >/dev/null && miss="$$miss unpinned"; \
 		grep ' compose ' "$$d/calls" 2>/dev/null | grep -vF -- "cpn=unset cro=unset iicp=$$want" >/dev/null && miss="$$miss inherited-env"; echo "$$miss"; }; \
 	startfirst() { case "$$1" in *' up -d'*|*' build '*) ;; *) echo " first-compose-call-not-build-or-up";; esac; }; \
+	nodown() { grep -qE ' compose .* down( |$$)' "$$d/calls" && echo " compose-down-called"; }; \
+	removed() { grep -qE "^docker $$1( |$$)" "$$d/calls" || echo " $$2-not-removed"; }; \
+	kept() { grep -qE "^docker $$1( |$$)" "$$d/calls" && echo " $$2-removed"; }; \
 	run env COMPOSE_PROJECT_NAME=identuum-idp-oss COMPOSE_REMOVE_ORPHANS=true IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up; rc=$$?; \
 	verdict "oss-up under an inherited COMPOSE_PROJECT_NAME=identuum-idp-oss builds and starts -p identuum-e2e" "$$( [ $$rc -eq 0 ] || echo " exit $$rc")$$(pinned identuum-e2e 2)"; \
 	run env IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up DEV_COMPOSE_PROJECT=scratch-pin; rc=$$?; \
@@ -922,17 +948,23 @@ compose-pin-selftest:
 	run $(MAKE) --no-print-directory devseed-live IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e; \
 	first=$$(grep ' compose ' "$$d/calls" | grep -v ' config ' | head -1); \
 	verdict "devseed-live under an outer command-line project starts only -p identuum-devseed, and removes nothing before its own start" "$$(pinned identuum-devseed 3)$$(startfirst "$$first")"; \
-	lock="$$d/tmp/identuum-devseed.lock"; \
-	verdict "devseed-live's own run tears down with down --volumes and releases its lock" "$$(grep -q ' down --volumes' "$$d/calls" || echo " no-down")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+	lock="$$d/fixed/identuum-devseed.lock"; \
+	verdict "devseed-live labels what it starts with its invocation id, records it by ID, removes exactly that by ID (two containers, the network, the volume), runs no compose down, and releases its lock" "$$(grep -q -- '-f [^ ]*invocation.json' "$$d/calls" || echo " no-overlay")$$(grep -q 'check OK: record — this run created 4 resource' "$$d/out" || echo " not-recorded")$$(removed 'rm -f -v c1' container-c1)$$(removed 'rm -f -v c2' container-c2)$$(removed 'network rm n1' network)$$(removed 'volume rm identuum-devseed_postgres-idp-oss-data-v18' volume)$$(nodown)$$( [ -z "$$(ls "$$d/state/c" "$$d/state/n" "$$d/state/v" 2>/dev/null | grep -v '^$$' | grep -v ':$$')" ] || echo " residue")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
 	for kind in volume network; do \
 		: > "$$d/foreign-$$kind"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/foreign-$$kind"; \
-		verdict "devseed-live refuses a $$kind with a name it would create whatever its labels (seen only unfiltered), before any start or removal" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -E ' compose .* (up|down|build) ' "$$d/calls" >/dev/null && echo " compose-acted")$$(grep -q 'already exist' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+		verdict "devseed-live refuses a $$kind with a name it would create whatever its labels (seen only unfiltered), before any start or removal" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -E ' compose .* (up|down|build) ' "$$d/calls" >/dev/null && echo " compose-acted")$$(grep -qE '^docker (rm|network rm|volume rm) ' "$$d/calls" && echo " removed")$$(grep -q 'already exist' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
 	done; \
 	mkdir "$$lock"; echo held > "$$lock/pid"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; \
 	verdict "a second devseed-live while the lock is held is refused before any docker call and leaves the lock" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( [ ! -s "$$d/calls" ] || echo " docker-called")$$(grep -q held "$$lock/pid" 2>/dev/null || echo " lock-taken")"; \
+	run env TMPDIR="$$d/tmp2" $(MAKE) --no-print-directory devseed-live; rc=$$?; \
+	verdict "REVIEW-H1: a caller with another TMPDIR takes the same lock, so it is refused before any docker call and leaves the lock" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( [ ! -s "$$d/calls" ] || echo " docker-called")$$(grep -q held "$$lock/pid" 2>/dev/null || echo " lock-taken")$$(grep -qF "$$lock" "$$d/out" || echo " lock-not-named")$$( [ ! -e "$$d/tmp2/identuum-devseed.lock" ] || echo " lock-under-TMPDIR")"; \
 	rm -rf "$$lock"; \
-	: > "$$d/late"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/late" "$$d/foreign-volume"; \
-	verdict "a volume with a recorded name that appears during the run without the project label stops the teardown: no down at all" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -q ' down' "$$d/calls" && echo " down-called")$$(grep -q 'teardown — refused' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+	: > "$$d/late"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/late"; \
+	verdict "a volume with a recorded name that appears during the run without this run's invocation label is not removed; the run is red" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(kept 'volume rm' volume)$$(nodown)$$(grep -q 'teardown — refused for' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+	: > "$$d/replace-volume"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/replace-volume"; \
+	verdict "REVIEW-H2: a same-name, same-label replacement of the recorded volume is not removed (its creation time changed); this run's own containers and network are; the run is red" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(kept 'volume rm' replacement-volume)$$(removed 'rm -f -v c1' container-c1)$$(removed 'network rm n1' network)$$(nodown)$$(grep -q 'replaced since it was recorded' "$$d/out" || echo " no-refusal-line")$$( [ -e "$$d/state/v/identuum-devseed_postgres-idp-oss-data-v18" ] || echo " replacement-gone")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+	: > "$$d/foreign-container"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/foreign-container"; \
+	verdict "REVIEW-H2: a foreign container of the same project is not removed; this run's own resources are; the run is red" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(kept 'rm -f -v f1' foreign-container)$$(removed 'rm -f -v c2' container-c2)$$(removed 'volume rm identuum-devseed_postgres-idp-oss-data-v18' volume)$$(nodown)$$(grep -q 'teardown — refused for container:f1' "$$d/out" || echo " no-refusal-line")$$( [ -e "$$d/state/c/f1" ] || echo " foreign-gone")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
 	if [ $$fails -ne 0 ]; then echo "check FAILED: compose-pin-selftest $$fails of $$n case(s)"; exit 1; fi; \
 	echo "check OK: compose-pin-selftest $$n case(s): oss-up and devseed-live pin their compose project, clear inherited compose settings and never act on resources they did not create"
 
@@ -2152,11 +2184,18 @@ dev-seed: protected-guard
 ## from deployment/docker-compose.dev.yml, Postgres on 25513, app on 27113 (the
 ## P-087 variables) — so the owner's dev stack and the e2e harness are never
 ## touched. Every step prints `check OK:` or `check FAILED:` and decides the exit:
-##   lock           an exclusive invocation lock, $TMPDIR/identuum-devseed.lock,
-##                  taken before the first docker command and released on every
-##                  exit; a held lock refuses (OSS-MINT-GUARD-3, review
-##                  OSS-MINT-GUARD-2 G2: two runs could otherwise both see an
-##                  empty project and tear down each other's resources);
+##   lock           an exclusive invocation lock, /tmp/identuum-devseed.lock
+##                  (DEVSEED_LIVE_LOCK: one fixed path per machine, whatever
+##                  TMPDIR says — OSS-MINT-GUARD-4, review
+##                  OSS-MINT-GUARD-3-PREREVIEW H1, where two callers with
+##                  different TMPDIR values took different locks), taken
+##                  before the first docker command, held through the
+##                  teardown and released on every exit; a held lock refuses
+##                  (OSS-MINT-GUARD-3, review OSS-MINT-GUARD-2 G2: two runs
+##                  could otherwise both see an empty project and tear down
+##                  each other's resources); with it a random invocation id is
+##                  drawn, the label io.identuum.harness.invocation that binds
+##                  what this run creates to this run;
 ##   preflight      the project holds NO container, volume or network (by its
 ##                  compose label) and no container is named identuum-devseed
 ##                  or identuum-devseed-postgres, else refused naming them and
@@ -2173,7 +2212,14 @@ dev-seed: protected-guard
 ##                  host ports free, else refused naming the holder;
 ##   up             oss-up builds the tree and starts the project, its
 ##                  project, app container and ports passed on oss-up's
-##                  command line so an outer command line cannot split them;
+##                  command line so an outer command line cannot split them,
+##                  with a generated compose overlay ($dir/invocation.json)
+##                  that puts the invocation label on every service, volume
+##                  and network the resolved config names;
+##   record         right after the start, the containers and networks
+##                  carrying this run's invocation label, by full ID, and its
+##                  volumes, by name and creation time, are written to
+##                  $dir/created: what this run actually created;
 ##   health         /health answers within 120s;
 ##   seed           devseed as dev-seed runs it (--container) plus --json;
 ##   credentials    TestDevseedLive (tools/devseed/live_test.go) signs in as
@@ -2185,14 +2231,22 @@ dev-seed: protected-guard
 ##                  invalid_client, and nothing else passes;
 ##   second run     a re-seed refuses as devseed documents (the org_admin
 ##                  already has TOTP, and devseed keeps no copy of the secret);
-##   teardown       `down --volumes` of identuum-devseed ONLY, on every exit
-##                  (EXIT, INT and TERM traps), then 0 containers and 0 volumes
-##                  of that project, counted by docker commands whose own
-##                  failure fails the check. Before it, every inventory name
-##                  that exists must carry the project's label (created by this
-##                  run, which held the lock from the absent-scan on); one that
-##                  does not stops the teardown — no down at all, check FAILED,
-##                  nothing removed — and so does a failed listing.
+##   teardown       on every exit (EXIT, INT and TERM traps) it removes the
+##                  recorded resources and nothing else, never a project-level
+##                  `down` (OSS-MINT-GUARD-4, review OSS-MINT-GUARD-3-PREREVIEW
+##                  H2: a project label and an expected name are shared by
+##                  anything of the project, so they prove no ownership). Each
+##                  recorded container and network is re-inspected and removed
+##                  by its ID (`docker rm -f -v`, `docker network rm`) only when
+##                  its ID and invocation label still match; a recorded volume
+##                  only when its creation time and label still match
+##                  (`docker volume rm`). A container, network or volume of the
+##                  project, or one carrying a name this run would create, that
+##                  is not in the record — a foreign same-project container, a
+##                  same-name replacement, whatever its labels — is refused:
+##                  not removed, check FAILED. Then 0 containers and 0 volumes
+##                  of the project, counted by docker commands whose own failure
+##                  fails the check. A failed listing removes nothing.
 ## OSS-PRE-RELEASE-FIXES: before ANY docker command the project must be
 ## identuum-devseed and not a PROTECTED_CONTAINERS name or the dev project, so
 ## a command-line DEVSEED_LIVE_PROJECT cannot aim the cleanup at the owner's
@@ -2203,6 +2257,12 @@ dev-seed: protected-guard
 DEVSEED_LIVE_PROJECT := identuum-devseed
 DEVSEED_LIVE_PG_PORT := 25513
 DEVSEED_LIVE_APP_PORT := 27113
+## The one invocation lock for project identuum-devseed on this machine
+## (OSS-MINT-GUARD-4, review OSS-MINT-GUARD-3-PREREVIEW H1): a fixed path,
+## never derived from TMPDIR or any other variable, and `override` so a
+## command line cannot move it either. compose-pin-selftest rewrites this one
+## line in its private copy of the Makefile.
+override DEVSEED_LIVE_LOCK := /tmp/identuum-devseed.lock
 .PHONY: devseed-live
 devseed-live:
 	@set -u; umask 077; p=$(DEVSEED_LIVE_PROJECT); app=$(DEVSEED_LIVE_APP_PORT); \
@@ -2215,23 +2275,48 @@ devseed-live:
 	dir=$$(mktemp -d "$${TMPDIR:-/tmp}/devseed-live.XXXXXX"); fails=0; cleaned=0; \
 	ok() { echo "devseed-live: check OK: $$1"; }; \
 	bad() { echo "devseed-live: check FAILED: $$1"; fails=$$((fails+1)); }; \
-	lock="$${TMPDIR:-/tmp}/identuum-devseed.lock"; \
-	if ! mkdir "$$lock" 2>/dev/null; then echo "devseed-live: check FAILED: preflight — another devseed-live run holds $$lock, or a killed one left it; remove it only after confirming no devseed-live run is active (refused; no docker command was run)"; exit 1; fi; \
+	lock='$(DEVSEED_LIVE_LOCK)'; \
+	if ! mkdir "$$lock" 2>/dev/null; then echo "devseed-live: check FAILED: preflight — could not take $$lock: another devseed-live run on this machine holds it, or a killed one left it (every run takes this one lock, whatever its TMPDIR); remove it only after confirming no devseed-live run is active (refused; no docker command was run)"; exit 1; fi; \
 	echo $$$$ > "$$lock/pid"; trap 'rm -rf "$$lock"' EXIT; \
+	lab=io.identuum.harness.invocation; iid=$$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); \
+	case "$$iid" in *[!0-9a-f]*|'') echo "devseed-live: check FAILED: preflight — no invocation id could be drawn from /dev/urandom (refused; no docker command was run)"; exit 1;; esac; \
+	[ $${#iid} -eq 32 ] || { echo "devseed-live: check FAILED: preflight — no invocation id could be drawn from /dev/urandom (refused; no docker command was run)"; exit 1; }; \
+	record() { \
+		if ! rc=$$(docker ps -aq --no-trunc --filter "label=$$lab=$$iid" 2>>"$$dir/down.log") || ! rn=$$(docker network ls -q --no-trunc --filter "label=$$lab=$$iid" 2>>"$$dir/down.log") || \
+			! rv=$$(docker volume ls -q --filter "label=$$lab=$$iid" 2>>"$$dir/down.log"); then return 1; fi; \
+		{ for c in $$rc; do echo "container $$c"; done; for n in $$rn; do echo "network $$n"; done; \
+			for v in $$rv; do t=$$(docker volume inspect --format '{{.CreatedAt}}' "$$v" 2>>"$$dir/down.log") && [ -n "$$t" ] || return 1; echo "volume $$v $$t"; done; } > "$$dir/created.part" || return 1; \
+		mv "$$dir/created.part" "$$dir/created"; }; \
 	teardown() { \
-		if ! allv=$$(docker volume ls --format '{{.Name}}' 2>>"$$dir/down.log") || ! alln=$$(docker network ls --format '{{.Name}}' 2>>"$$dir/down.log") || \
-			! ownv=$$(docker volume ls --filter "label=com.docker.compose.project=$$p" --format '{{.Name}}' 2>>"$$dir/down.log") || \
-			! ownn=$$(docker network ls --filter "label=com.docker.compose.project=$$p" --format '{{.Name}}' 2>>"$$dir/down.log"); then \
-			bad "teardown — refused: docker could not list volumes and networks, so this run's ownership was not proved; nothing was removed"; return; fi; \
-		foreign=; for e in $$(cat "$$dir/inventory"); do nm=$${e#*:}; case "$$e" in volume:*) all=$$allv; own=$$ownv;; *) all=$$alln; own=$$ownn;; esac; \
-			if printf '%s\n' "$$all" | grep -qxF "$$nm" && ! printf '%s\n' "$$own" | grep -qxF "$$nm"; then foreign="$$foreign $$e"; fi; done; \
-		if [ -n "$$foreign" ]; then bad "teardown — refused:$$foreign exists without project $$p's label, so this run did not create it, and down --volumes would remove it by name; nothing was removed. Inspect it, then stop this run's containers with: docker compose -p $$p -f deployment/docker-compose.dev.yml --profile app down"; return; fi; \
-		if ! dc down --volumes >"$$dir/down.log" 2>&1; then bad "teardown — down --volumes of project $$p failed (log: $$dir/down.log)"; return; fi; \
+		if [ ! -e "$$dir/created" ] && ! record; then bad "teardown — refused: docker could not list what this run created, so nothing was removed; inspect project $$p by hand (log: $$dir/down.log)"; return; fi; \
+		if ! allc=$$(docker ps -aq --no-trunc 2>>"$$dir/down.log") || ! projc=$$(docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log") || \
+			! namec=$$(docker ps -a --no-trunc --format '{{.ID}} {{.Names}}' 2>>"$$dir/down.log") || \
+			! alln=$$(docker network ls --no-trunc --format '{{.ID}} {{.Name}}' 2>>"$$dir/down.log") || ! projn=$$(docker network ls -q --no-trunc --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log") || \
+			! allv=$$(docker volume ls --format '{{.Name}}' 2>>"$$dir/down.log") || ! projv=$$(docker volume ls -q --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log"); then \
+			bad "teardown — refused: docker could not list containers, networks and volumes, so this run's ownership was not proved; nothing was removed"; return; fi; \
+		rec() { grep -qxF "$$1 $$2" "$$dir/created" || grep -q "^$$1 $$2 " "$$dir/created"; }; strange=; removed=0; \
+		for c in $$projc $$(printf '%s\n' "$$namec" | awk -v a="$$p" -v b="$$p-postgres" '$$2==a||$$2==b{print $$1}'); do rec container "$$c" || strange="$$strange container:$$c"; done; \
+		for n in $$projn; do rec network "$$n" || strange="$$strange network:$$n"; done; \
+		for v in $$projv; do rec volume "$$v" || strange="$$strange volume:$$v"; done; \
+		for e in $$(cat "$$dir/inventory"); do nm=$${e#*:}; case "$$e" in \
+			network:*) for n in $$(printf '%s\n' "$$alln" | awk -v n="$$nm" '$$2==n{print $$1}'); do rec network "$$n" || strange="$$strange network:$$nm"; done;; \
+			*) if printf '%s\n' "$$allv" | grep -qxF "$$nm"; then rec volume "$$nm" || strange="$$strange volume:$$nm"; fi;; esac; done; \
+		while read -r kind id t; do case "$$kind" in \
+			container) printf '%s\n' "$$allc" | grep -qxF "$$id" || continue; \
+				[ "$$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || { strange="$$strange container:$$id(identity changed)"; continue; }; \
+				if docker rm -f -v "$$id" >>"$$dir/down.log" 2>&1; then removed=$$((removed+1)); else bad "teardown — removing this run's container $$id failed (log: $$dir/down.log)"; fi;; \
+			network) printf '%s\n' "$$alln" | awk '{print $$1}' | grep -qxF "$$id" || continue; \
+				[ "$$(docker network inspect --format "{{.Id}} {{index .Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || { strange="$$strange network:$$id(identity changed)"; continue; }; \
+				if docker network rm "$$id" >>"$$dir/down.log" 2>&1; then removed=$$((removed+1)); else bad "teardown — removing this run's network $$id failed (log: $$dir/down.log)"; fi;; \
+			volume) printf '%s\n' "$$allv" | grep -qxF "$$id" || continue; \
+				[ "$$(docker volume inspect --format "{{.CreatedAt}} {{index .Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$t $$iid" ] || { strange="$$strange volume:$$id(replaced since it was recorded)"; continue; }; \
+				if docker volume rm "$$id" >>"$$dir/down.log" 2>&1; then removed=$$((removed+1)); else bad "teardown — removing this run's volume $$id failed (log: $$dir/down.log)"; fi;; esac; done < "$$dir/created"; \
+		if [ -n "$$strange" ]; then bad "teardown — refused for$$strange: this run did not record creating it (by ID, with its invocation label), or its identity changed since, so it was not removed; inspect it by hand"; fi; \
 		if ! cs=$$(docker ps -aq --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log"); then bad "teardown — docker ps failed, so the containers of $$p were not counted"; return; fi; \
 		if ! vs=$$(docker volume ls -q --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log"); then bad "teardown — docker volume ls failed, so the volumes of $$p were not counted"; return; fi; \
 		c=$$(printf '%s' "$$cs" | grep -c .); v=$$(printf '%s' "$$vs" | grep -c .); \
-		if [ "$$c" = 0 ] && [ "$$v" = 0 ]; then ok "teardown — project $$p down --volumes, 0 containers and 0 volumes left"; \
-		else bad "teardown — project $$p still has $$c container(s) and $$v volume(s)"; fi; }; \
+		if [ -z "$$strange" ] && [ "$$c" = 0 ] && [ "$$v" = 0 ]; then ok "teardown — removed the $$removed resource(s) this run recorded creating, each by ID after rechecking its identity; 0 containers and 0 volumes of $$p left"; \
+		elif [ "$$c" != 0 ] || [ "$$v" != 0 ]; then bad "teardown — project $$p still has $$c container(s) and $$v volume(s)"; fi; }; \
 	cleanup() { [ "$$cleaned" = 1 ] && return 0; cleaned=1; teardown; rm -rf "$$lock"; echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; }; \
 	finish() { cleanup; trap - EXIT; \
 		if [ "$$fails" -eq 0 ]; then echo "devseed-live: green"; exit 0; fi; echo "devseed-live: RED — $$fails check(s) failed"; exit 1; }; \
@@ -2243,7 +2328,7 @@ devseed-live:
 		[ -z "$$out" ] || left="$$left container:$$n"; done; \
 	if [ -n "$$left" ]; then echo "devseed-live: check FAILED: preflight — project $$p already has resources this run did not create ($$left ); they are never removed by assumption. If they are a previous devseed-live run's, remove them yourself: docker compose -p $$p -f deployment/docker-compose.dev.yml --profile app down --volumes (refused; nothing was started)"; exit 1; fi; \
 	ok "preflight — project $$p has no containers, volumes or networks, so everything it holds from here on is this run's"; \
-	if ! vk=$$(dc config --volumes 2>>"$$dir/preflight.log") || ! nk=$$(dc config --networks 2>>"$$dir/preflight.log") || ! cfg=$$(dc config --format json 2>>"$$dir/preflight.log"); then \
+	if ! vk=$$(dc config --volumes 2>>"$$dir/preflight.log") || ! nk=$$(dc config --networks 2>>"$$dir/preflight.log") || ! sk=$$(dc config --services 2>>"$$dir/preflight.log") || ! cfg=$$(dc config --format json 2>>"$$dir/preflight.log"); then \
 		echo "devseed-live: check FAILED: preflight — docker compose config failed, so the names this run would create are unknown (refused; nothing was started)"; exit 1; fi; \
 	inv=; for k in $$vk; do inv="$$inv volume:$${p}_$$k"; done; for k in $$nk; do inv="$$inv network:$${p}_$$k"; done; \
 	case "$$inv" in *volume:*network:*) ;; *) echo "devseed-live: check FAILED: preflight — docker compose config names no volume or no network for $$p (refused; nothing was started)"; exit 1;; esac; \
@@ -2254,6 +2339,10 @@ devseed-live:
 	taken=; for e in $$inv; do case "$$e" in volume:*) all=$$allv;; *) all=$$alln;; esac; printf '%s\n' "$$all" | grep -qxF "$${e#*:}" && taken="$$taken $$e"; done; \
 	if [ -n "$$taken" ]; then echo "devseed-live: check FAILED: preflight —$$taken already exist(s), whatever its labels; a same-name volume or network may be another stack's, and this run would reuse it and its down --volumes would remove it by name. Inspect it (docker volume inspect / docker network inspect) and decide by hand (refused; nothing was started)"; exit 1; fi; \
 	printf '%s\n' $$inv > "$$dir/inventory"; \
+	ov=; for k in $$sk; do ov="$$ov,\"$$k\":{\"labels\":{\"$$lab\":\"$$iid\"}}"; done; ov="{\"services\":{$${ov#,}},"; \
+	o2=; for k in $$vk; do o2="$$o2,\"$$k\":{\"labels\":{\"$$lab\":\"$$iid\"}}"; done; ov="$$ov\"volumes\":{$${o2#,}},"; \
+	o2=; for k in $$nk; do o2="$$o2,\"$$k\":{\"labels\":{\"$$lab\":\"$$iid\"}}"; done; ov="$$ov\"networks\":{$${o2#,}}}"; \
+	printf '%s\n' "$$ov" > "$$dir/invocation.json"; \
 	ok "preflight — the names this run creates ($$(printf '%s\n' $$inv | tr '\n' ' '| sed 's/ $$//')) are absent, recorded in $$dir/inventory"; \
 	for port in $(DEVSEED_LIVE_PG_PORT) $$app; do \
 		holder=$$(docker ps --filter "publish=$$port" --format '{{.Names}}' | tr '\n' ' '); \
@@ -2261,7 +2350,8 @@ devseed-live:
 		if [ -n "$$holder" ]; then echo "devseed-live: check FAILED: preflight — host port $$port is taken by: $$holder(refused; nothing was started)"; exit 1; fi; \
 	done; ok "preflight — ports $(DEVSEED_LIVE_PG_PORT) and $$app free"; \
 	trap 'cleanup' EXIT; trap 'bad "interrupted"; finish' INT TERM; \
-	if $(MAKE) --no-print-directory oss-up IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_COMPOSE_PROJECT="$$p" DEV_APP_CONTAINER="$$p" DEV_PG_HOST_PORT=$(DEVSEED_LIVE_PG_PORT) DEV_APP_PORT="$$app" COMPOSE_FILE=deployment/docker-compose.dev.yml >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
+	if $(MAKE) --no-print-directory oss-up IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_COMPOSE_PROJECT="$$p" DEV_APP_CONTAINER="$$p" DEV_PG_HOST_PORT=$(DEVSEED_LIVE_PG_PORT) DEV_APP_PORT="$$app" COMPOSE_FILE="deployment/docker-compose.dev.yml -f $$dir/invocation.json" >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p, every resource labelled with this run's invocation id"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
+	if record; then ok "record — this run created $$(grep -c . "$$dir/created") resource(s), recorded by ID in $$dir/created"; else bad "record — docker could not list what this run created"; finish; fi; \
 	i=0; until curl -fsS --max-time 2 "http://127.0.0.1:$$app/health" >/dev/null 2>&1; do \
 		i=$$((i+1)); if [ $$i -ge 60 ]; then bad "health — no answer on 127.0.0.1:$$app within 120s"; finish; fi; sleep 2; done; \
 	ok "health — 127.0.0.1:$$app answers"; \
@@ -2668,6 +2758,7 @@ test-db-endpoint-selftest:
 	mkdir -p "$$d/bin" "$$d/w"; ln -s "$(TEST_DB_ENDPOINT_MAKEFILE)" "$$d/w/Makefile"; \
 	for c in psql createdb pg_isready go docker rulefloor curl; do \
 		printf '#!/bin/sh\necho "%s $$*" >> "%s/calls"\n' "$$c" "$$d" > "$$d/bin/$$c"; chmod +x "$$d/bin/$$c"; done; \
+	printf '#!/bin/sh\necho "uname $$*" >> "%s/calls"\necho Linux\n' "$$d" > "$$d/bin/uname"; chmod +x "$$d/bin/uname"; \
 	printf '#!/bin/sh\necho "lictor $$*" >> "%s/calls"\necho "$$*" > "%s/lictor.args"\necho "port=$$DEV_PG_HOST_PORT" >> "%s/lictor.args"\ncase "$$IDENTUUM_IDP_TEST_DATABASE_URL" in *@127.0.0.1:"$$DEV_PG_HOST_PORT"/*) echo url=agrees;; *) echo url=disagrees;; esac >> "%s/lictor.args"\n' "$$d" "$$d" "$$d" "$$d" > "$$d/bin/lictor"; chmod +x "$$d/bin/lictor"; \
 	run() { (cd "$$d/w" && env -u IDENTUUM_IDP_TEST_DATABASE_URL -u IDENTUUM_IDP_DATABASE_URL -u OSS_TEST_DB_URL -u DEV_PG_HOST_PORT -u LICTOR -u GATE_RECORD_DRIVER -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u CI -u GITHUB_ACTIONS -u GITHUB_JOB -u RUNNER_OS -u PGHOSTADDR -u PGSERVICE -u IDENTUUM_IDP_ALLOW_NON_TEST_DB -u IDENTUUM_IDP_REQUIRE_DB_TESTS -u IDENTUUM_IDP_ALLOW_MULTI_REPLICA PATH="$$d/bin:$$PATH" "$$@"); }; \
 	dry() { label=$$1; port=$$2; other=$$3; shift 3; n=$$((n + 1)); out=$$(run $(MAKE) --no-print-directory -n test-db ci-integration-test rulefloor-integration "$$@" 2>&1); miss=; \
@@ -2756,7 +2847,6 @@ test-db: test-db-endpoint bin/integration-witness
 		"SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 || \
 		PGPASSWORD=dev-idp_oss_user-not-a-secret createdb -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user "$$db"
 	@$(MAKE) --no-print-directory build-binary
-	printf '#!/bin/sh\necho "uname $$*" >> "%s/calls"\necho Linux\n' "$$d" > "$$d/bin/uname"; chmod +x "$$d/bin/uname"; \
 	@./bin/identuum-idp migrate "$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}"
 
 ## test-db-endpoint (OSS-MINT-ISOLATION, 2026-10-10; review
@@ -2798,6 +2888,7 @@ port='$(DEV_PG_HOST_PORT)'; \
 	[ "$$port" -le 65535 ] || no "DEV_PG_HOST_PORT is not a port number"; \
 	[ -z "$${PGHOSTADDR:-}$${PGSERVICE:-}" ] || no "PGHOSTADDR or PGSERVICE is set, and either can send psql and createdb to another server than 127.0.0.1:$$port; unset them"; \
 	judge() { n=$$1; u=$$2; \
+		[ "$$port" != 5513 ] || no "port 5513 is the owner's PostgreSQL; no test run uses it, in CI or anywhere else, so $$n is refused whatever it names. Set DEV_PG_HOST_PORT to a scratch server's port, for example DEV_PG_HOST_PORT=35599 make fast-up"; \
 		case "$$u" in postgres://*) r=$${u#postgres://};; postgresql://*) r=$${u#postgresql://};; *) no "$$n is not a postgres:// URL, so its server cannot be checked; write it as a postgres:// URL on 127.0.0.1:$$port";; esac; \
 		a=$${r%%[/?#]*}; p=$${r#"$$a"}; \
 		case "$$p" in /*) p=$${p#/};; *) no "$$n has no /database path after its server";; esac; \
@@ -2886,7 +2977,6 @@ rulefloor-integration: test-db-endpoint
 ## CANNOT-EVALUATE, never a pass — when there is not. integration-profile runs
 ## the suites through tools/integration-witness, which refuses to call a run
 ## with ZERO executed tests green. rulefloor-integration runs the ledger's
-		[ "$$port" != 5513 ] || no "port 5513 is the owner's PostgreSQL; no test run uses it, in CI or anywhere else, so $$n is refused whatever it names. Set DEV_PG_HOST_PORT to a scratch server's port, for example DEV_PG_HOST_PORT=35599 make fast-up"; \
 ## DB-backed rows. Measured on an M-series laptop, 2026-09-03: 3s + 65s + 275s.
 ## The witness is BUILT, not `go run`: MEASURED 2026-09-03, `go run` reports a
 ## child's exit 2 as its own exit 1 (printing "exit status 2" to stderr), which

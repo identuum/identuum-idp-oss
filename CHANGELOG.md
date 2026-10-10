@@ -14,17 +14,22 @@ follows [Semantic Versioning](https://semver.org/).
   `integration-test`, `rulefloor-integration`, `verify-integration`,
   `validate`, `verify-oss`, `test-full`) refuses port 5513, the default,
   before anything connects or is removed: set `DEV_PG_HOST_PORT` to a scratch
-  server. The hosted CI job's own service database is the one exception. A
+  server. There is no exception, CI included: the CI workflow's test
+  databases use port 45432 (OSS-MINT-GUARD-4, review
+  OSS-MINT-GUARD-3-PREREVIEW H3). A
   test URL is accepted only as one `127.0.0.1`/`localhost` server on that
   port and a `*_test` database with no option but `sslmode`: a `port`,
   `host`, `hostaddr`, `dbname`, `database` or `service` option could send
   the driver to another server or database than the URL appears to name,
   and was accepted before. `tools/integration-witness` has no default
   database any more and applies the same rules; the CI integration recorder
-  runs only in the hosted job; `dev.env.example` no longer sets a test URL.
-  `oss-up` pins its compose project, so an inherited `COMPOSE_PROJECT_NAME`
-  cannot redirect it, and `devseed-live` refuses leftovers of its project
-  instead of deleting them. `make notices-check` now also regenerates the Go
+  runs only in the CI Integration Tests job; `dev.env.example` no longer sets
+  a test URL. `oss-up` pins its compose project, so an inherited
+  `COMPOSE_PROJECT_NAME` cannot redirect it, and `devseed-live` refuses
+  leftovers of its project instead of deleting them; it holds one lock per
+  machine for its project, whatever `TMPDIR` says, and removes only the
+  containers, network and volume it recorded creating, each rechecked by
+  identity first (OSS-MINT-GUARD-4, review OSS-MINT-GUARD-3-PREREVIEW H1/H2). `make notices-check` now also regenerates the Go
   licence texts and compares them (review OSS-FIXES-3 F3).
 - **A front-channel fan-out with any receiver on the issuer's origin runs
   every frame scripts-only** (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW
