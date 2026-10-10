@@ -45,7 +45,14 @@ and 27113), then every credential it prints is used to sign in, and the
 project is removed again. It needs those two ports free and refuses, naming
 the holder, when one is taken. It also refuses, without removing anything,
 when `identuum-devseed` still has containers, volumes or networks from an
-earlier run; the refusal prints the command that removes them. The seeded credentials are written to a
+earlier run; the refusal prints the command that removes them. It refuses
+too when a volume or network already has one of the names it would create
+(`identuum-devseed_postgres-idp-oss-data-v18`, `identuum-devseed_default`),
+whoever made it, and when another `devseed-live` run is active (it holds the
+lock `$TMPDIR/identuum-devseed.lock`; a killed run leaves it, and you remove
+it by hand). At the end it removes the project only if every such name
+still carries the project's own label; otherwise it removes nothing and
+fails. The seeded credentials are written to a
 mode-600 file in a new temporary directory, which is left for you and never
 printed. Run it alone with `make devseed-live`.
 
