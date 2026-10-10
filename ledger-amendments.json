@@ -1,22 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "1f0bf63e39a0dba0a931aeec695787e9c3d2d301",
+  "base_commit": "63268ebde17c31c1980f93895a13b13e9a26a228",
   "changes": [
     {
-      "rule_id": "DISCOVERY-ALG-POLICY-1",
-      "change_class": "proof_changed",
-      "reason": "Owner revision of P-062 on 2026-10-10 authorizes RS256 advertisement only with the default-off option enabled. Retain the exact default EdDSA/ES256 policy and every banned/registrable assertion; extend the rule and mutation proof to both modes and both builders. No floor decrease."
-    },
-    {
-      "rule_id": "DISCOVERY-ALG-POLICY-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "068073161be104d453253941f3c90a648d8d0f7f92d0d3969a5c1fd3bee3b005",
-      "reason": "Owner revision of P-062 on 2026-10-10 authorizes RS256 advertisement only with the default-off option enabled. Retain the exact default EdDSA/ES256 policy and every banned/registrable assertion; extend the rule and mutation proof to both modes and both builders. No floor decrease."
-    },
-    {
-      "rule_id": "DISCOVERY-ALG-POLICY-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "Owner revision of P-062 on 2026-10-10 authorizes RS256 advertisement only with the default-off option enabled. Retain the exact default EdDSA/ES256 policy and every banned/registrable assertion; extend the rule and mutation proof to both modes and both builders. No floor decrease."
+      "rule_id": "SIGNING-KEY-PROVISION-1",
+      "change_class": "rule_added",
+      "reason": "OSS-REVIEW-FIXES-2 (2026-10-10, review OSS-RS256-REVIEW F1): new rule SIGNING-KEY-PROVISION-1, armed on internal/runtime/rs256_provision_integration_test.go @ integration: two startup provisioning runs released together against one database leave exactly one active RSA key and one active default key; an existing active key is reused, a rotating-only RSA key gets a new active one, and the option off creates none. Red-proved against the test database before the fix."
     }
   ]
 }
