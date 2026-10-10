@@ -804,6 +804,7 @@ script-tests:
 	@$(MAKE) --no-print-directory claim-guard-selftest
 	@$(MAKE) --no-print-directory dev-ports-selftest
 	@$(MAKE) --no-print-directory test-db-endpoint-selftest
+	@$(MAKE) --no-print-directory compose-pin-selftest
 	@bash scripts/verify-check-test.sh
 	@bash scripts/ci-integration-record-test.sh
 	@bin=$$(mktemp "$${TMPDIR:-/tmp}/ci-witness.XXXXXX"); \
@@ -862,6 +863,46 @@ protected-guard-selftest:
 	for f in conformance/run.sh scripts/*.sh; do expect 0 "this repository: $$f" $(MAKE) --no-print-directory protected-check SCRIPT="$$f"; done; \
 	if [ $$fails -ne 0 ]; then echo "protected-guard-selftest: FAIL — $$fails of $$n case(s) wrong" >&2; exit 1; fi; \
 	echo "check OK: protected-guard-selftest $$n case(s), refusals and passes proven"
+
+## compose-pin-selftest (OSS-MINT-GUARD-2; review OSS-MINT-COVERAGE C1, judge
+## ruling Q2(b)): this Makefile runs from a fixture directory where docker,
+## curl, go and lsof are stubs that record each call and the compose variables
+## it saw, so nothing reaches a daemon. oss-up's build and start carry
+## -p <project> with COMPOSE_PROJECT_NAME and COMPOSE_REMOVE_ORPHANS cleared,
+## even when the caller exports COMPOSE_PROJECT_NAME=identuum-idp-oss; a
+## protected project or a DEV_APP_CONTAINER that is not the project's app
+## container is refused before any docker call; devseed-live refuses leftovers
+## of identuum-devseed without a compose command, and otherwise starts its
+## project with -p identuum-devseed even under an outer command-line project.
+COMPOSE_PIN_MAKEFILE ?= $(abspath Makefile)
+.PHONY: compose-pin-selftest
+compose-pin-selftest:
+	@d=$$(mktemp -d "$${TMPDIR:-/tmp}/compose-pin.XXXXXX"); trap 'rm -rf "$$d"' EXIT; n=0; fails=0; \
+	mkdir -p "$$d/bin" "$$d/w/deployment" "$$d/tmp"; ln -s "$(COMPOSE_PIN_MAKEFILE)" "$$d/w/Makefile"; : > "$$d/w/deployment/docker-compose.dev.yml"; \
+	printf '#!/bin/sh\necho "docker $$* | cpn=$${COMPOSE_PROJECT_NAME-unset} cro=$${COMPOSE_REMOVE_ORPHANS-unset} iicp=$${IDENTUUM_IDP_COMPOSE_PROJECT-unset}" >> "%s/calls"\ncase "$$1 $$2" in "ps -aq"|"volume ls"|"network ls") [ -e "%s/leftover" ] && echo deadbeef;; esac\nexit 0\n' "$$d" "$$d" > "$$d/bin/docker"; \
+	for c in curl go; do printf '#!/bin/sh\necho "%s $$*" >> "%s/other"\nexit 0\n' "$$c" "$$d" > "$$d/bin/$$c"; done; \
+	printf '#!/bin/sh\nexit 1\n' > "$$d/bin/lsof"; chmod +x "$$d/bin/docker" "$$d/bin/curl" "$$d/bin/go" "$$d/bin/lsof"; \
+	run() { rm -f "$$d/calls"; (cd "$$d/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS -u IDENTUUM_IDP_COMPOSE_PROJECT -u DEV_APP_CONTAINER TMPDIR="$$d/tmp" PATH="$$d/bin:$$PATH" "$$@") > "$$d/out" 2>&1; }; \
+	verdict() { n=$$((n + 1)); if [ -z "$$2" ]; then echo "  ok    $$1"; else echo "  FAIL  $$1:$$2"; fails=$$((fails + 1)); fi; }; \
+	pinned() { want=$$1; miss=; c=$$(grep -c ' compose ' "$$d/calls" 2>/dev/null); [ "$${c:-0}" -ge "$$2" ] || miss="$$miss only-$${c:-0}-compose-calls"; \
+		grep ' compose ' "$$d/calls" 2>/dev/null | grep -vF -- " -p $$want " >/dev/null && miss="$$miss unpinned"; \
+		grep ' compose ' "$$d/calls" 2>/dev/null | grep -vF -- "cpn=unset cro=unset iicp=$$want" >/dev/null && miss="$$miss inherited-env"; echo "$$miss"; }; \
+	startfirst() { case "$$1" in *' up -d'*|*' build '*) ;; *) echo " first-compose-call-not-build-or-up";; esac; }; \
+	run env COMPOSE_PROJECT_NAME=identuum-idp-oss COMPOSE_REMOVE_ORPHANS=true IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up; rc=$$?; \
+	verdict "oss-up under an inherited COMPOSE_PROJECT_NAME=identuum-idp-oss builds and starts -p identuum-e2e" "$$( [ $$rc -eq 0 ] || echo " exit $$rc")$$(pinned identuum-e2e 2)"; \
+	run env IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up DEV_COMPOSE_PROJECT=scratch-pin; rc=$$?; \
+	verdict "a command-line DEV_COMPOSE_PROJECT moves -p and the file's names together" "$$( [ $$rc -eq 0 ] || echo " exit $$rc")$$(pinned scratch-pin 2)"; \
+	run env IDENTUUM_IDP_COMPOSE_PROJECT=identuum-idp-oss $(MAKE) --no-print-directory oss-up; rc=$$?; \
+	verdict "oss-up of the protected project is refused before any docker call" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( [ ! -s "$$d/calls" ] || echo " docker-called")"; \
+	run env IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up DEV_APP_CONTAINER=identuum-idp-oss-dev; rc=$$?; \
+	verdict "oss-up with a DEV_APP_CONTAINER that is not the project's is refused before any docker call" "$$( [ $$rc -eq 2 ] || echo " exit $$rc")$$( [ ! -s "$$d/calls" ] || echo " docker-called")"; \
+	: > "$$d/leftover"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/leftover"; \
+	verdict "devseed-live refuses identuum-devseed leftovers without a compose command" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( grep -q ' compose ' "$$d/calls" && echo " compose-called")$$( grep -q 'resources this run did not create' "$$d/out" || echo " no-refusal-line")"; \
+	run $(MAKE) --no-print-directory devseed-live IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e; \
+	first=$$(grep -n ' compose ' "$$d/calls" | head -1); \
+	verdict "devseed-live under an outer command-line project starts only -p identuum-devseed, and removes nothing before its own start" "$$(pinned identuum-devseed 3)$$(startfirst "$$first")"; \
+	if [ $$fails -ne 0 ]; then echo "check FAILED: compose-pin-selftest $$fails of $$n case(s)"; exit 1; fi; \
+	echo "check OK: compose-pin-selftest $$n case(s): oss-up and devseed-live pin their compose project, clear inherited compose settings and never act on resources they did not create"
 
 ## record-home-paths (OSS-GATE-TIDY, 2026-10-05): a TRACKED gate record
 ## (git ls-files GATE-RUN*.txt) never carries a machine's user directory — a
@@ -2075,8 +2116,17 @@ dev-seed: protected-guard
 ## from deployment/docker-compose.dev.yml, Postgres on 25513, app on 27113 (the
 ## P-087 variables) — so the owner's dev stack and the e2e harness are never
 ## touched. Every step prints `check OK:` or `check FAILED:` and decides the exit:
-##   preflight      both host ports free, else refused naming the holder;
-##   up             oss-up builds the tree and starts the project;
+##   preflight      the project holds NO container, volume or network (by its
+##                  compose label) and no container is named identuum-devseed
+##                  or identuum-devseed-postgres, else refused naming them and
+##                  the command that would remove them — leftovers are never
+##                  deleted by assumption (judge ruling Q2(b), OSS-MINT-GUARD-2;
+##                  until then a `down --volumes` ran first, on whatever the
+##                  project held); then both host ports free, else refused
+##                  naming the holder;
+##   up             oss-up builds the tree and starts the project, its
+##                  project, app container and ports passed on oss-up's
+##                  command line so an outer command line cannot split them;
 ##   health         /health answers within 120s;
 ##   seed           devseed as dev-seed runs it (--container) plus --json;
 ##   credentials    TestDevseedLive (tools/devseed/live_test.go) signs in as
@@ -2110,7 +2160,7 @@ devseed-live:
 		if [ "$$p" = "$$n" ]; then echo "devseed-live: REFUSED — project '$$p' is protected or the dev project (no docker command was run)"; exit 2; fi; \
 	done; \
 	export IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_PG_HOST_PORT=$(DEVSEED_LIVE_PG_PORT) DEV_APP_PORT="$$app"; \
-	dc() { $(COMPOSE_CMD) -p "$$p" -f deployment/docker-compose.dev.yml --profile app "$$@"; }; \
+	dc() { env -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS $(COMPOSE_CMD) -p "$$p" -f deployment/docker-compose.dev.yml --profile app "$$@"; }; \
 	dir=$$(mktemp -d "$${TMPDIR:-/tmp}/devseed-live.XXXXXX"); fails=0; cleaned=0; \
 	ok() { echo "devseed-live: check OK: $$1"; }; \
 	bad() { echo "devseed-live: check FAILED: $$1"; fails=$$((fails+1)); }; \
@@ -2124,14 +2174,21 @@ devseed-live:
 	cleanup() { [ "$$cleaned" = 1 ] && return 0; cleaned=1; teardown; echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; }; \
 	finish() { cleanup; trap - EXIT; \
 		if [ "$$fails" -eq 0 ]; then echo "devseed-live: green"; exit 0; fi; echo "devseed-live: RED — $$fails check(s) failed"; exit 1; }; \
-	dc down --volumes >"$$dir/predown.log" 2>&1 || true; \
+	left=; for q in 'ps -aq' 'volume ls -q' 'network ls -q'; do \
+		if ! out=$$(docker $$q --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — docker $$q failed, so leftovers of $$p were not counted (refused; nothing was started)"; exit 1; fi; \
+		[ -z "$$out" ] || left="$$left $${q%% *}"; done; \
+	for n in "$$p" "$$p-postgres"; do \
+		if ! out=$$(docker ps -aq --filter "name=^/?$$n\$$" 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — docker ps failed, so container $$n was not looked for (refused; nothing was started)"; exit 1; fi; \
+		[ -z "$$out" ] || left="$$left container:$$n"; done; \
+	if [ -n "$$left" ]; then echo "devseed-live: check FAILED: preflight — project $$p already has resources this run did not create ($$left ); they are never removed by assumption. If they are a previous devseed-live run's, remove them yourself: docker compose -p $$p -f deployment/docker-compose.dev.yml --profile app down --volumes (refused; nothing was started)"; exit 1; fi; \
+	ok "preflight — project $$p has no containers, volumes or networks, so everything it holds from here on is this run's"; \
 	for port in $(DEVSEED_LIVE_PG_PORT) $$app; do \
 		holder=$$(docker ps --filter "publish=$$port" --format '{{.Names}}' | tr '\n' ' '); \
 		[ -n "$$holder" ] || holder=$$(lsof -nP -iTCP:"$$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $$1" pid "$$2}' | sort -u | tr '\n' ' '); \
 		if [ -n "$$holder" ]; then echo "devseed-live: check FAILED: preflight — host port $$port is taken by: $$holder(refused; nothing was started)"; exit 1; fi; \
 	done; ok "preflight — ports $(DEVSEED_LIVE_PG_PORT) and $$app free"; \
 	trap 'cleanup' EXIT; trap 'bad "interrupted"; finish' INT TERM; \
-	if $(MAKE) --no-print-directory oss-up >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
+	if $(MAKE) --no-print-directory oss-up IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_COMPOSE_PROJECT="$$p" DEV_APP_CONTAINER="$$p" DEV_PG_HOST_PORT=$(DEVSEED_LIVE_PG_PORT) DEV_APP_PORT="$$app" COMPOSE_FILE=deployment/docker-compose.dev.yml >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
 	i=0; until curl -fsS --max-time 2 "http://127.0.0.1:$$app/health" >/dev/null 2>&1; do \
 		i=$$((i+1)); if [ $$i -ge 60 ]; then bad "health — no answer on 127.0.0.1:$$app within 120s"; finish; fi; sleep 2; done; \
 	ok "health — 127.0.0.1:$$app answers"; \
@@ -2504,19 +2561,24 @@ integration-inventory:
 ## the CI service container provides the database. See the ci.yml
 ## header enumeration.
 ## test-db-endpoint-selftest (OSS-MINT-ISOLATION, 2026-10-10; review
-## OSS-FIXES2-REVIEW-2026-10-10 R1): a mint has ONE database endpoint. This
+## OSS-FIXES2-REVIEW-2026-10-10 R1): ONE selected integration endpoint. This
 ## Makefile runs from a fixture directory where psql, createdb, pg_isready, go,
 ## docker, lictor, rulefloor and curl are stubs that record each call, so
-## nothing connects anywhere. Dry runs (make -n): nothing set prints the 5513
-## default unchanged at the create, migrate, suite and rulefloor sites; a
-## port-only override prints the scratch port at all of them and 5513 at none.
-## Real runs: verify-integration hands lictor the port and the test URL by
-## name, because lictor passes no other variable to a plan entry (measured
+## nothing connects anywhere. Dry run (make -n): a port-only override prints the
+## scratch port at the create, migrate, suite and rulefloor sites and 5513 at
+## none. Real runs: verify-integration hands lictor the port and the test URL
+## by name, because lictor passes no other variable to a plan entry (measured
 ## 2026-10-10: only GIT_OPTIONAL_LOCKS, GOENV, GOWORK, HOME, LC_ALL and PATH
-## reach one); a URL whose host:port disagrees with DEV_PG_HOST_PORT, a
-## non-loopback host or a non-URL DSN is refused by every DB-backed target,
-## exit 2, before any stub is called. The caller's own settings are unset
-## first, so the CI job's URL cannot leak in.
+## reach one); every DB-backed target refuses, exit 2, before any stub is
+## called: nothing set (the 5513 default, judge ruling Q1(a)), a URL whose
+## host:port disagrees with DEV_PG_HOST_PORT, a non-loopback host, a non-URL
+## DSN, and (OSS-MINT-GUARD-2, review OSS-MINT-ISOLATION M1/M2) a _test URL
+## whose options redirect the driver's port, host or database, a non-_test
+## database, and PGHOSTADDR. The hosted exception is accepted only with both
+## CI=true and GITHUB_ACTIONS=true. The full URL case table runs through this
+## guard in tools/integration-witness/endpoint_test.go. dev.env.example
+## assigns no test URL (review OSS-MINT-COVERAGE C3), counted by name only.
+## The caller's own settings are unset first, so the CI job's URL cannot leak in.
 TEST_DB_ENDPOINT_MAKEFILE ?= $(abspath Makefile)
 .PHONY: test-db-endpoint-selftest
 test-db-endpoint-selftest:
@@ -2525,75 +2587,124 @@ test-db-endpoint-selftest:
 	for c in psql createdb pg_isready go docker rulefloor curl; do \
 		printf '#!/bin/sh\necho "%s $$*" >> "%s/calls"\n' "$$c" "$$d" > "$$d/bin/$$c"; chmod +x "$$d/bin/$$c"; done; \
 	printf '#!/bin/sh\necho "lictor $$*" >> "%s/calls"\necho "$$*" > "%s/lictor.args"\necho "port=$$DEV_PG_HOST_PORT" >> "%s/lictor.args"\ncase "$$IDENTUUM_IDP_TEST_DATABASE_URL" in *@127.0.0.1:"$$DEV_PG_HOST_PORT"/*) echo url=agrees;; *) echo url=disagrees;; esac >> "%s/lictor.args"\n' "$$d" "$$d" "$$d" "$$d" > "$$d/bin/lictor"; chmod +x "$$d/bin/lictor"; \
-	run() { (cd "$$d/w" && env -u IDENTUUM_IDP_TEST_DATABASE_URL -u IDENTUUM_IDP_DATABASE_URL -u OSS_TEST_DB_URL -u DEV_PG_HOST_PORT -u LICTOR -u GATE_RECORD_DRIVER -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL PATH="$$d/bin:$$PATH" "$$@"); }; \
+	run() { (cd "$$d/w" && env -u IDENTUUM_IDP_TEST_DATABASE_URL -u IDENTUUM_IDP_DATABASE_URL -u OSS_TEST_DB_URL -u DEV_PG_HOST_PORT -u LICTOR -u GATE_RECORD_DRIVER -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u CI -u GITHUB_ACTIONS -u PGHOSTADDR -u PGSERVICE -u IDENTUUM_IDP_ALLOW_NON_TEST_DB PATH="$$d/bin:$$PATH" "$$@"); }; \
 	dry() { label=$$1; port=$$2; other=$$3; shift 3; n=$$((n + 1)); out=$$(run $(MAKE) --no-print-directory -n test-db ci-integration-test rulefloor-integration "$$@" 2>&1); miss=; \
 		url="postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:$$port/identuum_idp_oss_test?sslmode=disable"; \
 		printf '%s\n' "$$out" | grep -qF -- "psql -h 127.0.0.1 -p $$port " || miss="$$miss psql"; \
 		printf '%s\n' "$$out" | grep -qF -- "createdb -h 127.0.0.1 -p $$port " || miss="$$miss createdb"; \
 		printf '%s\n' "$$out" | grep -qF -- "migrate \"\$${IDENTUUM_IDP_TEST_DATABASE_URL:-$$url}\"" || miss="$$miss migrate"; \
 		[ "$$(printf '%s\n' "$$out" | grep -cF -- "IDENTUUM_IDP_TEST_DATABASE_URL=\"\$${IDENTUUM_IDP_TEST_DATABASE_URL:-$$url}\"")" = 2 ] || miss="$$miss suite+rulefloor"; \
-		printf '%s\n' "$$out" | grep -qF -- "$$other" && miss="$$miss names-$$other"; \
+		printf '%s\n' "$$out" | grep -qE -- "(127\.0\.0\.1:|localhost:|-p )$$other([^0-9]|$$)" && miss="$$miss names-$$other"; \
 		if [ -z "$$miss" ]; then echo "  ok    $$label"; else echo "  FAIL  $$label: missing or wrong:$$miss"; fails=$$((fails + 1)); fi; }; \
 	refuse() { label=$$1; shift; n=$$((n + 1)); rm -f "$$d/calls"; out=$$(run "$$@" 2>&1); rc=$$?; \
 		if [ $$rc -ne 0 ] && [ ! -s "$$d/calls" ] && printf '%s\n' "$$out" | grep -q 'test-db-endpoint: REFUSED'; then echo "  ok    refused before any command: $$label"; \
 		else echo "  FAIL  $$label: exit $$rc, refusal line $$(printf '%s\n' "$$out" | grep -c 'test-db-endpoint: REFUSED'), calls: $$(cut -d' ' -f1 "$$d/calls" 2>/dev/null | tr '\n' ' ')"; fails=$$((fails + 1)); fi; }; \
 	accept() { label=$$1; shift; n=$$((n + 1)); rm -f "$$d/calls"; out=$$(run "$$@" 2>&1); rc=$$?; \
 		if [ $$rc -eq 0 ] && [ ! -s "$$d/calls" ]; then echo "  ok    accepted: $$label"; else echo "  FAIL  $$label: exit $$rc"; fails=$$((fails + 1)); fi; }; \
-	dry "nothing set: create, migrate, suite and rulefloor keep the 5513 default" 5513 35514; \
 	dry "DEV_PG_HOST_PORT=35514 only: every site uses 35514, none names 5513" 35514 5513 DEV_PG_HOST_PORT=35514; \
+	u=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/x_test; \
 	for t in test-db ci-integration-test rulefloor-integration integration-test verify-integration test-full-mint; do \
-		refuse "$$t: test URL on 5513 while DEV_PG_HOST_PORT=35514" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test $(MAKE) --no-print-directory $$t; done; \
+		refuse "$$t: nothing set, so the 5513 default" $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: test URL on 5513 while DEV_PG_HOST_PORT=35514" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: a _test URL on 35514 whose port option is 5513" env DEV_PG_HOST_PORT=35514 "IDENTUUM_IDP_TEST_DATABASE_URL=$$u?port=5513" $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: a _test URL whose percent-encoded host and port options name another server" env DEV_PG_HOST_PORT=35514 "IDENTUUM_IDP_TEST_DATABASE_URL=$$u?%68ost=db.example&%70ort=5513" $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: a _test URL whose dbname option is the live database" env DEV_PG_HOST_PORT=35514 "IDENTUUM_IDP_TEST_DATABASE_URL=$$u?dbname=identuum_idp_oss" $(MAKE) --no-print-directory $$t; \
+		refuse "$$t: a non-_test database on the scratch port" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/identuum_idp_oss $(MAKE) --no-print-directory $$t; \
+	done; \
+	for t in validate verify-oss; do refuse "$$t: nothing set, refused before its fast-clean" $(MAKE) --no-print-directory $$t; done; \
+	refuse "PGHOSTADDR set beside a scratch port" env DEV_PG_HOST_PORT=35514 PGHOSTADDR=10.0.0.1 $(MAKE) --no-print-directory test-db; \
+	refuse "the disposable-database escape does not admit a non-_test database" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/identuum_idp_oss $(MAKE) --no-print-directory test-db; \
+	refuse "5513 with CI=true but no GITHUB_ACTIONS" env CI=true $(MAKE) --no-print-directory test-db; \
+	refuse "hosted markers, but another database on 5513" env CI=true GITHUB_ACTIONS=true IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test $(MAKE) --no-print-directory test-db; \
+	accept "the hosted runner's own database on 5513 with CI=true and GITHUB_ACTIONS=true" env CI=true GITHUB_ACTIONS=true $(MAKE) --no-print-directory test-db-endpoint; \
+	n=$$((n + 1)); ex=$$(grep -cE '^[[:space:]]*(export[[:space:]]+)?IDENTUUM_IDP_TEST_DATABASE_URL=' "$(dir $(TEST_DB_ENDPOINT_MAKEFILE))dev.env.example"); \
+	if [ "$$ex" = 0 ]; then echo "  ok    dev.env.example assigns no IDENTUUM_IDP_TEST_DATABASE_URL, so the guarded targets derive it"; \
+	else echo "  FAIL  dev.env.example assigns IDENTUUM_IDP_TEST_DATABASE_URL $$ex time(s) (value not read)"; fails=$$((fails + 1)); fi; \
 	refuse "OSS_TEST_DB_URL on 5513 while DEV_PG_HOST_PORT=35514" $(MAKE) --no-print-directory test-db DEV_PG_HOST_PORT=35514 OSS_TEST_DB_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test; \
 	refuse "test URL on 35514 with the port left at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db; \
 	refuse "test URL without a port (5432) with the port at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1/x_test $(MAKE) --no-print-directory test-db; \
 	refuse "test URL on a non-loopback host" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@db.example:5513/x_test $(MAKE) --no-print-directory test-db; \
 	refuse "a keyword DSN the guard cannot read" env 'IDENTUUM_IDP_TEST_DATABASE_URL=host=127.0.0.1 port=5513 dbname=x_test' $(MAKE) --no-print-directory test-db; \
-	accept "nothing set" $(MAKE) --no-print-directory test-db-endpoint; \
 	accept "port and both URLs on 35514 (127.0.0.1 and localhost)" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:dev-u-not-a-secret@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db-endpoint OSS_TEST_DB_URL=postgres://u:dev-u-not-a-secret@localhost:35514/x_test; \
 	n=$$((n + 1)); rm -f "$$d/lictor.args"; run env DEV_PG_HOST_PORT=35514 $(MAKE) --no-print-directory verify-integration > /dev/null 2>&1; \
 	if grep -qF -- '--env DEV_PG_HOST_PORT' "$$d/lictor.args" 2>/dev/null && grep -qF -- '--env IDENTUUM_IDP_TEST_DATABASE_URL' "$$d/lictor.args" && grep -qx 'port=35514' "$$d/lictor.args" && grep -qx 'url=agrees' "$$d/lictor.args"; then \
 		echo "  ok    verify-integration hands lictor DEV_PG_HOST_PORT=35514 and a test URL on 127.0.0.1:35514 by --env"; \
 	else echo "  FAIL  verify-integration does not hand lictor the scratch endpoint: $$(grep -v '^lictor\|witness' "$$d/lictor.args" 2>/dev/null | tr '\n' ' ')$$(grep -o -- '--env [A-Z_]*' "$$d/lictor.args" 2>/dev/null | tr '\n' ' ')"; fails=$$((fails + 1)); fi; \
 	if [ $$fails -ne 0 ]; then echo "check FAILED: test-db-endpoint-selftest $$fails of $$n case(s)"; exit 1; fi; \
-	echo "check OK: test-db-endpoint-selftest $$n case(s): one endpoint per mint, the port moves every URL default, a disagreeing URL is refused before any command"
+	echo "check OK: test-db-endpoint-selftest $$n case(s): one selected integration endpoint, the port moves every URL default, 5513 and a disagreeing or redirecting URL are refused before any command"
 
 ## test-db: create + migrate the dedicated integration database
 ## (identuum_idp_oss_test on whichever PostgreSQL answers
-## 127.0.0.1:$(DEV_PG_HOST_PORT), 5513 by default, with
-## the dev user: the dev stack, or the owner's own stack from the same compose
-## file, which is never stopped for it, TOOLS-MATRIX-CONTAINERS), separate from
+## 127.0.0.1:$(DEV_PG_HOST_PORT), with the dev user: a scratch server, never
+## 5513 outside the hosted CI job, which test-db-endpoint refuses), separate from
 ## the human's dev DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it
 ## already exists, then migrations are (re-)applied. Never touches OSS_DB_URL.
 ## It migrates the URL the suites use (IDENTUUM_IDP_TEST_DATABASE_URL, else
 ## OSS_TEST_DB_URL), and test-db-endpoint has already refused that URL unless
-## it names 127.0.0.1:$(DEV_PG_HOST_PORT), the server the database is created on.
-test-db: test-db-endpoint
-	@echo "test-db: ensuring identuum_idp_oss_test on 127.0.0.1:$(DEV_PG_HOST_PORT) exists + migrated"
-	@PGPASSWORD=dev-idp_oss_user-not-a-secret psql -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user -d postgres -tAc \
-		"SELECT 1 FROM pg_database WHERE datname='identuum_idp_oss_test'" | grep -q 1 || \
-		PGPASSWORD=dev-idp_oss_user-not-a-secret createdb -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user identuum_idp_oss_test
+## it names 127.0.0.1:$(DEV_PG_HOST_PORT), the server the database is created on,
+## and a _test database. The database created is the one that URL names
+## (OSS-MINT-GUARD-2; identuum_idp_oss_test by default). Before anything
+## connects, integration-witness -check-url judges the same URL with the Go
+## form of the policy (review OSS-MINT-ISOLATION M2: the migration is a test
+## target's step here, so the test-database check runs at it; an operator's
+## own `identuum-idp migrate` of a live database is unchanged).
+test-db: test-db-endpoint bin/integration-witness
+	@u="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}"; db=$${u%%\?*}; db=$${db##*/}; \
+	IDENTUUM_IDP_TEST_DATABASE_URL="$$u" DEV_PG_HOST_PORT='$(DEV_PG_HOST_PORT)' CI='$(CI)' GITHUB_ACTIONS='$(GITHUB_ACTIONS)' ./bin/integration-witness -check-url || exit 2; \
+	echo "test-db: ensuring $$db on 127.0.0.1:$(DEV_PG_HOST_PORT) exists + migrated"; \
+	PGPASSWORD=dev-idp_oss_user-not-a-secret psql -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user -d postgres -tAc \
+		"SELECT 1 FROM pg_database WHERE datname='$$db'" | grep -q 1 || \
+		PGPASSWORD=dev-idp_oss_user-not-a-secret createdb -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user "$$db"
 	@$(MAKE) --no-print-directory build-binary
 	@./bin/identuum-idp migrate "$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}"
 
 ## test-db-endpoint (OSS-MINT-ISOLATION, 2026-10-10; review
-## OSS-FIXES2-REVIEW-2026-10-10 R1): ONE database endpoint per mint. The
+## OSS-FIXES2-REVIEW-2026-10-10 R1): ONE selected integration endpoint. The
 ## prerequisite of every DB-backed target here. OSS_TEST_DB_URL's default
 ## follows DEV_PG_HOST_PORT; a URL the caller sets (OSS_TEST_DB_URL, or
-## IDENTUUM_IDP_TEST_DATABASE_URL, which the suites prefer) must name
-## 127.0.0.1 or localhost on DEV_PG_HOST_PORT, where test-db creates the
-## database, or the target refuses here with exit 2 before any command runs.
-## Messages name the variable and its host:port, never the URL.
+## IDENTUUM_IDP_TEST_DATABASE_URL, which the suites prefer) is VALIDATED, never
+## rewritten, or the target refuses here with exit 2 before any command runs.
+## THE EFFECTIVE ENDPOINT (OSS-MINT-GUARD-2, review OSS-MINT-ISOLATION M1/M2):
+## the driver reads host, hostaddr, port, dbname, database and service from the
+## URL's options and they override its authority and path, so judging the
+## authority alone let `?port=5513` or `?dbname=identuum_idp_oss` through. A
+## URL is accepted only as postgres:// or postgresql://, optional userinfo, ONE
+## literal 127.0.0.1 or localhost on DEV_PG_HOST_PORT, a database of letters,
+## digits and underscores ending in _test, and no option but one sslmode;
+## every other option, percent escape, host list, socket directory or fragment
+## is refused rather than resolved. tools/integration-witness checkTestURL is
+## the same policy in Go, and its endpoint_test.go runs one case table through
+## both (TEST-DB-ENDPOINT-1). PGHOSTADDR and PGSERVICE are refused too: either
+## can send psql and createdb elsewhere despite their -h and -p.
+## PORT 5513 (judge ruling Q1(a)): the owner's PostgreSQL. Every local entry
+## refuses it, including the 5513 default when nothing is set; the one
+## exception is the hosted CI runner's own identuum_idp_oss_test, and only when
+## CI=true and GITHUB_ACTIONS=true (scripts/ci-integration-record.sh passes
+## both to each step, because lictor hands a step neither).
+## IDENTUUM_IDP_ALLOW_NON_TEST_DB is not consulted: it is the hand-run suites'
+## disposable-database escape, and no make entry honours it.
+## Messages name the variable and the rule, never the URL.
 .PHONY: test-db-endpoint
 test-db-endpoint:
-	@port='$(DEV_PG_HOST_PORT)'; \
-	case "$$port" in ''|*[!0-9]*) echo "test-db-endpoint: REFUSED — DEV_PG_HOST_PORT is not a port number" >&2; exit 2;; esac; \
-	judge() { case "$$2" in postgres://*|postgresql://*) ;; *) echo "test-db-endpoint: REFUSED — $$1 is not a postgres:// URL, so its server cannot be checked; write it as a postgres:// URL on 127.0.0.1:$$port" >&2; return 2;; esac; \
-		hp=$${2#*://}; hp=$${hp%%[/?]*}; hp=$${hp##*@}; host=$${hp%:*}; p=$${hp##*:}; [ "$$host" = "$$hp" ] && p=5432; \
-		case "$$host:$$p" in "127.0.0.1:$$port"|"localhost:$$port") return 0;; esac; \
-		echo "test-db-endpoint: REFUSED — $$1 names $$host:$$p but DEV_PG_HOST_PORT is $$port: test-db would create the database on 127.0.0.1:$$port and then migrate and test another server. Point both at the same scratch server, or set only DEV_PG_HOST_PORT and let the URL follow it." >&2; return 2; }; \
-	judge OSS_TEST_DB_URL '$(OSS_TEST_DB_URL)' || exit 2; \
-	if [ -n "$${IDENTUUM_IDP_TEST_DATABASE_URL:-}" ]; then judge IDENTUUM_IDP_TEST_DATABASE_URL "$$IDENTUUM_IDP_TEST_DATABASE_URL" || exit 2; fi; \
-	echo "test-db-endpoint: every test database URL names 127.0.0.1:$$port"
+	@port='$(DEV_PG_HOST_PORT)'; hosted='$(CI)/$(GITHUB_ACTIONS)'; \
+	no() { echo "test-db-endpoint: REFUSED — $$*" >&2; exit 2; }; \
+	case "$$port" in ''|0*|*[!0-9]*) no "DEV_PG_HOST_PORT is not a port number";; esac; \
+	[ "$$port" -le 65535 ] || no "DEV_PG_HOST_PORT is not a port number"; \
+	[ -z "$${PGHOSTADDR:-}$${PGSERVICE:-}" ] || no "PGHOSTADDR or PGSERVICE is set, and either can send psql and createdb to another server than 127.0.0.1:$$port; unset them"; \
+	judge() { n=$$1; u=$$2; \
+		case "$$u" in postgres://*) r=$${u#postgres://};; postgresql://*) r=$${u#postgresql://};; *) no "$$n is not a postgres:// URL, so its server cannot be checked; write it as a postgres:// URL on 127.0.0.1:$$port";; esac; \
+		a=$${r%%[/?#]*}; p=$${r#"$$a"}; \
+		case "$$p" in /*) p=$${p#/};; *) no "$$n has no /database path after its server";; esac; \
+		case "$${a##*@}" in "127.0.0.1:$$port"|"localhost:$$port") ;; *) no "$$n does not name 127.0.0.1:$$port or localhost:$$port, the selected scratch server: test-db would create the database there and then migrate and test another server. Point both at the same scratch server, or set only DEV_PG_HOST_PORT and let the URL follow it";; esac; \
+		db=$${p%%\?*}; q=$${p#"$$db"}; \
+		case "$$db" in ''|*[!A-Za-z0-9_]*) no "$$n's database name is not plain letters, digits and underscores";; *_test) ;; *) no "$$n's database $$db does not end in _test";; esac; \
+		case "$$q" in '') ;; '?sslmode='*) m=$${q#\?sslmode=}; case "$$m" in ''|*[!a-z-]*) no "$$n carries an sslmode that is not a plain mode name";; esac;; \
+			*) no "$$n carries a connection option other than one sslmode; host, hostaddr, port, dbname, database and service options can send the driver to another server or database, so none is accepted";; esac; \
+		if [ "$$port" = 5513 ] && { [ "$$hosted" != true/true ] || [ "$$db" != identuum_idp_oss_test ]; }; then \
+			no "port 5513 is the owner's PostgreSQL; a local test run never uses it (only the hosted CI runner's own identuum_idp_oss_test, with CI=true and GITHUB_ACTIONS=true). Set DEV_PG_HOST_PORT to a scratch server's port, for example DEV_PG_HOST_PORT=35599 make fast-up"; fi; }; \
+	judge OSS_TEST_DB_URL '$(OSS_TEST_DB_URL)'; \
+	if [ -n "$${IDENTUUM_IDP_TEST_DATABASE_URL:-}" ]; then judge IDENTUUM_IDP_TEST_DATABASE_URL "$$IDENTUUM_IDP_TEST_DATABASE_URL"; fi; \
+	echo "test-db-endpoint: every test database URL names 127.0.0.1:$$port and a _test database"
 
 ci-integration-test: test-db-endpoint
 	@# -p 1 serializes PACKAGES. The DB-backed integration packages
@@ -2715,12 +2826,19 @@ verify-check ci-verify-check verify-integration-check:
 verify-parallel:
 	@set -o pipefail; ( $(MAKE) --no-print-directory verify 2>&1 | sed 's/^/[verify]      /' ) & p1=$$!; ( $(MAKE) --no-print-directory verify-integration 2>&1 | sed 's/^/[integration] /' ) & p2=$$!; rc=0; wait $$p1 || rc=1; wait $$p2 || rc=1; if [ "$$rc" -ne 0 ]; then echo "verify-parallel: at least one leg FAILED — read GATE-RUN.txt and GATE-RUN.integration.txt for the per-target exit codes" >&2; fi; exit $$rc
 
+## PHONY (OSS-MINT-GUARD-2): a file target with no prerequisites never rebuilt
+## an existing bin/integration-witness, so a changed witness could be judged by
+## a stale binary. go build is incremental, so rebuilding every time is cheap.
+.PHONY: bin/integration-witness
 bin/integration-witness:
 	go build -o bin/integration-witness ./tools/integration-witness
 
 ## validate: build + unit tests + staticcheck + integration build/test.
 ## Starts from a clean database (fast-clean removes stale volume data before run).
-validate: build test staticcheck
+## The integration endpoint is judged FIRST, before fast-clean, not at
+## integration-test after it (OSS-MINT-GUARD-2): a refused port must not cost
+## the volume first.
+validate: test-db-endpoint build test staticcheck
 	go build -tags integration ./...
 	$(MAKE) fast-clean
 	$(MAKE) fast-up
@@ -2759,8 +2877,21 @@ clean:
 ##   Image: ${IDENTUUM_IDP_COMPOSE_PROJECT:-identuum-idp-oss-dev}:local (identuum-idp-oss-dev:local by default, D-024).
 ##   Source: deployment/Dockerfile.local (multi-stage golang:1.26.5-bookworm builder + debian:bookworm-slim runtime).
 ##   DB URLs are never echoed (compose env handles the URL inside the container).
+##
+## DEV_COMPOSE (OSS-MINT-GUARD-2, review OSS-MINT-COVERAGE C1): the e2e
+## harness starts its appliance through oss-up, and compose lets an inherited
+## COMPOSE_PROJECT_NAME outrank the file's own `name:`, so a caller's shell
+## could aim the start at another project — the owner's identuum-idp-oss among
+## them — while protected-guard checked identuum-e2e. oss-build and oss-up
+## therefore run with the project pinned by -p to DEV_COMPOSE_PROJECT, the name
+## protected-guard checks, with IDENTUUM_IDP_COMPOSE_PROJECT set to the same
+## name for the file's container, image and volume names, and with
+## COMPOSE_PROJECT_NAME and COMPOSE_REMOVE_ORPHANS cleared. oss-up refuses a
+## DEV_APP_CONTAINER that is not that project's app container.
+## compose-pin-selftest proves it with a docker stub.
+DEV_COMPOSE = env -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS IDENTUUM_IDP_COMPOSE_PROJECT=$(DEV_COMPOSE_PROJECT) $(COMPOSE_CMD) -p $(DEV_COMPOSE_PROJECT) -f $(COMPOSE_FILE)
 oss-build:
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app build --build-arg COMMIT=$(COMMIT) app
+	$(DEV_COMPOSE) --profile app build --build-arg COMMIT=$(COMMIT) app
 
 ## oss-up: bring up Postgres + the OSS app container together.
 ##   The app container runs `identuum-idp migrate <url>` first (one-shot),
@@ -2772,8 +2903,8 @@ oss-build:
 ##   holding 7113, this target's `up -d` will fail. Operator must run:
 ##     docker stop identuum-idp-app
 ##   first (non-destructive; revert with `docker start identuum-idp-app`).
-oss-up: protected-guard oss-build
-	$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app up -d
+oss-up: protected-guard oss-app-container-check oss-build
+	$(DEV_COMPOSE) --profile app up -d
 	@# THE-LYING-READY: `up -d` returns as soon as the container is CREATED, and
 	@# the entrypoint still has to migrate before it serves — so this target
 	@# cannot claim 7113 is answering, and does not. The probes below are
@@ -2785,6 +2916,10 @@ oss-up: protected-guard oss-build
 	@echo "  curl -s http://127.0.0.1:$(DEV_APP_PORT)/system/info"
 	@echo "  curl -i http://127.0.0.1:$(DEV_APP_PORT)/api/v1/organizations"
 	@echo "  curl -i http://127.0.0.1:$(DEV_APP_PORT)/api/v1/organizations/00000000-0000-7000-0000-000000000000/protocol-settings"
+
+.PHONY: oss-app-container-check
+oss-app-container-check:
+	@[ "$(DEV_APP_CONTAINER)" = "$(DEV_COMPOSE_PROJECT)" ] || { echo "oss-up: REFUSED — DEV_APP_CONTAINER is $(DEV_APP_CONTAINER) but the compose project $(DEV_COMPOSE_PROJECT) names its app container $(DEV_COMPOSE_PROJECT); later targets would act on another container than the one started (nothing was built or started)" >&2; exit 2; }
 
 ## oss-down: stop the OSS app container (Postgres preserved so the
 ## next `oss-up` is fast).
@@ -3046,6 +3181,8 @@ verify-oss:
 	$(MAKE) verify-oss-contract
 	$(MAKE) oss-down
 	@echo "verify-oss: all checks passed"
+# Judged before fast-clean, as for validate (OSS-MINT-GUARD-2).
+verify-oss: test-db-endpoint
 
 ## verify-oss-contract: assert the OSS IdP wire contract against a
 ## running OSS runtime (the full IdP — the default serve action). Pins:

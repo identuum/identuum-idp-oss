@@ -48,18 +48,23 @@ cd identuum-idp-oss
 # MAINTAINERS ONLY — needs the private ../wiki sibling; see the note above.
 make verify
 
-# Start a throwaway local Postgres on 127.0.0.1:5513.
+# Start (or reuse) a throwaway local Postgres on a scratch port; the
+# integration targets refuse 5513, the development stack's default.
+export DEV_PG_HOST_PORT=35599
 make fast-up
 
 # Run the build-tagged integration suite. It runs against a DEDICATED
 # `identuum_idp_oss_test` database (created + migrated by `make test-db`,
 # which `integration-test` invokes first), NEVER the dev database: these
 # suites TRUNCATE and replay setup, and the harness REFUSES any DSN whose
-# database name does not end in `_test` (TEST-DB-ISOLATION-1). Point it at
-# another server with DEV_PG_HOST_PORT (the test URL follows it; an explicit
-# IDENTUUM_IDP_TEST_DATABASE_URL must name the same 127.0.0.1 port, or the
-# run is refused before it connects), or set
-# IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 for a genuinely disposable database.
+# database name does not end in `_test` (TEST-DB-ISOLATION-1). Name the
+# scratch server with DEV_PG_HOST_PORT — the make targets refuse 5513 — and
+# the test URL follows it; an explicit IDENTUUM_IDP_TEST_DATABASE_URL must
+# name the same 127.0.0.1 port and a _test database with no option but
+# sslmode, or the run is refused before it connects (docs/TESTING-OPERATORS.md
+# lists the accepted forms). IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 admits a
+# genuinely disposable non-_test database to hand-run Go tests only; no make
+# target honours it.
 make integration-test
 
 # Tear it down.

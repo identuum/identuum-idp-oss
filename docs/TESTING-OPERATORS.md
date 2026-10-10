@@ -28,8 +28,13 @@ nothing is left behind, and nothing you have is touched.
 
 ```bash
 cd identuum-idp-oss
-make test-full
+DEV_PG_HOST_PORT=35599 make test-full
 ```
+
+`DEV_PG_HOST_PORT` is required: it names the scratch PostgreSQL the
+database-backed phase uses (see "Running a mint against a scratch server"
+below). Without it the port is the default 5513, and the run is refused before
+anything connects.
 
 It takes about 16 minutes and prints its progress phase by phase. All
 passwords the run needs are generated fresh for that run and never shown.
@@ -38,7 +43,9 @@ Its last step is `make devseed-live` (about 50 seconds): `make dev-seed` run
 against a disposable project of its own (`identuum-devseed`, host ports 25513
 and 27113), then every credential it prints is used to sign in, and the
 project is removed again. It needs those two ports free and refuses, naming
-the holder, when one is taken. The seeded credentials are written to a
+the holder, when one is taken. It also refuses, without removing anything,
+when `identuum-devseed` still has containers, volumes or networks from an
+earlier run; the refusal prints the command that removes them. The seeded credentials are written to a
 mode-600 file in a new temporary directory, which is left for you and never
 printed. Run it alone with `make devseed-live`.
 
@@ -49,11 +56,10 @@ is the one place a database is a given — `make verify` deliberately needs no
 database, so it can run on any machine. That phase leaves its own record,
 `GATE-RUN.integration.txt`, alongside the others.
 
-If you have a local PostgreSQL up already (`make fast-up`), you can run just
-that phase:
+If you have a scratch PostgreSQL up already, you can run just that phase:
 
 ```bash
-make verify-integration
+DEV_PG_HOST_PORT=35599 make verify-integration
 ```
 
 It answers one of three ways, and only the first is a pass: **green** (the
@@ -66,9 +72,11 @@ and run it again.
 
 ### Running a mint against a scratch server
 
-By default the test database lives on the PostgreSQL that answers
-`127.0.0.1:5513`. To keep a run off that server, give the run its own
-server and move only the port:
+Every database-backed test entry (`make test-db`, `ci-integration-test`,
+`integration-test`, `rulefloor-integration`, `verify-integration`,
+`validate`, `verify-oss` and `test-full`) refuses port 5513, the PostgreSQL a
+development stack publishes by default. Give the run its own server and move
+only the port:
 
 ```bash
 docker run -d --rm --name scratch-oss-pg -p 127.0.0.1:35514:5432 \
@@ -79,12 +87,41 @@ docker stop scratch-oss-pg               # --rm removes the container and its da
 ```
 
 `DEV_PG_HOST_PORT` alone is enough: every test database URL follows it, and
-`make fast-up` reuses the server it finds on that port. If you also set
-`IDENTUUM_IDP_TEST_DATABASE_URL` or `OSS_TEST_DB_URL`, it must name
-`127.0.0.1` or `localhost` on the same port. Otherwise every database-backed
-target stops with `test-db-endpoint: REFUSED` before it connects to anything.
-The appliance phases of `make test-full` already use their own PostgreSQL
-(port 15513) and are not affected.
+`make fast-up` reuses the server it finds on that port. The one exception to
+the 5513 refusal is the hosted CI job's own service database
+(`identuum_idp_oss_test`, only when `CI=true` and `GITHUB_ACTIONS=true`).
+
+If you also set `IDENTUUM_IDP_TEST_DATABASE_URL` or `OSS_TEST_DB_URL`,
+`DEV_PG_HOST_PORT` does not rewrite it: the URL is checked, and accepted only
+in this form:
+
+- the scheme `postgres://` or `postgresql://`;
+- optional `user:password@`;
+- exactly one server, `127.0.0.1` or `localhost`, on the `DEV_PG_HOST_PORT`
+  port;
+- a database name of letters, digits and underscores that ends in `_test`;
+- no option except a single `sslmode=` (for example `?sslmode=disable`).
+
+Everything else stops every database-backed target with
+`test-db-endpoint: REFUSED` before it connects to anything: another port or
+server, a host list, a socket directory, a percent-encoded name, a fragment,
+and any other option. The driver lets `host`, `hostaddr`, `port`, `dbname`,
+`database` and `service` options replace the server or the database the URL
+appears to name, so none of them is accepted. `PGHOSTADDR` and `PGSERVICE`
+in your environment are refused too. `make test-db` creates the database the
+URL names (`identuum_idp_oss_test` when you set none). The
+`IDENTUUM_IDP_ALLOW_NON_TEST_DB` escape is for running Go tests by hand; no
+make target honours it.
+
+`tools/integration-witness` (the runner behind `verify-integration`) applies
+the same rules, and has no default: run on its own, it refuses unless
+`IDENTUUM_IDP_TEST_DATABASE_URL` and `DEV_PG_HOST_PORT` are set and agree.
+`scripts/ci-integration-record.sh` runs only in the hosted CI job.
+
+The appliance phases of `make test-full` use their own PostgreSQL (port
+15513, project `identuum-e2e`), and `devseed-live` its own (port 25513,
+project `identuum-devseed`): each phase has its own disposable server, so a
+mint does not use one server throughout.
 
 ## Reading the result
 

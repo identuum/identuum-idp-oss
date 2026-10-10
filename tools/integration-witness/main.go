@@ -1,8 +1,10 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -15,32 +17,35 @@ import (
 // evidence line for the gate-witness record (see verdict.go for the ruling
 // and the three outcomes).
 //
+//	integration-witness -check-url   the URL policy only: 0 accepted, 2 refused; dials nothing
 //	integration-witness -preflight   reachability only: 0 reachable, 2 not
 //	integration-witness              run the profile and judge it
 //
-// The DSN comes from IDENTUUM_IDP_TEST_DATABASE_URL, falling back to
-// IDENTUUM_IDP_DATABASE_URL, then to the Makefile's OSS_TEST_DB_URL default —
-// the same order the harness itself uses.
-const defaultTestDSN = "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable"
+// The DSN is IDENTUUM_IDP_TEST_DATABASE_URL and nothing else, and it must pass
+// checkTestURL against DEV_PG_HOST_PORT before anything dials or runs
+// (OSS-MINT-GUARD-2, review OSS-MINT-ISOLATION M4). Until then the witness fell
+// back to IDENTUUM_IDP_DATABASE_URL and then to a 5513 default.
 
 // testEncryptionKey mirrors ci-integration-test's TEST-ONLY default so the
 // at-rest suites run here exactly as they do there. Not a secret: it is a
 // fixed development value published in the Makefile.
 const testEncryptionKey = "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
 
-func dsn() string {
-	for _, env := range []string{"IDENTUUM_IDP_TEST_DATABASE_URL", "IDENTUUM_IDP_DATABASE_URL"} {
-		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
-			return v
-		}
-	}
-	return defaultTestDSN
+// deps are the witness's only ways out of the process: the environment, the
+// preflight's TCP dial and the suite run. Tests replace them, so an entry
+// check is proven by counting calls rather than by reaching a server.
+type deps struct {
+	getenv func(string) string
+	dial   func(network, address string, timeout time.Duration) (net.Conn, error)
+	suite  func(target string) (out []byte, failed bool)
 }
 
 // reachable dials the DSN's host:port. It answers the ONE question the
 // preflight asks — is there a server to talk to — without opening a database
-// session, so it needs no driver and cannot hang past its own timeout.
-func reachable(raw string) (string, error) {
+// session, so it needs no driver and cannot hang past its own timeout. Its
+// caller has already passed the DSN through checkTestURL, so the authority it
+// dials is the only endpoint the driver can use.
+func reachable(raw string, dial func(network, address string, timeout time.Duration) (net.Conn, error)) (string, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "", fmt.Errorf("unparseable DSN: %w", err)
@@ -52,7 +57,7 @@ func reachable(raw string) (string, error) {
 	if !strings.Contains(host, ":") {
 		host += ":5432"
 	}
-	conn, err := net.DialTimeout("tcp", host, 5*time.Second)
+	conn, err := dial("tcp", host, 5*time.Second)
 	if err != nil {
 		return host, err
 	}
@@ -60,21 +65,9 @@ func reachable(raw string) (string, error) {
 	return host, nil
 }
 
-func main() {
-	preflight := flag.Bool("preflight", false, "check only that the test database is reachable")
-	flag.Parse()
-
-	target := dsn()
-	host, err := reachable(target)
-	if err != nil {
-		fmt.Printf("CANNOT-EVALUATE: integration-profile has no database at %s (%v); a missing database is never a pass\n", host, err)
-		os.Exit(VerdictCannotEvaluate.ExitCode())
-	}
-	if *preflight {
-		fmt.Printf("check OK: integration-preflight database reachable at %s\n", host)
-		return
-	}
-
+// runSuite runs the integration profile against target and returns its
+// combined output.
+func runSuite(target string) ([]byte, bool) {
 	// -p 1 serializes packages: they share the ONE test database and the
 	// e2e package truncates tables other packages seed (measured 2026-08-21,
 	// recorded in the Makefile).
@@ -92,10 +85,50 @@ func main() {
 		cmd.Env = append(cmd.Env, "IDENTUUM_IDP_ENCRYPTION_KEY="+testEncryptionKey)
 	}
 	out, runErr := cmd.CombinedOutput()
-	// The full output goes to the operator; the record keeps the one line.
-	os.Stdout.Write(out)
+	return out, runErr != nil
+}
 
-	verdict, _, line := Classify(string(out), runErr != nil)
-	fmt.Println(line)
-	os.Exit(verdict.ExitCode())
+// run is the testable entrypoint; its return value is the process exit code.
+func run(args []string, d deps, stdout io.Writer) int {
+	fs := flag.NewFlagSet("integration-witness", flag.ContinueOnError)
+	fs.SetOutput(stdout)
+	checkURL := fs.Bool("check-url", false, "check only that the test URL passes the accepted-URL policy; dials nothing")
+	preflight := fs.Bool("preflight", false, "check only that the test database is reachable")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+
+	target, err := selectTarget(d.getenv)
+	if err != nil {
+		fmt.Fprintf(stdout, "CANNOT-EVALUATE: integration-witness REFUSED — %v; nothing was dialed or run\n", err)
+		return VerdictCannotEvaluate.ExitCode()
+	}
+	if *checkURL {
+		fmt.Fprintln(stdout, "check OK: integration-witness test URL names the selected scratch server and a _test database")
+		return 0
+	}
+	host, err := reachable(target, d.dial)
+	if err != nil {
+		fmt.Fprintf(stdout, "CANNOT-EVALUATE: integration-profile has no database at %s (%v); a missing database is never a pass\n", host, err)
+		return VerdictCannotEvaluate.ExitCode()
+	}
+	if *preflight {
+		fmt.Fprintf(stdout, "check OK: integration-preflight database reachable at %s\n", host)
+		return 0
+	}
+
+	out, failed := d.suite(target)
+	// The full output goes to the operator; the record keeps the one line.
+	_, _ = stdout.Write(out)
+
+	verdict, _, line := Classify(string(out), failed)
+	fmt.Fprintln(stdout, line)
+	return verdict.ExitCode()
+}
+
+func main() {
+	os.Exit(run(os.Args[1:], deps{getenv: os.Getenv, dial: net.DialTimeout, suite: runSuite}, os.Stdout))
 }

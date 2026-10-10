@@ -52,7 +52,10 @@ plugin, a running Docker engine and the PostgreSQL client tools. **It resets
 the selected development stack's database volume before running. Do not use
 it with development data you need to keep.**
 
-With the default settings, it performs these steps after the source checks:
+It needs `DEV_PG_HOST_PORT` set to a port other than 5513 (for example
+`DEV_PG_HOST_PORT=35599 make validate`): every database-backed test target
+refuses 5513, and `validate` judges the port first, before anything is removed.
+With the default project, it performs these steps after the source checks:
 
 1. Compile the integration-tagged packages with `go build -tags integration ./...`.
 2. Run `fast-clean`: Compose `down --volumes` with the app profile stops and
@@ -61,7 +64,8 @@ With the default settings, it performs these steps after the source checks:
    `identuum-idp-oss-dev_default` network. It deletes the named volume
    `identuum-idp-oss-dev_postgres-idp-oss-data-v18`, including its database data.
 3. Run `fast-up`: reuse a compatible PostgreSQL already answering on
-   `127.0.0.1:5513`, or start PostgreSQL 18 in the development Compose stack.
+   `127.0.0.1:$DEV_PG_HOST_PORT`, or start PostgreSQL 18 in the development
+   Compose stack, published on that port.
    Starting the stack creates its PostgreSQL container, network and volume;
    the app profile is not enabled for this step. An incompatible server on
    the port is refused rather than stopped.
@@ -83,11 +87,13 @@ It does not protect data in the selected development volume from `fast-clean`.
 
 `DEV_PG_HOST_PORT` changes the Compose port, the `fast-up` probe and the
 server `test-db` creates, migrates and tests on; the test database URL follows
-it. An `IDENTUUM_IDP_TEST_DATABASE_URL` you set must name `127.0.0.1` or
-`localhost` on that same port, or every database-backed target stops with
-`test-db-endpoint: REFUSED` before it connects. A reused server can still have
-test data changed even though it was not started by this command. Use only
-disposable test data.
+it. It does not rewrite an `IDENTUUM_IDP_TEST_DATABASE_URL` you set: that URL
+must name `127.0.0.1` or `localhost` on that same port and a database ending in
+`_test`, with no option but `sslmode`, or every database-backed target stops
+with `test-db-endpoint: REFUSED` before it connects. The accepted forms are
+listed in [TESTING-OPERATORS.md](TESTING-OPERATORS.md#running-a-mint-against-a-scratch-server).
+A reused server can still have test data changed even though it was not started
+by this command. Use only disposable test data.
 
 ## Run the local development stack
 
@@ -161,11 +167,11 @@ Use a dedicated disposable test database. The Make targets create and migrate
 suffix and truncates test data. Never use an installation's real database.
 
 ```bash
-make fast-up
-make integration-test
+DEV_PG_HOST_PORT=35599 make fast-up integration-test
 ```
 
-`fast-up` starts or reuses a compatible local PostgreSQL. Do not stop a reused
+The targets refuse port 5513, so name a free scratch port. `fast-up` starts
+or reuses a compatible local PostgreSQL on it. Do not stop a reused
 server that belongs to another installation. If you started a separate
 development stack solely for this work, `make fast-down` stops that stack
 while preserving its volume. `make validate` runs this integration sequence

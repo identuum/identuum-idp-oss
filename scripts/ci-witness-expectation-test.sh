@@ -24,6 +24,9 @@ commit() { git -c user.name=Fixture -c user.email=fixture@example.invalid -c com
 commit fixture
 export GITHUB_SERVER_URL=https://github.com GITHUB_REPOSITORY=identuum/fixture
 export GITHUB_RUN_ID=123 GITHUB_RUN_ATTEMPT=2 GITHUB_JOB=verify GATE_WITNESS_TIE=commit
+# The integration recorder runs only as the hosted job (OSS-MINT-GUARD-2), so
+# this fixture declares itself one; its targets are the no-op Makefile above.
+export CI=true GITHUB_ACTIONS=true
 export GITHUB_SHA=$(git rev-parse HEAD)
 gate='identuum-idp-oss make ci-verify'
 plan='tool-versions repo-green rulefloor-check'

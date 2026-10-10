@@ -7,6 +7,25 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Test runs never use port 5513, and judge the database the driver will
+  actually use** (maintainer tooling; no product change; OSS-MINT-GUARD-2,
+  reviews OSS-MINT-ISOLATION M1-M4 and OSS-MINT-COVERAGE C1-C5). Every
+  database-backed test target (`test-db`, `ci-integration-test`,
+  `integration-test`, `rulefloor-integration`, `verify-integration`,
+  `validate`, `verify-oss`, `test-full`) refuses port 5513, the default,
+  before anything connects or is removed: set `DEV_PG_HOST_PORT` to a scratch
+  server. The hosted CI job's own service database is the one exception. A
+  test URL is accepted only as one `127.0.0.1`/`localhost` server on that
+  port and a `*_test` database with no option but `sslmode`: a `port`,
+  `host`, `hostaddr`, `dbname`, `database` or `service` option could send
+  the driver to another server or database than the URL appears to name,
+  and was accepted before. `tools/integration-witness` has no default
+  database any more and applies the same rules; the CI integration recorder
+  runs only in the hosted job; `dev.env.example` no longer sets a test URL.
+  `oss-up` pins its compose project, so an inherited `COMPOSE_PROJECT_NAME`
+  cannot redirect it, and `devseed-live` refuses leftovers of its project
+  instead of deleting them. `make notices-check` now also regenerates the Go
+  licence texts and compares them (review OSS-FIXES-3 F3).
 - **A front-channel fan-out with any receiver on the issuer's origin runs
   every frame scripts-only** (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW
   R3). The `end_session` page admits every receiver's origin in one

@@ -268,8 +268,10 @@ make test                                     # untagged tests; see database not
 make staticcheck                              # analyze untagged and integration-tagged code
 go build -o identuum-idp ./cmd/identuum-idp      # the binary, UI embedded
 
-# Integration tests against a disposable PostgreSQL 18 on 127.0.0.1:5513.
-make fast-up               # start or reuse a compatible server
+# Integration tests against a disposable PostgreSQL 18 on a scratch port.
+# The test targets refuse 5513, the development stack's default port.
+export DEV_PG_HOST_PORT=35599
+make fast-up               # start or reuse a compatible server on that port
 make test-db               # create and migrate the dedicated *_test database
 make ci-integration-test   # the integration suite (-tags integration)
 make fast-down             # remove this development stack's containers; preserve its volume

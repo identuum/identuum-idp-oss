@@ -3,16 +3,26 @@
 # select entries here; they do not carry another command list. Infrastructure
 # remains between those steps and is explicitly outside this record's scope.
 set -eu
+refuse() { echo "ci-integration-record: REFUSED — $*" >&2; exit 1; }
+# OSS-MINT-GUARD-2 (review OSS-MINT-ISOLATION M3, judge ruling Q1(a)): this
+# records the hosted job's targets against the runner's own service database
+# on 5513, the one place a test run may use that port. It runs only there,
+# refusing before git, lictor, a record or a Make target. Locally, use
+# `DEV_PG_HOST_PORT=<scratch port> make verify-integration`.
+if [ "${CI:-}" != true ] || [ "${GITHUB_ACTIONS:-}" != true ]; then
+	refuse 'this recorder runs only in the hosted CI job (CI=true and GITHUB_ACTIONS=true); locally run DEV_PG_HOST_PORT=<scratch port> make verify-integration'
+fi
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 record=GATE-RUN.ci-integration.txt
+# lictor hands a step only its environment allowlist, so the hosted markers
+# reach each target's test-db-endpoint guard as make arguments.
 plan=(
-	'test-db=make test-db'
-	'ci-integration-test=make ci-integration-test'
-	'rulefloor-integration=make rulefloor-integration'
+	'test-db=make test-db CI=true GITHUB_ACTIONS=true'
+	'ci-integration-test=make ci-integration-test CI=true GITHUB_ACTIONS=true'
+	'rulefloor-integration=make rulefloor-integration CI=true GITHUB_ACTIONS=true'
 )
 names=()
 for entry in "${plan[@]}"; do names+=("${entry%%=*}"); done
-refuse() { echo "ci-integration-record: REFUSED — $*" >&2; exit 1; }
 # OSS-LICTOR-ADOPT-B: the recorder is lictor's stepwise witness (PROJECT_DESC
 # §4 row 5), pinned by the workflow's LICTOR_VERSION; its records are
 # byte-identical to gate-witness.sh's for this shape. Its provenance is argv
