@@ -1,54 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "709ab3f866551aa0aca0989348f5678d91d56c5d",
-  "changes": [
-    {
-      "rule_id": "TEST-DB-GUARD-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "3b3caef2d23915de8e5b3af60a066f78c15f80e2b3b03602285b4d744b4e2392",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): the tools/testdburl policy refuses port 5513 in every environment; the hosted Integration Tests job exception (Hosted, HostedDatabase, HostedJob) is deleted, so the full local Linux imitation of that job admits nothing; covered symbols drop the deleted Hosted; the test replaces the hosted-marker cases with the full imitation. Red-proved by mutation (evidence-h3-red.txt M1)."
-    },
-    {
-      "rule_id": "TEST-DB-GUARD-1",
-      "change_class": "proof_changed",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): the tools/testdburl policy refuses port 5513 in every environment; the hosted Integration Tests job exception (Hosted, HostedDatabase, HostedJob) is deleted, so the full local Linux imitation of that job admits nothing; covered symbols drop the deleted Hosted; the test replaces the hosted-marker cases with the full imitation. Red-proved by mutation (evidence-h3-red.txt M1)."
-    },
-    {
-      "rule_id": "TEST-DB-GUARD-1",
-      "change_class": "covered_symbols_changed",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): the tools/testdburl policy refuses port 5513 in every environment; the hosted Integration Tests job exception (Hosted, HostedDatabase, HostedJob) is deleted, so the full local Linux imitation of that job admits nothing; covered symbols drop the deleted Hosted; the test replaces the hosted-marker cases with the full imitation. Red-proved by mutation (evidence-h3-red.txt M1)."
-    },
-    {
-      "rule_id": "TEST-DB-GUARD-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): the tools/testdburl policy refuses port 5513 in every environment; the hosted Integration Tests job exception (Hosted, HostedDatabase, HostedJob) is deleted, so the full local Linux imitation of that job admits nothing; covered symbols drop the deleted Hosted; the test replaces the hosted-marker cases with the full imitation. Red-proved by mutation (evidence-h3-red.txt M1)."
-    },
-    {
-      "rule_id": "TEST-DB-ENDPOINT-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "d4d30af7aceedc9521db29bd060ec01c009392cb07e13d5e0acf037b22f0de37",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): TEST_DB_JUDGE refuses port 5513 with no exception on any host or in any job; the CI workflow's test PostgreSQL services move to 45432; the selftest's hosted cases become the full local Linux imitation, refused before any command. Red-proved by mutation (evidence-h3-red.txt M2)."
-    },
-    {
-      "rule_id": "TEST-DB-ENDPOINT-1",
-      "change_class": "proof_changed",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): TEST_DB_JUDGE refuses port 5513 with no exception on any host or in any job; the CI workflow's test PostgreSQL services move to 45432; the selftest's hosted cases become the full local Linux imitation, refused before any command. Red-proved by mutation (evidence-h3-red.txt M2)."
-    },
-    {
-      "rule_id": "WITNESS-EXPLICIT-DB-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "6d750e69ac2f8ff6d9952ab61647eacdf28dae2ea916bc209ab96a38fa3ea575",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): integration-witness judges URLs with the tools/testdburl policy, which no longer has a hosted exception; covered symbols replace the deleted Hosted with CheckEnv, the call selectTarget makes. Red-proved by mutation (evidence-h3-red.txt M1)."
-    },
-    {
-      "rule_id": "WITNESS-EXPLICIT-DB-1",
-      "change_class": "proof_changed",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): integration-witness judges URLs with the tools/testdburl policy, which no longer has a hosted exception; covered symbols replace the deleted Hosted with CheckEnv, the call selectTarget makes. Red-proved by mutation (evidence-h3-red.txt M1)."
-    },
-    {
-      "rule_id": "WITNESS-EXPLICIT-DB-1",
-      "change_class": "covered_symbols_changed",
-      "reason": "OSS-MINT-GUARD-4 (2026-10-10, review OSS-MINT-GUARD-3-PREREVIEW H3, judge ruling Q-HOSTED (a)): integration-witness judges URLs with the tools/testdburl policy, which no longer has a hosted exception; covered symbols replace the deleted Hosted with CheckEnv, the call selectTarget makes. Red-proved by mutation (evidence-h3-red.txt M1)."
-    }
-  ]
+  "base_commit": "a3c9cb20ad43993cf18d835f639467cdf21a8840",
+  "changes": []
 }
