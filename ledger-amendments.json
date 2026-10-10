@@ -1,37 +1,69 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "219b6e32b5593bae3fec27e3cb7f39bd7fa39cca",
+  "base_commit": "96cd30ebefff113084034f95b5733531d97f71f2",
   "changes": [
     {
-      "rule_id": "FRONTCHANNEL-FANOUT-MIXED-1",
-      "change_class": "rule_added",
-      "reason": "OSS-REVIEW-FIXES-3 (2026-10-10, review OSS-PKCE-REVIEW R3, judge ruling (a)): new rule FRONTCHANNEL-FANOUT-MIXED-1, armed on internal/handlers/logout_frontchannel_mixed_fanout_test.go @ unit. On the end_session front-channel fan-out every frame gets one sandbox: allow-scripts allow-same-origin only when every receiver is positively off the issuer's origin; when any receiver is on the issuer's origin, on an internationalized host, on a host with a character other than a letter, digit, hyphen or dot, or on an origin that cannot be canonicalized with certainty, every frame gets allow-scripts alone, in either receiver order. Red-proved on 219b6e3 through the real end-session handler, and in a browser on a scratch stack."
-    },
-    {
-      "rule_id": "TEST-DB-ENDPOINT-1",
-      "change_class": "rule_added",
-      "reason": "OSS-MINT-GUARD-2 (2026-10-10, review OSS-MINT-ISOLATION M1/M2/M4, judge ruling Q1(a)): new rule TEST-DB-ENDPOINT-1, armed on tools/integration-witness/endpoint_test.go @ unit: the Makefile's test-db-endpoint guard accepts only one 127.0.0.1/localhost server on DEV_PG_HOST_PORT, a _test database and at most one sslmode option, refuses 5513 except for the hosted CI runner's own database, and agrees with integration-witness checkTestURL over one case table. Red-proved on 20bf9d4 (22 refused URLs accepted) and by two mutations of the guard."
-    },
-    {
-      "rule_id": "WITNESS-EXPLICIT-DB-1",
-      "change_class": "rule_added",
-      "reason": "OSS-MINT-GUARD-2 (2026-10-10, review OSS-MINT-ISOLATION M1/M2/M4, judge ruling Q1(a)): new rule WITNESS-EXPLICIT-DB-1, armed on tools/integration-witness/endpoint_test.go @ unit: integration-witness has no default database and no IDENTUUM_IDP_DATABASE_URL fallback, and refuses every URL failing checkTestURL before it dials or runs a suite. Red-proved on 20bf9d4 behind a behaviour-neutral seam (65 cases) and by two mutations."
+      "rule_id": "TEST-DB-GUARD-1",
+      "change_class": "sentence_changed",
+      "after_sentence_sha256": "2dd31606f22c610c9b31d6625a294dfcc54fafa06492f70b0d62aaab3f1da5d9",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): RequireTestDatabase now judges the effective endpoint with the shared tools/testdburl policy (127.0.0.1/localhost on DEV_PG_HOST_PORT, a _test database, at most one sslmode; 5513 only for the hosted Integration Tests job on a Linux host); keyword DSNs are refused and the IDENTUUM_IDP_ALLOW_NON_TEST_DB escape is gone; the rule now also covers tools/testdburl CheckEnv, Check and Hosted. Red-proved on c40bce7 (11 assertions) and by mutation."
     },
     {
       "rule_id": "TEST-DB-GUARD-1",
       "change_class": "proof_changed",
-      "reason": "OSS-MINT-GUARD-2 (2026-10-10, review OSS-MINT-ISOLATION M1/M2/M4, judge ruling Q1(a)): TEST-DB-GUARD-1 now also refuses a DSN whose dbname, database, service or servicefile option (percent-encoded or not) or second keyword dbname could choose another database than its path names; the test adds those cases and judges every refusal with the disposable-DB escape explicitly off. Red-proved on 20bf9d4 (8 cases accepted), then by mutating overridesDatabase; restored, green."
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): RequireTestDatabase now judges the effective endpoint with the shared tools/testdburl policy (127.0.0.1/localhost on DEV_PG_HOST_PORT, a _test database, at most one sslmode; 5513 only for the hosted Integration Tests job on a Linux host); keyword DSNs are refused and the IDENTUUM_IDP_ALLOW_NON_TEST_DB escape is gone; the rule now also covers tools/testdburl CheckEnv, Check and Hosted. Red-proved on c40bce7 (11 assertions) and by mutation."
     },
     {
       "rule_id": "TEST-DB-GUARD-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "b6b9988f319bd8e0b1dc27b7d5848a77b6317a309791401c3f1ec4fb4a11adec",
-      "reason": "OSS-MINT-GUARD-2 (2026-10-10, review OSS-MINT-ISOLATION M1/M2/M4, judge ruling Q1(a)): TEST-DB-GUARD-1 now also refuses a DSN whose dbname, database, service or servicefile option (percent-encoded or not) or second keyword dbname could choose another database than its path names; the test adds those cases and judges every refusal with the disposable-DB escape explicitly off. Red-proved on 20bf9d4 (8 cases accepted), then by mutating overridesDatabase; restored, green."
+      "change_class": "covered_symbols_changed",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): RequireTestDatabase now judges the effective endpoint with the shared tools/testdburl policy (127.0.0.1/localhost on DEV_PG_HOST_PORT, a _test database, at most one sslmode; 5513 only for the hosted Integration Tests job on a Linux host); keyword DSNs are refused and the IDENTUUM_IDP_ALLOW_NON_TEST_DB escape is gone; the rule now also covers tools/testdburl CheckEnv, Check and Hosted. Red-proved on c40bce7 (11 assertions) and by mutation."
     },
     {
       "rule_id": "TEST-DB-GUARD-1",
       "change_class": "test_fingerprint_changed",
-      "reason": "OSS-MINT-GUARD-2 (2026-10-10, review OSS-MINT-ISOLATION M1/M2/M4, judge ruling Q1(a)): TEST-DB-GUARD-1 now also refuses a DSN whose dbname, database, service or servicefile option (percent-encoded or not) or second keyword dbname could choose another database than its path names; the test adds those cases and judges every refusal with the disposable-DB escape explicitly off. Red-proved on 20bf9d4 (8 cases accepted), then by mutating overridesDatabase; restored, green."
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): RequireTestDatabase now judges the effective endpoint with the shared tools/testdburl policy (127.0.0.1/localhost on DEV_PG_HOST_PORT, a _test database, at most one sslmode; 5513 only for the hosted Integration Tests job on a Linux host); keyword DSNs are refused and the IDENTUUM_IDP_ALLOW_NON_TEST_DB escape is gone; the rule now also covers tools/testdburl CheckEnv, Check and Hosted. Red-proved on c40bce7 (11 assertions) and by mutation."
+    },
+    {
+      "rule_id": "TEST-DB-ENDPOINT-1",
+      "change_class": "sentence_changed",
+      "after_sentence_sha256": "8980dfc65f1dec8c93f4982f0b81ca9035e4ee384dea28eb1b698155e4d63207",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): the same TEST_DB_JUDGE now also guards unit-db-endpoint before go-test-race and test, and the 5513 exception is bound to the hosted Integration Tests job on a Linux host (CI, GITHUB_ACTIONS, GITHUB_JOB=integration, RUNNER_OS=Linux; the two CI booleans alone are refused); the shared case table runs through the guard and the tools/testdburl policy. Red-proved on c40bce7 (12 of 66 selftest cases) and by mutation."
+    },
+    {
+      "rule_id": "TEST-DB-ENDPOINT-1",
+      "change_class": "proof_changed",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): the same TEST_DB_JUDGE now also guards unit-db-endpoint before go-test-race and test, and the 5513 exception is bound to the hosted Integration Tests job on a Linux host (CI, GITHUB_ACTIONS, GITHUB_JOB=integration, RUNNER_OS=Linux; the two CI booleans alone are refused); the shared case table runs through the guard and the tools/testdburl policy. Red-proved on c40bce7 (12 of 66 selftest cases) and by mutation."
+    },
+    {
+      "rule_id": "TEST-DB-ENDPOINT-1",
+      "change_class": "covered_symbols_changed",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): the same TEST_DB_JUDGE now also guards unit-db-endpoint before go-test-race and test, and the 5513 exception is bound to the hosted Integration Tests job on a Linux host (CI, GITHUB_ACTIONS, GITHUB_JOB=integration, RUNNER_OS=Linux; the two CI booleans alone are refused); the shared case table runs through the guard and the tools/testdburl policy. Red-proved on c40bce7 (12 of 66 selftest cases) and by mutation."
+    },
+    {
+      "rule_id": "TEST-DB-ENDPOINT-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): the same TEST_DB_JUDGE now also guards unit-db-endpoint before go-test-race and test, and the 5513 exception is bound to the hosted Integration Tests job on a Linux host (CI, GITHUB_ACTIONS, GITHUB_JOB=integration, RUNNER_OS=Linux; the two CI booleans alone are refused); the shared case table runs through the guard and the tools/testdburl policy. Red-proved on c40bce7 (12 of 66 selftest cases) and by mutation."
+    },
+    {
+      "rule_id": "WITNESS-EXPLICIT-DB-1",
+      "change_class": "sentence_changed",
+      "after_sentence_sha256": "563d94bd0dfc9bb00b82c2cde13d4bdf13a34dab0b465ffc3fb91d35750cffba",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): integration-witness now refuses every URL that fails the shared tools/testdburl policy and the hosted Integration Tests job declaration, so the two CI booleans alone never admit 5513. Red-proved on c40bce7 (8 rows) and by mutation."
+    },
+    {
+      "rule_id": "WITNESS-EXPLICIT-DB-1",
+      "change_class": "proof_changed",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): integration-witness now refuses every URL that fails the shared tools/testdburl policy and the hosted Integration Tests job declaration, so the two CI booleans alone never admit 5513. Red-proved on c40bce7 (8 rows) and by mutation."
+    },
+    {
+      "rule_id": "WITNESS-EXPLICIT-DB-1",
+      "change_class": "covered_symbols_changed",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): integration-witness now refuses every URL that fails the shared tools/testdburl policy and the hosted Integration Tests job declaration, so the two CI booleans alone never admit 5513. Red-proved on c40bce7 (8 rows) and by mutation."
+    },
+    {
+      "rule_id": "WITNESS-EXPLICIT-DB-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "OSS-MINT-GUARD-3 (2026-10-10, review OSS-MINT-GUARD-2 G1, judge ruling Q1(b)): integration-witness now refuses every URL that fails the shared tools/testdburl policy and the hosted Integration Tests job declaration, so the two CI booleans alone never admit 5513. Red-proved on c40bce7 (8 rows) and by mutation."
     }
   ]
 }
