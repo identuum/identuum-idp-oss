@@ -7,6 +7,38 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **A refused browser sign-in leaves no live session** (OSS-HARDENING-3
+  item 2). When the browser sign-in fails closed because its browser-session
+  token cannot be issued (P2-8), the session the sign-in had just created is
+  now revoked, as the upstream callback's refusal does, and the
+  `user_session.browser_login.failure` row says so (`session_revoked`
+  beside `reason` and `session_id`). Before, that session stayed live until
+  it expired on its own. The refusal itself is unchanged: `503`, no cookie,
+  no redirect.
+- **A session ended meanwhile is not a store error, on every sign-out and
+  revocation** (OSS-HARDENING-3 item 3). The database answers "no row
+  updated" for a session another sign-out or an administrator ended between
+  a request's lookup and its own revocation. That answer is now read as the
+  state the request asked for, as `POST /api/v1/auth/logout` reads it since
+  OSS-HARDENING-2: the end-session cookie and bearer paths and the
+  front-channel logout complete without the `AUTH-503` line, the
+  `revocation_unconfirmed` audit row and the `X-Identuum-Logout` header;
+  `POST /api/v1/me/sessions/revoke-current` answers `401 unauthorized` (the
+  route's answer for a revoked session) instead of `500`;
+  `POST /api/v1/me/sessions/revoke-others` ends the remaining sessions and
+  counts only those it ended instead of stopping at `500`;
+  `POST /api/v1/revoke` answers its idempotent success instead of `500`; and
+  the refresh-token logout no longer reports `503 revocation_unconfirmed`
+  for it. Every other store error is still refused, logged and marked as
+  before. The password change already recorded that case only in its audit
+  metadata (`session_revocation_clean`) and is unchanged.
+- **The recovery-code consumption event names the person and their
+  organization** (OSS-HARDENING-3 item 4).
+  `user_session.login.mfa_recovery_code_consumed` now carries the actor
+  fields (`actor_type` `user`, id, email, role) and `organization_id` the
+  sign-in events carry since OSS-HARDENING-2, so an organization admin sees
+  a member running their recovery list down. Additive: the metadata
+  (`user_id`, `session_id`, `remaining_recovery_codes_count`) is unchanged.
 - **An upstream sign-in fails closed when its browser-session token cannot
   be issued** (OSS-HARDENING-2 item 2; P2-8). When the opaque browser-session
   token store refuses at the provider callback, the callback now answers

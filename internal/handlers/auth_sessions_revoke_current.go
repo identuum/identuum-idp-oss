@@ -57,7 +57,10 @@ func HandleRevokeCurrentOwnSession(deps AuthSessionsHandlerDeps) gin.HandlerFunc
 			return
 		}
 		if err := deps.UserSession.RevokeSession(c.Request.Context(), principal.SessionID, selfRevokeCurrentSessionReason); err != nil {
-			if errors.Is(err, service.ErrUserSessionInvalidInput) {
+			// A session the store no longer finds was ended between the
+			// lookup above and this revocation: the revoked-row answer the
+			// lookup gives, not a store failure (OSS-HARDENING-3 item 3).
+			if errors.Is(err, service.ErrUserSessionInvalidInput) || errors.Is(err, domain.ErrSessionNotFound) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 				return
 			}

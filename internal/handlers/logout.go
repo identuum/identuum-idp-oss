@@ -194,7 +194,10 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 					cookieResolvedUserID = resolved.User.ID
 				}
 				endedFor[cookieResolvedSessionID] = cookieResolvedUserID
-				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "oidc_logout"); rerr != nil {
+				// A session the store no longer finds was ended meanwhile
+				// (another sign-out, an admin): already the state this
+				// request wants, not a store failure (OSS-HARDENING-3 item 3).
+				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "oidc_logout"); rerr != nil && !errors.Is(rerr, domain.ErrSessionNotFound) {
 					noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "revoke-session", rerr)
 					revocationUnconfirmed = true
 				} else {
@@ -243,7 +246,10 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			if _, seen := endedFor[bearerSessionID]; !seen {
 				endedFor[bearerSessionID] = principal.UserID
 			}
-			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), principal.SessionID, "oidc_logout"); rerr != nil {
+			// A bearer of a session already ended (a second sign-out, an
+			// admin's revocation) asks for the state it is in; only another
+			// store error is unconfirmed (OSS-HARDENING-3 item 3).
+			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), principal.SessionID, "oidc_logout"); rerr != nil && !errors.Is(rerr, domain.ErrSessionNotFound) {
 				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "bearer-session", rerr)
 				revocationUnconfirmed = true
 			}

@@ -287,6 +287,13 @@ func HandleRevokeOwnSession(deps SessionsHandlerDeps) gin.HandlerFunc {
 		}
 		isCurrent := sess.ID == principal.SessionID
 		if err := deps.UserSession.RevokeSession(c.Request.Context(), sess.ID, "user_requested"); err != nil {
+			// A session the store no longer finds was ended between the
+			// lookup above and this revocation: the already-revoked answer
+			// above, not a store failure (OSS-HARDENING-3 item 3).
+			if errors.Is(err, domain.ErrSessionNotFound) {
+				c.JSON(http.StatusOK, revokeSessionResponse{Success: true, Message: "Session revoked"})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}

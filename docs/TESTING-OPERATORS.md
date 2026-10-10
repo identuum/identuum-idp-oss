@@ -844,9 +844,12 @@ correlation id), the audit event `user_session.logout.revocation_unconfirmed`
 or cookie value) and the response header `X-Identuum-Logout:
 revocation_unconfirmed` beside `X-Request-ID`. A session the store no longer
 finds is not a store error: it is already ended, and the sign-out completes
-as a success — for the hint session since OSS-CONFORMANCE-FIXES and for the
+as a success — for the hint session since OSS-CONFORMANCE-FIXES, for the
 bearer session of `POST /api/v1/auth/logout` since OSS-HARDENING-2 (before,
-a second sign-out of the same session answered `503 revocation_unconfirmed`).
+a second sign-out of the same session answered `503 revocation_unconfirmed`),
+and for every other revocation (the end-session cookie and bearer sessions,
+the front-channel logout, the refresh-token logout and the self-service
+session routes) since OSS-HARDENING-3.
 RP-initiated end-session
 still completes its redirect with `state` (the redirected audit carries
 `revocation_unconfirmed: true`); if the CLIENT store did not answer the

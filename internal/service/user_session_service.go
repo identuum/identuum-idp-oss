@@ -615,7 +615,10 @@ func (s *UserSessionService) RevokeRefreshTokenSession(ctx context.Context, raw 
 	if !current && !previous {
 		return nil
 	}
-	if err := s.RevokeSession(ctx, session.ID, "logout"); err != nil {
+	// A session the store no longer finds was ended between the lookup above
+	// and this revocation (another sign-out, an admin): the state the logout
+	// asked for, not a store failure (OSS-HARDENING-3 item 3).
+	if err := s.RevokeSession(ctx, session.ID, "logout"); err != nil && !errors.Is(err, domain.ErrSessionNotFound) {
 		return domain.AuthStoreUnavailable("logout-refresh-revoke", err)
 	}
 	return nil

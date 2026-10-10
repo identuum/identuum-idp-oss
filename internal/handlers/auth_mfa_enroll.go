@@ -535,12 +535,19 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 		// event from a regular TOTP verification. The raw code is
 		// NEVER included — only the remaining count, which lets
 		// operators alert on a user running their recovery list
-		// down.
+		// down. It names the person and their organization as its
+		// actor, as the sign-in event above does (OSS-HARDENING-3
+		// item 4; additive).
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user_session.login.mfa_recovery_code_consumed",
-			Outcome:   "success",
-			IPAddress: ip,
-			UserAgent: ua,
+			Action:         "user_session.login.mfa_recovery_code_consumed",
+			Outcome:        "success",
+			ActorType:      audit.ActorTypeUser,
+			ActorID:        out.User.ID,
+			ActorEmail:     out.User.Email,
+			ActorRole:      string(out.User.Role),
+			OrganizationID: out.User.OrganizationID,
+			IPAddress:      ip,
+			UserAgent:      ua,
 			Metadata: map[string]any{
 				"user_id":                        out.User.ID.String(),
 				"session_id":                     issued.Session.ID.String(),

@@ -271,17 +271,25 @@ func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *s
 				// your credentials", so a redirect-to-form would mislead).
 				// Server-side + account-independent → no enumeration.
 				//
-				// Non-goal (documented): LocalLogin already created the
-				// session; we deliberately do NOT revoke it here (out of
-				// scope). It expires naturally at result.Session.ExpiresAt.
+				// LocalLogin already created the session: it is revoked
+				// here so a refused sign-in leaves nothing live, as the
+				// upstream callback's refusal does (OSS-HARDENING-3 item 2;
+				// until then its expiry at result.Session.ExpiresAt was the
+				// documented non-goal). A nil UserSession leaves it to
+				// expire; the audit says which happened.
+				revoked := false
+				if deps.UserSession != nil {
+					revoked = deps.UserSession.RevokeSession(c.Request.Context(), result.Session.ID, "browser_session_token_issue_failed") == nil
+				}
 				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 					Action:    "user_session.browser_login.failure",
 					Outcome:   "error",
 					IPAddress: ip,
 					UserAgent: ua,
 					Metadata: map[string]any{
-						"reason":     "browser_session_token_issue_failed",
-						"session_id": result.Session.ID.String(),
+						"reason":          "browser_session_token_issue_failed",
+						"session_id":      result.Session.ID.String(),
+						"session_revoked": revoked,
 					},
 				})
 				c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")

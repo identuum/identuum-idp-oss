@@ -99,7 +99,10 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 				unconfirmedCID = noteLogoutRevocationUnconfirmed(c, deps.Audit, "frontchannel", "cookie-session", err)
 			case resolved != nil && resolved.Session != nil:
 				resolvedSession = resolved.Session.ID
-				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "frontchannel_logout"); rerr != nil {
+				// A session the store no longer finds was ended meanwhile:
+				// already the state this request wants, not a store failure
+				// (OSS-HARDENING-3 item 3).
+				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "frontchannel_logout"); rerr != nil && !errors.Is(rerr, domain.ErrSessionNotFound) {
 					unconfirmedCID = noteLogoutRevocationUnconfirmed(c, deps.Audit, "frontchannel", "revoke-session", rerr)
 				} else {
 					_ = deps.Audit.Record(c.Request.Context(), audit.Event{
