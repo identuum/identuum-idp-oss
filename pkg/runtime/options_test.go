@@ -17,6 +17,7 @@ import (
 var optionToConfig = map[string]string{
 	"Addr":                      "Addr",
 	"Issuer":                    "Issuer",
+	"AdvertiseRS256":            "AdvertiseRS256",
 	"DatabaseURL":               "JWKSDBURL",
 	"RevocationCleanupInterval": "RevocationCleanupInterval",
 	"Version":                   "Version",
@@ -74,7 +75,8 @@ func TestOptions_MapEveryConfigField(t *testing.T) {
 	getenvCalled := ""
 	opts := Options{
 		Addr: "addr", Issuer: "issuer", DatabaseURL: "db", RevocationCleanupInterval: 7 * time.Second,
-		Version: "version", Stdout: stdout, Stderr: stderr,
+		AdvertiseRS256: true,
+		Version:        "version", Stdout: stdout, Stderr: stderr,
 		Getenv:  func(k string) string { getenvCalled = k; return "" },
 		DataDir: "data", UIPublicBaseURL: "ui-url", UIStaticDir: "ui-dir", MetricsAddr: "metrics",
 		CORSAllowedOrigins: []string{"https://a.test"}, TrustedProxies: []string{"10.0.0.1"},

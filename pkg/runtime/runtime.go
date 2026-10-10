@@ -47,6 +47,9 @@ type Options struct {
 	Addr string
 	// Issuer is the OpenID issuer URL the runtime advertises.
 	Issuer string
+	// AdvertiseRS256 enables RS256 discovery and its active signing key.
+	// False keeps the default EdDSA/ES256 policy; the environment may override it.
+	AdvertiseRS256 bool
 	// DatabaseURL is the PostgreSQL URL. Never printed or logged.
 	DatabaseURL string
 	// RevocationCleanupInterval is the period of the expiry and retention
@@ -171,6 +174,7 @@ func (o Options) config() internalruntime.Config {
 	return internalruntime.Config{
 		Addr:                      o.Addr,
 		Issuer:                    o.Issuer,
+		AdvertiseRS256:            o.AdvertiseRS256,
 		JWKSDBURL:                 o.DatabaseURL,
 		RevocationCleanupInterval: o.RevocationCleanupInterval,
 		Version:                   o.Version,
