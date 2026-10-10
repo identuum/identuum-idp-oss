@@ -58,7 +58,10 @@ func NewPgxKeyRepository(db DBTX, cipher PrivateKeyCipher) *PgxKeyRepository {
 	}
 }
 
-var _ repository.KeyRepository = (*PgxKeyRepository)(nil)
+var (
+	_ repository.KeyRepository     = (*PgxKeyRepository)(nil)
+	_ repository.SigningKeyEnsurer = (*PgxKeyRepository)(nil)
+)
 
 // decryptPrivateKey turns a stored private_key value into a PEM for the
 // mapper: a legacy plaintext PEM passes through verbatim; anything else is
@@ -261,6 +264,74 @@ func (r *PgxKeyRepository) CreateSigningKey(ctx context.Context, key *domain.Sig
 	timer := prometheus.NewTimer(metrics.DBQueryDuration.WithLabelValues("key_repo", "create", "all"))
 	defer timer.ObserveDuration()
 
+	return r.insertSigningKey(ctx, r.db, key)
+}
+
+// signingKeyEnsureLock names the transaction-scoped advisory lock that
+// serializes CreateSigningKeyUnlessActive across every process sharing the
+// database: the single-replica lease is taken after startup provisioning and
+// can be switched off, so it cannot be what keeps two starts apart.
+const signingKeyEnsureLock = `SELECT pg_advisory_xact_lock(hashtextextended('signing_keys.ensure_active', 0))`
+
+// CreateSigningKeyUnlessActive inserts key unless an active key with usable
+// private material (non-empty, and decrypting as GetActiveSigningKeys requires)
+// already exists for one of satisfiedBy. The read and the insert run in one
+// transaction under signingKeyEnsureLock, so a second caller waits and then
+// sees the first caller's key.
+func (r *PgxKeyRepository) CreateSigningKeyUnlessActive(ctx context.Context, key *domain.SigningKey, satisfiedBy []domain.KeyAlgorithm) (bool, error) {
+	timer := prometheus.NewTimer(metrics.DBQueryDuration.WithLabelValues("key_repo", "create_unless_active", "all"))
+	defer timer.ObserveDuration()
+
+	algorithms := make([]string, len(satisfiedBy))
+	for i, alg := range satisfiedBy {
+		algorithms[i] = string(alg)
+	}
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, signingKeyEnsureLock); err != nil {
+		return false, fmt.Errorf("failed to lock signing-key provisioning: %w", err)
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT private_key FROM signing_keys
+		WHERE state = 'active' AND algorithm = ANY($1) AND private_key <> ''
+	`, algorithms)
+	if err != nil {
+		return false, fmt.Errorf("failed to query active signing keys: %w", err)
+	}
+	present := false
+	for rows.Next() {
+		var stored string
+		if err := rows.Scan(&stored); err != nil {
+			rows.Close()
+			return false, fmt.Errorf("failed to scan signing key: %w", err)
+		}
+		if pemStr, err := r.decryptPrivateKey(stored); err == nil && pemStr != "" {
+			present = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, fmt.Errorf("error iterating signing keys: %w", err)
+	}
+	if present {
+		return false, nil
+	}
+	if err := r.insertSigningKey(ctx, tx, key); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("failed to commit signing-key provisioning: %w", err)
+	}
+	return true, nil
+}
+
+// insertSigningKey encrypts key's private material and inserts the row through q.
+func (r *PgxKeyRepository) insertSigningKey(ctx context.Context, q DBTX, key *domain.SigningKey) error {
 	keyDTO := mappers.ToDTOSigningKey(*key)
 
 	// P3-5: encrypt the private key at rest. FAIL-CLOSED — a writer with no
@@ -286,7 +357,7 @@ func (r *PgxKeyRepository) CreateSigningKey(ctx context.Context, key *domain.Sig
 		RETURNING id, created_at
 	`
 
-	err := r.db.QueryRow(
+	err := q.QueryRow(
 		ctx,
 		query,
 		keyDTO.KID, keyDTO.Algorithm, keyDTO.PublicKey, encPrivateKey, keyDTO.State, keyDTO.CreatedBy,

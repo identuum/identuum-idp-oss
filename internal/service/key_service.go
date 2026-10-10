@@ -49,6 +49,39 @@ type GenerateKeyOptions struct {
 
 // Generate creates a new signing key and persists it.
 func (s *KeyService) Generate(ctx context.Context, opts GenerateKeyOptions) (*domain.SigningKey, error) {
+	key, err := newSigningKey(opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.keyRepo.CreateSigningKey(ctx, key); err != nil {
+		return nil, fmt.Errorf("persist signing key: %w", err)
+	}
+	return key, nil
+}
+
+// EnsureActive creates an active key of opts.Algorithm unless the store
+// already holds an active key with usable private material of one of
+// satisfiedBy. The store decides and inserts as one step serialized across
+// processes; a store that cannot do so is refused rather than raced.
+func (s *KeyService) EnsureActive(ctx context.Context, opts GenerateKeyOptions, satisfiedBy ...domain.KeyAlgorithm) (bool, error) {
+	ensurer, ok := s.keyRepo.(repository.SigningKeyEnsurer)
+	if !ok {
+		return false, fmt.Errorf("ensure signing key: the key store cannot serialize provisioning")
+	}
+	opts.State = domain.KeyStateActive
+	key, err := newSigningKey(opts)
+	if err != nil {
+		return false, err
+	}
+	created, err := ensurer.CreateSigningKeyUnlessActive(ctx, key, satisfiedBy)
+	if err != nil {
+		return false, fmt.Errorf("ensure signing key: %w", err)
+	}
+	return created, nil
+}
+
+// newSigningKey generates the key material opts names, unpersisted.
+func newSigningKey(opts GenerateKeyOptions) (*domain.SigningKey, error) {
 	var key *domain.SigningKey
 	var err error
 
@@ -72,10 +105,6 @@ func (s *KeyService) Generate(ctx context.Context, opts GenerateKeyOptions) (*do
 
 	key.State = opts.State
 	key.CreatedBy = opts.CreatedBy
-
-	if err := s.keyRepo.CreateSigningKey(ctx, key); err != nil {
-		return nil, fmt.Errorf("persist signing key: %w", err)
-	}
 	return key, nil
 }
 

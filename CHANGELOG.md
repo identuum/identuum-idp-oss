@@ -7,6 +7,18 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Processes starting together create one active RSA key, not one each**
+  (OSS-REVIEW-FIXES-2, review OSS-RS256-REVIEW finding F1). With
+  `IDENTUUM_IDP_ADVERTISE_RS256=true`, startup ensures an active RSA key and,
+  on a fresh installation, the default EdDSA key. That ran before the
+  single-replica lease chose the serving process and was a read followed by an
+  unconditional insert, so two processes starting at once against one
+  database could each add an active key, and both stayed in the published
+  key set and the signer's candidates. The decision that a key is missing and
+  the insert now run in one transaction under a database lock; the second
+  process waits, sees the first one's key and reuses it. An existing active
+  key is still reused, a rotating-only RSA key still gets a new active one,
+  and the option off still creates nothing. No migration.
 - **Front-channel logout frames let the application's logout page run its
   script** (OSS-REVIEW-FIXES-1, review finding F1). The hidden frames the
   `end_session` page and `GET /api/v1/oidc/frontchannel-logout` load now

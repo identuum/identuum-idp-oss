@@ -704,6 +704,10 @@ Set it to `true` for conformance and certification: OpenID Connect Discovery
 builders then advertise `[EdDSA, ES256, RS256]` from one domain policy. Startup
 reuses an active RSA signing key or generates one through KeyService. It
 also ensures the normal EdDSA/ES256 signer exists on a fresh installation.
+The decision that a key is missing and the insert run as one step under a
+database lock, so processes starting together against one database create
+one active RSA key and one default key, not one each; a rotating-only RSA
+key still gets a new active one.
 JWKS publishes the RSA public key. A startup line reports that RS256 is
 advertised. A key read or creation failure enters NOT-SERVING with a named
 health fault. Existing RSA keys are not removed when the option is disabled.

@@ -14,6 +14,11 @@ const advertiseRS256Env = "IDENTUUM_IDP_ADVERTISE_RS256"
 // ensureAdvertisedRS256Key leaves the default-off path untouched. A fresh
 // opted-in installation needs its normal signer as well as RSA: otherwise
 // first-run setup could see only RSA and skip creating its EdDSA key.
+//
+// It runs before the single-replica lease decides which process serves, and
+// the lease can be switched off, so the read below only skips key generation
+// on an ordinary restart. A missing key is created through EnsureActive, which
+// re-decides under a database lock: processes starting together create one.
 func ensureAdvertisedRS256Key(ctx context.Context, keys *service.KeyService, enabled bool, stdout io.Writer) error {
 	if !enabled {
 		return nil
@@ -35,12 +40,12 @@ func ensureAdvertisedRS256Key(ctx context.Context, keys *service.KeyService, ena
 		}
 	}
 	if !hasDefault {
-		if _, err := keys.Generate(ctx, service.GenerateKeyOptions{Algorithm: "EdDSA", State: domain.KeyStateActive}); err != nil {
+		if _, err := keys.EnsureActive(ctx, service.GenerateKeyOptions{Algorithm: "EdDSA"}, domain.KeyAlgorithmEdDSA, domain.KeyAlgorithmES256); err != nil {
 			return err
 		}
 	}
 	if !hasRSA {
-		if _, err := keys.Generate(ctx, service.GenerateKeyOptions{Algorithm: "RS256", State: domain.KeyStateActive}); err != nil {
+		if _, err := keys.EnsureActive(ctx, service.GenerateKeyOptions{Algorithm: "RS256"}, domain.KeyAlgorithmRS256); err != nil {
 			return err
 		}
 	}

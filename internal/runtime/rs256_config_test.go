@@ -8,6 +8,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -77,6 +78,15 @@ func (r *rs256StartupRepo) CreateSigningKey(_ context.Context, key *domain.Signi
 	r.creates = append(r.creates, key.Algorithm)
 	r.keys = append(r.keys, *key)
 	return nil
+}
+
+func (r *rs256StartupRepo) CreateSigningKeyUnlessActive(ctx context.Context, key *domain.SigningKey, satisfiedBy []domain.KeyAlgorithm) (bool, error) {
+	for _, existing := range r.keys {
+		if existing.State == domain.KeyStateActive && existing.PrivateKey != "" && slices.Contains(satisfiedBy, existing.Algorithm) {
+			return false, nil
+		}
+	}
+	return r.createErr == nil, r.CreateSigningKey(ctx, key)
 }
 
 func TestAdvertiseRS256_StartupKeysetAndSigner(t *testing.T) {
@@ -158,6 +168,15 @@ func TestAdvertiseRS256_StartupKeysetAndSigner(t *testing.T) {
 		if err != nil || !verified.Valid {
 			t.Fatal("startup-generated key did not verify the ID token")
 		}
+	}
+}
+
+func TestAdvertiseRS256_RefusesAStoreThatCannotSerialize(t *testing.T) {
+	repo := &rs256StartupRepo{}
+	var output bytes.Buffer
+	err := ensureAdvertisedRS256Key(context.Background(), service.NewKeyService(struct{ repository.KeyRepository }{repo}), true, &output)
+	if err == nil || len(repo.creates) != 0 || output.Len() != 0 {
+		t.Fatal("a key store without serialized provisioning must be refused, not raced")
 	}
 }
 

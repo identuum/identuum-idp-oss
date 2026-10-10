@@ -33,3 +33,13 @@ type KeyRepository interface {
 	// DeleteExpiredKeys removes deprecated keys past their expiration timestamp
 	DeleteExpiredKeys(ctx context.Context) (int, error)
 }
+
+// SigningKeyEnsurer is implemented by a key store that can decide "is a key
+// missing?" and insert the new key as one step serialized across processes,
+// so processes starting together create at most one key.
+type SigningKeyEnsurer interface {
+	// CreateSigningKeyUnlessActive inserts key unless the store already holds
+	// an active key with usable private material whose algorithm is one of
+	// satisfiedBy; created reports whether key was inserted.
+	CreateSigningKeyUnlessActive(ctx context.Context, key *domain.SigningKey, satisfiedBy []domain.KeyAlgorithm) (created bool, err error)
+}
