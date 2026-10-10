@@ -2495,16 +2495,19 @@ integration-inventory:
 ## the CI service container provides the database. See the ci.yml
 ## header enumeration.
 ## test-db: create + migrate the dedicated integration database
-## (identuum_idp_oss_test on whichever PostgreSQL answers 127.0.0.1:5513 with
+## (identuum_idp_oss_test on whichever PostgreSQL answers
+## 127.0.0.1:$(DEV_PG_HOST_PORT), 5513 by default, with
 ## the dev user: the dev stack, or the owner's own stack from the same compose
 ## file, which is never stopped for it, TOOLS-MATRIX-CONTAINERS), separate from
 ## the human's dev DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it
 ## already exists, then migrations are (re-)applied. Never touches OSS_DB_URL.
+## The port follows DEV_PG_HOST_PORT like fast-up, so a mint run with
+## DEV_PG_HOST_PORT and OSS_TEST_DB_URL set to a scratch server reads nothing else.
 test-db:
 	@echo "test-db: ensuring $(OSS_TEST_DB_URL) exists + migrated"
-	@PGPASSWORD=dev-idp_oss_user-not-a-secret psql -h 127.0.0.1 -p 5513 -U idp_oss_user -d postgres -tAc \
+	@PGPASSWORD=dev-idp_oss_user-not-a-secret psql -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user -d postgres -tAc \
 		"SELECT 1 FROM pg_database WHERE datname='identuum_idp_oss_test'" | grep -q 1 || \
-		PGPASSWORD=dev-idp_oss_user-not-a-secret createdb -h 127.0.0.1 -p 5513 -U idp_oss_user identuum_idp_oss_test
+		PGPASSWORD=dev-idp_oss_user-not-a-secret createdb -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user identuum_idp_oss_test
 	@$(MAKE) --no-print-directory build-binary
 	@./bin/identuum-idp migrate "$(OSS_TEST_DB_URL)"
 
