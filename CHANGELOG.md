@@ -7,6 +7,19 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **A wrong sign-in code counts against the shared allowance for fifteen
+  minutes from when it was entered** (OSS-REVIEW-FIXES-1, review finding
+  F4; P-103). The sign-in code step keeps one wrong-code counter per sign-in
+  attempt handle and no attempt times, and the shared allowance aged those
+  misses from the handle's creation: five wrong codes entered four minutes
+  into a handle's life left the allowance eleven minutes later, and another
+  sign-in or proof of that user could spend a fresh five. The misses of a
+  handle now count until the latest moment they can have been made — the
+  handle's five-minute expiry, or the moment the fifth wrong code
+  invalidated it — is fifteen minutes old: never released early, at most
+  the handle's life late, and still one count per attempt. The reported
+  wait follows that moment. Proof-route misses already carried their own
+  times and are unchanged.
 - **A rerun of `recover-site-admin` finishes the access-token revocation a
   failed run left behind** (OSS-REVIEW-FIXES-1, review finding F3). The
   command revokes refresh tokens first and denylists the access tokens

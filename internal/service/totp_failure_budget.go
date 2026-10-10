@@ -30,8 +30,10 @@ type ProofFailureStore interface {
 }
 
 // SignInFailureCounter counts a user's wrong codes on the pending sign-in step
-// (failed_attempts on their verify-kind pending rows) since a time, with the
-// oldest counted row's time. The pending-session repository satisfies it.
+// (failed_attempts on their verify-kind pending rows) that can have been made
+// since a time, with the moment the oldest counted ones were made at the
+// latest — the moment their count leaves a window that starts at since. The
+// pending-session repository satisfies it.
 type SignInFailureCounter interface {
 	CountRecentFailedVerifyAttempts(ctx context.Context, user uuid.UUID, since time.Time) (int, time.Time, error)
 }

@@ -161,9 +161,12 @@ func TestMFAPending_CountRecentFailedVerifyAttemptsAndRetention(t *testing.T) {
 	if err != nil || n != 5 {
 		t.Errorf("CountRecentFailedVerifyAttempts = (%d, %v), want (5, nil): 3 expired + 2 live verify wrong codes, nothing from the old, enroll or another user's handle", n, err)
 	}
-	// FUNC-M3: the oldest counted handle is the one created 10 minutes ago.
-	if age := time.Since(oldest); age < 9*time.Minute || age > 11*time.Minute {
-		t.Errorf("oldest counted handle is %s old, want about 10m (the expired verify handle with wrong codes)", age)
+	// FUNC-M3: the oldest counted misses are the expired handle's, which can
+	// have been made no later than its expiry, 5 minutes ago (created 10
+	// minutes ago, 5-minute life); its count leaves the window 15 minutes
+	// after that moment (F4: aged by attempt time, not creation).
+	if age := time.Since(oldest); age < 4*time.Minute || age > 6*time.Minute {
+		t.Errorf("oldest counted misses can have been made %s ago, want about 5m (the expired verify handle's expiry)", age)
 	}
 	if n, oldest, err := repo.CountRecentFailedVerifyAttempts(ctx, uuid.New(), since); err != nil || n != 0 || !oldest.IsZero() {
 		t.Errorf("a user with no handles = (%d, %s, %v), want (0, zero, nil)", n, oldest, err)

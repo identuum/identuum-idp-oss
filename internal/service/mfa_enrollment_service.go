@@ -623,7 +623,8 @@ func (s *MFAEnrollmentService) verifyAndConsume(ctx context.Context, pendingID u
 	// step (a fresh handle), so on its own it bounds guesses per sign-in, not
 	// per person. Sum the user's recent wrong codes across ALL their handles
 	// and refuse at the bound — every code, right or wrong, unlooked at, with
-	// the sign-in wait until the oldest counted handle leaves the window
+	// the sign-in wait until the oldest counted misses leave the window; a
+	// miss is aged by when it was made, never by when its handle was created
 	// (FUNC-M3: a correct code was answered invalid_code). FAIL CLOSED on a
 	// counter-store error, for the same reason as RecordFailedVerifyAttempt.
 	// The user's turn spans the count, the code check and the recorded miss,

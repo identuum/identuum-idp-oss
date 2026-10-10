@@ -87,13 +87,18 @@ type MFAPendingLoginSessionRepository interface {
 	RecordFailedVerifyAttempt(ctx context.Context, id uuid.UUID, maxAttempts int, now time.Time) (invalidated bool, err error)
 
 	// CountRecentFailedVerifyAttempts sums failed_attempts over the user's
-	// verify-kind handles created at or after since — the per-USER wrong-code
-	// total that the per-handle counter cannot give, because every password
-	// step mints a fresh handle. Consumed and expired handles count: a handle
-	// killed by its own bound is exactly the evidence. oldest is the creation
-	// time of the oldest such handle with a miss (zero when none): the bound
-	// lifts as that handle leaves the window (FUNC-M3). Returns a non-nil
-	// error ONLY on a store failure; the caller MUST fail closed.
+	// verify-kind handles whose misses can have been made at or after since —
+	// the per-USER wrong-code total that the per-handle counter cannot give,
+	// because every password step mints a fresh handle. Consumed and expired
+	// handles count: a handle killed by its own bound is exactly the evidence.
+	// A handle records no attempt times, so its misses are aged by the LATEST
+	// moment they can have been made — the handle's expiry, or its consumption
+	// where that came first (a threshold miss consumes the handle at its own
+	// time) — never by the handle's creation, which released recent misses
+	// early (OSS-REVIEW-FIXES-1, review finding F4). oldest is the earliest
+	// such moment over the counted handles (zero when none): the bound lifts
+	// as those misses leave the window (FUNC-M3). Returns a non-nil error ONLY
+	// on a store failure; the caller MUST fail closed.
 	CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (n int, oldest time.Time, err error)
 
 	// DeleteForUser removes every pending sign-in row of the user, and with

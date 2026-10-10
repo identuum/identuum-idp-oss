@@ -196,15 +196,26 @@ RETURNING (consumed_at IS NOT NULL)`
 }
 
 // CountRecentFailedVerifyAttempts sums failed_attempts over the user's
-// verify-kind handles created at or after since. See the interface doc.
+// verify-kind handles whose misses can have been made at or after since.
+// See the interface doc.
+//
+// A handle keeps one counter and no attempt times, so its misses are aged by
+// the LATEST moment they can have been made: RecordFailedVerifyAttempt only
+// touches a live handle, so every miss precedes the handle's expiry, and
+// precedes its consumption where that came first (the threshold miss sets
+// consumed_at to its own time, which makes that bound exact). Counting by
+// created_at released five misses made four minutes into a handle's life
+// eleven minutes later (OSS-REVIEW-FIXES-1, review finding F4); this bound
+// is never early and at most the handle's life late.
 func (r *PgxMFAPendingLoginSessionRepository) CountRecentFailedVerifyAttempts(ctx context.Context, userID uuid.UUID, since time.Time) (int, time.Time, error) {
 	const q = `
 SELECT COALESCE(SUM(failed_attempts), 0)::int,
-       MIN(created_at) FILTER (WHERE failed_attempts > 0)
+       MIN(LEAST(expires_at, COALESCE(consumed_at, expires_at)))
 FROM   mfa_pending_login_sessions
 WHERE  user_id = $1
   AND  kind = 'verify'
-  AND  created_at >= $2`
+  AND  failed_attempts > 0
+  AND  LEAST(expires_at, COALESCE(consumed_at, expires_at)) >= $2`
 	var n int
 	var oldest *time.Time
 	if err := r.db.QueryRow(ctx, q, userID, since).Scan(&n, &oldest); err != nil {

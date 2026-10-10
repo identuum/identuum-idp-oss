@@ -70,14 +70,25 @@ func (s *stubPendingRepo) CountRecentFailedVerifyAttempts(_ context.Context, use
 	if s.countErr != nil {
 		return 0, time.Time{}, s.countErr
 	}
+	// The pgx repository's rule: a handle's misses are aged by the latest
+	// moment they can have been made — its expiry, or its consumption where
+	// that came first.
 	n := 0
 	var oldest time.Time
 	for _, row := range s.rows {
-		if row.UserID == userID && row.Kind == domain.MFAPendingKindVerify && !row.CreatedAt.Before(since) {
-			n += row.FailedAttempts
-			if row.FailedAttempts > 0 && (oldest.IsZero() || row.CreatedAt.Before(oldest)) {
-				oldest = row.CreatedAt
-			}
+		if row.UserID != userID || row.Kind != domain.MFAPendingKindVerify || row.FailedAttempts == 0 {
+			continue
+		}
+		bound := row.ExpiresAt
+		if row.ConsumedAt != nil && row.ConsumedAt.Before(bound) {
+			bound = *row.ConsumedAt
+		}
+		if bound.Before(since) {
+			continue
+		}
+		n += row.FailedAttempts
+		if oldest.IsZero() || bound.Before(oldest) {
+			oldest = bound
 		}
 	}
 	return n, oldest, nil
