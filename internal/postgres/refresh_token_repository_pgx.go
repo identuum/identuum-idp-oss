@@ -329,6 +329,48 @@ func (r *PgxRefreshTokenRepository) RevokeAllBySubjectReturningAccessJTIs(ctx co
 	return count, jtis, nil
 }
 
+// PendingLinkedAccessJTIsBySubject lists the subject's already-revoked,
+// unexpired rows whose linked access JTI is not in oauth_token_revocations
+// yet (repository.RefreshTokenPendingAccessJTIRepository): the denylist work
+// an earlier RevokeAllBySubjectReturningAccessJTIs left behind when its
+// caller's denylist write failed after this table's UPDATE. The denylist is
+// read here, in the same database, so a retry revisits exactly the rows that
+// still need it and nothing twice.
+func (r *PgxRefreshTokenRepository) PendingLinkedAccessJTIsBySubject(ctx context.Context, subject string, now time.Time) ([]repository.RevokedRefreshTokenAccessJTI, error) {
+	if subject == "" {
+		return nil, nil
+	}
+	const q = `
+		SELECT t.access_jti, t.expires_at
+		FROM   oauth_refresh_tokens t
+		WHERE  t.subject    = $1
+		  AND  t.revoked_at IS NOT NULL
+		  AND  t.expires_at > $2
+		  AND  t.access_jti IS NOT NULL
+		  AND  t.access_jti <> ''
+		  AND  NOT EXISTS (SELECT 1 FROM oauth_token_revocations d WHERE d.jti = t.access_jti)`
+	rows, err := r.db.Query(ctx, q, subject, now)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: list pending oauth_refresh_tokens access_jti by subject: %w", err)
+	}
+	defer rows.Close()
+	var jtis []repository.RevokedRefreshTokenAccessJTI
+	for rows.Next() {
+		var (
+			accessJTI string
+			expiresAt time.Time
+		)
+		if err := rows.Scan(&accessJTI, &expiresAt); err != nil {
+			return nil, fmt.Errorf("postgres: scan pending oauth_refresh_tokens access_jti: %w", err)
+		}
+		jtis = append(jtis, repository.RevokedRefreshTokenAccessJTI{JTI: accessJTI, ExpiresAt: expiresAt})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: iterate pending oauth_refresh_tokens access_jti: %w", err)
+	}
+	return jtis, nil
+}
+
 // RevokeAllByClientReturningAccessJTIs revokes every live refresh token
 // issued to clientID and returns the access-token jtis they are linked to
 // (OSS-CLIENTS: a client delete revokes its tokens first).

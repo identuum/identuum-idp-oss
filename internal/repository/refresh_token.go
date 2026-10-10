@@ -103,6 +103,19 @@ type RefreshTokenAccessJTIRevocationRepository interface {
 	RevokeByFamilyReturningAccessJTIs(ctx context.Context, familyID string, at time.Time) (int64, []RevokedRefreshTokenAccessJTI, error)
 }
 
+// RefreshTokenPendingAccessJTIRepository lists the denylist work a subject-wide
+// revocation still owes (OSS-REVIEW-FIXES-1, review finding F3): the subject's
+// refresh rows that are already revoked and not yet expired, whose linked
+// access JTI the denylist does not hold. The refresh UPDATE and the denylist
+// insert are two stores with no transaction across them; when the insert
+// fails after the UPDATE, the rows are revoked and nothing marks the lost
+// work, so a retry that revokes only "newly revoked" rows would report success
+// over a still-valid access token. RevokeAllForUser revisits these on every
+// call, so the recovery command's "run it again" advice is true.
+type RefreshTokenPendingAccessJTIRepository interface {
+	PendingLinkedAccessJTIsBySubject(ctx context.Context, subject string, now time.Time) ([]RevokedRefreshTokenAccessJTI, error)
+}
+
 // RefreshTokenClientRevocationRepository revokes every refresh token of one
 // OAuth client, returning the linked access jtis (OSS-CLIENTS: a client
 // delete revokes its tokens first).

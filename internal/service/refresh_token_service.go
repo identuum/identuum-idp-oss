@@ -579,6 +579,16 @@ func (s *RefreshTokenService) DeleteExpired(ctx context.Context) (int64, error) 
 // call is idempotent: a second invocation after a successful one
 // affects zero rows.
 //
+// A retry after a PARTIAL failure completes the work (OSS-REVIEW-FIXES-1,
+// review finding F3): the refresh UPDATE and the linked access JTIs'
+// denylist inserts are two stores with no transaction across them, so a
+// denylist write that fails after the UPDATE leaves rows revoked and their
+// access tokens live, and "newly revoked" is empty on the retry. When the
+// repository can list them (RefreshTokenPendingAccessJTIRepository), the
+// subject's already-revoked, unexpired rows whose linked JTI the denylist
+// does not hold are denylisted on every call, so recover-site-admin's "run
+// it again" advice is true and the count still says what this call revoked.
+//
 // The method does NOT expose token material to callers, logs,
 // responses, or audit metadata. Linked access JTIs, when available,
 // stay inside this service call long enough to persist revocation rows;
@@ -599,6 +609,15 @@ func (s *RefreshTokenService) RevokeAllForUser(ctx context.Context, userID uuid.
 	n, accessJTIs, err := repo.RevokeAllBySubjectReturningAccessJTIs(ctx, userID.String(), now)
 	if err != nil {
 		return 0, err
+	}
+	if pending, ok := s.repo.(repository.RefreshTokenPendingAccessJTIRepository); ok {
+		owed, perr := pending.PendingLinkedAccessJTIsBySubject(ctx, userID.String(), now)
+		if perr != nil {
+			// The rows are revoked; what is owed could not be read, so this
+			// call cannot claim the denylist is complete. The caller retries.
+			return n, perr
+		}
+		accessJTIs = append(accessJTIs, owed...)
 	}
 	return n, s.revokeLinkedAccessJTIs(ctx, accessJTIs)
 }

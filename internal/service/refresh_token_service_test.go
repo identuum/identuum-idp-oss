@@ -26,10 +26,34 @@ type inMemoryRefreshTokenRepo struct {
 	getErr    error
 	revokeErr error
 	rotateErr error
+	// denylisted stands in for the denylist the pgx repository consults when
+	// it lists the pending linked JTIs; nil means none is denylisted yet.
+	denylisted func(jti string) bool
 }
 
 func newInMemoryRefreshTokenRepo() *inMemoryRefreshTokenRepo {
 	return &inMemoryRefreshTokenRepo{byID: map[uuid.UUID]*domain.RefreshToken{}}
+}
+
+// PendingLinkedAccessJTIsBySubject mirrors the pgx repository's rule: the
+// subject's already-revoked, unexpired rows whose linked JTI is not denylisted.
+func (r *inMemoryRefreshTokenRepo) PendingLinkedAccessJTIsBySubject(_ context.Context, subject string, now time.Time) ([]repository.RevokedRefreshTokenAccessJTI, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.revokeErr != nil {
+		return nil, r.revokeErr
+	}
+	var out []repository.RevokedRefreshTokenAccessJTI
+	for _, row := range r.byID {
+		if row.Subject != subject || row.RevokedAt == nil || row.AccessJTI == "" || !row.ExpiresAt.After(now) {
+			continue
+		}
+		if r.denylisted != nil && r.denylisted(row.AccessJTI) {
+			continue
+		}
+		out = append(out, repository.RevokedRefreshTokenAccessJTI{JTI: row.AccessJTI, ExpiresAt: row.ExpiresAt})
+	}
+	return out, nil
 }
 
 func (r *inMemoryRefreshTokenRepo) Insert(_ context.Context, rt *domain.RefreshToken) error {

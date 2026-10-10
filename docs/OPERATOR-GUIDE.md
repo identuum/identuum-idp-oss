@@ -298,8 +298,10 @@ the following are stale:
   is what makes the command a recovery from a compromised administrator,
   not only from a forgotten password. If the command exits non-zero saying
   the revocation failed, the password and MFA were still reset: fix the
-  cause and run it again (it is idempotent) until it reports
-  `sessions_revoked=true`; until then treat the old sessions as live.
+  cause and run it again (it is idempotent, and a rerun also denylists the
+  access tokens linked to refresh tokens an earlier run revoked before it
+  failed) until it reports `sessions_revoked=true`; until then treat the
+  old sessions as live.
 - **The authenticator app entry.** The old TOTP seed no longer exists
   server-side; delete the entry. On the **next login** the IdP forces a
   fresh enrolment and shows the new base32 seed **once, at that moment**

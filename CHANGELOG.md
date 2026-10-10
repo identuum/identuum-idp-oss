@@ -7,6 +7,20 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **A rerun of `recover-site-admin` finishes the access-token revocation a
+  failed run left behind** (OSS-REVIEW-FIXES-1, review finding F3). The
+  command revokes refresh tokens first and denylists the access tokens
+  linked to them second; when the denylist write failed after the refresh
+  tokens were revoked, the command exited non-zero as documented, but the
+  advised rerun found no newly revoked refresh token, denylisted nothing and
+  reported success while an access token minted through one of those
+  refresh tokens — which carries no session and is judged by the denylist
+  alone — still introspected active. Every subject-wide revocation
+  (`recover-site-admin`, a password change or reset, an MFA reset) now also
+  denylists the linked access tokens of the person's already-revoked,
+  unexpired refresh tokens that the denylist does not hold yet, so a rerun
+  completes the work and a completed run changes nothing. Other users'
+  tokens are untouched.
 - **An upstream sign-in establishes one sign-in: the console's or an
   application's, never both** (OSS-REVIEW-FIXES-1, review finding F5;
   D-023 preserved). The provider callback now sets the cookies of the one
