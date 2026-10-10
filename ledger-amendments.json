@@ -1,5 +1,22 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "96eb57347df8320d6a9b93b2a6d4f0a0db80ea14",
-  "changes": []
+  "base_commit": "1f0bf63e39a0dba0a931aeec695787e9c3d2d301",
+  "changes": [
+    {
+      "rule_id": "DISCOVERY-ALG-POLICY-1",
+      "change_class": "proof_changed",
+      "reason": "Owner revision of P-062 on 2026-10-10 authorizes RS256 advertisement only with the default-off option enabled. Retain the exact default EdDSA/ES256 policy and every banned/registrable assertion; extend the rule and mutation proof to both modes and both builders. No floor decrease."
+    },
+    {
+      "rule_id": "DISCOVERY-ALG-POLICY-1",
+      "change_class": "sentence_changed",
+      "after_sentence_sha256": "068073161be104d453253941f3c90a648d8d0f7f92d0d3969a5c1fd3bee3b005",
+      "reason": "Owner revision of P-062 on 2026-10-10 authorizes RS256 advertisement only with the default-off option enabled. Retain the exact default EdDSA/ES256 policy and every banned/registrable assertion; extend the rule and mutation proof to both modes and both builders. No floor decrease."
+    },
+    {
+      "rule_id": "DISCOVERY-ALG-POLICY-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "Owner revision of P-062 on 2026-10-10 authorizes RS256 advertisement only with the default-off option enabled. Retain the exact default EdDSA/ES256 policy and every banned/registrable assertion; extend the rule and mutation proof to both modes and both builders. No floor decrease."
+    }
+  ]
 }
