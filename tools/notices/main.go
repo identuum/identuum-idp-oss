@@ -52,19 +52,24 @@ func main() {
 	fmt.Printf("notices: wrote %s — %d Go modules, %d npm packages\n", *out, len(comps), len(npm))
 }
 
-// checkFile is -check: the notices file at path against the inputs now. The
-// fingerprints say whether the build list or the vendored ui moved; the Go
-// licence texts are then REGENERATED from the module cache and compared, so a
-// licence file that a compiled package adds, changes or drops inside a module
-// already listed is caught too (OSS-MINT-GUARD-2, review OSS-FIXES-3 F3). The
-// npm texts need an identuum-ui checkout at the vendored commit, which -check
-// does not have; they stay bound by that commit.
+// checkFile is -check: the COMPLETE notices file at path against the inputs
+// now, every byte accounted for (review OSS-MINT-GUARD-2 G3). The file is cut
+// into header, Go blocks and npm blocks, which concatenate to it exactly.
+// The fingerprints say whether the build list or the vendored ui moved; the
+// npm blocks must hash to the npm-body digest recorded when they were
+// generated (regenerating them needs the identuum-ui lockfile and a pnpm
+// store, which -check has neither of, here or in CI); the Go licence texts are
+// REGENERATED from the module cache and compared, so a licence file that a
+// compiled package adds, changes or drops inside a module already listed is
+// caught too (OSS-MINT-GUARD-2, review OSS-FIXES-3 F3); and the header is
+// regenerated from those inputs and compared.
 func checkFile(path string, in Inputs, dirs map[string]goModule) (string, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return "check FAILED: notices — " + err.Error(), false
 	}
-	line, ok := Check(string(raw), in)
+	file := string(raw)
+	line, ok := Check(file, in)
 	if !ok {
 		return line, false
 	}
@@ -72,10 +77,14 @@ func checkFile(path string, in Inputs, dirs map[string]goModule) (string, bool) 
 	if err != nil {
 		return "check FAILED: notices — regenerating the Go licence texts: " + err.Error(), false
 	}
-	if goSection(string(raw)) != goSection(Render(in, comps)) {
+	header, goBlocks, npmBlocks := partition(file)
+	if goBlocks != renderComponents(comps) {
 		return "check FAILED: notices — the Go licence texts differ from a regeneration although the build list did not move (a compiled package's licence file was added, changed or removed); regenerate THIRD_PARTY_NOTICES with `go run ./tools/notices -write`", false
 	}
-	return line + "; its Go licence texts match a regeneration", true
+	if header != renderHeader(in, strings.Count(npmBlocks, "\n"+strings.Repeat("=", 78)+"\nnpm "), NPMBodyDigest(npmBlocks)) {
+		return "check FAILED: notices — the header differs from one regenerated from its inputs; regenerate THIRD_PARTY_NOTICES with `go run ./tools/notices -write`", false
+	}
+	return line + "; its header and Go licence texts match a regeneration", true
 }
 
 func fail(msg string) {

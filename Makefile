@@ -402,9 +402,12 @@ ui-vendor-check:
 ## Go licence texts from the module cache and refuses a file whose Go blocks
 ## differ (OSS-MINT-GUARD-2, review OSS-FIXES-3 F3: a compiled package's
 ## licence file can change inside a listed module without moving the digest).
-## The npm texts stay bound by the ui commit: regenerating them needs a ui
-## checkout. It needs only go list, the module cache and the manifest, so it
-## runs in verify and in ci-verify.
+## The COMPLETE file is judged (OSS-MINT-GUARD-3, review OSS-MINT-GUARD-2 G3):
+## the header is regenerated and compared too, and the npm blocks must hash to
+## the npm-body digest `make notices` recorded in the header when it
+## regenerated them (regenerating them here would need an identuum-ui checkout
+## at the vendored commit and a pnpm store). It needs only go list, the module
+## cache and the manifest, so it runs in verify and in ci-verify.
 .PHONY: notices notices-check
 notices-check:
 	@go run ./tools/notices -check
