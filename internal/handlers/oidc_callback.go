@@ -127,9 +127,16 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		// Login complete — set the session cookie (REUSE the browser-login tail:
-		// optional browser-session-token indirection, then CookieSession.Issue)
-		// and 302-redirect to the STORED, already-sanitized ReturnURL.
+		// Login complete. EVERY credential is minted before ANY cookie is
+		// written (F2, OSS-REVIEW-FIXES-1): a sign-in is committed to the
+		// browser whole or not at all. Until then a failed console mint
+		// still planted the browser-session and refresh cookies and
+		// redirected "signed in", which left a jar holding another user's
+		// valid access cookie validating as that user while the audit said
+		// this one had signed in.
+		//
+		// The session cookie REUSES the browser-login tail: the optional
+		// browser-session-token indirection, then CookieSession.Issue.
 		cookieValue := res.RefreshToken
 		if deps.BrowserTokens != nil {
 			var orgPtr *uuid.UUID
@@ -150,51 +157,35 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 				// BrowserTokens wired the cookie MUST be the opaque token;
 				// the raw refresh token resolves as no session, so the old
 				// fall-through planted a cookie that authenticated nothing
-				// and sent the person on "signed in". Refuse instead: no
-				// cookie of any kind, no redirect, the browser login's 503
-				// text (a non-credential signal; the provider did sign the
-				// person in). The session the callback service created is
-				// revoked here so a refused sign-in leaves nothing live
-				// (OSS-HARDENING-2 item 2); the audit says whether that
-				// revocation happened.
-				revoked := false
-				if deps.UserSession != nil {
-					revoked = deps.UserSession.RevokeSession(c.Request.Context(), res.Session.ID, "browser_session_token_issue_failed") == nil
-				}
-				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-					Action:    "auth.oidc_login.failure",
-					Outcome:   "error",
-					IPAddress: ip,
-					UserAgent: ua,
-					Metadata: map[string]any{
-						"reason":          "browser_session_token_issue_failed",
-						"provider_id":     providerID.String(),
-						"session_id":      res.Session.ID.String(),
-						"session_revoked": revoked,
-					},
-				})
-				c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
+				// and sent the person on "signed in" (OSS-HARDENING-2 item 2).
+				refuseUpstreamSignIn(c, deps, res, providerID, ip, ua, "browser_session_token_issue_failed")
 				return
 			}
 			cookieValue = issued.Token
 		}
-		// A sign-in through an upstream provider offers no "remember me", so
-		// the cookie ends with the browser session.
-		writeSessionCookie(c, deps.CookieSession.IssueForSignIn(cookieValue, res.Session.ExpiresAt, false))
-		clearUpstreamLoginBinding(c, state)
-
 		// The console's session (F-1, V4-025): the same access_token and
 		// refresh_token cookies the password login sets, from the same
-		// session, through the same minting and the same writer. No
-		// "remember me" here either, so the refresh cookie ends with the
-		// browser session. A mint failure omits only the access cookie, as
-		// the password login's response then omits the access token: the
-		// refresh cookie still lets /bff/session/refresh mint one.
+		// session, through the same minting and the same writer. The access
+		// token is minted here, before any cookie: a mint that fails (the
+		// signing key cannot be read) refuses the sign-in exactly as the
+		// browser-session token above does, instead of planting the refresh
+		// cookie beside whatever access cookie the browser already holds.
+		accessToken := ""
 		if deps.UserToken != nil && res.User != nil {
-			accessToken := ""
-			if access, accessErr := deps.UserToken.IssueForSession(c.Request.Context(), res.User, res.Session); accessErr == nil && access != nil {
-				accessToken = access.AccessToken
+			access, accessErr := deps.UserToken.IssueForSession(c.Request.Context(), res.User, res.Session)
+			if accessErr != nil || access == nil || access.AccessToken == "" {
+				refuseUpstreamSignIn(c, deps, res, providerID, ip, ua, "console_token_issue_failed")
+				return
 			}
+			accessToken = access.AccessToken
+		}
+
+		// Everything minted: commit the sign-in to the browser. A sign-in
+		// through an upstream provider offers no "remember me", so the
+		// session cookie and the refresh cookie end with the browser session.
+		writeSessionCookie(c, deps.CookieSession.IssueForSignIn(cookieValue, res.Session.ExpiresAt, false))
+		clearUpstreamLoginBinding(c, state)
+		if accessToken != "" {
 			setAuthCookies(c, accessToken, res.RefreshToken, false)
 		}
 
@@ -237,4 +228,30 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 		}
 		c.Redirect(http.StatusFound, returnTo)
 	}
+}
+
+// refuseUpstreamSignIn is the one way a completed upstream sign-in is refused
+// after the callback service minted its session: no cookie of any kind, no
+// redirect, the browser login's 503 text (a non-credential signal; the
+// provider did sign the person in). The session the callback service created
+// is revoked so a refused sign-in leaves nothing live (OSS-HARDENING-2 item
+// 2); the audit names the reason and says whether that revocation happened.
+func refuseUpstreamSignIn(c *gin.Context, deps OIDCCallbackHandlerDeps, res *service.OIDCCallbackResult, providerID uuid.UUID, ip, ua, reason string) {
+	revoked := false
+	if deps.UserSession != nil {
+		revoked = deps.UserSession.RevokeSession(c.Request.Context(), res.Session.ID, reason) == nil
+	}
+	_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		Action:    "auth.oidc_login.failure",
+		Outcome:   "error",
+		IPAddress: ip,
+		UserAgent: ua,
+		Metadata: map[string]any{
+			"reason":          reason,
+			"provider_id":     providerID.String(),
+			"session_id":      res.Session.ID.String(),
+			"session_revoked": revoked,
+		},
+	})
+	c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
 }

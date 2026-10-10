@@ -7,6 +7,22 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **An upstream sign-in whose console credentials cannot be minted is
+  refused, never half-committed** (OSS-REVIEW-FIXES-1, review finding F2).
+  The provider callback now mints every credential before it writes any
+  cookie: when the console's access token cannot be minted (the signing key
+  cannot be read), it answers `503 temporarily unavailable, try again` with
+  no cookie of any kind and no redirect, revokes the session it had just
+  created and audits `auth.oidc_login.failure` (`reason`
+  `console_token_issue_failed`, `provider_id`, `session_id`,
+  `session_revoked`), exactly as it does when the browser-session token
+  cannot be issued. Before, it planted the browser-session and refresh
+  cookies and redirected "signed in" without the access cookie, so a browser
+  that still held another user's valid `access_token` cookie kept validating
+  as that user in the console while the audit said the new person had signed
+  in. A working minter is unchanged: the new person's cookies replace the old
+  ones.
+
 - **Optional RS256 discovery advertisement for OpenID conformance.**
   `IDENTUUM_IDP_ADVERTISE_RS256=true` advertises `[EdDSA, ES256, RS256]`
   and ensures an active RSA signing key at startup. The option defaults to
