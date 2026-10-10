@@ -45,16 +45,34 @@ and 27113), then every credential it prints is used to sign in, and the
 project is removed again. It needs those two ports free and refuses, naming
 the holder, when one is taken. It also refuses, without removing anything,
 when `identuum-devseed` still has containers, volumes or networks from an
-earlier run; the refusal prints the command that removes them. It refuses
-too when a volume or network already has one of the names it would create
-(`identuum-devseed_postgres-idp-oss-data-v18`, `identuum-devseed_default`),
-whoever made it, and when another `devseed-live` run is active (it holds the
-lock `$TMPDIR/identuum-devseed.lock`; a killed run leaves it, and you remove
-it by hand). At the end it removes the project only if every such name
-still carries the project's own label; otherwise it removes nothing and
-fails. The seeded credentials are written to a
-mode-600 file in a new temporary directory, which is left for you and never
-printed. Run it alone with `make devseed-live`.
+earlier run; the refusal says how to remove each one by its own name. It
+refuses too when a volume or network already has one of the names it would
+create, whoever made it, and when another `devseed-live` run is active (it
+holds the lock `/tmp/identuum-devseed.lock`, one fixed path whatever
+`TMPDIR` says; a killed run leaves it, and you remove it by hand). Each
+name it creates ends with a random id of that run
+(`identuum-devseed_postgres-idp-oss-data-v18_<id>`,
+`identuum-devseed_default_<id>`), so no other stack or run creates the
+same name. At the end it removes only what it recorded creating, each
+after checking it again, and a volume only under a name that carries its
+own id; anything else stays, and the run fails.
+
+`devseed-live` supports exactly one setup: the Docker engine of this
+computer, reached through a unix socket on this computer. It refuses,
+before any other Docker command, a `DOCKER_HOST` that is not a
+`unix:///` socket, and a Docker context (`DOCKER_CONTEXT` or the current
+one) whose endpoint is not one, such as `tcp://` or `ssh://`. The reason:
+its lock is a directory on this computer, so it cannot keep out a client
+on another computer that uses the same engine. A unix socket forwarded
+from another computer, or shared into a container with its own `/tmp`,
+looks local and is not detected; do not run it that way.
+
+`DEVSEED_LIVE_PG_PORT` (default 25513) may be set to another free port.
+It is refused, before any Docker command, when it is 5513 or 5432, has a
+leading zero, or is not a port number, however it is set (command line,
+environment with `make -e`, or an `override`). The seeded credentials are
+written to a mode-600 file in a new temporary directory, which is left for
+you and never printed. Run it alone with `make devseed-live`.
 
 The first phase is the DATABASE-BACKED suite (`make verify-integration`,
 about 5m40s of that total, measured 2026-09-03): the tests that need a real

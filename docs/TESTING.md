@@ -75,8 +75,12 @@ org_admin sign in with the password and a TOTP code from the printed secret;
 org_user signs in with the password alone, since TOTP is asked of admins
 only here; the client authenticates at the token endpoint and a wrong secret
 gets `invalid_client`), second run (a re-seed refuses: the org_admin already
-has TOTP and devseed keeps no copy of the secret), and teardown
-(`down --volumes` of that project only, also on failure). The `--json` output
+has TOTP and devseed keeps no copy of the secret), and teardown (also on
+failure: it removes only what the run recorded creating, by ID, and its
+volume only under the run's own invocation-unique name; never a
+project-level `down`). It runs only against this computer's own Docker
+engine through a unix socket, and refuses 5513 and 5432 as its
+PostgreSQL port (see `docs/TESTING-OPERATORS.md`). The `--json` output
 goes to a mode-600 file in a fresh `mktemp` directory, left in place and
 never printed. It adds about 50 seconds to a mint. Run it alone with
 `make devseed-live`.

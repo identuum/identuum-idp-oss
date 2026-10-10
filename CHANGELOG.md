@@ -29,7 +29,15 @@ follows [Semantic Versioning](https://semver.org/).
   leftovers of its project instead of deleting them; it holds one lock per
   machine for its project, whatever `TMPDIR` says, and removes only the
   containers, network and volume it recorded creating, each rechecked by
-  identity first (OSS-MINT-GUARD-4, review OSS-MINT-GUARD-3-PREREVIEW H1/H2). `make notices-check` now also regenerates the Go
+  identity first (OSS-MINT-GUARD-4, review OSS-MINT-GUARD-3-PREREVIEW H1/H2).
+  `devseed-live` names its volume and network with its run's random id and
+  removes a volume only under such a name, so a volume another writer
+  creates under the project's usual name is never removed; it runs only
+  against this machine's own Docker engine through a unix socket (a
+  `tcp://` or `ssh://` `DOCKER_HOST` or Docker context is refused before any
+  other Docker command, and every later call is pinned to the checked
+  endpoint); and it refuses 5513 and 5432 as `DEVSEED_LIVE_PG_PORT` however
+  that is set (OSS-MINT-GUARD-5, review OSS-MINT-GUARD-4 R1-R3). `make notices-check` now also regenerates the Go
   licence texts and compares them (review OSS-FIXES-3 F3).
 - **A front-channel fan-out with any receiver on the issuer's origin runs
   every frame scripts-only** (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW
