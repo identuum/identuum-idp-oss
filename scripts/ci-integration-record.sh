@@ -4,26 +4,27 @@
 # remains between those steps and is explicitly outside this record's scope.
 set -eu
 refuse() { echo "ci-integration-record: REFUSED — $*" >&2; exit 1; }
-# OSS-MINT-GUARD-2 (review OSS-MINT-ISOLATION M3, judge ruling Q1(a)): this
-# records the hosted job's targets against the runner's own service database
-# on 5513, the one place a test run may use that port. It runs only there,
-# refusing before git, lictor, a record or a Make target. Locally, use
-# `DEV_PG_HOST_PORT=<scratch port> make verify-integration`. OSS-MINT-GUARD-3
-# (review OSS-MINT-GUARD-2 G1): "there" is the Integration Tests job, whose
-# service is published on 5513 — GITHUB_JOB=integration on a Linux runner —
-# not any job that sets the two CI booleans.
+# OSS-MINT-GUARD-2 (review OSS-MINT-ISOLATION M3): this records the
+# Integration Tests job's targets, so it runs only as that job, refusing
+# before git, lictor, a record or a Make target. Locally, use
+# `DEV_PG_HOST_PORT=<scratch port> make verify-integration`. The job's
+# markers admit nothing (OSS-MINT-GUARD-4, judge ruling Q-HOSTED (a)): its
+# service database is on the job's DEV_PG_HOST_PORT, 45432, and every target
+# refuses 5513 there as everywhere.
 if [ "${CI:-}" != true ] || [ "${GITHUB_ACTIONS:-}" != true ] || [ "${GITHUB_JOB:-}" != integration ] || [ "${RUNNER_OS:-}" != Linux ]; then
 	refuse 'this recorder runs only in the hosted CI job (CI=true, GITHUB_ACTIONS=true, GITHUB_JOB=integration, RUNNER_OS=Linux); locally run DEV_PG_HOST_PORT=<scratch port> make verify-integration'
 fi
+port=${DEV_PG_HOST_PORT:-}
+case "$port" in '' | 0* | *[!0-9]*) refuse 'DEV_PG_HOST_PORT is not a port number; the job sets it to its service port';; esac
 root=$(cd "$(dirname "$0")/.." && pwd -P)
 record=GATE-RUN.ci-integration.txt
-# lictor hands a step only its environment allowlist, so the hosted markers
-# reach each target's test-db-endpoint guard, and through make's export of
-# command-line variables each suite's RequireTestDatabase, as make arguments.
+# lictor hands a step only its environment allowlist, so the job's port
+# reaches each target's test-db-endpoint guard, and through make's export of
+# command-line variables each suite's RequireTestDatabase, as a make argument.
 plan=(
-	'test-db=make test-db CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=Linux'
-	'ci-integration-test=make ci-integration-test CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=Linux'
-	'rulefloor-integration=make rulefloor-integration CI=true GITHUB_ACTIONS=true GITHUB_JOB=integration RUNNER_OS=Linux'
+	"test-db=make test-db DEV_PG_HOST_PORT=$port"
+	"ci-integration-test=make ci-integration-test DEV_PG_HOST_PORT=$port"
+	"rulefloor-integration=make rulefloor-integration DEV_PG_HOST_PORT=$port"
 )
 names=()
 for entry in "${plan[@]}"; do names+=("${entry%%=*}"); done

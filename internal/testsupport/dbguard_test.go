@@ -16,11 +16,8 @@ func TestRequireTestDatabaseRefusesNonTestDSN(t *testing.T) {
 	const scratchDSN = "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:35599/identuum_idp_oss_test?sslmode=disable"
 	const devDSN = "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:35599/identuum_idp_oss?sslmode=disable"
 	const ownerTestDSN = "postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable"
-	// Every case runs with the hosted markers cleared and the scratch port
-	// selected, whatever the caller's environment says.
-	for _, k := range []string{"CI", "GITHUB_ACTIONS", "GITHUB_JOB", "RUNNER_OS"} {
-		t.Setenv(k, "")
-	}
+	// Every case runs with the scratch port selected, whatever the caller's
+	// environment says.
 	t.Setenv("DEV_PG_HOST_PORT", "35599")
 
 	// A *_test database on the selected loopback port is accepted.
@@ -74,7 +71,7 @@ func TestRequireTestDatabaseRefusesNonTestDSN(t *testing.T) {
 	}
 
 	// The server: another host, another port than the selected one, and the
-	// owner's 5513 even for a _test database, are refused locally.
+	// owner's 5513 even for a _test database, are refused everywhere.
 	for label, dsn := range map[string]string{
 		"a non-loopback host":            "postgres://u:dev-u-not-a-secret@db.example:35599/x_test",
 		"a port other than the selected": "postgres://u:dev-u-not-a-secret@127.0.0.1:35600/x_test",
@@ -85,16 +82,20 @@ func TestRequireTestDatabaseRefusesNonTestDSN(t *testing.T) {
 	}
 	t.Setenv("DEV_PG_HOST_PORT", "5513")
 	if err := RequireTestDatabase(ownerTestDSN); err == nil {
-		t.Error("the owner's 5513 must be REFUSED locally, even for identuum_idp_oss_test")
+		t.Error("the owner's 5513 must be REFUSED, even for identuum_idp_oss_test")
 	}
-	// Marker imitation: the two CI booleans alone are not the hosted job.
-	t.Setenv("CI", "true")
-	t.Setenv("GITHUB_ACTIONS", "true")
+	// The full local Linux imitation of the former hosted Integration Tests
+	// job (judge ruling Q-HOSTED (a), OSS-MINT-GUARD-4): every marker GitHub
+	// Actions sets for that job admits nothing either.
+	for k, v := range map[string]string{"CI": "true", "GITHUB_ACTIONS": "true", "GITHUB_JOB": "integration", "RUNNER_OS": "Linux"} {
+		t.Setenv(k, v)
+	}
 	if err := RequireTestDatabase(ownerTestDSN); err == nil {
-		t.Error("CI=true and GITHUB_ACTIONS=true alone must not admit 5513")
+		t.Error("the full hosted-job declaration must not admit 5513")
 	}
-	t.Setenv("CI", "")
-	t.Setenv("GITHUB_ACTIONS", "")
+	for _, k := range []string{"CI", "GITHUB_ACTIONS", "GITHUB_JOB", "RUNNER_OS"} {
+		t.Setenv(k, "")
+	}
 
 	// No selected port: nothing to judge the server against, so refused.
 	t.Setenv("DEV_PG_HOST_PORT", "")

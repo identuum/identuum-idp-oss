@@ -30,7 +30,7 @@ cd "$scratch/repo"
 cat > Makefile <<'MAKE'
 .PHONY: test-db ci-integration-test rulefloor-integration
 test-db ci-integration-test rulefloor-integration:
-	@printf '%s\n' '$@ hosted=$(CI)/$(GITHUB_ACTIONS)/$(GITHUB_JOB)/$(RUNNER_OS)' >> "@SCRATCH@/trace"
+	@printf '%s\n' '$@ port=$(DEV_PG_HOST_PORT) markers=$(CI)/$(GITHUB_ACTIONS)/$(GITHUB_JOB)/$(RUNNER_OS)' >> "@SCRATCH@/trace"
 	@echo 'check OK: fixture $@'
 	@if [ -e "@SCRATCH@/fail-$@" ]; then exit 7; fi
 MAKE
@@ -66,6 +66,18 @@ for markers in 'none' 'CI=true' 'GITHUB_ACTIONS=true' 'CI=1 GITHUB_ACTIONS=true'
 done
 export CI=true GITHUB_ACTIONS=true RUNNER_OS=Linux
 run() { bash scripts/ci-integration-record.sh "$@"; }
+# OSS-MINT-GUARD-4: inside the job, the targets get the job's DEV_PG_HOST_PORT;
+# without one every verb refuses before a record or a target.
+for verb in init 'step test-db' finalize; do
+	result=0
+	# shellcheck disable=SC2086
+	env -u DEV_PG_HOST_PORT bash scripts/ci-integration-record.sh $verb > "$scratch/local.log" 2>&1 || result=$?
+	assert "job without DEV_PG_HOST_PORT: $verb refused" test "$result" -ne 0
+	assert "job without DEV_PG_HOST_PORT: $verb says why" grep -q 'DEV_PG_HOST_PORT is not a port number' "$scratch/local.log"
+	assert "job without DEV_PG_HOST_PORT: $verb wrote no record" test ! -e "$record"
+	assert "job without DEV_PG_HOST_PORT: $verb ran no target" test ! -e "$TRACE"
+done
+export DEV_PG_HOST_PORT=45432
 run init > "$scratch/run.log" 2>&1
 assert 'single declared plan' grep -qx 'plan: test-db ci-integration-test rulefloor-integration' "$record"
 assert 'partial scope explicit' grep -q 'green is not a whole-job verdict' "$record"
@@ -82,10 +94,11 @@ run step rulefloor-integration >> "$scratch/run.log" 2>&1
 run finalize >> "$scratch/run.log" 2>&1
 assert 'green record' grep -qx 'result: green' "$record"
 assert 'commit tie' grep -qx "tree: commit=$GITHUB_SHA" "$record"
-# lictor hands a step none of CI, GITHUB_ACTIONS, GITHUB_JOB and RUNNER_OS, so
-# each target sees the hosted markers only because the recorder passes them on
-# its command line.
-assert 'commands run once in their original order, each told it is the hosted runner' test "$(cat "$TRACE")" = "$(printf 'test-db hosted=true/true/integration/Linux\nci-integration-test hosted=true/true/integration/Linux\nrulefloor-installation\nrulefloor-integration hosted=true/true/integration/Linux')"
+# lictor hands a step none of DEV_PG_HOST_PORT, CI, GITHUB_ACTIONS, GITHUB_JOB
+# and RUNNER_OS, so each target sees the job's port only because the recorder
+# passes it on its command line, and no CI marker at all (OSS-MINT-GUARD-4:
+# the markers admit nothing, so they are not handed on).
+assert 'commands run once in their original order, each given the job port and no CI marker' test "$(cat "$TRACE")" = "$(printf 'test-db port=45432 markers=///\nci-integration-test port=45432 markers=///\nrulefloor-installation\nrulefloor-integration port=45432 markers=///')"
 cp "$record" "$scratch/green"
 failures=0
 check_case() {

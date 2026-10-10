@@ -59,7 +59,11 @@
 #
 # Port allocation: identuum-idp-oss uses 5513 to avoid conflicts with
 # the monolith (5432), the AG monolith (5532), and identuum-ag-oss
-# (5533). Reserved: 5534.
+# (5533). Reserved: 5534. That is the local allocation: in CI the test
+# PostgreSQL services publish 45432 (tools/testdburl.CIPort, neither 5513
+# nor 5432), and every job that reaches one sets DEV_PG_HOST_PORT=45432;
+# 5513 is refused by every test target on every host, CI included
+# (OSS-MINT-GUARD-4, judge ruling Q-HOSTED (a)).
 #
 # CE, monolith, IDP-CE, AG, UI, auth-service, and wiki services are
 # NOT included.
@@ -168,19 +172,20 @@ jobs:
           # against "identuum_ci".
           POSTGRES_DB: identuum_ci_test
         ports:
-          - 5432:5432
+          - 45432:5432
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -U ci -d identuum_ci_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
     env:
-      IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:5432/identuum_ci_test?sslmode=disable
+      IDENTUUM_IDP_TEST_DATABASE_URL: postgres://ci:dev-ci-not-a-secret@127.0.0.1:45432/identuum_ci_test?sslmode=disable
       # The selected test server's port (OSS-MINT-GUARD-3): go-test-race's
       # unit-db-endpoint guard and testsupport.RequireTestDatabase accept the
       # URL above only when it names 127.0.0.1:$DEV_PG_HOST_PORT; ci-verify
-      # declares it with --env so it reaches the recipe.
-      DEV_PG_HOST_PORT: "5432"
+      # declares it with --env so it reaches the recipe. 45432 is the CI port
+      # (OSS-MINT-GUARD-4; the header's port allocation).
+      DEV_PG_HOST_PORT: "45432"
       IDENTUUM_IDP_REQUIRE_DB_TESTS: "1"
       # The single-replica lease contends when tests share one DB; the runtime
       # tests set this themselves locally, and CI matches (A-2a memory note).
@@ -483,12 +488,20 @@ jobs:
           # name). Matches the local convention (OSS_TEST_DB_URL).
           POSTGRES_DB: identuum_idp_oss_test
         ports:
-          - 5513:5432
+          - 45432:5432
         options: >-
           --health-cmd "pg_isready -h 127.0.0.1 -U idp_oss_user -d identuum_idp_oss_test"
           --health-interval 3s
           --health-timeout 5s
           --health-retries 15
+    env:
+      # The service's host port above (OSS-MINT-GUARD-4, judge ruling
+      # Q-HOSTED (a)): scripts/ci-integration-record.sh hands it to every
+      # recorded target, whose test-db-endpoint guard and the suites'
+      # RequireTestDatabase accept only a URL on 127.0.0.1:$DEV_PG_HOST_PORT.
+      # OSS_TEST_DB_URL's default follows it. Until OSS-MINT-GUARD-4 this
+      # service was published on 5513 under a CI-marker exception.
+      DEV_PG_HOST_PORT: "45432"
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -541,7 +554,7 @@ jobs:
 
       - name: Wait for PostgreSQL
         run: |
-          until pg_isready -h localhost -p 5513 -U idp_oss_user; do
+          until pg_isready -h localhost -p "$DEV_PG_HOST_PORT" -U idp_oss_user; do
             sleep 1
           done
         env:

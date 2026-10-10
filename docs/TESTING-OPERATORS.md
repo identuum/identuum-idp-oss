@@ -94,13 +94,10 @@ docker stop scratch-oss-pg               # --rm removes the container and its da
 ```
 
 `DEV_PG_HOST_PORT` alone is enough: every test database URL follows it, and
-`make fast-up` reuses the server it finds on that port. The one exception to
-the 5513 refusal is the hosted Integration Tests job's own service database
-(`identuum_idp_oss_test`, only on a Linux host with `CI=true`,
-`GITHUB_ACTIONS=true`, `GITHUB_JOB=integration` and `RUNNER_OS=Linux`). On
-macOS the exception never applies, whatever the environment says. On Linux it
-trusts those four values, which GitHub Actions sets for that job; it does not
-check which server answers on 5513.
+`make fast-up` reuses the server it finds on that port. The 5513 refusal has
+no exception: no environment variable, CI setting or operating system admits
+5513. The CI workflow's test PostgreSQL services use port 45432 (neither 5513
+nor PostgreSQL's own 5432), and its jobs set `DEV_PG_HOST_PORT=45432`.
 
 If you also set `IDENTUUM_IDP_TEST_DATABASE_URL` or `OSS_TEST_DB_URL`,
 `DEV_PG_HOST_PORT` does not rewrite it: the URL is checked, and accepted only
@@ -132,8 +129,8 @@ effect.
 `tools/integration-witness` (the runner behind `verify-integration`) applies
 the same rules, and has no default: run on its own, it refuses unless
 `IDENTUUM_IDP_TEST_DATABASE_URL` and `DEV_PG_HOST_PORT` are set and agree.
-`scripts/ci-integration-record.sh` runs only in the hosted Integration Tests
-job.
+`scripts/ci-integration-record.sh` runs only in the CI Integration Tests job,
+and hands each target that job's `DEV_PG_HOST_PORT`.
 
 The appliance phases of `make test-full` use their own PostgreSQL (port
 15513, project `identuum-e2e`), and `devseed-live` its own (port 25513,

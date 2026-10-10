@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -16,19 +15,18 @@ import (
 // endpointCase is ONE row of the accepted-URL policy, shared by the witness
 // and the Makefile's test-db-endpoint guard: the same table is run through
 // both, so the two implementations cannot drift apart unnoticed. The selected
-// scratch port is 35599 unless the row says otherwise; hosted rows set the
-// Integration Tests job's own declaration (CI=true, GITHUB_ACTIONS=true,
-// GITHUB_JOB=integration, RUNNER_OS=Linux), and markersOnly rows set the two
-// booleans alone. A hosted row is accepted only on a Linux host: the hosted
-// exception never applies on another operating system, whatever the
-// environment says (review OSS-MINT-GUARD-2 G1).
+// scratch port is 35599 unless the row says otherwise; jobMarkers rows set
+// every marker GitHub Actions sets for the Integration Tests job (CI=true,
+// GITHUB_ACTIONS=true, GITHUB_JOB=integration, RUNNER_OS=Linux), the full
+// local Linux imitation of the former hosted exception. No marker changes a
+// verdict on any host: 5513 is refused everywhere (judge ruling Q-HOSTED (a),
+// OSS-MINT-GUARD-4).
 type endpointCase struct {
-	label       string
-	url         string
-	port        string
-	hosted      bool
-	markersOnly bool
-	accept      bool
+	label      string
+	url        string
+	port       string
+	jobMarkers bool
+	accept     bool
 	// dialed is the host:port an accepted row's preflight must dial.
 	dialed string
 }
@@ -45,7 +43,7 @@ func endpointCases() []endpointCase {
 		{label: "loopback, no options", url: base, port: scratch, accept: true, dialed: "127.0.0.1:35599"},
 		{label: "localhost, postgresql scheme", url: "postgresql://u:dev-u-not-a-secret@localhost:35599/scratch_test?sslmode=require", port: scratch, accept: true, dialed: "localhost:35599"},
 		{label: "no userinfo", url: "postgres://127.0.0.1:35599/x_test", port: scratch, accept: true, dialed: "127.0.0.1:35599"},
-		{label: "hosted runner: its own database on 5513", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable", port: "5513", hosted: true, accept: true, dialed: "127.0.0.1:5513"},
+		{label: "CI job: its own database on the CI port", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:45432/identuum_idp_oss_test?sslmode=disable", port: "45432", jobMarkers: true, accept: true, dialed: "127.0.0.1:45432"},
 
 		// M1 (review E3/E4): a connection option overrides the checked authority.
 		{label: "port option", url: base + "?port=5513", port: scratch},
@@ -82,11 +80,11 @@ func endpointCases() []endpointCase {
 		{label: "upper-case scheme", url: "POSTGRES://u:dev-u-not-a-secret@127.0.0.1:35599/x_test", port: scratch},
 		{label: "keyword DSN", url: "host=127.0.0.1 port=35599 dbname=x_test", port: scratch},
 
-		// Q1(a): 5513 is the owner's server; only the hosted runner's own
-		// database is excepted, and only when both markers are set.
+		// Q-HOSTED (a): 5513 is the owner's server and no environment admits
+		// it, the full local Linux imitation of the former hosted job included.
 		{label: "5513 locally", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test", port: "5513"},
-		{label: "hosted, but another database on 5513", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test", port: "5513", hosted: true},
-		{label: "the two CI booleans alone on 5513", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable", port: "5513", markersOnly: true},
+		{label: "the full local Linux imitation of the hosted job on 5513", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable", port: "5513", jobMarkers: true},
+		{label: "the job's markers, another database on 5513", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:5513/x_test", port: "5513", jobMarkers: true},
 		{label: "no port selected", url: base, port: ""},
 		{label: "port not a number", url: base, port: "35599x"},
 		{label: "port out of range", url: "postgres://u:dev-u-not-a-secret@127.0.0.1:70000/x_test", port: "70000"},
@@ -95,18 +93,16 @@ func endpointCases() []endpointCase {
 
 func caseEnv(c endpointCase) map[string]string {
 	env := map[string]string{"IDENTUUM_IDP_TEST_DATABASE_URL": c.url, "DEV_PG_HOST_PORT": c.port}
-	if c.hosted || c.markersOnly {
+	if c.jobMarkers {
 		env["CI"], env["GITHUB_ACTIONS"] = "true", "true"
-	}
-	if c.hosted {
 		env["GITHUB_JOB"], env["RUNNER_OS"] = "integration", "Linux"
 	}
 	return env
 }
 
-// accepted is a row's verdict on this host: a hosted row only on Linux.
+// accepted is a row's verdict, the same on every host.
 func (c endpointCase) accepted() bool {
-	return c.accept && (!c.hosted || runtime.GOOS == "linux")
+	return c.accept
 }
 
 type fakeConn struct{ net.Conn }
