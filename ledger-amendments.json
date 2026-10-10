@@ -1,5 +1,21 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "ad783ae6777030fd0254c5b764c85637d843d3f9",
-  "changes": []
+  "base_commit": "c058b9418405a12b5f99c0c433b5587a37bb0817",
+  "changes": [
+    {
+      "rule_id": "RECOVER-2",
+      "change_class": "covered_symbols_changed",
+      "reason": "OSS-RULEFLOOR-RECOVER (2026-10-10): covers qualified from the bare name recoverSiteAdminCore to cmd/identuum-idp/recover.go:recoverSiteAdminCore, the form RECOVER-1 and every other mapped row use; the wiki floor census refused the bare name (census class 7). Sentence, check, proof, binding and hash unchanged."
+    },
+    {
+      "rule_id": "RECOVER-3",
+      "change_class": "covered_symbols_changed",
+      "reason": "OSS-RULEFLOOR-RECOVER (2026-10-10): covers qualified from the bare name recoverSiteAdminCore to cmd/identuum-idp/recover.go:recoverSiteAdminCore, the form RECOVER-1 and every other mapped row use; the wiki floor census refused the bare name (census class 7). Sentence, check, proof, binding and hash unchanged."
+    },
+    {
+      "rule_id": "RECOVER-4",
+      "change_class": "covered_symbols_changed",
+      "reason": "OSS-RULEFLOOR-RECOVER (2026-10-10): covers qualified from the bare name recoverSiteAdminCore to cmd/identuum-idp/recover.go:recoverSiteAdminCore, the form RECOVER-1 and every other mapped row use; the wiki floor census refused the bare name (census class 7). Sentence, check, proof, binding and hash unchanged."
+    }
+  ]
 }
