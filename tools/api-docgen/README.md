@@ -38,10 +38,13 @@ go build -o bin/api-docgen ./tools/api-docgen
 
 ## Editing the registry
 
-The endpoint list lives in [`registry.go`](./registry.go) as a Go
-slice. To add or update an endpoint:
+The endpoint list is the set of `// docgen:endpoint` comment blocks above
+the route registrations in `internal/api` and `internal/handlers` (for
+example `internal/api/router.go`). [`extract.go`](./extract.go) scans
+those two directories and turns each block into one record. To add or
+update an endpoint:
 
-1. Edit `registry.go` (each surface has its own helper function).
+1. Add or edit the `// docgen:` block beside the route registration.
 2. Run `go test ./tools/api-docgen/...` from the OSS root.
 3. Re-run the generator to refresh `output/api/endpoints.yaml`.
 
