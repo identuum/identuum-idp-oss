@@ -453,6 +453,8 @@ func HandleLocalLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			Metadata: map[string]any{
 				"user_id":    result.UserID,
 				"session_id": result.Session.ID.String(),
+				// The sign-in method, beside an upstream sign-in's oidc_upstream.
+				"method": "password",
 			},
 		})
 		resp := localLoginResponse{

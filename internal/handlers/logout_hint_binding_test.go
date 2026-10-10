@@ -20,6 +20,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -34,11 +35,18 @@ type hintWorld struct {
 	sessions  *service.UserSessionService
 	cookies   *service.CookieSessionService
 	deliverer *recordingDeliverer
+	audit     *audit.Recorder
 	priv      ed25519.PrivateKey
 	user      *domain.User // the person signed in on the browser
 }
 
 func newHintWorld(t *testing.T, rps rpsFake, bearer *domain.Principal) hintWorld {
+	t.Helper()
+	return newHintWorldOver(t, newHandlersSessionRepo(), rps, bearer)
+}
+
+// newHintWorldOver builds the world over the given session repository.
+func newHintWorldOver(t *testing.T, repo repository.SessionRepository, rps rpsFake, bearer *domain.Principal) hintWorld {
 	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
 	_, priv, _ := ed25519.GenerateKey(rand.Reader)
@@ -51,15 +59,16 @@ func newHintWorld(t *testing.T, rps rpsFake, bearer *domain.Principal) hintWorld
 		State:      domain.KeyStateActive,
 	}}}
 	user := &domain.User{ID: uuid.New(), Role: domain.RoleOrgUser}
-	sessions := service.NewUserSessionService(nil, newHandlersSessionRepo(), service.UserSessionServiceOptions{})
+	sessions := service.NewUserSessionService(nil, repo, service.UserSessionServiceOptions{})
 	cookies := service.NewCookieSessionService(nil, sessions, &fakeUserLookup{user: user}, service.CookieSessionServiceOptions{AllowPlainHTTP: true})
 	deliverer := &recordingDeliverer{}
+	recorder := &audit.Recorder{}
 	deps := EndSessionHandlerDeps{
 		CookieSession:   cookies,
 		UserSession:     sessions,
-		Clients:         clientsByClientID{"cli-1": {ClientID: "cli-1"}, "app-b": {ClientID: "app-b", BackchannelLogoutURI: "https://b.example/bc"}},
+		Clients:         clientsByClientID{"cli-1": {ClientID: "cli-1", PostLogoutRedirectURIs: []string{"https://app.example/after"}}, "app-b": {ClientID: "app-b", BackchannelLogoutURI: "https://b.example/bc"}},
 		IDTokenVerifier: service.NewIDTokenVerifier(nil, keys, service.IDTokenVerifierOptions{Issuer: "https://idp.test"}),
-		Audit:           &audit.Recorder{},
+		Audit:           recorder,
 	}
 	if rps != nil {
 		deps.SessionRPs = rps
@@ -70,7 +79,7 @@ func newHintWorld(t *testing.T, rps rpsFake, bearer *domain.Principal) hintWorld
 		r.Use(func(c *gin.Context) { mw.SetPrincipal(c, bearer); c.Next() })
 	}
 	RegisterEndSessionRoutes(r, deps)
-	return hintWorld{r: r, sessions: sessions, cookies: cookies, deliverer: deliverer, priv: priv, user: user}
+	return hintWorld{r: r, sessions: sessions, cookies: cookies, deliverer: deliverer, audit: recorder, priv: priv, user: user}
 }
 
 // sign returns a token signed by the OP's key with the given claims added to

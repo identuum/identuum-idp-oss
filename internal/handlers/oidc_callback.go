@@ -164,16 +164,38 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 			setAuthCookies(c, accessToken, res.RefreshToken, false)
 		}
 
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "auth.oidc_login.success",
+		// Audited as a sign-in of the person and their organization (nobody
+		// is in the request context yet, so the actor is set here): the
+		// upstream event, and the one sign-in event every console sign-in
+		// records, carrying the method so an auditor never reads it as a
+		// password sign-in (OSS-UPSTREAM-CONSOLE-SESSION Q2, owner: yes).
+		signedIn := audit.Event{
 			Outcome:   "success",
+			ActorType: audit.ActorTypeUser,
+			ActorID:   res.Session.UserID,
 			IPAddress: ip,
 			UserAgent: ua,
-			Metadata: map[string]any{
-				"provider_id": providerID.String(),
-				"session_id":  res.Session.ID.String(),
-			},
-		})
+		}
+		if res.User != nil {
+			signedIn.ActorEmail = res.User.Email
+			signedIn.ActorRole = string(res.User.Role)
+			signedIn.OrganizationID = res.User.OrganizationID
+		}
+		upstream := signedIn
+		upstream.Action = "auth.oidc_login.success"
+		upstream.Metadata = map[string]any{
+			"provider_id": providerID.String(),
+			"session_id":  res.Session.ID.String(),
+		}
+		_ = deps.Audit.Record(c.Request.Context(), upstream)
+		signedIn.Action = "user_session.login.success"
+		signedIn.Metadata = map[string]any{
+			"user_id":     res.Session.UserID.String(),
+			"session_id":  res.Session.ID.String(),
+			"method":      "oidc_upstream",
+			"provider_id": providerID.String(),
+		}
+		_ = deps.Audit.Record(c.Request.Context(), signedIn)
 
 		returnTo := res.ReturnURL
 		if returnTo == "" {

@@ -45,7 +45,13 @@ type EndSessionHandlerDeps struct {
 	// Background runs the deliveries after the response; nil runs them inline.
 	Background    service.BackgroundRunner
 	BrowserTokens *service.BrowserSessionTokenService
-	Audit         audit.Service
+	// Issuer is the `iss` value a front-channel logout frame carries beside
+	// `sid` when the relying party registered
+	// frontchannel_logout_session_required (Front-Channel Logout 1.0 §3).
+	// Empty disables those frames; frames of clients that did not require
+	// the session are still rendered.
+	Issuer string
+	Audit  audit.Service
 }
 
 // BackchannelDeliverer posts a logout token to one relying party.
@@ -75,7 +81,7 @@ func RegisterEndSessionRoutes(router gin.IRouter, deps EndSessionHandlerDeps) {
 	// docgen:summary=OIDC RP-initiated logout / end_session endpoint (clears the browser cookie + revokes the cookie-resolved session; honours post_logout_redirect_uri when allowed by the registered client).
 	// docgen:tier=oss
 	// docgen:auth=session
-	// docgen:notes=Anonymous callers receive the same end-session UX (idempotent) — no session is required for the route to terminate cleanly. Terminal success is 200 with the IdP's "You are signed out" HTML page when no post_logout_redirect_uri is given (D-018a: Cache-Control no-store, a CSP of default-src 'none' with no scripts, naming no user or client), OR a 302 redirect to the validated post_logout_redirect_uri. A post_logout_redirect_uri whose client cannot be resolved still answers 204; one the client does not allow answers 400.
+	// docgen:notes=Anonymous callers receive the same end-session UX (idempotent) — no session is required for the route to terminate cleanly. Terminal success is 200 with the IdP's "You are signed out" HTML page when no post_logout_redirect_uri is given (D-018a: Cache-Control no-store, a CSP of default-src 'none' with no scripts, naming no user or client), OR a 302 redirect to the validated post_logout_redirect_uri. When a relying party of the ended session registered a frontchannel_logout_uri (OIDC Front-Channel Logout 1.0 §3), the response is instead a 200 page that loads each such URI in a hidden iframe (with iss and sid for a client that registered frontchannel_logout_session_required; CSP frame-src names exactly those origins) and then continues to the validated post_logout_redirect_uri by a nonce-admitted script, a refresh fallback and a link, never later than a few seconds; with no redirect it is the signed-out page carrying the frames. A post_logout_redirect_uri whose client cannot be resolved still answers 204; one the client does not allow answers 400.
 	router.GET("/api/v1/oidc/logout", HandleEndSession(deps))
 }
 
@@ -90,6 +96,10 @@ func RegisterEndSessionRoutes(router gin.IRouter, deps EndSessionHandlerDeps) {
 //   - Falls back to a 204 No Content when no redirect_uri was
 //     validated. The wire shape mirrors monolith's behavior of
 //     silently no-redirect when validation fails.
+//   - Tells the relying parties of each ended session: a logout token to
+//     each back-channel endpoint, and a hidden frame loading each
+//     frontchannel_logout_uri on the page the browser ends on, which then
+//     continues to the redirect.
 //
 // `id_token_hint` is verified before use — signature, kid, algorithm
 // and issuer, with client_id required in `aud` — and an unverifiable
@@ -210,11 +220,18 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// (when present and the hint carried a sid claim).
 		// This covers the "bearer-driven logout" pattern where
 		// the RP forwards an ID token instead of a cookie.
-		if hint != nil && hint.SessionID != (domain.Principal{}).SessionID {
+		//
+		// The session phase 1 just ended is not revoked a second time: the
+		// store answers "not found" to that (its UPDATE matches no live row),
+		// which read as a store failure and turned every hinted RP-initiated
+		// logout into an AUTH-503 line and revocation_unconfirmed=true
+		// (CONFORMANCE-FULL-1 Q3). A session the store no longer finds is
+		// already ended, which is the state this request wants.
+		if hint != nil && hint.SessionID != (domain.Principal{}).SessionID && hint.SessionID != cookieResolvedSessionID {
 			if _, seen := endedFor[hint.SessionID]; !seen {
 				endedFor[hint.SessionID] = hint.Subject
 			}
-			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), hint.SessionID, "oidc_logout"); rerr != nil {
+			if rerr := deps.UserSession.RevokeSession(c.Request.Context(), hint.SessionID, "oidc_logout"); rerr != nil && !errors.Is(rerr, domain.ErrSessionNotFound) {
 				noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "hint-session", rerr)
 				revocationUnconfirmed = true
 			}
@@ -232,10 +249,32 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			}
 		}
 
-		// Phase 3b: tell the relying parties (OIDC Back-Channel Logout 1.0 §2).
-		// Every relying party recorded for an ended session that registered a
-		// back-channel endpoint gets a logout token, not only the one that
-		// asked. A delivery that fails never stops the others or the logout.
+		// Phase 3b: the relying parties recorded for each ended session, looked
+		// up once and read by both fan-outs below. A store error is noted and
+		// that session's relying parties are not reached.
+		ended := []uuid.UUID{cookieResolvedSessionID, bearerSessionID}
+		if hint != nil {
+			ended = append(ended, hint.SessionID)
+		}
+		relyingParties := map[uuid.UUID][]string{}
+		if deps.SessionRPs != nil && deps.Clients != nil {
+			for _, sid := range ended {
+				if _, done := relyingParties[sid]; sid == uuid.Nil || done {
+					continue
+				}
+				clientIDs, rpErr := deps.SessionRPs.ClientIDs(c.Request.Context(), sid)
+				if rpErr != nil {
+					noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "session-relying-parties", rpErr)
+					continue
+				}
+				relyingParties[sid] = clientIDs
+			}
+		}
+
+		// Back-channel (OIDC Back-Channel Logout 1.0 §2): every relying party
+		// recorded for an ended session that registered a back-channel
+		// endpoint gets a logout token, not only the one that asked. A
+		// delivery that fails never stops the others or the logout.
 		notified := map[string]struct{}{}
 		// The subject of a logout token is the user of the session it ends;
 		// with no session to name, the cookie's user or the hint's subject.
@@ -249,103 +288,104 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 			}
 			return logoutSubject
 		}
-		if deps.BackchannelDelivery != nil && deps.SessionRPs != nil && deps.Clients != nil {
-			ended := []uuid.UUID{cookieResolvedSessionID, bearerSessionID}
-			if hint != nil {
-				ended = append(ended, hint.SessionID)
-			}
-			for _, sid := range ended {
-				if sid == uuid.Nil {
+		// Front-channel (OIDC Front-Channel Logout 1.0 §3): the same relying
+		// parties, those that registered a frontchannel_logout_uri, are loaded
+		// in hidden frames by the page this request ends on, with iss and sid
+		// where the client required the session (CONFORMANCE-FULL-1 Q2).
+		frames := frontchannelFanout{framed: map[string]struct{}{}}
+		for _, sid := range ended {
+			for _, cid := range relyingParties[sid] {
+				rp, lerr := deps.Clients.GetClientByClientID(c.Request.Context(), cid)
+				if lerr != nil || rp == nil {
 					continue
 				}
-				clientIDs, rpErr := deps.SessionRPs.ClientIDs(c.Request.Context(), sid)
-				if rpErr != nil {
-					noteLogoutRevocationUnconfirmed(c, deps.Audit, "end_session", "session-relying-parties", rpErr)
-					continue
-				}
-				for _, cid := range clientIDs {
-					key := cid + "|" + sid.String()
-					if _, done := notified[key]; done {
-						continue
-					}
-					rp, lerr := deps.Clients.GetClientByClientID(c.Request.Context(), cid)
-					if lerr != nil || rp == nil || rp.BackchannelLogoutURI == "" {
-						continue
-					}
+				key := cid + "|" + sid.String()
+				if _, done := notified[key]; !done && deps.BackchannelDelivery != nil && rp.BackchannelLogoutURI != "" {
 					notified[key] = struct{}{}
 					deliverBackchannelLogout(c, deps, rp, subjectOf(sid), sid)
 				}
+				frames.add(rp, deps.Issuer, sid)
 			}
 		}
 
 		// Phase 4: clear cookie.
 		writeSessionCookie(c, deps.CookieSession.Clear())
 
-		// Phase 5: maybe redirect. D-018a: with no post_logout_redirect_uri
-		// the browser lands on the IdP's own signed-out page (it used to get
-		// a bare 204 and an aborted navigation).
-		if postLogoutRedirectURI == "" {
-			renderSignedOutPage(c)
-			return
-		}
-		// Resolve the client used to validate the redirect URI.
-		// Order:
-		//   1. explicit client_id query param wins.
-		//   2. otherwise: first aud entry on the verified hint
-		//      that resolves to a registered client.
-		resolvedClient, ok, clientStoreErr := resolveLogoutClient(c.Request.Context(), deps, clientID, hint)
-		if clientStoreErr != nil {
-			// THE-LOGOUT-THAT-CANNOT-REVOKE: the client STORE did not answer, so
-			// post_logout_redirect_uri cannot be validated and the RP redirect
-			// must not happen (an unvalidated redirect is an open redirect).
-			// The cookie is already cleared above; the browser gets the honest
-			// 503 with the correlation id instead of a silent 204.
-			respondAuthStoreUnavailable(c, "logout.client", clientStoreErr)
-			return
-		}
-		if !ok {
-			c.Status(http.StatusNoContent)
-			return
-		}
-		if !isPostLogoutRedirectURIAllowed(resolvedClient, postLogoutRedirectURI) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
-			return
-		}
-		// Back-channel logout delivery (when the resolved client
-		// has a backchannel_logout_uri AND we have something to
-		// stamp into the token's sub/sid claims). Errors are
-		// non-fatal — the logout still completes for the user.
-		if deps.BackchannelDelivery != nil && resolvedClient.BackchannelLogoutURI != "" {
+		// Phase 5: where the browser goes next. D-018a: with no
+		// post_logout_redirect_uri it lands on the IdP's own signed-out page
+		// (it used to get a bare 204 and an aborted navigation); with one, on
+		// the validated post_logout_redirect_uri.
+		location := ""
+		if postLogoutRedirectURI != "" {
+			// Resolve the client used to validate the redirect URI.
+			// Order:
+			//   1. explicit client_id query param wins.
+			//   2. otherwise: first aud entry on the verified hint
+			//      that resolves to a registered client.
+			resolvedClient, ok, clientStoreErr := resolveLogoutClient(c.Request.Context(), deps, clientID, hint)
+			if clientStoreErr != nil {
+				// THE-LOGOUT-THAT-CANNOT-REVOKE: the client STORE did not answer, so
+				// post_logout_redirect_uri cannot be validated and the RP redirect
+				// must not happen (an unvalidated redirect is an open redirect).
+				// The cookie is already cleared above; the browser gets the honest
+				// 503 with the correlation id instead of a silent 204.
+				respondAuthStoreUnavailable(c, "logout.client", clientStoreErr)
+				return
+			}
+			if !ok {
+				c.Status(http.StatusNoContent)
+				return
+			}
+			if !isPostLogoutRedirectURIAllowed(resolvedClient, postLogoutRedirectURI) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
+				return
+			}
+			// The requesting relying party is told too, when the fan-out above
+			// did not reach it (it was not recorded for the session): its
+			// logout token on the back-channel, its frame on the front-channel.
 			sid := cookieResolvedSessionID
 			if sid == uuid.Nil && hint != nil {
 				sid = hint.SessionID
 			}
-			// The fan-out above already reached it when it was recorded for the
-			// session; only a client it did not reach is delivered to here.
-			if _, done := notified[resolvedClient.ClientID+"|"+sid.String()]; !done {
-				deliverBackchannelLogout(c, deps, resolvedClient, subjectOf(sid), sid)
+			if deps.BackchannelDelivery != nil && resolvedClient.BackchannelLogoutURI != "" {
+				if _, done := notified[resolvedClient.ClientID+"|"+sid.String()]; !done {
+					deliverBackchannelLogout(c, deps, resolvedClient, subjectOf(sid), sid)
+				}
 			}
+			frames.add(resolvedClient, deps.Issuer, sid)
+			location = postLogoutRedirectURI
+			if state != "" {
+				location = appendQueryParam(location, "state", state)
+			}
+			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+				Action:    "user_session.logout.redirected",
+				Outcome:   "success",
+				IPAddress: c.ClientIP(),
+				UserAgent: c.Request.UserAgent(),
+				Metadata: map[string]any{
+					"client_id":              resolvedClient.ClientID,
+					"hint_used":              hint != nil,
+					"explicit_client":        clientID != "",
+					"revocation_unconfirmed": revocationUnconfirmed,
+					"frontchannel_frames":    len(frames.srcs),
+				},
+			})
 		}
-		location := postLogoutRedirectURI
-		if state != "" {
-			location = appendQueryParam(location, "state", state)
+
+		// Phase 6: the response. With no front-channel frame to load, the
+		// signed-out page or the redirect, as before. With frames, the page
+		// that loads them and then continues to the redirect on its own (or
+		// is the signed-out page). The RP flow completes either way: state
+		// rides on the redirect. An unconfirmed revocation is already marked
+		// on this response (X-Identuum-Logout) and in the audit trail.
+		switch {
+		case len(frames.srcs) > 0:
+			renderFrontchannelFanoutPage(c, frames.srcs, location)
+		case location == "":
+			renderSignedOutPage(c)
+		default:
+			c.Redirect(http.StatusFound, location)
 		}
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user_session.logout.redirected",
-			Outcome:   "success",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
-			Metadata: map[string]any{
-				"client_id":              resolvedClient.ClientID,
-				"hint_used":              hint != nil,
-				"explicit_client":        clientID != "",
-				"revocation_unconfirmed": revocationUnconfirmed,
-			},
-		})
-		// The RP flow completes either way: state rides on the redirect.
-		// An unconfirmed revocation is already marked on this response
-		// (X-Identuum-Logout) and in the audit trail.
-		c.Redirect(http.StatusFound, location)
 	}
 }
 

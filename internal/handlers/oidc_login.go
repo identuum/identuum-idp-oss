@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -85,7 +86,17 @@ type OIDCLoginInitiator interface {
 // redirects the browser to the upstream provider's authorize URL.
 type OIDCLoginHandlerDeps struct {
 	OIDCLogin OIDCLoginInitiator
+	// Providers is OPTIONAL: it names the provider's organization on the
+	// initiation audit event, so an org_admin can audit its own members'
+	// upstream sign-ins from the first step. repository.IdentityProviderRepository
+	// satisfies it; nil, or a lookup that fails, leaves the event without one.
+	Providers OIDCLoginProviderLookup
 	Audit     audit.Service
+}
+
+// OIDCLoginProviderLookup resolves a provider id to its record.
+type OIDCLoginProviderLookup interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*domain.IdentityProvider, error)
 }
 
 // RegisterOIDCLoginRoutes mounts
@@ -143,13 +154,22 @@ func HandleOIDCLoginInitiation(deps OIDCLoginHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		setUpstreamLoginBinding(c, state)
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		initiated := audit.Event{
 			Action:    "auth.oidc_login_initiated",
 			Outcome:   "success",
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
 			Metadata:  map[string]any{"provider_id": providerID.String()},
-		})
+		}
+		// The provider's organization, so the event is the organization's to
+		// audit; the service already resolved the provider, so a failed
+		// lookup here only leaves the organization off the event.
+		if deps.Providers != nil {
+			if provider, perr := deps.Providers.GetByID(c.Request.Context(), providerID); perr == nil && provider != nil {
+				initiated.OrganizationID = provider.OrganizationID
+			}
+		}
+		_ = deps.Audit.Record(c.Request.Context(), initiated)
 		c.Redirect(http.StatusFound, authURL)
 	}
 }

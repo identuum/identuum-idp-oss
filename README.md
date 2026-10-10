@@ -44,7 +44,8 @@ on your own infrastructure.
   org / user management, key management, OIDC discovery + JWKS,
   RFC 7662 introspection, RFC 7009 revocation, RFC 7591 Dynamic
   Client Registration (foundation), and Front-Channel /
-  Back-Channel Logout 1.0 metadata + back-channel delivery.
+  Back-Channel Logout 1.0 (metadata, front-channel frames at
+  end_session and back-channel delivery).
 - A single Go binary plus PostgreSQL 18+. No external services
   required for the OSS surface.
 

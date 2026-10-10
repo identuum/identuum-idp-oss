@@ -2,8 +2,11 @@ package mw
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -51,6 +54,30 @@ func SetAuthenticatedClientForTest(c *gin.Context, ac *service.AuthenticatedClie
 	c.Set(oauthClientCtxKey, ac)
 }
 
+// clientAssertionIdentity reads the iss and sub claims of a JWT-shaped
+// assertion WITHOUT verifying it. readable is false when the value is not
+// three dot-separated segments with a JSON object payload; the caller then
+// has no client identifier to look up unless the form named one. Nothing
+// here is trusted: the validator verifies the signature and the claims.
+func clientAssertionIdentity(assertion string) (iss, sub string, readable bool) {
+	parts := strings.Split(assertion, ".")
+	if len(parts) != 3 {
+		return "", "", false
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", "", false
+	}
+	var claims struct {
+		Iss string `json:"iss"`
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", "", false
+	}
+	return strings.TrimSpace(claims.Iss), strings.TrimSpace(claims.Sub), true
+}
+
 // AuthenticatedClientFromContext returns the client and a
 // presence flag.
 func AuthenticatedClientFromContext(c *gin.Context) (*service.AuthenticatedClient, bool) {
@@ -71,6 +98,8 @@ func AuthenticatedClientFromContext(c *gin.Context) (*service.AuthenticatedClien
 //
 //   - client_secret_basic — `Authorization: Basic <base64>`
 //   - client_secret_post  — `client_id` + `client_secret` form fields
+//   - private_key_jwt     — `client_assertion_type` + `client_assertion`,
+//     with `client_id` optional (the assertion's iss names the client)
 //
 // Behavior:
 //
@@ -125,18 +154,27 @@ func RequireOAuthClient(report *lifecycle.StartupReport, authn OAuthClientAuthen
 				respondInvalidClient(c)
 				return
 			}
-			// client_id is optional on the wire when the JWT iss/sub
-			// carry the identity, but the validator needs a concrete
-			// lookup key. We extract it from the form value when
-			// present and fall back to an empty string otherwise;
-			// AuthenticateAssertion rejects empty client_id.
+			// client_id is OPTIONAL beside an assertion (RFC 7523 §2.2,
+			// OIDC Core §9): the assertion's iss, which equals its sub
+			// (RFC 7523 §3), is the client identifier. The payload is read
+			// UNVERIFIED here only to choose the lookup key; the validator
+			// verifies the signature and re-checks iss and sub against the
+			// client it loads. An explicit client_id must agree with the
+			// assertion, and iss must equal sub, before any lookup happens
+			// (CONFORMANCE-FULL-1 Q1; owner 2026-10-10).
 			clientID := c.PostForm("client_id")
-			if clientID == "" {
-				// RFC 7521 §4.2 allows the assertion's iss to be the
-				// client identifier when client_id is omitted. We
-				// require the form value here to keep the OSS path
-				// simple — the brief explicitly calls for "client_id
-				// where monolith requires it".
+			iss, sub, readable := clientAssertionIdentity(assertion)
+			if readable && (iss == "" || iss != sub) {
+				respondInvalidClient(c)
+				return
+			}
+			switch {
+			case clientID == "" && !readable:
+				respondInvalidClient(c)
+				return
+			case clientID == "":
+				clientID = iss
+			case readable && iss != clientID:
 				respondInvalidClient(c)
 				return
 			}

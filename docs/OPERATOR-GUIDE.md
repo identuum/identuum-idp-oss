@@ -885,6 +885,18 @@ GET /.well-known/openid-configuration
   link (any page can fire a GET at this endpoint, so it asks). Access tokens
   already issued stay valid until they expire, and the console has its own
   session: **Sign out** there separately.
+- **Telling the other applications:** every application the person signed
+  in to through that session is told. One that registered a
+  `backchannel_logout_uri` receives a logout token (OIDC Back-Channel Logout
+  1.0). One that registered a `frontchannel_logout_uri` (OIDC Front-Channel
+  Logout 1.0) is loaded in a hidden frame on the page the browser ends on,
+  with `iss` and `sid` when it set `frontchannel_logout_session_required`;
+  that page then continues to the `post_logout_redirect_uri` on its own (a
+  few seconds at most, whether or not the application answers), or is the
+  "You are signed out" page when there is no redirect.
+- **private_key_jwt:** the token endpoint accepts the client assertion with
+  or without `client_id`; without it the assertion's `iss` (which must equal
+  its `sub`) names the client, and with it the two must agree.
 
 ## Factory reset (DESTROYS ALL DATA)
 

@@ -518,6 +518,8 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 		Metadata: map[string]any{
 			"user_id":    out.User.ID.String(),
 			"session_id": issued.Session.ID.String(),
+			// The sign-in method, beside an upstream sign-in's oidc_upstream.
+			"method": "password",
 		},
 	})
 	if out.RecoveryCodeUsed {

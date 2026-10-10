@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -98,6 +100,58 @@ func TestOIDCLoginRoute_InvalidProviderID(t *testing.T) {
 	}
 	if init.calls != 0 {
 		t.Errorf("service called %d times for a malformed id; want 0", init.calls)
+	}
+}
+
+type fakeOIDCLoginProviders struct {
+	provider *domain.IdentityProvider
+	err      error
+}
+
+func (f *fakeOIDCLoginProviders) GetByID(_ context.Context, _ uuid.UUID) (*domain.IdentityProvider, error) {
+	return f.provider, f.err
+}
+
+// The initiation event names the provider's organization, so an org_admin
+// can audit its own members' upstream sign-ins from the first step; a
+// provider lookup that fails, or none wired, leaves the event without one.
+func TestOIDCLoginRoute_InitiationIsAuditedForTheProvidersOrganization(t *testing.T) {
+	org := uuid.New()
+	for name, providers := range map[string]*fakeOIDCLoginProviders{
+		"provider found": {provider: &domain.IdentityProvider{OrganizationID: org}},
+		"lookup failed":  {err: errors.New("store down")},
+		"nothing wired":  nil,
+	} {
+		pid := uuid.New()
+		init := &fakeOIDCLoginInitiator{url: "https://provider.example/authorize?state=abc"}
+		gin.SetMode(gin.ReleaseMode)
+		r := gin.New()
+		recorder := &audit.Recorder{}
+		deps := OIDCLoginHandlerDeps{OIDCLogin: init, Audit: recorder}
+		if providers != nil {
+			deps.Providers = providers
+		}
+		RegisterOIDCLoginRoutes(r, deps)
+		if rec := idpLoginGET(r, "/api/v1/auth/idp/"+pid.String()+"/login"); rec.Code != http.StatusFound {
+			t.Fatalf("%s: status = %d, want 302", name, rec.Code)
+		}
+		var initiated *audit.Event
+		for _, e := range recorder.Events() {
+			if e.Action == "auth.oidc_login_initiated" {
+				ev := e
+				initiated = &ev
+			}
+		}
+		if initiated == nil {
+			t.Fatalf("%s: auth.oidc_login_initiated not recorded", name)
+		}
+		wantOrg := uuid.Nil
+		if providers != nil && providers.provider != nil {
+			wantOrg = org
+		}
+		if initiated.OrganizationID != wantOrg || initiated.Metadata["provider_id"] != pid.String() {
+			t.Errorf("%s: initiated event org = %s metadata %+v; want org %s and the provider id", name, initiated.OrganizationID, initiated.Metadata, wantOrg)
+		}
 	}
 }
 

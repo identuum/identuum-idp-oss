@@ -36,6 +36,13 @@ func newOIDCCallbackEngine(t *testing.T, cb *fakeCallbackHandler) *gin.Engine {
 // minter — the console's session (V4-025) is written only when one is wired.
 func newOIDCCallbackEngineWith(t *testing.T, cb *fakeCallbackHandler, userToken *service.UserTokenService) *gin.Engine {
 	t.Helper()
+	r, _ := newOIDCCallbackEngineAudited(t, cb, userToken)
+	return r
+}
+
+// newOIDCCallbackEngineAudited also returns the recorder the callback audits to.
+func newOIDCCallbackEngineAudited(t *testing.T, cb *fakeCallbackHandler, userToken *service.UserTokenService) (*gin.Engine, *audit.Recorder) {
+	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	// A real CookieSessionService (concrete type) so the completed-login tail
@@ -44,8 +51,56 @@ func newOIDCCallbackEngineWith(t *testing.T, cb *fakeCallbackHandler, userToken 
 	repo := newHandlersSessionRepo()
 	sessions := service.NewUserSessionService(nil, repo, service.UserSessionServiceOptions{})
 	cookies := service.NewCookieSessionService(nil, sessions, &fakeUserLookup{user: &domain.User{ID: uuid.New(), Role: domain.RoleOrgUser}}, service.CookieSessionServiceOptions{AllowPlainHTTP: true})
-	RegisterOIDCCallbackRoutes(r, OIDCCallbackHandlerDeps{OIDCCallback: cb, CookieSession: cookies, UserToken: userToken, Audit: &audit.Recorder{}})
-	return r
+	recorder := &audit.Recorder{}
+	RegisterOIDCCallbackRoutes(r, OIDCCallbackHandlerDeps{OIDCCallback: cb, CookieSession: cookies, UserToken: userToken, Audit: recorder})
+	return r, recorder
+}
+
+// OSS-CONFORMANCE-FIXES item 5 (OSS-UPSTREAM-CONSOLE-SESSION Q2, owner: yes):
+// an upstream sign-in is findable by the one sign-in event every console
+// sign-in records, user_session.login.success, carrying the method so an
+// auditor cannot read it as a password sign-in; and both it and the upstream
+// event name the person and their organization, so an org_admin can audit
+// its own members' upstream sign-ins.
+func TestOIDCCallbackRoute_SuccessIsAuditedAsASignInOfTheTenant(t *testing.T) {
+	res := okResult("/")
+	res.User.ID = res.Session.UserID
+	res.User.OrganizationID = uuid.New()
+	res.User.Role = domain.RoleOrgUser
+	pid := uuid.New()
+	cb := &fakeCallbackHandler{result: res}
+	r, rec := newOIDCCallbackEngineAudited(t, cb, nil)
+	if w := oidcCbGET(r, cbPath(pid)+"?state=s&code=c"); w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	var signIn, upstream *audit.Event
+	for _, e := range rec.Events() {
+		ev := e
+		switch e.Action {
+		case "user_session.login.success":
+			signIn = &ev
+		case "auth.oidc_login.success":
+			upstream = &ev
+		}
+	}
+	if signIn == nil {
+		t.Fatalf("user_session.login.success not recorded; events = %+v", rec.Events())
+	}
+	if signIn.Metadata["method"] != "oidc_upstream" || signIn.Metadata["provider_id"] != pid.String() ||
+		signIn.Metadata["user_id"] != res.User.ID.String() || signIn.Metadata["session_id"] != res.Session.ID.String() {
+		t.Errorf("sign-in event metadata = %+v; want method=oidc_upstream, provider_id, user_id and session_id", signIn.Metadata)
+	}
+	for _, ev := range []*audit.Event{signIn, upstream} {
+		if ev == nil {
+			t.Fatalf("auth.oidc_login.success not recorded")
+		}
+		if ev.ActorType != audit.ActorTypeUser || ev.ActorID != res.User.ID || ev.ActorEmail != res.User.Email || ev.ActorRole != string(domain.RoleOrgUser) || ev.OrganizationID != res.User.OrganizationID {
+			t.Errorf("%s: actor = %s/%s %q %q org %s; want the signed-in user of organization %s", ev.Action, ev.ActorType, ev.ActorID, ev.ActorEmail, ev.ActorRole, ev.OrganizationID, res.User.OrganizationID)
+		}
+	}
+	if upstream.Metadata["provider_id"] != pid.String() || upstream.Metadata["session_id"] != res.Session.ID.String() {
+		t.Errorf("upstream event metadata = %+v", upstream.Metadata)
+	}
 }
 
 // consoleMinter is a real UserTokenService over a test signing key: the same

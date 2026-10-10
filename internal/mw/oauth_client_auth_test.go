@@ -273,19 +273,87 @@ func TestRequireOAuthClient_AssertionPathFailureIs401NoFallback(t *testing.T) {
 	}
 }
 
-func TestRequireOAuthClient_AssertionWithoutClientIDIs401(t *testing.T) {
+// Without client_id the assertion itself must name the client: one that is
+// not even JWT-shaped names nobody, and the authenticator is never asked.
+func TestRequireOAuthClient_AssertionWithoutClientIDAndNoReadableIssuerIs401(t *testing.T) {
 	authn := &stubAssertionAuthn{wantAssert: &service.AuthenticatedClient{ClientID: "x"}}
 	r := buildEngine(t, authn)
-	body := strings.NewReader(
-		"client_assertion_type=" + service.ClientAssertionTypeJWTBearer +
-			"&client_assertion=ANY",
-	)
-	req := httptest.NewRequest(http.MethodPost, "/x", body)
+	w := postAssertionForm(r, "client_assertion_type="+service.ClientAssertionTypeJWTBearer+"&client_assertion=ANY")
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want 401 for an assertion without a readable issuer and no client_id", w.Code)
+	}
+	if authn.gotAssertionID != "" || authn.gotAssertionJWT != "" {
+		t.Errorf("authenticator asked with id=%q despite no client identifier", authn.gotAssertionID)
+	}
+}
+
+// unsignedAssertion builds a JWT-shaped assertion whose payload names iss and
+// sub. The middleware reads only the payload to pick the lookup key; the
+// signature and every claim check are the authenticator's (stubbed here).
+func unsignedAssertion(iss, sub string) string {
+	enc := func(s string) string { return base64.RawURLEncoding.EncodeToString([]byte(s)) }
+	return enc(`{"alg":"RS256","typ":"JWT"}`) + "." + enc(`{"iss":"`+iss+`","sub":"`+sub+`","aud":"https://idp.test/token"}`) + "." + enc("signature")
+}
+
+func postAssertionForm(r *gin.Engine, form string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/x", strings.NewReader(form))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401 for missing client_id", w.Code)
+	return w
+}
+
+// RFC 7523 §2.2 and OIDC Core §9 make client_id OPTIONAL beside a client
+// assertion: the assertion's iss (= sub) is the client identifier
+// (CONFORMANCE-FULL-1 Q1; owner 2026-10-10). Red first: the middleware
+// answered 401 invalid_client to every assertion without client_id.
+func TestRequireOAuthClient_AssertionWithoutClientIDUsesTheAssertionIssuer(t *testing.T) {
+	want := &service.AuthenticatedClient{Kind: service.AuthenticatedClientKindOAuth, ClientID: "jwt-cli"}
+	authn := &stubAssertionAuthn{wantAssert: want}
+	r := buildEngine(t, authn)
+	assertion := unsignedAssertion("jwt-cli", "jwt-cli")
+	w := postAssertionForm(r, "client_assertion_type="+service.ClientAssertionTypeJWTBearer+"&client_assertion="+assertion)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 with the assertion's iss as the client; body=%q", w.Code, w.Body.String())
+	}
+	if authn.gotAssertionID != "jwt-cli" {
+		t.Errorf("authenticator asked for client %q, want the assertion's iss jwt-cli", authn.gotAssertionID)
+	}
+	if authn.gotAssertionJWT != assertion {
+		t.Errorf("assertion not forwarded unchanged")
+	}
+	if !strings.Contains(w.Body.String(), `"client_id":"jwt-cli"`) {
+		t.Errorf("planted client = %q", w.Body.String())
+	}
+}
+
+// When both are present they must agree: an explicit client_id that is not
+// the assertion's iss is refused before any lookup.
+func TestRequireOAuthClient_AssertionIssuerMustMatchAnExplicitClientID(t *testing.T) {
+	authn := &stubAssertionAuthn{wantAssert: &service.AuthenticatedClient{ClientID: "jwt-cli"}}
+	r := buildEngine(t, authn)
+	w := postAssertionForm(r, "client_id=other-cli&client_assertion_type="+service.ClientAssertionTypeJWTBearer+"&client_assertion="+unsignedAssertion("jwt-cli", "jwt-cli"))
+	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), `"error":"invalid_client"`) {
+		t.Errorf("status = %d body=%q, want 401 invalid_client for client_id != iss", w.Code, w.Body.String())
+	}
+	if authn.gotAssertionID != "" {
+		t.Errorf("authenticator asked for %q; a mismatching pair must never reach it", authn.gotAssertionID)
+	}
+}
+
+// RFC 7523 §3: iss and sub both name the client; an assertion whose subject
+// differs from its issuer is refused, with or without client_id.
+func TestRequireOAuthClient_AssertionIssuerMustEqualItsSubject(t *testing.T) {
+	for _, prefix := range []string{"", "client_id=jwt-cli&"} {
+		authn := &stubAssertionAuthn{wantAssert: &service.AuthenticatedClient{ClientID: "jwt-cli"}}
+		r := buildEngine(t, authn)
+		w := postAssertionForm(r, prefix+"client_assertion_type="+service.ClientAssertionTypeJWTBearer+"&client_assertion="+unsignedAssertion("jwt-cli", "someone-else"))
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("form %q: status = %d, want 401 for iss != sub", prefix, w.Code)
+		}
+		if authn.gotAssertionID != "" {
+			t.Errorf("form %q: authenticator asked for %q; iss != sub must never reach it", prefix, authn.gotAssertionID)
+		}
 	}
 }
 

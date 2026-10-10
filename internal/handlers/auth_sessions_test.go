@@ -269,15 +269,24 @@ func TestLoginRoute_HappyPathReturnsOneTimeRefreshToken(t *testing.T) {
 	if resp["refresh_token"] == nil || resp["refresh_token"] == "" {
 		t.Errorf("refresh_token missing from login response")
 	}
-	// Audit metadata must NOT leak password / refresh token.
+	// Audit metadata must NOT leak password / refresh token, and names the
+	// sign-in method (additive; an upstream sign-in records oidc_upstream).
+	signIns := 0
 	for _, e := range rec.Events() {
 		if e.Action == "user_session.login.success" {
+			signIns++
 			for k, v := range e.Metadata {
 				if k == "password" || k == "refresh_token" || k == "totp_code" {
 					t.Errorf("audit leaked banned key %q = %v", k, v)
 				}
 			}
+			if e.Metadata["method"] != "password" {
+				t.Errorf("sign-in event metadata = %+v; want method=password", e.Metadata)
+			}
 		}
+	}
+	if signIns != 1 {
+		t.Errorf("user_session.login.success recorded %d times; want once", signIns)
 	}
 	if strings.Contains(w.Body.String(), `"password"`) {
 		t.Errorf("login response echoed password field")

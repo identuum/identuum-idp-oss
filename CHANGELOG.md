@@ -7,6 +7,47 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **`private_key_jwt` without `client_id`** (OSS-CONFORMANCE-FIXES;
+  CONFORMANCE-FULL-1 Q1). The token, introspection and revocation endpoints
+  accept a client assertion whose request carries no `client_id`, as RFC 7523
+  §2.2 and OpenID Connect Core §9 allow: the assertion's `iss`, which must
+  equal its `sub`, names the client. A request that carries both a
+  `client_id` and an assertion whose `iss` differs is refused, as before. Every
+  other assertion check (signature, key, `alg`, `aud`, `exp`, `iat`, `jti`
+  replay) is unchanged. Before, such a request answered `401 invalid_client`,
+  which interrupted every `private_key_jwt` module of the OpenID conformance
+  suite.
+- **Front-channel logout fires from `end_session`** (OSS-CONFORMANCE-FIXES;
+  CONFORMANCE-FULL-1 Q2). RP-initiated logout now loads the
+  `frontchannel_logout_uri` of every relying party of the ended session (the
+  same set the back-channel fan-out notifies) in hidden frames on the page the
+  browser ends on — with `iss` and `sid` for a client that registered
+  `frontchannel_logout_session_required` — and then continues to the validated
+  `post_logout_redirect_uri` on its own, never later than a few seconds even
+  when a relying party does not answer; with no redirect that page is the
+  "You are signed out" page. The page's policy admits exactly those frames'
+  origins and its one script by nonce. Before, discovery advertised
+  `frontchannel_logout_supported` while `end_session` never loaded a frame
+  (only `GET /api/v1/oidc/frontchannel-logout?client_id=` did). With no
+  front-channel relying party the responses are as before.
+- **No false "session not found" error on a hinted logout**
+  (OSS-CONFORMANCE-FIXES; CONFORMANCE-FULL-1 Q3). RP-initiated logout with a
+  valid `id_token_hint` for the browser's own session no longer revokes that
+  session a second time, and a hint naming a session the store no longer
+  finds is read as already ended. Before, every such logout logged an
+  `AUTH-503 … logout.hint-session: session not found` ERROR line and audited
+  `revocation_unconfirmed: true` although the logout had succeeded. A hint
+  naming another live session still ends it; a real store failure is still
+  logged, audited and marked as before.
+- **An upstream sign-in is audited as a sign-in of its organization**
+  (OSS-CONFORMANCE-FIXES item 5; OSS-UPSTREAM-CONSOLE-SESSION Q2). The
+  provider callback now also records `user_session.login.success` with
+  `metadata.method` = `oidc_upstream` and `metadata.provider_id`, so every
+  console sign-in is found by one event type; a password sign-in's event now
+  carries `metadata.method` = `password` (additive). `auth.oidc_login_initiated`,
+  `auth.oidc_login.success` and the new event name the organization, and the
+  two success events the signed-in person as the actor, so an organization
+  admin can audit its own members' upstream sign-ins.
 - **An upstream OIDC sign-in lands in the console signed in**
   (OSS-UPSTREAM-CONSOLE-SESSION; test-book V4-025, finding F-1). The
   provider callback now also sets the `access_token` and `refresh_token`

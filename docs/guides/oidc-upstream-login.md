@@ -119,6 +119,18 @@ callback redirect URI.
    person lands in the console signed in; refresh and sign-out then work as after a password
    sign-in.
 
+### What the audit log records
+
+An upstream sign-in writes the same sign-in event a password sign-in writes,
+`user_session.login.success`, with `metadata.method` = `oidc_upstream` and
+`metadata.provider_id` (a password sign-in carries `method` = `password`), so
+every console sign-in is found by that one event type and the method says how
+the person signed in. It also writes `auth.oidc_login_initiated` at the first
+step and `auth.oidc_login.success` at the callback. All three name the
+organization (`organization_id`), and the two success events name the signed-in
+person as the actor, so an organization admin sees its own members' upstream
+sign-ins on the **Audit** page.
+
 ## Security notes
 
 - The client secret and PKCE verifier are stored **encrypted**; nothing sensitive is logged.

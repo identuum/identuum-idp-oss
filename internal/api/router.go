@@ -1634,8 +1634,14 @@ func mountOIDCLogin(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.OIDCLoginService == nil {
 		return
 	}
+	// Nil stays an untyped nil: a typed nil in an interface would read as wired.
+	var providers handlers.OIDCLoginProviderLookup
+	if resolved.IdentityProviderRepo != nil {
+		providers = resolved.IdentityProviderRepo
+	}
 	handlers.RegisterOIDCLoginRoutes(router, handlers.OIDCLoginHandlerDeps{
 		OIDCLogin: resolved.OIDCLoginService,
+		Providers: providers,
 		Audit:     resolved.Audit,
 	})
 }
@@ -1777,7 +1783,10 @@ func mountEndSession(router gin.IRouter, resolved OSSRouterDeps) {
 		// not hold the user's sign-out.
 		Background:    resolved.Background,
 		BrowserTokens: resolved.BrowserTokens,
-		Audit:         resolved.Audit,
+		// The iss a front-channel logout frame carries beside sid, the same
+		// value the front-channel iframe endpoint uses.
+		Issuer: server.ResolveDiscoveryConfig(resolved.DiscoveryConfig).Issuer,
+		Audit:  resolved.Audit,
 	})
 }
 
