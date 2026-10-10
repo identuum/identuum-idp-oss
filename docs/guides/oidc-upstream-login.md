@@ -113,8 +113,11 @@ callback redirect URI.
 3. The provider authenticates the user and calls back to
    `GET /api/v1/auth/idp/{provider_id}/callback`.
 4. The IdP validates the ID token against the provider JWKS, applies the `email_domains` gate,
-   JIT-provisions or matches the local user, mints a local session, and redirects to the stored
-   return URL.
+   JIT-provisions or matches the local user, mints a local session, sets the same session
+   cookies a password sign-in sets (the console's `access_token` and `refresh_token` cookies
+   beside the IdP's own browser-session cookie), and redirects to the stored return URL. The
+   person lands in the console signed in; refresh and sign-out then work as after a password
+   sign-in.
 
 ## Security notes
 

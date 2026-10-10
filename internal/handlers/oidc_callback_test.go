@@ -29,6 +29,13 @@ func (f *fakeCallbackHandler) HandleCallback(_ context.Context, _ uuid.UUID, _, 
 
 func newOIDCCallbackEngine(t *testing.T, cb *fakeCallbackHandler) *gin.Engine {
 	t.Helper()
+	return newOIDCCallbackEngineWith(t, cb, nil)
+}
+
+// newOIDCCallbackEngineWith mounts the callback with an optional access-token
+// minter — the console's session (V4-025) is written only when one is wired.
+func newOIDCCallbackEngineWith(t *testing.T, cb *fakeCallbackHandler, userToken *service.UserTokenService) *gin.Engine {
+	t.Helper()
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	// A real CookieSessionService (concrete type) so the completed-login tail
@@ -37,8 +44,24 @@ func newOIDCCallbackEngine(t *testing.T, cb *fakeCallbackHandler) *gin.Engine {
 	repo := newHandlersSessionRepo()
 	sessions := service.NewUserSessionService(nil, repo, service.UserSessionServiceOptions{})
 	cookies := service.NewCookieSessionService(nil, sessions, &fakeUserLookup{user: &domain.User{ID: uuid.New(), Role: domain.RoleOrgUser}}, service.CookieSessionServiceOptions{AllowPlainHTTP: true})
-	RegisterOIDCCallbackRoutes(r, OIDCCallbackHandlerDeps{OIDCCallback: cb, CookieSession: cookies, Audit: &audit.Recorder{}})
+	RegisterOIDCCallbackRoutes(r, OIDCCallbackHandlerDeps{OIDCCallback: cb, CookieSession: cookies, UserToken: userToken, Audit: &audit.Recorder{}})
 	return r
+}
+
+// consoleMinter is a real UserTokenService over a test signing key: the same
+// minter the password login's handler is given.
+func consoleMinter(t *testing.T) *service.UserTokenService {
+	t.Helper()
+	return service.NewUserTokenService(nil, userTokenKeyProvider(t), service.UserTokenServiceOptions{Issuer: "https://idp.test", AccessTokenTTL: 15 * time.Minute})
+}
+
+func oidcCallbackCookie(rec *httptest.ResponseRecorder, name string) *http.Cookie {
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
 }
 
 func oidcCbGET(r *gin.Engine, path string) *httptest.ResponseRecorder {
@@ -117,19 +140,78 @@ func TestOIDCCallbackRoute_ErrorStatusMapping(t *testing.T) {
 		{service.ErrCallbackExchangeFailed, http.StatusBadGateway},
 		{service.ErrCallbackStateInvalid, http.StatusBadRequest},
 	}
+	// With and without the console's minter: a refused sign-in writes neither
+	// the browser-session cookie nor the console's two.
 	for _, tc := range cases {
-		cb := &fakeCallbackHandler{err: tc.err}
-		r := newOIDCCallbackEngine(t, cb)
-		rec := oidcCbGET(r, cbPath(uuid.New())+"?state=s&code=c")
-		if rec.Code != tc.want {
-			t.Errorf("err %v: status = %d, want %d", tc.err, rec.Code, tc.want)
+		for _, minter := range []*service.UserTokenService{nil, consoleMinter(t)} {
+			cb := &fakeCallbackHandler{err: tc.err}
+			r := newOIDCCallbackEngineWith(t, cb, minter)
+			rec := oidcCbGET(r, cbPath(uuid.New())+"?state=s&code=c")
+			if rec.Code != tc.want {
+				t.Errorf("err %v: status = %d, want %d", tc.err, rec.Code, tc.want)
+			}
+			if sc := rec.Header().Get("Set-Cookie"); sc != "" {
+				t.Errorf("err %v (minter %v): a cookie was set on a failed login: %q", tc.err, minter != nil, sc)
+			}
+			if loc := rec.Header().Get("Location"); loc != "" {
+				t.Errorf("err %v: a redirect was issued on a failed login: %q", tc.err, loc)
+			}
 		}
-		if sc := rec.Header().Get("Set-Cookie"); sc != "" {
-			t.Errorf("err %v: a cookie was set on a failed login: %q", tc.err, sc)
+	}
+}
+
+// OSS-UPSTREAM-CONSOLE-SESSION (V4-025, F-1): with the minter wired, the
+// success answer also carries the console's access_token and refresh_token
+// cookies, shaped exactly as POST /api/v1/auth/login shapes them without
+// "remember me" — the same writer, so the attributes cannot drift apart.
+func TestOIDCCallbackRoute_SuccessSetsTheConsoleCookies(t *testing.T) {
+	res := okResult("/")
+	res.User.ID = res.Session.UserID
+	cb := &fakeCallbackHandler{result: res}
+	r := newOIDCCallbackEngineWith(t, cb, consoleMinter(t))
+	rec := oidcCbGET(r, cbPath(uuid.New())+"?state=s&code=c")
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/" {
+		t.Fatalf("status = %d to %q; want 302 to /", rec.Code, rec.Header().Get("Location"))
+	}
+	if oidcCallbackCookie(rec, "identuum_session") == nil {
+		t.Errorf("the browser-session cookie is no longer planted")
+	}
+	access := oidcCallbackCookie(rec, "access_token")
+	if access == nil || access.Value == "" || access.Path != "/" || !access.HttpOnly || access.SameSite != http.SameSiteLaxMode || access.MaxAge != accessTokenCookieMaxAgeSec {
+		t.Errorf("access_token cookie = %+v; want a signed token at Path=/, HttpOnly, Lax, MaxAge %d (the password login's shape)", access, accessTokenCookieMaxAgeSec)
+	}
+	refresh := oidcCallbackCookie(rec, "refresh_token")
+	if refresh == nil || refresh.Value != res.RefreshToken || refresh.Path != refreshTokenCookiePath || !refresh.HttpOnly || refresh.SameSite != http.SameSiteLaxMode || refresh.MaxAge != 0 {
+		t.Errorf("refresh_token cookie = %+v; want the session's refresh token at Path=%s, HttpOnly, Lax, a session cookie (no remember-me)", refresh, refreshTokenCookiePath)
+	}
+	// The password login writes the same two through setAuthCookies: compare
+	// attribute for attribute against a direct write with the same inputs.
+	want := httptest.NewRecorder()
+	ctl, _ := gin.CreateTestContext(want)
+	ctl.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", nil)
+	setAuthCookies(ctl, access.Value, res.RefreshToken, false)
+	for _, name := range []string{"access_token", "refresh_token"} {
+		got, exp := oidcCallbackCookie(rec, name), oidcCallbackCookie(want, name)
+		if got.Path != exp.Path || got.HttpOnly != exp.HttpOnly || got.SameSite != exp.SameSite || got.Secure != exp.Secure || got.MaxAge != exp.MaxAge {
+			t.Errorf("%s cookie differs from the password login's: got %+v, want %+v", name, got, exp)
 		}
-		if loc := rec.Header().Get("Location"); loc != "" {
-			t.Errorf("err %v: a redirect was issued on a failed login: %q", tc.err, loc)
-		}
+	}
+	// No token rides in the redirect.
+	if loc := rec.Header().Get("Location"); strings.Contains(loc, access.Value) || strings.Contains(loc, res.RefreshToken) {
+		t.Errorf("a token rides in the redirect target")
+	}
+}
+
+// Without the minter nothing changes: the browser-session cookie alone, as
+// before this slice (an edition that mounts no console).
+func TestOIDCCallbackRoute_WithoutMinterPlantsOnlyTheBrowserSessionCookie(t *testing.T) {
+	cb := &fakeCallbackHandler{result: okResult("/")}
+	rec := oidcCbGET(newOIDCCallbackEngine(t, cb), cbPath(uuid.New())+"?state=s&code=c")
+	if rec.Code != http.StatusFound || oidcCallbackCookie(rec, "identuum_session") == nil {
+		t.Fatalf("status = %d; want 302 with the browser-session cookie", rec.Code)
+	}
+	if oidcCallbackCookie(rec, "access_token") != nil || oidcCallbackCookie(rec, "refresh_token") != nil {
+		t.Errorf("console cookies were written with no minter wired")
 	}
 }
 

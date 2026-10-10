@@ -1652,7 +1652,10 @@ func mountOIDCCallback(router gin.IRouter, resolved OSSRouterDeps) {
 		OIDCCallback:  resolved.OIDCCallbackService,
 		CookieSession: resolved.CookieSession,
 		BrowserTokens: resolved.BrowserTokens,
-		Audit:         resolved.Audit,
+		// The console's cookies after an upstream sign-in (V4-025): the
+		// same minter the password login uses.
+		UserToken: resolved.UserToken,
+		Audit:     resolved.Audit,
 	})
 }
 

@@ -395,7 +395,7 @@ paths:
   "/api/v1/auth/idp/{id}/callback":
     get:
       operationId: "identuum-idp-oss.oidc-login.oidc_callback"
-      summary: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookie set."
+      summary: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookies set (the browser-session cookie and, as a password sign-in, the console's access_token and refresh_token cookies)."
       tags:
         - "oidc-login"
       parameters:
@@ -407,7 +407,7 @@ paths:
       security: []
       responses:
         "200":
-          description: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookie set."
+          description: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookies set (the browser-session cookie and, as a password sign-in, the console's access_token and refresh_token cookies)."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/idp/{id}/login":

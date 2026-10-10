@@ -7,6 +7,15 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **An upstream OIDC sign-in lands in the console signed in**
+  (OSS-UPSTREAM-CONSOLE-SESSION; test-book V4-025, finding F-1). The
+  provider callback now also sets the `access_token` and `refresh_token`
+  cookies a password sign-in sets, minted from the same session through the
+  same code, so the console's validate, refresh and sign-out work as after a
+  password sign-in. Before, the callback set only the IdP's own
+  browser-session cookie and the console returned to `/login` signed out.
+  Password sign-in, the OAuth/OIDC client flows and refused upstream
+  sign-ins are unchanged.
 - **A test setting for back-channel logout against a local receiver.** The
   new **test** setting `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER=true`
   (off by default, logged as a `WARNING` at startup) lets a client register

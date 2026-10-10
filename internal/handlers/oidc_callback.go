@@ -28,12 +28,23 @@ type OIDCCallbackHandler interface {
 // simply absent (optional feature, no fault). BrowserTokens is OPTIONAL: when
 // wired, the session cookie carries an opaque browser-session token instead of
 // the raw refresh token (same indirection as browser login). This endpoint
-// completes login: it mints a session, sets the cookie, and 302-redirects to
+// completes login: it mints a session, sets the cookies, and 302-redirects to
 // the stored sanitized ReturnURL.
+//
+// UserToken is OPTIONAL and is what the console needs (OSS-UPSTREAM-CONSOLE-
+// SESSION, test-book V4-025, finding F-1 of TESTBOOK-FIXTURES-1): the console
+// validates the access_token cookie its /bff boundary lifts into a Bearer,
+// never the browser-session cookie, so a callback that set only
+// identuum_session returned the person to /login signed out. With UserToken
+// wired the callback also writes the two cookies POST /api/v1/auth/login
+// writes, through the same issuance (IssueForSession) and the same writer
+// (setAuthCookies), so the session has exactly a password sign-in's refresh,
+// logout and revocation. Nil keeps the browser-session cookie alone.
 type OIDCCallbackHandlerDeps struct {
 	OIDCCallback  OIDCCallbackHandler
 	CookieSession *service.CookieSessionService
 	BrowserTokens *service.BrowserSessionTokenService
+	UserToken     *service.UserTokenService
 	Audit         audit.Service
 }
 
@@ -55,7 +66,7 @@ func RegisterOIDCCallbackRoutes(router gin.IRouter, deps OIDCCallbackHandlerDeps
 	// docgen:surface=oidc-login
 	// docgen:method=GET
 	// docgen:path=/api/v1/auth/idp/:id/callback
-	// docgen:summary=Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookie set.
+	// docgen:summary=Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookies set (the browser-session cookie and, as a password sign-in, the console's access_token and refresh_token cookies).
 	// docgen:tier=oss
 	// docgen:auth=public
 	// docgen:notes=Anonymous. Consumes the OIDCState once (SELECT..FOR UPDATE + delete — replay fails). Strict ID-token validation (signature vs provider JWKS by kid, https-only + SSRF-guarded; rejects alg=none / alg-confusion; iss==provider issuer; aud==client_id; exp/nbf; nonce==stored). On success it applies the email_domains allow-list gate, JIT-provisions or matches the local user, mints a local session (same issuance path as password login; ACR derived from the upstream acr), sets the session cookie, and 302-redirects to the return URL stored at login-initiation (already sanitized — the provider response is never used to derive the target; empty ⇒ a safe default). A provider error, or a missing/expired/mismatched state, returns 4xx; a discovery/exchange failure returns 502; a validation failure returns 401; an off-allow-list / unverified / bound-email identity returns 403; a provisioning or session-mint failure returns 500. No token, code, or secret is ever logged or echoed.
@@ -137,6 +148,21 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 		// the cookie ends with the browser session.
 		writeSessionCookie(c, deps.CookieSession.IssueForSignIn(cookieValue, res.Session.ExpiresAt, false))
 		clearUpstreamLoginBinding(c, state)
+
+		// The console's session (F-1, V4-025): the same access_token and
+		// refresh_token cookies the password login sets, from the same
+		// session, through the same minting and the same writer. No
+		// "remember me" here either, so the refresh cookie ends with the
+		// browser session. A mint failure omits only the access cookie, as
+		// the password login's response then omits the access token: the
+		// refresh cookie still lets /bff/session/refresh mint one.
+		if deps.UserToken != nil && res.User != nil {
+			accessToken := ""
+			if access, accessErr := deps.UserToken.IssueForSession(c.Request.Context(), res.User, res.Session); accessErr == nil && access != nil {
+				accessToken = access.AccessToken
+			}
+			setAuthCookies(c, accessToken, res.RefreshToken, false)
+		}
 
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action:    "auth.oidc_login.success",
