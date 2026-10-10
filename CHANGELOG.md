@@ -7,6 +7,20 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Front-channel logout frames let the application's logout page run its
+  script** (OSS-REVIEW-FIXES-1, review finding F1). The hidden frames the
+  `end_session` page and `GET /api/v1/oidc/frontchannel-logout` load now
+  carry `sandbox="allow-scripts allow-same-origin"` for a logout page on
+  another origin than the IdP's, so a page that clears its sign-in marker
+  from storage or calls its own logout API works; it still cannot navigate,
+  submit or script the page that frames it (no `allow-top-navigation`,
+  `allow-forms` or `allow-popups`, and the page's own policy, `frame-ancestors
+  'none'`, `form-action 'none'` and `base-uri 'none'`, is unchanged). A logout
+  page registered on the IdP's own origin, or one the IdP cannot compare
+  against, gets `allow-scripts` alone, never both. Before, every frame was
+  `sandbox="allow-same-origin"` without `allow-scripts`: the page loaded,
+  its script never ran, and the IdP continued as if the application had been
+  told.
 - **A wrong sign-in code counts against the shared allowance for fifteen
   minutes from when it was entered** (OSS-REVIEW-FIXES-1, review finding
   F4; P-103). The sign-in code step keeps one wrong-code counter per sign-in

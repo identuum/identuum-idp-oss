@@ -161,7 +161,7 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Header("Content-Security-Policy", csp)
-		c.String(http.StatusOK, withLogoutReference(renderFrontchannelIframe(iframeSrc), unconfirmedCID))
+		c.String(http.StatusOK, withLogoutReference(renderFrontchannelIframe(iframeSrc, deps.Issuer), unconfirmedCID))
 	}
 }
 
@@ -229,8 +229,9 @@ func iframeOrigin(raw string) string {
 }
 
 // renderFrontchannelIframe returns the iframe-flavoured HTML body
-// with the supplied URL escaped into the src attribute.
-func renderFrontchannelIframe(src string) string {
+// with the supplied URL escaped into the src attribute; the frame's sandbox
+// follows frontchannelFrameSandbox against the OP's issuer.
+func renderFrontchannelIframe(src, issuer string) string {
 	return `<!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8">
@@ -239,7 +240,7 @@ func renderFrontchannelIframe(src string) string {
 <style>body{font-family:system-ui,sans-serif;margin:1em;color:#333} iframe{border:0;width:1px;height:1px;visibility:hidden}</style>
 </head><body>
 <p>Signing you out of all sessions...</p>
-<iframe src="` + html.EscapeString(src) + `" sandbox="allow-same-origin"></iframe>
+<iframe src="` + html.EscapeString(src) + `" sandbox="` + frontchannelFrameSandbox(src, issuer) + `"></iframe>
 </body></html>`
 }
 

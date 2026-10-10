@@ -905,7 +905,14 @@ GET /.well-known/openid-configuration
   with `iss` and `sid` when it set `frontchannel_logout_session_required`;
   that page then continues to the `post_logout_redirect_uri` on its own (a
   few seconds at most, whether or not the application answers), or is the
-  "You are signed out" page when there is no redirect.
+  "You are signed out" page when there is no redirect. The frame lets the
+  application's logout page run its own script with its own origin's
+  storage and cookies (sandbox `allow-scripts allow-same-origin`), so a
+  page that clears a sign-in marker or calls the application's logout API
+  works; it cannot navigate, submit or script the page that frames it. A
+  logout page registered on the IdP's own origin runs its script without
+  `allow-same-origin`. A frame that loads is not proof that the application
+  cleared its session: the IdP continues after a bounded wait either way.
 - **private_key_jwt:** the token endpoint accepts the client assertion with
   or without `client_id`; without it the assertion's `iss` (which must equal
   its `sub`) names the client, and with it the two must agree. The

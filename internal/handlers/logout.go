@@ -386,7 +386,7 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// on this response (X-Identuum-Logout) and in the audit trail.
 		switch {
 		case len(frames.srcs) > 0:
-			renderFrontchannelFanoutPage(c, frames.srcs, location)
+			renderFrontchannelFanoutPage(c, frames.srcs, location, deps.Issuer)
 		case location == "":
 			renderSignedOutPage(c)
 		default:

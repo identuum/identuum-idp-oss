@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"html"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -48,12 +49,47 @@ const (
 	frontchannelRefreshAfter  = "5"
 )
 
+// frontchannelFrameSandbox is the sandbox a front-channel logout frame gets
+// (OSS-REVIEW-FIXES-1, review finding F1). The receiver's script must run: a
+// relying party that clears its sign-in marker from storage or calls its own
+// logout API is script-dependent, and a frame with no allow-scripts loaded
+// it, fired load, and told the OP nothing had gone wrong. A receiver on
+// another origin than the OP's also gets allow-same-origin, so it runs with
+// its own origin's storage and cookies; it still cannot script, navigate or
+// submit anything in the page that frames it (cross-origin, and no
+// allow-top-navigation, allow-forms or allow-popups). A receiver on the OP's
+// own origin, or on an origin the OP cannot compare against, gets
+// allow-scripts alone: allow-scripts with allow-same-origin on a same-origin
+// document lets it lift its own sandbox.
+func frontchannelFrameSandbox(src, issuer string) string {
+	rp, op := webOrigin(src), webOrigin(issuer)
+	if rp != "" && op != "" && rp != op {
+		return "allow-scripts allow-same-origin"
+	}
+	return "allow-scripts"
+}
+
+// webOrigin is the origin a browser gives raw: lower-case scheme and host,
+// the scheme's default port dropped; "" when raw is not an absolute URL.
+func webOrigin(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	scheme, host := strings.ToLower(u.Scheme), strings.ToLower(u.Host)
+	if (scheme == "https" && strings.HasSuffix(host, ":443")) || (scheme == "http" && strings.HasSuffix(host, ":80")) {
+		host = host[:strings.LastIndex(host, ":")]
+	}
+	return scheme + "://" + host
+}
+
 // renderFrontchannelFanoutPage writes the page that loads each front-channel
 // logout frame and then continues to continueTo; with continueTo empty it is
 // the signed-out page carrying the frames. The policy admits exactly the
 // frames' origins and, when there is somewhere to continue to, one script by
 // nonce; nothing else loads, nothing is cached, and no token is in any URL.
-func renderFrontchannelFanoutPage(c *gin.Context, srcs []string, continueTo string) {
+// issuer is the OP's own address, which decides each frame's sandbox.
+func renderFrontchannelFanoutPage(c *gin.Context, srcs []string, continueTo, issuer string) {
 	origins := make([]string, 0, len(srcs))
 	seen := map[string]struct{}{}
 	for _, src := range srcs {
@@ -101,7 +137,7 @@ func renderFrontchannelFanoutPage(c *gin.Context, srcs []string, continueTo stri
 	}
 	b.WriteString("  </main>\n")
 	for _, src := range srcs {
-		b.WriteString("  <iframe src=\"" + html.EscapeString(src) + "\" sandbox=\"allow-same-origin\" title=\"Signing out of an application\"></iframe>\n")
+		b.WriteString("  <iframe src=\"" + html.EscapeString(src) + "\" sandbox=\"" + frontchannelFrameSandbox(src, issuer) + "\" title=\"Signing out of an application\"></iframe>\n")
 	}
 	if nonce != "" {
 		// Continue once every frame has loaded or failed, and never later
