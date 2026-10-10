@@ -72,7 +72,7 @@ func endpointCases() []endpointCase {
 		{label: "wildcard address", url: "postgres://u:dev-u-not-a-secret@0.0.0.0:35599/x_test", port: scratch},
 		{label: "IPv6 loopback", url: "postgres://u:dev-u-not-a-secret@[::1]:35599/x_test", port: scratch},
 		{label: "no port (5432)", url: "postgres://u:dev-u-not-a-secret@localhost/x_test", port: scratch},
-		{label: "userinfo hiding a query", url: "postgres://u:p?x@127.0.0.1:35599/x_test", port: scratch},
+		{label: "userinfo hiding a query", url: "postgres://u?x@127.0.0.1:35599/x_test", port: scratch},
 		{label: "upper-case scheme", url: "POSTGRES://u:dev-u-not-a-secret@127.0.0.1:35599/x_test", port: scratch},
 		{label: "keyword DSN", url: "host=127.0.0.1 port=35599 dbname=x_test", port: scratch},
 
