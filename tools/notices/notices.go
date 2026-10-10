@@ -102,6 +102,22 @@ func Render(in Inputs, comps []Component) string {
 
 // Check compares the inputs a notices file was generated from with the
 // current ones. It returns a one-line verdict and whether they agree.
+// goSection is a rendered notices file's Go component blocks: everything from
+// the first Go block up to the first npm block (Render sorts Go first).
+func goSection(file string) string {
+	sep := "\n\n" + strings.Repeat("=", 78) + "\n"
+	start := strings.Index(file, sep+"go ")
+	if start < 0 {
+		return ""
+	}
+	if end := strings.Index(file[start:], sep+"npm "); end >= 0 {
+		// +1 keeps the last Go text's own newline; the npm block's blank
+		// line and rule are not part of the Go section.
+		return file[start : start+end+1]
+	}
+	return file[start:]
+}
+
 func Check(file string, now Inputs) (string, bool) {
 	var build, ui string
 	for _, l := range strings.Split(file, "\n") {

@@ -30,12 +30,7 @@ func main() {
 	}
 	path := filepath.Join(*repo, *out)
 	if *check {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			fmt.Println("check FAILED: notices — " + err.Error())
-			os.Exit(1)
-		}
-		line, ok := Check(string(raw), in)
+		line, ok := checkFile(path, in, dirs)
 		fmt.Println(line)
 		if !ok {
 			os.Exit(1)
@@ -55,6 +50,32 @@ func main() {
 		fail(err.Error())
 	}
 	fmt.Printf("notices: wrote %s — %d Go modules, %d npm packages\n", *out, len(comps), len(npm))
+}
+
+// checkFile is -check: the notices file at path against the inputs now. The
+// fingerprints say whether the build list or the vendored ui moved; the Go
+// licence texts are then REGENERATED from the module cache and compared, so a
+// licence file that a compiled package adds, changes or drops inside a module
+// already listed is caught too (OSS-MINT-GUARD-2, review OSS-FIXES-3 F3). The
+// npm texts need an identuum-ui checkout at the vendored commit, which -check
+// does not have; they stay bound by that commit.
+func checkFile(path string, in Inputs, dirs map[string]goModule) (string, bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "check FAILED: notices — " + err.Error(), false
+	}
+	line, ok := Check(string(raw), in)
+	if !ok {
+		return line, false
+	}
+	comps, err := goComponents(in.BuildList, dirs)
+	if err != nil {
+		return "check FAILED: notices — regenerating the Go licence texts: " + err.Error(), false
+	}
+	if goSection(string(raw)) != goSection(Render(in, comps)) {
+		return "check FAILED: notices — the Go licence texts differ from a regeneration although the build list did not move (a compiled package's licence file was added, changed or removed); regenerate THIRD_PARTY_NOTICES with `go run ./tools/notices -write`", false
+	}
+	return line + "; its Go licence texts match a regeneration", true
 }
 
 func fail(msg string) {

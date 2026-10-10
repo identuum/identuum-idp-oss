@@ -397,8 +397,13 @@ ui-vendor-check:
 ## notices-check (OSS-NOTICES-TIDY): THIRD_PARTY_NOTICES records the inputs it
 ## was generated from — a digest of ./cmd/identuum-idp's build list and the
 ## vendored identuum-ui commit — and this refuses a tree where either moved
-## without the file being regenerated (`make notices`). It needs only go list
-## and the manifest, so it runs in verify and in ci-verify.
+## without the file being regenerated (`make notices`). It then regenerates the
+## Go licence texts from the module cache and refuses a file whose Go blocks
+## differ (OSS-MINT-GUARD-2, review OSS-FIXES-3 F3: a compiled package's
+## licence file can change inside a listed module without moving the digest).
+## The npm texts stay bound by the ui commit: regenerating them needs a ui
+## checkout. It needs only go list, the module cache and the manifest, so it
+## runs in verify and in ci-verify.
 .PHONY: notices notices-check
 notices-check:
 	@go run ./tools/notices -check
