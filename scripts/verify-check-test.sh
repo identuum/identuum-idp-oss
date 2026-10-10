@@ -69,9 +69,12 @@ for variable in IDENTUUM_IDP_TEST_DATABASE_URL IDENTUUM_IDP_REQUIRE_DB_TESTS IDE
 	case "$recipe" in *"--env $variable "*|*"--env $variable"$'\n'*) ;; *) echo "FAIL: ci-verify does not declare --env $variable"; exit 1;; esac
 	case "$entry" in *"$variable="*) echo "FAIL: ci-verify's go-test-race passes $variable as a make variable: $entry"; exit 1;; esac
 	grep -Eq "^      $variable: " "$root/.github/workflows/ci.yml" || { echo "FAIL: the CI verify job does not set $variable"; exit 1; }
-	# the other two set to placeholders, this one absent: refused before any test
+	# the other two set to placeholders, this one absent: refused before any test.
+	# The URL placeholder is a scratch-shaped _test URL on the declared port, so
+	# go-test-race's unit-db-endpoint prerequisite (OSS-MINT-GUARD-3) accepts it
+	# without a dial and the refusal seen is the recipe's own.
 	set +e
-	out=$(cd "$root" && env IDENTUUM_IDP_TEST_DATABASE_URL=placeholder IDENTUUM_IDP_REQUIRE_DB_TESTS=placeholder IDENTUUM_IDP_ALLOW_MULTI_REPLICA=placeholder \
+	out=$(cd "$root" && env DEV_PG_HOST_PORT=35432 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u@127.0.0.1:35432/placeholder_test IDENTUUM_IDP_REQUIRE_DB_TESTS=placeholder IDENTUUM_IDP_ALLOW_MULTI_REPLICA=placeholder \
 		env -u "$variable" make --no-print-directory go-test-race 2>&1 </dev/null)
 	status=$?
 	set -e
