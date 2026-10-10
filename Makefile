@@ -120,7 +120,10 @@ OSS_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:55
 # the dev DB (TEST-DB-ISOLATION-1). The harness refuses any DSN whose database
 # name does not end in "_test" (internal/testsupport.RequireTestDatabase),
 # absent IDENTUUM_IDP_ALLOW_NON_TEST_DB. Create it once with `make test-db`.
-OSS_TEST_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:5513/identuum_idp_oss_test?sslmode=disable
+# Its port IS DEV_PG_HOST_PORT (OSS-MINT-ISOLATION, 2026-10-10), so a
+# port-only override moves create, migrate, suites and rule teeth together;
+# test-db-endpoint refuses an explicit URL on any other server.
+OSS_TEST_DB_URL ?= postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:$(DEV_PG_HOST_PORT)/identuum_idp_oss_test?sslmode=disable
 
 # WIKI_TOOLS — the shared gate scripts live in the sibling wiki repo.
 WIKI_TOOLS ?= $(CURDIR)/../wiki/tools
@@ -795,6 +798,7 @@ script-tests:
 	@$(MAKE) --no-print-directory test-full-dispatch-selftest
 	@$(MAKE) --no-print-directory claim-guard-selftest
 	@$(MAKE) --no-print-directory dev-ports-selftest
+	@$(MAKE) --no-print-directory test-db-endpoint-selftest
 	@bash scripts/verify-check-test.sh
 	@bash scripts/ci-integration-record-test.sh
 	@bin=$$(mktemp "$${TMPDIR:-/tmp}/ci-witness.XXXXXX"); \
@@ -2494,6 +2498,60 @@ integration-inventory:
 ## with the pinned rulefloor install), and only test-db stays local —
 ## the CI service container provides the database. See the ci.yml
 ## header enumeration.
+## test-db-endpoint-selftest (OSS-MINT-ISOLATION, 2026-10-10; review
+## OSS-FIXES2-REVIEW-2026-10-10 R1): a mint has ONE database endpoint. This
+## Makefile runs from a fixture directory where psql, createdb, pg_isready, go,
+## docker, lictor, rulefloor and curl are stubs that record each call, so
+## nothing connects anywhere. Dry runs (make -n): nothing set prints the 5513
+## default unchanged at the create, migrate, suite and rulefloor sites; a
+## port-only override prints the scratch port at all of them and 5513 at none.
+## Real runs: verify-integration hands lictor the port and the test URL by
+## name, because lictor passes no other variable to a plan entry (measured
+## 2026-10-10: only GIT_OPTIONAL_LOCKS, GOENV, GOWORK, HOME, LC_ALL and PATH
+## reach one); a URL whose host:port disagrees with DEV_PG_HOST_PORT, a
+## non-loopback host or a non-URL DSN is refused by every DB-backed target,
+## exit 2, before any stub is called. The caller's own settings are unset
+## first, so the CI job's URL cannot leak in.
+TEST_DB_ENDPOINT_MAKEFILE ?= $(abspath Makefile)
+.PHONY: test-db-endpoint-selftest
+test-db-endpoint-selftest:
+	@d=$$(mktemp -d "$${TMPDIR:-/tmp}/test-db-endpoint.XXXXXX"); trap 'rm -rf "$$d"' EXIT; n=0; fails=0; \
+	mkdir -p "$$d/bin" "$$d/w"; ln -s "$(TEST_DB_ENDPOINT_MAKEFILE)" "$$d/w/Makefile"; \
+	for c in psql createdb pg_isready go docker rulefloor curl; do \
+		printf '#!/bin/sh\necho "%s $$*" >> "%s/calls"\n' "$$c" "$$d" > "$$d/bin/$$c"; chmod +x "$$d/bin/$$c"; done; \
+	printf '#!/bin/sh\necho "lictor $$*" >> "%s/calls"\necho "$$*" > "%s/lictor.args"\necho "port=$$DEV_PG_HOST_PORT" >> "%s/lictor.args"\ncase "$$IDENTUUM_IDP_TEST_DATABASE_URL" in *@127.0.0.1:"$$DEV_PG_HOST_PORT"/*) echo url=agrees;; *) echo url=disagrees;; esac >> "%s/lictor.args"\n' "$$d" "$$d" "$$d" "$$d" > "$$d/bin/lictor"; chmod +x "$$d/bin/lictor"; \
+	run() { (cd "$$d/w" && env -u IDENTUUM_IDP_TEST_DATABASE_URL -u IDENTUUM_IDP_DATABASE_URL -u OSS_TEST_DB_URL -u DEV_PG_HOST_PORT -u LICTOR -u GATE_RECORD_DRIVER -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL PATH="$$d/bin:$$PATH" "$$@"); }; \
+	dry() { label=$$1; port=$$2; other=$$3; shift 3; n=$$((n + 1)); out=$$(run $(MAKE) --no-print-directory -n test-db ci-integration-test rulefloor-integration "$$@" 2>&1); miss=; \
+		url="postgres://idp_oss_user:dev-idp_oss_user-not-a-secret@127.0.0.1:$$port/identuum_idp_oss_test?sslmode=disable"; \
+		printf '%s\n' "$$out" | grep -qF -- "psql -h 127.0.0.1 -p $$port " || miss="$$miss psql"; \
+		printf '%s\n' "$$out" | grep -qF -- "createdb -h 127.0.0.1 -p $$port " || miss="$$miss createdb"; \
+		printf '%s\n' "$$out" | grep -qF -- "migrate \"\$${IDENTUUM_IDP_TEST_DATABASE_URL:-$$url}\"" || miss="$$miss migrate"; \
+		[ "$$(printf '%s\n' "$$out" | grep -cF -- "IDENTUUM_IDP_TEST_DATABASE_URL=\"\$${IDENTUUM_IDP_TEST_DATABASE_URL:-$$url}\"")" = 2 ] || miss="$$miss suite+rulefloor"; \
+		printf '%s\n' "$$out" | grep -qF -- "$$other" && miss="$$miss names-$$other"; \
+		if [ -z "$$miss" ]; then echo "  ok    $$label"; else echo "  FAIL  $$label: missing or wrong:$$miss"; fails=$$((fails + 1)); fi; }; \
+	refuse() { label=$$1; shift; n=$$((n + 1)); rm -f "$$d/calls"; out=$$(run "$$@" 2>&1); rc=$$?; \
+		if [ $$rc -ne 0 ] && [ ! -s "$$d/calls" ] && printf '%s\n' "$$out" | grep -q 'test-db-endpoint: REFUSED'; then echo "  ok    refused before any command: $$label"; \
+		else echo "  FAIL  $$label: exit $$rc, refusal line $$(printf '%s\n' "$$out" | grep -c 'test-db-endpoint: REFUSED'), calls: $$(cut -d' ' -f1 "$$d/calls" 2>/dev/null | tr '\n' ' ')"; fails=$$((fails + 1)); fi; }; \
+	accept() { label=$$1; shift; n=$$((n + 1)); rm -f "$$d/calls"; out=$$(run "$$@" 2>&1); rc=$$?; \
+		if [ $$rc -eq 0 ] && [ ! -s "$$d/calls" ]; then echo "  ok    accepted: $$label"; else echo "  FAIL  $$label: exit $$rc"; fails=$$((fails + 1)); fi; }; \
+	dry "nothing set: create, migrate, suite and rulefloor keep the 5513 default" 5513 35514; \
+	dry "DEV_PG_HOST_PORT=35514 only: every site uses 35514, none names 5513" 35514 5513 DEV_PG_HOST_PORT=35514; \
+	for t in test-db ci-integration-test rulefloor-integration integration-test verify-integration test-full-mint; do \
+		refuse "$$t: test URL on 5513 while DEV_PG_HOST_PORT=35514" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1:5513/x_test $(MAKE) --no-print-directory $$t; done; \
+	refuse "OSS_TEST_DB_URL on 5513 while DEV_PG_HOST_PORT=35514" $(MAKE) --no-print-directory test-db DEV_PG_HOST_PORT=35514 OSS_TEST_DB_URL=postgres://u:p@127.0.0.1:5513/x_test; \
+	refuse "test URL on 35514 with the port left at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db; \
+	refuse "test URL without a port (5432) with the port at 5513" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1/x_test $(MAKE) --no-print-directory test-db; \
+	refuse "test URL on a non-loopback host" env IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@db.example:5513/x_test $(MAKE) --no-print-directory test-db; \
+	refuse "a keyword DSN the guard cannot read" env 'IDENTUUM_IDP_TEST_DATABASE_URL=host=127.0.0.1 port=5513 dbname=x_test' $(MAKE) --no-print-directory test-db; \
+	accept "nothing set" $(MAKE) --no-print-directory test-db-endpoint; \
+	accept "port and both URLs on 35514 (127.0.0.1 and localhost)" env DEV_PG_HOST_PORT=35514 IDENTUUM_IDP_TEST_DATABASE_URL=postgres://u:p@127.0.0.1:35514/x_test $(MAKE) --no-print-directory test-db-endpoint OSS_TEST_DB_URL=postgres://u:p@localhost:35514/x_test; \
+	n=$$((n + 1)); rm -f "$$d/lictor.args"; run env DEV_PG_HOST_PORT=35514 $(MAKE) --no-print-directory verify-integration > /dev/null 2>&1; \
+	if grep -qF -- '--env DEV_PG_HOST_PORT' "$$d/lictor.args" 2>/dev/null && grep -qF -- '--env IDENTUUM_IDP_TEST_DATABASE_URL' "$$d/lictor.args" && grep -qx 'port=35514' "$$d/lictor.args" && grep -qx 'url=agrees' "$$d/lictor.args"; then \
+		echo "  ok    verify-integration hands lictor DEV_PG_HOST_PORT=35514 and a test URL on 127.0.0.1:35514 by --env"; \
+	else echo "  FAIL  verify-integration does not hand lictor the scratch endpoint: $$(grep -v '^lictor\|witness' "$$d/lictor.args" 2>/dev/null | tr '\n' ' ')$$(grep -o -- '--env [A-Z_]*' "$$d/lictor.args" 2>/dev/null | tr '\n' ' ')"; fails=$$((fails + 1)); fi; \
+	if [ $$fails -ne 0 ]; then echo "check FAILED: test-db-endpoint-selftest $$fails of $$n case(s)"; exit 1; fi; \
+	echo "check OK: test-db-endpoint-selftest $$n case(s): one endpoint per mint, the port moves every URL default, a disagreeing URL is refused before any command"
+
 ## test-db: create + migrate the dedicated integration database
 ## (identuum_idp_oss_test on whichever PostgreSQL answers
 ## 127.0.0.1:$(DEV_PG_HOST_PORT), 5513 by default, with
@@ -2501,17 +2559,38 @@ integration-inventory:
 ## file, which is never stopped for it, TOOLS-MATRIX-CONTAINERS), separate from
 ## the human's dev DB (TEST-DB-ISOLATION-1). Idempotent: CREATE DATABASE is skipped if it
 ## already exists, then migrations are (re-)applied. Never touches OSS_DB_URL.
-## The port follows DEV_PG_HOST_PORT like fast-up, so a mint run with
-## DEV_PG_HOST_PORT and OSS_TEST_DB_URL set to a scratch server reads nothing else.
-test-db:
-	@echo "test-db: ensuring $(OSS_TEST_DB_URL) exists + migrated"
+## It migrates the URL the suites use (IDENTUUM_IDP_TEST_DATABASE_URL, else
+## OSS_TEST_DB_URL), and test-db-endpoint has already refused that URL unless
+## it names 127.0.0.1:$(DEV_PG_HOST_PORT), the server the database is created on.
+test-db: test-db-endpoint
+	@echo "test-db: ensuring identuum_idp_oss_test on 127.0.0.1:$(DEV_PG_HOST_PORT) exists + migrated"
 	@PGPASSWORD=dev-idp_oss_user-not-a-secret psql -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user -d postgres -tAc \
 		"SELECT 1 FROM pg_database WHERE datname='identuum_idp_oss_test'" | grep -q 1 || \
 		PGPASSWORD=dev-idp_oss_user-not-a-secret createdb -h 127.0.0.1 -p $(DEV_PG_HOST_PORT) -U idp_oss_user identuum_idp_oss_test
 	@$(MAKE) --no-print-directory build-binary
-	@./bin/identuum-idp migrate "$(OSS_TEST_DB_URL)"
+	@./bin/identuum-idp migrate "$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}"
 
-ci-integration-test:
+## test-db-endpoint (OSS-MINT-ISOLATION, 2026-10-10; review
+## OSS-FIXES2-REVIEW-2026-10-10 R1): ONE database endpoint per mint. The
+## prerequisite of every DB-backed target here. OSS_TEST_DB_URL's default
+## follows DEV_PG_HOST_PORT; a URL the caller sets (OSS_TEST_DB_URL, or
+## IDENTUUM_IDP_TEST_DATABASE_URL, which the suites prefer) must name
+## 127.0.0.1 or localhost on DEV_PG_HOST_PORT, where test-db creates the
+## database, or the target refuses here with exit 2 before any command runs.
+## Messages name the variable and its host:port, never the URL.
+.PHONY: test-db-endpoint
+test-db-endpoint:
+	@port='$(DEV_PG_HOST_PORT)'; \
+	case "$$port" in ''|*[!0-9]*) echo "test-db-endpoint: REFUSED — DEV_PG_HOST_PORT is not a port number" >&2; exit 2;; esac; \
+	judge() { case "$$2" in postgres://*|postgresql://*) ;; *) echo "test-db-endpoint: REFUSED — $$1 is not a postgres:// URL, so its server cannot be checked; write it as postgres://USER:PASSWORD@127.0.0.1:$$port/NAME_test" >&2; return 2;; esac; \
+		hp=$${2#*://}; hp=$${hp%%[/?]*}; hp=$${hp##*@}; host=$${hp%:*}; p=$${hp##*:}; [ "$$host" = "$$hp" ] && p=5432; \
+		case "$$host:$$p" in "127.0.0.1:$$port"|"localhost:$$port") return 0;; esac; \
+		echo "test-db-endpoint: REFUSED — $$1 names $$host:$$p but DEV_PG_HOST_PORT is $$port: test-db would create the database on 127.0.0.1:$$port and then migrate and test another server. Point both at the same scratch server, or set only DEV_PG_HOST_PORT and let the URL follow it." >&2; return 2; }; \
+	judge OSS_TEST_DB_URL '$(OSS_TEST_DB_URL)' || exit 2; \
+	if [ -n "$${IDENTUUM_IDP_TEST_DATABASE_URL:-}" ]; then judge IDENTUUM_IDP_TEST_DATABASE_URL "$$IDENTUUM_IDP_TEST_DATABASE_URL" || exit 2; fi; \
+	echo "test-db-endpoint: every test database URL names 127.0.0.1:$$port"
+
+ci-integration-test: test-db-endpoint
 	@# -p 1 serializes PACKAGES. The DB-backed integration packages
 	@# (internal/e2e, internal/postgres, internal/runtime, …) all share the ONE
 	@# $(OSS_TEST_DB_URL) database, and internal/e2e's setup-replay suite
@@ -2538,7 +2617,7 @@ integration-test:
 ## statically there, and their runtime truth is THIS target's job. Missing
 ## sibling or failed tool build is CANNOT-EVALUATE = exit 2, never a skip,
 ## and a runtime SKIP inside the profile run is CANNOT-EVALUATE too.
-rulefloor-integration:
+rulefloor-integration: test-db-endpoint
 	@$(RULEFLOOR_RESOLVE); \
 	IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}" \
 		"$$RF" check --run-profile integration --tags integration
@@ -2570,11 +2649,18 @@ rulefloor-integration:
 ## child's exit 2 as its own exit 1 (printing "exit status 2" to stderr), which
 ## would collapse CANNOT-EVALUATE into an ordinary failure and lose exactly the
 ## distinction this gate promises.
-verify-integration: bin/integration-witness
+## THE ENDPOINT (OSS-MINT-ISOLATION, 2026-10-10). lictor hands a plan entry
+## only its allowlist and the --env names (measured: GIT_OPTIONAL_LOCKS,
+## GOENV, GOWORK, HOME, LC_ALL, PATH). Before this, a scratch DEV_PG_HOST_PORT
+## or test URL never reached test-db or integration-witness, and both fell back
+## to 5513. The recipe exports the one test URL and declares it and the port.
+verify-integration: test-db-endpoint bin/integration-witness
 	+@$(call LICTOR_ASSERT,verify-integration); \
+	export IDENTUUM_IDP_TEST_DATABASE_URL="$${IDENTUUM_IDP_TEST_DATABASE_URL:-$(OSS_TEST_DB_URL)}"; \
 	$(GATE_RECORD_DRIVER) "$(LICTOR)" witness run --repo "$(CURDIR)" \
 		--record GATE-RUN.integration.txt \
-		--label "identuum-idp-oss make verify-integration" -- \
+		--label "identuum-idp-oss make verify-integration" \
+		--env DEV_PG_HOST_PORT --env IDENTUUM_IDP_TEST_DATABASE_URL -- \
 		$(VERIFY_INTEGRATION_PLAN)
 
 # One authoritative argument vector; drivers enter through the target above.
@@ -3057,7 +3143,7 @@ test-full:
 ## E2E_TIER: full (default) or quick — test-full passes the classifier's tier;
 ## the tier the sibling runs is the record this target checks.
 E2E_TIER ?= full
-test-full-mint:
+test-full-mint: test-db-endpoint
 	@case "$(E2E_TIER)" in full|quick) ;; *) echo "test-full-mint: E2E_TIER must be full or quick, got '$(E2E_TIER)'"; exit 2;; esac
 	@# THE-UNRUN-SUITE (P-041): the integration profile runs HERE, before the
 	@# appliance phases, because the mint is the one place a database is a
@@ -3072,7 +3158,7 @@ test-full-mint:
 	@# E2E-SPEED-1 (owner ruling ee, 2026-10-08): verify-integration runs
 	@# in the background while devseed-live runs in front. They share no
 	@# project and no port: the integration profile uses the test database
-	@# on 127.0.0.1:5513, devseed-live its own project identuum-devseed on
+	@# on 127.0.0.1:$(DEV_PG_HOST_PORT), devseed-live its own project identuum-devseed on
 	@# 25513 and 27113. Each keeps its own exit code; the integration log is
 	@# printed whole after both end, and the e2e half starts only when both
 	@# are green, so neither can be red under a written e2e record.

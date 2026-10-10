@@ -64,6 +64,28 @@ passed), and **cannot evaluate**, exit code 2, when there is no database to
 talk to. That last one is not a pass and not a bug report: start PostgreSQL
 and run it again.
 
+### Running a mint against a scratch server
+
+By default the test database lives on the PostgreSQL that answers
+`127.0.0.1:5513`. To keep a run off that server, give the run its own
+server and move only the port:
+
+```bash
+docker run -d --rm --name scratch-oss-pg -p 127.0.0.1:35514:5432 \
+  -e POSTGRES_USER=idp_oss_user -e POSTGRES_PASSWORD=dev-idp_oss_user-not-a-secret \
+  postgres:18-alpine
+DEV_PG_HOST_PORT=35514 make test-full    # or: DEV_PG_HOST_PORT=35514 make verify-integration
+docker stop scratch-oss-pg               # --rm removes the container and its data
+```
+
+`DEV_PG_HOST_PORT` alone is enough: every test database URL follows it, and
+`make fast-up` reuses the server it finds on that port. If you also set
+`IDENTUUM_IDP_TEST_DATABASE_URL` or `OSS_TEST_DB_URL`, it must name
+`127.0.0.1` or `localhost` on the same port. Otherwise every database-backed
+target stops with `test-db-endpoint: REFUSED` before it connects to anything.
+The appliance phases of `make test-full` already use their own PostgreSQL
+(port 15513) and are not affected.
+
 ## Reading the result
 
 - **Green** — the run ends with lines like `gate-witness OK: … green on the

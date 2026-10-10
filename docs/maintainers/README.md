@@ -55,8 +55,10 @@ make fast-up
 # `identuum_idp_oss_test` database (created + migrated by `make test-db`,
 # which `integration-test` invokes first), NEVER the dev database: these
 # suites TRUNCATE and replay setup, and the harness REFUSES any DSN whose
-# database name does not end in `_test` (TEST-DB-ISOLATION-1). Point it
-# elsewhere with IDENTUUM_IDP_TEST_DATABASE_URL, or set
+# database name does not end in `_test` (TEST-DB-ISOLATION-1). Point it at
+# another server with DEV_PG_HOST_PORT (the test URL follows it; an explicit
+# IDENTUUM_IDP_TEST_DATABASE_URL must name the same 127.0.0.1 port, or the
+# run is refused before it connects), or set
 # IDENTUUM_IDP_ALLOW_NON_TEST_DB=1 for a genuinely disposable database.
 make integration-test
 

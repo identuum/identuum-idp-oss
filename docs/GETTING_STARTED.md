@@ -81,12 +81,13 @@ project-scoped names; `COMPOSE_FILE` selects the Compose file. The
 and `identuum-idp-oss-postgres`, or the published `deployment/docker-compose.yml`.
 It does not protect data in the selected development volume from `fast-clean`.
 
-`DEV_PG_HOST_PORT` changes the Compose port and `fast-up` probe, but `test-db`
-still creates its database on port **5513**. Keep that default for this chain.
-`IDENTUUM_IDP_TEST_DATABASE_URL` can direct the tests to another database;
-`test-db` still creates and migrates the default test database. A reused server
-can therefore have test data changed even though it was not started by this
-command. Use only disposable test data.
+`DEV_PG_HOST_PORT` changes the Compose port, the `fast-up` probe and the
+server `test-db` creates, migrates and tests on; the test database URL follows
+it. An `IDENTUUM_IDP_TEST_DATABASE_URL` you set must name `127.0.0.1` or
+`localhost` on that same port, or every database-backed target stops with
+`test-db-endpoint: REFUSED` before it connects. A reused server can still have
+test data changed even though it was not started by this command. Use only
+disposable test data.
 
 ## Run the local development stack
 
