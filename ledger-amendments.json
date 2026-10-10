@@ -1,16 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "0a161d46980b292f605c2238cba01def2876ebfb",
-  "changes": [
-    {
-      "rule_id": "PKCE-REQUIRED-DEFAULT-1",
-      "change_class": "rule_added",
-      "reason": "OSS-PUBLIC-CLIENT-PKCE-OPTION (2026-10-10, owner decision): new rule PKCE-REQUIRED-DEFAULT-1. PKCE is required for every public client unless an org_admin turns pkce_required off for that one client; the default is on, an opted-out public client may omit the challenge but a sent challenge is still S256-only and verified, confidential clients are unchanged, and dynamic registration cannot turn it off."
-    },
-    {
-      "rule_id": "FRONTCHANNEL-SANDBOX-ORIGIN-1",
-      "change_class": "rule_added",
-      "reason": "OSS-PUBLIC-CLIENT-PKCE-OPTION item 0a (review OSS-FIXES-REVIEW-2026-10-10 R1): new rule FRONTCHANNEL-SANDBOX-ORIGIN-1. A front-channel logout frame gets allow-same-origin only when the receiver's canonical browser origin is positively different from the issuer's; a zero-padded default port, an IDNA alias or an alternative IPv6 spelling of the issuer's origin gets allow-scripts alone."
-    }
-  ]
+  "base_commit": "683154dc1d1d4354995559930cca2af6e505651e",
+  "changes": []
 }
