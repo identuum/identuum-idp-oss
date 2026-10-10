@@ -44,6 +44,7 @@ type OIDCDiscoveryConfig struct {
 	AuthorizationEndpoint string
 	TokenEndpoint         string
 	JWKSURI               string
+	AdvertiseRS256        bool
 }
 
 // resolveDiscovery fills in defaults for any empty fields. Returns a
@@ -221,14 +222,8 @@ func discoveryDocument(cfg OIDCDiscoveryConfig) map[string]any {
 		"subject_types_supported": []string{
 			"public",
 		},
-		// THE-ADVERTISED-RS256 (owner ruling): the issuer advertises only
-		// what it will SIGN an id_token with — EdDSA (the default) and
-		// ES256. RS256 remains a REAL capability a client may register
-		// explicitly (domain.IDTokenSigningAlgorithms, testing-only, see
-		// docs/TESTING-OPERATORS.md) and is deliberately NOT advertised.
-		// Shared with the production discovery builder in internal/api so
-		// the two cannot drift.
-		"id_token_signing_alg_values_supported": domain.IDTokenAdvertisedSigningAlgorithms,
+		// One domain policy for both builders; RS256 is opt-in only.
+		"id_token_signing_alg_values_supported": domain.IDTokenSigningAlgorithmsForDiscovery(cfg.AdvertiseRS256),
 		"scopes_supported": []string{
 			"openid",
 			"profile",

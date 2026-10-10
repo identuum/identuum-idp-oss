@@ -306,6 +306,7 @@ Important environment variables:
 | `IDENTUUM_IDP_DATA_DIR` | Where the setup code is written while setup is incomplete (`/app/data` in the image; unset: `<user config dir>/identuum-idp`) |
 | `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` | The UI's browser-facing base URL, used to build activation and invite links (the binary's own origin, e.g. `http://localhost:7113`); unset, the IdP answers `*_url_unavailable` instead of a link |
 | `IDENTUUM_IDP_ISSUER` | Public issuer URL (e.g. `https://idp.example.com`) |
+| `IDENTUUM_IDP_ADVERTISE_RS256` | Boolean, default `false`. When `true`, advertise `[EdDSA, ES256, RS256]` and ensure an active RSA key at startup for OpenID conformance (Discovery 1.0 §3). EdDSA remains the default signer. Invalid values refuse startup. |
 | `IDENTUUM_IDP_LISTEN` | Serve/listen address (default `0.0.0.0:7113`, IPv4 only; `[::]:7113` adds IPv6, an IPv6 literal binds that address; `--listen` flag overrides) |
 | `IDENTUUM_IDP_TRUSTED_PROXIES` | Comma-separated reverse-proxy addresses or CIDRs, IPv4 or IPv6 (e.g. `10.0.0.0/8,2001:db8:1::/48`), whose `X-Forwarded-For` is honoured; unset trusts none |
 
@@ -409,8 +410,9 @@ Content-Type: application/json
 published in JWKS and does not sign until it is rotated in (see "Rotate the
 token signing key" in `docs/OPERATOR-GUIDE.md`; `"state":"active"` in the
 body makes it sign at once). An `RS256` key is never the
-default signer and discovery does not advertise RS256
-(`id_token_signing_alg_values_supported` is `[EdDSA, ES256]`): it signs only
+default signer. Discovery advertises `[EdDSA, ES256]` unless
+`IDENTUUM_IDP_ADVERTISE_RS256=true` adds RS256 and ensures an active RSA key
+at startup for conformance. RSA signs only
 the ID tokens of a client registered with
 `id_token_signed_response_alg=RS256` (for interoperability testing, see
 `docs/TESTING-OPERATORS.md`). Inbound `private_key_jwt` client assertions may

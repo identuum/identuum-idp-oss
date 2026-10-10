@@ -51,6 +51,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -95,6 +96,11 @@ type Config struct {
 	// ID-token issuer claim. May be empty — the runtime substitutes
 	// "http://localhost" when an issuer is needed downstream.
 	Issuer string
+
+	// AdvertiseRS256 adds RS256 to discovery and ensures an active RSA key
+	// at startup. False preserves the existing discovery and keyset behavior.
+	// IDENTUUM_IDP_ADVERTISE_RS256 overrides this field when non-empty.
+	AdvertiseRS256 bool
 
 	// JWKSDBURL is the operator-supplied Postgres connection string.
 	// When empty the runtime serves only the always-public surface
@@ -370,6 +376,13 @@ func New(cfg Config) (*Runtime, error) {
 	}
 	if cfg.Getenv == nil {
 		cfg.Getenv = os.Getenv
+	}
+	if raw := strings.TrimSpace(cfg.Getenv(advertiseRS256Env)); raw != "" {
+		enabled, err := strconv.ParseBool(raw)
+		if err != nil {
+			return nil, errors.New("runtime: IDENTUUM_IDP_ADVERTISE_RS256 must be a boolean")
+		}
+		cfg.AdvertiseRS256 = enabled
 	}
 	if cfg.Version == "" {
 		cfg.Version = "identuum-idp-oss (unknown version)"
@@ -1064,6 +1077,12 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 
 	jwksProvider := server.JWKSProvider(server.RepositoryJWKSProvider{Repo: repos.Key})
 	keyService := service.NewKeyService(repos.Key)
+	if err := ensureAdvertisedRS256Key(ctx, keyService, r.cfg.AdvertiseRS256, r.cfg.Stdout); err != nil {
+		// No repository error text: it may carry key material or connection
+		// details. P-018 keeps the process alive and refuses normal traffic.
+		report.Fatal("rs256-signing-key", "RS256 advertisement requires an active RSA signing key; key initialization failed")
+		logger.Error.Print("RS256 signing-key initialization failed — NOT SERVING (see /health)")
+	}
 
 	// Resolve the issuer anchor ONCE — the SINGLE source of truth for both
 	// what the minters stamp (tokenSvcIssuer below reuses this) and what the
@@ -1529,7 +1548,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		// The end-session back-channel deliveries are counted with the mail,
 		// so Shutdown waits for them before the pool closes.
 		Background:      r.detached.Run,
-		DiscoveryConfig: server.OIDCDiscoveryConfig{Issuer: r.cfg.Issuer},
+		DiscoveryConfig: server.OIDCDiscoveryConfig{Issuer: r.cfg.Issuer, AdvertiseRS256: r.cfg.AdvertiseRS256},
 		// THE-UNUSABLE-TOKEN: the raw UI base URL — deliberately NOT
 		// linkBaseURL, which falls back to the issuer. /activate is a UI
 		// page, so an issuer-based activation link would 404; when this is

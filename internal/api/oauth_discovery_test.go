@@ -576,6 +576,10 @@ func TestDiscovery_EndSessionEndpointAdvertisedWhenChainLive(t *testing.T) {
 // fullChainDiscovery returns the discovery body when every
 // upstream service is wired so we can audit the "live" shape.
 func fullChainDiscovery(t *testing.T) map[string]any {
+	return fullChainDiscoveryWithRS256(t, false)
+}
+
+func fullChainDiscoveryWithRS256(t *testing.T, advertiseRS256 bool) map[string]any {
 	t.Helper()
 	intro := service.NewIntrospectionService(nil, stubVerifier{}, nil)
 	tokenSvc := service.NewTokenService(nil, stubKeyProvider{}, service.TokenServiceOptions{Issuer: "https://idp.test"})
@@ -589,7 +593,7 @@ func fullChainDiscovery(t *testing.T) map[string]any {
 	cookieSvc := service.NewCookieSessionService(nil, userSession, nil, service.CookieSessionServiceOptions{AllowPlainHTTP: true})
 
 	return fetchDiscovery(t, OSSRouterDeps{
-		DiscoveryConfig:          server.OIDCDiscoveryConfig{Issuer: "https://idp.test"},
+		DiscoveryConfig:          server.OIDCDiscoveryConfig{Issuer: "https://idp.test", AdvertiseRS256: advertiseRS256},
 		IntrospectionService:     intro,
 		TokenService:             tokenSvc,
 		OAuthClientAuth:          stubClientAuth{},

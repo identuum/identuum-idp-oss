@@ -2072,15 +2072,8 @@ func discoveryHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				scopes = append(scopes, "offline_access")
 			}
 			body["scopes_supported"] = scopes
-			// THE-ADVERTISED-RS256 (owner ruling): the issuer advertises
-			// only what it will SIGN an id_token with — EdDSA (the
-			// default) and ES256. RS256 remains registrable per client
-			// (domain.IDTokenSigningAlgorithms, testing-only, see
-			// docs/TESTING-OPERATORS.md) but is NOT advertised: a reader
-			// takes this list as the OP's issuance policy, not as what an
-			// operator may opt a single client into. The list comes from
-			// domain so this builder and the smoke handler cannot drift.
-			body["id_token_signing_alg_values_supported"] = domain.IDTokenAdvertisedSigningAlgorithms
+			// One domain policy for both builders; RS256 is opt-in only.
+			body["id_token_signing_alg_values_supported"] = domain.IDTokenSigningAlgorithmsForDiscovery(deps.DiscoveryConfig.AdvertiseRS256)
 			body["subject_types_supported"] = []string{"public"}
 			// claims_supported enumerates the claims the OP actually
 			// emits — in the id_token (IDTokenService) or at userinfo

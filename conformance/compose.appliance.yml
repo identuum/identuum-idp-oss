@@ -48,6 +48,8 @@ services:
       # https via the TLS sidecar if the suite refuses http.
       IDENTUUM_IDP_OSS_ISSUER: "${CONFORMANCE_OP_ISSUER:-http://conformance-idp:7113}"
       IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
+      # Discovery 1.0 section 3 requires RS256; the ordinary default is off.
+      IDENTUUM_IDP_ADVERTISE_RS256: "true"
       # The same well-known NON-SECRET dev constant the dev compose defaults
       # to — this appliance is disposable and never holds real data.
       IDENTUUM_IDP_ENCRYPTION_KEY: "cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"

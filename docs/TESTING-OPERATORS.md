@@ -289,17 +289,15 @@ that stood from 2026-09-03 to 2026-09-07):**
   passed this plan with `[EdDSA, ES256, RS256]` advertised; `d9ab771`
   (2026-09-03) de-advertised RS256 and rewrote this paragraph to say the plan
   "PASSES clean (34 conditions, zero findings)" without re-running it —
-  `git log --since=2026-09-03 -- conformance/` is empty. The signing policy is: discovery keeps `[EdDSA, ES256]`; RS256 stays
-  registrable, mintable on request, testing-only, never default, NOT
-  advertised; `OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported` is an
-  EXPECTED failure — the one row in `conformance/expected-failures-config.json`
-  (module `oidcc-discovery-endpoint-verification`, expected-result
-  `failure`, reason in its comment). Read the verdict exactly: the OP is
-  conformant AGAINST THE COMMITTED FLOOR and NOT certifiable on this
-  condition (Discovery 1.0 §3 is a MUST); `RESULT: GREEN against the
-  committed expected-failure floor` means "behaves as recorded", not
-  "certifiable". The alternative — advertise RS256 and carry an RSA key in
-  the default keyset — was measured and declined.
+  `git log --since=2026-09-03 -- conformance/` was empty at that measurement.
+  This is a historical result, not a result for the current tree.
+  **Current policy (owner revision 2026-10-10):** the default still advertises
+  `[EdDSA, ES256]`. `IDENTUUM_IDP_ADVERTISE_RS256=true` adds RS256 and ensures
+  an active RSA signing key at startup. The conformance appliance enables it;
+  `conformance/expected-failures-config.json` is now empty. Removing that
+  expected failure tightens the config plan: the RS256 condition must pass.
+  No new conformance run is claimed here; certification still requires a
+  successful run with the option enabled. EdDSA remains the default signer.
 - Plan `oidcc-basic-certification-test-plan`: runs ALL 36 modules to
   completion (per-client PKCE retired the old mandatory-PKCE abort;
   forced sign-in's forced re-authentication retired the two stalls). 1872
@@ -693,41 +691,51 @@ suite ever typing a TOTP — which is exactly why the two-value vocabulary is
 the honest one: an advertised value nobody can perform would be a promise
 the OP cannot keep.
 
-## RS256 — testing only, NEVER the default
+## RS256 — optional discovery advertisement, NEVER the default
 
-RS256 is allowed for client registration and explicit testing requests, but
-is never the default and is not advertised in discovery. Discovery lists
-only the algorithms used by default. The OIDC config
-certification plan's `OIDCCCheckDiscEndpointIdTokenSigningAlgValuesSupported`
-(Discovery 1.0 §3 — RS256 MUST be listed) is carried as the one EXPECTED
-failure in `conformance/expected-failures-config.json`, so this posture is
-conformant against the committed floor and not certifiable on that condition.
+`IDENTUUM_IDP_ADVERTISE_RS256` is a boolean setting, default `false`.
+Unset or false preserves discovery's `[EdDSA, ES256]` list and the existing
+keyset; it never automatically creates an RSA key. Invalid non-empty values
+refuse startup without echoing the value. Go boolean spellings are accepted
+(for example `true`, `false`, `1`, `0`), with surrounding whitespace trimmed.
+
+Set it to `true` for conformance and certification: OpenID Connect Discovery
+1.0 §3 requires RS256 in `id_token_signing_alg_values_supported`. Both discovery
+builders then advertise `[EdDSA, ES256, RS256]` from one domain policy. Startup
+reuses an active RSA signing key or generates one through KeyService. It
+also ensures the normal EdDSA/ES256 signer exists on a fresh installation.
+JWKS publishes the RSA public key. A startup line reports that RS256 is
+advertised. A key read or creation failure enters NOT-SERVING with a named
+health fault. Existing RSA keys are not removed when the option is disabled.
+
+The repository's conformance appliance turns the option on. The config plan's
+expected-failure file is empty; the former RS256 expected failure is removed.
+The default-off posture does not meet this Discovery §3 MUST. Certification
+needs the option on and a successful suite run; enabling it alone is no
+certification claim.
 
 What that means in this product:
 
-- **RS256 is a real capability, and it is NOT advertised.**
+- **RS256 is a real capability, advertised only with the option on.**
   `POST /api/v1/keys/generate` with `{"algorithm":"RS256"}` mints a real
   RSA-2048 signing key; it publishes in `/.well-known/jwks.json`; and it
-  signs ID tokens for a client that registered it. But discovery advertises
-  `id_token_signing_alg_values_supported: [EdDSA, ES256]` only. A reader of
-  that field takes it as the OP's issuance posture — what it signs with —
-  and RS256 is an opt-in for one client, not a posture. The advertised list
+  signs ID tokens for a client that registered it. This explicit key API
+  remains available when the advertisement option is off. The advertised list
   and the registration allow-list have one source of truth each
   (`domain.IDTokenAdvertisedSigningAlgorithms` and
   `domain.IDTokenSigningAlgorithms`), and the rule `DISCOVERY-ALG-POLICY-1`
-  keeps the first a strict subset of the second.
+  keeps the advertised set a subset of the registrable set in both modes
+  (a strict subset in the default mode).
 - **RS256 is NEVER the default.** The issuer default is EdDSA (ES256
   fallback). An RS256 key — even present, active, and signing-capable —
   signs an ID token ONLY for a client that explicitly registered
   `id_token_signed_response_alg: "RS256"` (admin API or Dynamic Client
-  Registration). Initial key generation never produces RS256; the access-
+  Registration). Default initial key generation never produces RS256; the access-
   and logout-token signer never selects it; the auth KeyManager refuses to
   sign with it.
-- **It exists for conformance and interoperability TESTING, not
-  operation.** The OpenID conformance suite and some legacy relying parties
-  require RS256. Do not register production clients with RS256; do not
-  generate an RS256 key on a production installation unless you are running
-  an interop test against it. EdDSA is the operational algorithm.
+- **The option exists for conformance and interoperability.** EdDSA is the
+  operational default. Advertising RS256 does not change the algorithm of
+  any client that did not register RS256.
 
 ## PKCE — required for public clients, optional to send, never optional to honor
 

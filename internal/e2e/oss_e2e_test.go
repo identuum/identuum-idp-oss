@@ -194,6 +194,20 @@ func TestE2E_OSS_HealthAndDiscovery(t *testing.T) {
 		}
 	})
 
+	t.Run("discovery_rs256_option_on", func(t *testing.T) {
+		on := server.NewSmokeHandlerWithDiscovery(server.OIDCDiscoveryConfig{Issuer: issuer, AdvertiseRS256: true})
+		rec := httptest.NewRecorder()
+		on.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/.well-known/openid-configuration", nil))
+		var body map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal("discovery JSON invalid")
+		}
+		algs := asStringSlice(body["id_token_signing_alg_values_supported"])
+		if len(algs) != 3 || algs[0] != "EdDSA" || algs[1] != "ES256" || algs[2] != "RS256" {
+			t.Fatalf("option-on discovery algorithms: %v", algs)
+		}
+	})
+
 	t.Run("jwks_no_private_material", func(t *testing.T) {
 		raw := mustGetRawBody(t, ts.URL+"/.well-known/jwks.json")
 		// Structural: must parse as an object with a "keys" array.

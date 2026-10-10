@@ -335,19 +335,26 @@ var IDTokenSigningAlgorithms = map[string]struct{}{
 // IDTokenAdvertisedSigningAlgorithms is the ONE source of truth for the
 // discovery document's id_token_signing_alg_values_supported.
 //
-// THE-ADVERTISED-RS256 (owner ruling): the issuer advertises only what it
-// will sign an id_token with — EdDSA (the default of EffectiveIDTokenAlg)
-// and ES256. RS256 stays registrable per client for conformance and interop
-// testing, and is deliberately NOT advertised: a discovery reader takes the
-// list as what the OP issues by policy, not as what an operator may opt one
-// client into.
+// The default policy remains EdDSA and ES256. RS256 is advertised only
+// with the operator's opt-in (P-062 revision, 2026-10-10).
 //
 // Both discovery builders (internal/api and the smoke handler in
-// internal/server) read this variable, so the advertised list and the
+// internal/server) use IDTokenSigningAlgorithmsForDiscovery, so the advertised list and the
 // registration allow-list cannot part company by editing one of them.
 // Every member MUST also be registrable — the rule DISCOVERY-ALG-POLICY-1
 // pins the subset relation, the exact list and the banned set.
 var IDTokenAdvertisedSigningAlgorithms = []string{"EdDSA", "ES256"}
+
+// IDTokenSigningAlgorithmsForDiscovery returns an independent policy slice.
+// Enabling RS256 meets Discovery 1.0 section 3 without changing the default
+// ID-token signer or the client's registration allow-list.
+func IDTokenSigningAlgorithmsForDiscovery(advertiseRS256 bool) []string {
+	algs := append([]string(nil), IDTokenAdvertisedSigningAlgorithms...)
+	if advertiseRS256 {
+		algs = append(algs, "RS256")
+	}
+	return algs
+}
 
 // EffectiveAuthMethod returns the resolved token_endpoint_auth_method, applying
 // the backward-compat default (empty stored value → "none" for public clients,

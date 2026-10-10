@@ -1,9 +1,12 @@
 package api
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/server"
 )
 
 // THE-ADVERTISED-RS256. The discovery document advertised
@@ -48,6 +51,37 @@ func algSetOf(t *testing.T, body map[string]any) map[string]bool {
 
 // RULE: DISCOVERY-ALG-POLICY-1
 func TestRule_DISCOVERY_ALG_POLICY_1(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		want := []string{"EdDSA", "ES256"}
+		if enabled {
+			want = append(want, "RS256")
+		}
+		policy := domain.IDTokenSigningAlgorithmsForDiscovery(enabled)
+		if !reflect.DeepEqual(policy, want) {
+			t.Fatalf("discovery policy mismatch: got %v want %v", policy, want)
+		}
+		for _, alg := range policy {
+			if _, ok := domain.IDTokenSigningAlgorithms[alg]; !ok {
+				t.Fatalf("advertised algorithm %q is not registrable", alg)
+			}
+		}
+		for name, body := range map[string]map[string]any{
+			"production": fullChainDiscoveryWithRS256(t, enabled),
+			"smoke":      server.DiscoveryDocument(server.OIDCDiscoveryConfig{AdvertiseRS256: enabled}),
+		} {
+			got, _ := json.Marshal(body["id_token_signing_alg_values_supported"])
+			wantBytes, _ := json.Marshal(want)
+			if string(got) != string(wantBytes) {
+				t.Fatalf("%s enabled=%v: algorithm bytes %s, want %s", name, enabled, got, wantBytes)
+			}
+		}
+	}
+	// Returned policy slices cannot change another runtime's policy.
+	mutated := domain.IDTokenSigningAlgorithmsForDiscovery(true)
+	mutated[0] = "none"
+	if domain.IDTokenSigningAlgorithmsForDiscovery(false)[0] != "EdDSA" || domain.IDTokenSigningAlgorithmsForDiscovery(true)[0] != "EdDSA" {
+		t.Fatal("discovery policy leaked a mutable slice between configurations")
+	}
 	// (1) The source of truth is exactly the issuer's signing policy:
 	// EdDSA (the per-client default) and ES256.
 	advertised := map[string]bool{}

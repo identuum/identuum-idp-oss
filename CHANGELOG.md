@@ -7,6 +7,14 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **Optional RS256 discovery advertisement for OpenID conformance.**
+  `IDENTUUM_IDP_ADVERTISE_RS256=true` advertises `[EdDSA, ES256, RS256]`
+  and ensures an active RSA signing key at startup. The option defaults to
+  false, preserving discovery and initial key generation. EdDSA remains the
+  default signer; RS256 signs only for clients that register it. The
+  conformance appliance enables the option to meet Discovery 1.0 §3, and
+  the config plan no longer permits the RS256 expected failure.
+
 - **A refused browser sign-in leaves no live session** (OSS-HARDENING-3
   item 2). When the browser sign-in fails closed because its browser-session
   token cannot be issued (P2-8), the session the sign-in had just created is

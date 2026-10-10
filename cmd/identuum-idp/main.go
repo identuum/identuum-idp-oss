@@ -278,6 +278,8 @@ func dispatchShowSetupCode(rest []string, stdout, stderr io.Writer) int {
 
 // printUsage prints the minimal command summary.
 func printUsage(w io.Writer) {
+	fmt.Fprintln(w, "  IDENTUUM_IDP_ADVERTISE_RS256         boolean, default false; advertise RS256 and ensure")
+	fmt.Fprintln(w, "                                     an active RSA key; EdDSA stays the default signer")
 	fmt.Fprintln(w, "identuum-idp — Identuum OSS identity provider")
 	fmt.Fprintln(w, "")
 	fmt.Fprintln(w, "Default action (no subcommand): serve the full OSS IdP.")
