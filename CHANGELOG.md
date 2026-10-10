@@ -50,11 +50,12 @@ follows [Semantic Versioning](https://semver.org/).
   (no `allow-top-navigation`, `allow-forms` or `allow-popups`, and the page's
   own policy, `frame-ancestors 'none'`, `form-action 'none'` and `base-uri
   'none'`, is unchanged). Origins are compared as a browser computes them:
-  the port as a number with the default dropped, the host mapped through IDNA
-  to lower-case ASCII, IP literals in canonical form. A logout page on the
-  IdP's own origin under any such spelling (for example `:0443`, a punycode
-  alias, or a long-form IPv6 literal), or one whose origin cannot be
-  canonicalized with certainty, gets `allow-scripts` alone, never both. Its
+  the port as a number with the default dropped, the host in lower-case
+  ASCII, IP literals in canonical form. A logout page on the IdP's own origin
+  under any such spelling (for example `:0443` or a long-form IPv6 literal),
+  one on an internationalized (Unicode or punycode) host, or one whose origin
+  cannot be canonicalized with certainty, gets `allow-scripts` alone, never
+  both. Its
   script runs in an opaque origin without its origin's storage or cookies,
   so a logout page that must clear browser storage is not supported on the
   issuer's own origin: serve it from a different origin, or use back-channel

@@ -932,11 +932,12 @@ GET /.well-known/openid-configuration
   that clears a sign-in marker or calls the application's logout API works;
   it cannot navigate, submit or script the page that frames it. Origins are
   compared as a browser computes them (numeric port with the default
-  dropped, IDNA host in lower-case ASCII, canonical IP literal), so a page
-  on the IdP's own origin under another spelling, such as `:0443`, a
-  punycode alias or a long-form IPv6 literal, counts as the IdP's origin. A
-  logout page on the IdP's own origin, or one whose origin cannot be
-  compared with certainty, runs its script without `allow-same-origin`, in
+  dropped, host in lower-case ASCII, canonical IP literal), so a page on
+  the IdP's own origin under another spelling, such as `:0443` or a
+  long-form IPv6 literal, counts as the IdP's origin. A logout page on the
+  IdP's own origin, on an internationalized (Unicode or punycode) host, or
+  one whose origin cannot be compared with certainty, runs its script
+  without `allow-same-origin`, in
   an opaque origin with no access to its origin's storage or cookies.
   **Logout pages that clear browser storage must be served from an origin
   different from the issuer's;** on the issuer's own origin they are not

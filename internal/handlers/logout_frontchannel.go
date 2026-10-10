@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"golang.org/x/net/idna"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
@@ -64,10 +63,11 @@ const (
 //
 // Every other receiver gets allow-scripts alone: one on the OP's own origin
 // under any spelling a browser treats as that origin (a zero-padded default
-// port, an IDNA host in Unicode or punycode, an IPv6 literal written long or
-// short; FRONTCHANNEL-SANDBOX-ORIGIN-1, review OSS-FIXES-REVIEW-2026-10-10
-// R1), and one whose origin, or the OP's, cannot be canonicalized with
-// certainty. allow-scripts with allow-same-origin on a same-origin document
+// port, an IPv6 literal written long or short; FRONTCHANNEL-SANDBOX-ORIGIN-1,
+// review OSS-FIXES-REVIEW-2026-10-10 R1), and one whose origin, or the OP's,
+// cannot be canonicalized with certainty — which includes every
+// internationalized (Unicode or punycode) host, so an IDNA alias of the OP
+// is never granted both either. allow-scripts with allow-same-origin on a same-origin document
 // would let it read the page that frames it and lift its own sandbox, so
 // that pair is never granted to it. The price (R2): such a receiver's script
 // runs in an opaque origin, without its origin's storage or cookies. A
@@ -82,13 +82,13 @@ func frontchannelFrameSandbox(src, issuer string) string {
 }
 
 // webOrigin is raw's origin as a browser computes it, so that two spellings
-// of one origin compare equal: the scheme (http or https), the host mapped
-// through IDNA to lower-case ASCII (an IP literal in its canonical form, one
-// trailing dot dropped), and the port as a number with the scheme's default
-// dropped. It answers "" for anything it cannot canonicalize with certainty —
-// another scheme, userinfo, a host a browser would read as an IPv4 address
-// written other than as four decimal parts, a host IDNA refuses, a port out
-// of range — and the caller then treats the origin as possibly the OP's own.
+// of one origin compare equal: the scheme (http or https), the host in
+// lower-case ASCII (an IP literal in its canonical form, one trailing dot
+// dropped), and the port as a number with the scheme's default dropped. It
+// answers "" for anything it cannot canonicalize with certainty — another
+// scheme, userinfo, an internationalized host, a host a browser would read as
+// an IPv4 address written other than as four decimal parts, a port out of
+// range — and the caller then treats the origin as possibly the OP's own.
 func webOrigin(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.User != nil || u.Opaque != "" || u.Host == "" {
@@ -125,12 +125,25 @@ func canonicalOriginHost(rawHost, hostname string) string {
 		}
 		return "[" + addr.String() + "]"
 	}
-	ascii, err := idna.Lookup.ToASCII(strings.TrimSuffix(hostname, "."))
-	if err != nil || ascii == "" {
+	ascii := strings.ToLower(strings.TrimSuffix(hostname, "."))
+	if ascii == "" {
 		return ""
 	}
-	ascii = strings.ToLower(ascii)
+	// An internationalized host — non-ASCII, or a punycode (xn--) label —
+	// has several spellings a browser maps to one origin through IDNA. This
+	// package may not import an IDNA mapper (boundaries.json), so such a host
+	// is not canonicalized at all: it is never judged different from the OP.
+	for i := 0; i < len(ascii); i++ {
+		if ascii[i] >= 0x80 {
+			return ""
+		}
+	}
 	labels := strings.Split(ascii, ".")
+	for _, l := range labels {
+		if strings.HasPrefix(l, "xn--") {
+			return ""
+		}
+	}
 	if last := labels[len(labels)-1]; isNumericHostLabel(last) {
 		// A browser reads this host as an IPv4 address, in any of several
 		// notations; only the plain dotted-decimal one is trusted here.
