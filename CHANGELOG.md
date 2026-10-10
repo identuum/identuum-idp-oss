@@ -17,14 +17,18 @@ follows [Semantic Versioning](https://semver.org/).
   page is on the issuer's origin, or on an origin that cannot be compared
   with certainty (including a host with a character other than a letter,
   digit, hyphen or dot, such as a `*` that `frame-src` reads as a wildcard),
-  every frame of that page now gets `allow-scripts` alone. A fan-out whose
-  receivers are all positively off the issuer's origin keeps both
-  permissions. Storage-clearing receivers therefore need every receiver of
-  their end-session fan-out off the issuer's origin, or back-channel logout.
-  Accepted for this release: on an all-off-issuer page a receiver could
-  still nest a frame of a scripted, frameable page on the issuer's origin,
-  which the page's `frame-src` does not govern; the operator guide asks for
-  no such page on the issuer's origin.
+  every frame of that page now gets `allow-scripts` alone. That repairs the
+  mixed fan-out. A fan-out whose receivers are all positively off the
+  issuer's origin keeps both permissions, so its frames can still use
+  storage, and that page is contained only on a condition: a receiver could
+  nest a frame of a scripted, frameable page on the issuer's origin, which
+  the page's `frame-src` does not govern, and that nested page would run as
+  the issuer's origin. Such a page is contained only if every scripted page
+  on the issuer's origin refuses to be framed by an off-issuer ancestor
+  (`frame-ancestors`); the operator guide asks for exactly that. This
+  release makes no unconditional containment promise for it.
+  Storage-clearing receivers therefore need every receiver of their
+  end-session fan-out off the issuer's origin, or back-channel logout.
 - **A "PKCE required" change audit never reports an old value it did not
   read** (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW R4). `PUT
   /api/v1/clients/:id` took `pkce_required_before` (and
@@ -87,12 +91,17 @@ follows [Semantic Versioning](https://semver.org/).
   carry `sandbox="allow-scripts allow-same-origin"` for a logout page whose
   origin is positively different from the IdP's, so a page on its own origin
   that clears its sign-in marker from storage or calls its own logout API
-  works; it still cannot navigate, submit or script the page that frames it
-  (no `allow-top-navigation`, `allow-forms` or `allow-popups`, and the page's
-  own policy, `frame-ancestors 'none'`, `form-action 'none'` and `base-uri
-  'none'`, is unchanged). That holds on an `end_session` page whose receivers
-  are all off the issuer's origin; a page with any receiver on it runs every
-  frame scripts-only (the OSS-REVIEW-FIXES-3 entry above). Origins are
+  works; it still cannot navigate the top window, submit forms or open
+  popups (no `allow-top-navigation`, `allow-forms` or `allow-popups`, and the
+  page's own policy, `frame-ancestors 'none'`, `form-action 'none'` and
+  `base-uri 'none'`, is unchanged). Whether it can reach the script of the
+  page that frames it is narrower: a page with any receiver on the issuer's
+  origin runs every frame scripts-only (the OSS-REVIEW-FIXES-3 entry above);
+  a page whose receivers are all off the issuer's origin keeps
+  storage-capable frames and is contained only if every scripted page on the
+  issuer's origin refuses to be framed by an off-issuer ancestor (the same
+  entry). There is no unconditional promise that the framing page is
+  contained. Origins are
   compared conservatively, not as a complete browser-origin serializer:
   the port as a number with the default dropped, the host in lower-case
   ASCII with one trailing dot dropped, IP literals in canonical form, and no

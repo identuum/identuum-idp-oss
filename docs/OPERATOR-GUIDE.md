@@ -950,14 +950,18 @@ GET /.well-known/openid-configuration
   fan-outs run every receiver scripts-only, without normal-origin storage
   or cookies; storage-clearing receivers are unsupported in those fan-outs
   and on the issuer's own origin. Back-channel logout
-  (`backchannel_logout_uri`) is the alternative. On a fan-out whose
-  receivers are all off the issuer's origin, each receiver keeps both
-  permissions, and a frame that receiver nests is not governed by the
-  end-session page's `frame-src`: a scripted page on the issuer's origin
-  that allows framing would run there with both permissions, as the
-  issuer's origin. **Serve no scripted, frameable page on the issuer's
-  origin** (a front-channel receiver registered on the issuer's origin is
-  one); this release does not enforce that rule. A frame that loads is not
+  (`backchannel_logout_uri`) is the alternative. Mixed fan-outs are
+  contained by that scripts-only rule. A fan-out whose receivers are all
+  off the issuer's origin is contained only on a condition: each receiver
+  keeps both permissions, and a frame that receiver nests is not governed by
+  the end-session page's `frame-src`, so a scripted page on the issuer's
+  origin that allows framing would run there with both permissions, as the
+  issuer's origin, and could reach the end-session page. **That page is
+  contained only if every scripted page on the issuer's origin refuses to be
+  framed by an off-issuer ancestor** (`frame-ancestors`; a front-channel
+  receiver registered on the issuer's origin is such a page, and makes the
+  fan-out mixed). This release does not enforce that condition, and makes no
+  unconditional promise that the end-session page is contained. A frame that loads is not
   proof that the application
   cleared its session: the IdP continues after a bounded wait either way.
 - **private_key_jwt:** the token endpoint accepts the client assertion with
