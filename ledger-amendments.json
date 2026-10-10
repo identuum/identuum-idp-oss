@@ -1,11 +1,16 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "63268ebde17c31c1980f93895a13b13e9a26a228",
+  "base_commit": "0a161d46980b292f605c2238cba01def2876ebfb",
   "changes": [
     {
-      "rule_id": "SIGNING-KEY-PROVISION-1",
+      "rule_id": "PKCE-REQUIRED-DEFAULT-1",
       "change_class": "rule_added",
-      "reason": "OSS-REVIEW-FIXES-2 (2026-10-10, review OSS-RS256-REVIEW F1): new rule SIGNING-KEY-PROVISION-1, armed on internal/runtime/rs256_provision_integration_test.go @ integration: two startup provisioning runs released together against one database leave exactly one active RSA key and one active default key; an existing active key is reused, a rotating-only RSA key gets a new active one, and the option off creates none. Red-proved against the test database before the fix."
+      "reason": "OSS-PUBLIC-CLIENT-PKCE-OPTION (2026-10-10, owner decision): new rule PKCE-REQUIRED-DEFAULT-1. PKCE is required for every public client unless an org_admin turns pkce_required off for that one client; the default is on, an opted-out public client may omit the challenge but a sent challenge is still S256-only and verified, confidential clients are unchanged, and dynamic registration cannot turn it off."
+    },
+    {
+      "rule_id": "FRONTCHANNEL-SANDBOX-ORIGIN-1",
+      "change_class": "rule_added",
+      "reason": "OSS-PUBLIC-CLIENT-PKCE-OPTION item 0a (review OSS-FIXES-REVIEW-2026-10-10 R1): new rule FRONTCHANNEL-SANDBOX-ORIGIN-1. A front-channel logout frame gets allow-same-origin only when the receiver's canonical browser origin is positively different from the issuer's; a zero-padded default port, an IDNA alias or an alternative IPv6 spelling of the issuer's origin gets allow-scripts alone."
     }
   ]
 }
