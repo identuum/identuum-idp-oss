@@ -395,7 +395,7 @@ paths:
   "/api/v1/auth/idp/{id}/callback":
     get:
       operationId: "identuum-idp-oss.oidc-login.oidc_callback"
-      summary: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookies set (the browser-session cookie and, as a password sign-in, the console's access_token and refresh_token cookies)."
+      summary: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with ONE credential family set: for a sign-in started from the console, the console's access_token and refresh_token cookies as a password sign-in sets them; for a sign-in started for an application's /authorize (a return URL at the authorize endpoint), the IdP's own browser-session cookie."
       tags:
         - "oidc-login"
       parameters:
@@ -407,7 +407,7 @@ paths:
       security: []
       responses:
         "200":
-          description: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with the session cookies set (the browser-session cookie and, as a password sign-in, the console's access_token and refresh_token cookies)."
+          description: "Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with ONE credential family set: for a sign-in started from the console, the console's access_token and refresh_token cookies as a password sign-in sets them; for a sign-in started for an application's /authorize (a return URL at the authorize endpoint), the IdP's own browser-session cookie."
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/auth/idp/{id}/login":

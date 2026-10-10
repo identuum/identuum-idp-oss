@@ -835,7 +835,11 @@ RP-initiated logout (`end_session`) ends that OpenID Connect sign-in, not the
 console's. Signing out of the console does not sign anyone out of an
 application either. This is deliberate: an administration
 console is not a single sign-on session for applications, so a console session
-can never grant application access silently.
+can never grant application access silently. A sign-in through the
+organization's upstream OIDC provider follows the same rule: started from the
+console it establishes the console's session only; started for an
+application's `/authorize` (its return URL is the authorize request) it
+establishes that application sign-in only.
 
 ## Register an application (OpenID Connect)
 

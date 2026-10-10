@@ -14,6 +14,13 @@
 // access-token cookie into a Bearer) answered {"authenticated": false} and
 // the page returned to /login.
 //
+// OSS-REVIEW-FIXES-1 (review finding F5; D-023 preserved): a console sign-in
+// through the provider sets the console's cookies ONLY, a sign-in started for
+// an application's /authorize sets the browser-session cookie ONLY, an
+// application's /authorize still asks for its own sign-in after a console
+// sign-in, and end_session and the console sign-out never end each other's
+// session. Until then the callback planted both families from one session.
+//
 // Tokens, codes, cookie values, secrets and passwords are never printed.
 package e2e
 
@@ -23,11 +30,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -179,11 +188,32 @@ func cookieShape(c *http.Cookie) string {
 	return fmt.Sprintf("path=%q httponly=%v samesite=%v secure=%v maxage=%d", c.Path, c.HttpOnly, c.SameSite, c.Secure, c.MaxAge)
 }
 
-// upstreamSignIn runs start → provider → callback in the client's browser and
-// returns the callback's answer.
+// page GETs an absolute URL as a top-level navigation and returns the answer
+// with its body.
+func (c *consoleClient) page(abs string) (*http.Response, string) {
+	c.t.Helper()
+	res, err := c.client.Get(abs)
+	if err != nil {
+		c.t.Fatalf("GET: %v", err)
+	}
+	body, _ := io.ReadAll(res.Body)
+	_ = res.Body.Close()
+	return res, string(body)
+}
+
+// upstreamSignIn runs start → provider → callback in the client's browser for
+// a sign-in started from the console (return_to=/) and returns the callback's
+// answer.
 func upstreamSignIn(t *testing.T, c *consoleClient, pid string) *http.Response {
 	t.Helper()
-	start := c.nav(c.base + "/api/v1/auth/idp/" + pid + "/login?return_to=/")
+	return upstreamSignInTo(t, c, pid, "/")
+}
+
+// upstreamSignInTo is upstreamSignIn for a sign-in started for returnTo: a
+// console page, or an application's /authorize request.
+func upstreamSignInTo(t *testing.T, c *consoleClient, pid, returnTo string) *http.Response {
+	t.Helper()
+	start := c.nav(c.base + "/api/v1/auth/idp/" + pid + "/login?return_to=" + url.QueryEscape(returnTo))
 	if start.StatusCode != http.StatusFound || start.Header.Get("Location") == "" {
 		t.Fatalf("login start = %d; want 302 to the provider", start.StatusCode)
 	}
@@ -229,8 +259,11 @@ func TestE2E_OSS_UpstreamSignInEstablishesTheConsoleSession(t *testing.T) {
 		t.Errorf("the redirect target carries a token or a fragment: %q", loc)
 	}
 	cbCookies := cb.Cookies()
-	if cookieNamed(cbCookies, browserSessionCookieName) == nil {
-		t.Errorf("the callback did not set the IdP's own browser-session cookie")
+	// D-023 (OSS-REVIEW-FIXES-1, review finding F5): a sign-in started from
+	// the console establishes the console's credentials ONLY — never the
+	// application browser-session cookie.
+	if bs := cookieNamed(cbCookies, browserSessionCookieName); bs != nil {
+		t.Errorf("a console sign-in through the provider planted the application browser-session cookie (%s); D-023: console sign-in never signs in to an application", cookieShape(bs))
 	}
 	access := cookieNamed(cbCookies, "access_token")
 	refresh := cookieNamed(cbCookies, "refresh_token")
@@ -244,6 +277,91 @@ func TestE2E_OSS_UpstreamSignInEstablishesTheConsoleSession(t *testing.T) {
 	if st != http.StatusOK || body["success"] != true || body["authenticated"] == false || user["email"] != email {
 		t.Fatalf("console validate after the upstream sign-in = %d %v; want 200 success with the signed-in person (F-1: the page returned to /login)", st, body)
 	}
+	// The console's session, read now, before any other sign-in of the
+	// person through the provider.
+	sessionOf := func() string {
+		t.Helper()
+		var sid string
+		if err := db.QueryRow(w.ctx, `SELECT metadata->>'session_id' FROM audit_events WHERE event_type = 'auth.oidc_login.success' AND metadata->>'provider_id' = $1 ORDER BY created_at DESC LIMIT 1`, pid).Scan(&sid); err != nil || sid == "" {
+			t.Fatalf("auth.oidc_login.success row for the provider: %v; want one with a session_id", err)
+		}
+		return sid
+	}
+	revokedAt := func(sid string) *time.Time {
+		t.Helper()
+		var revoked *time.Time
+		if err := db.QueryRow(w.ctx, `SELECT revoked_at FROM sessions WHERE id = $1`, sid).Scan(&revoked); err != nil {
+			t.Fatalf("session %s: %v", sid, err)
+		}
+		return revoked
+	}
+	consoleSession := sessionOf()
+
+	// ── 2b. D-023 through the real mux: an application's /authorize still
+	// asks for its own sign-in right after the console sign-in ──────────────
+	const rpCallback = "https://rp.example.test/cb"
+	st, m, raw := w.call(w.bearers["adminA"], http.MethodPost, "/api/v1/clients", `{"name":"upstream-separation","redirect_uris":["`+rpCallback+`"],"scope":"openid"}`)
+	var app struct {
+		Client struct {
+			ClientID string `json:"client_id"`
+		} `json:"client"`
+	}
+	_ = json.Unmarshal([]byte(raw), &app)
+	if st != http.StatusCreated || app.Client.ClientID == "" {
+		t.Fatalf("register an application = %d %v; want 201 with a client_id", st, m)
+	}
+	authorizeQuery := url.Values{"response_type": {"code"}, "client_id": {app.Client.ClientID}, "redirect_uri": {rpCallback}, "scope": {"openid"},
+		"state": {"s-" + uuid.NewString()[:8]}, "code_challenge": {"E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"}, "code_challenge_method": {"S256"}}.Encode()
+	authorizeURL := "/api/v1/oauth/authorize?" + authorizeQuery
+	const browserLoginPath = "/api/v1/auth/browser-login"
+	const consentPath = "/api/v1/oauth/consent"
+	if res := c.nav(w.base + authorizeURL); res.StatusCode != http.StatusFound || !strings.HasPrefix(res.Header.Get("Location"), browserLoginPath) {
+		t.Fatalf("/authorize right after the console sign-in = %d to %q; want 302 to %s (D-023: the application asks for its own sign-in)", res.StatusCode, res.Header.Get("Location"), browserLoginPath)
+	}
+
+	// ── 2c. A sign-in started FOR the application sets only the
+	// browser-session cookie, and the resumed /authorize finds it ──────────
+	appCb := upstreamSignInTo(t, c, pid, authorizeURL)
+	if appCb.StatusCode != http.StatusFound || appCb.Header.Get("Location") != authorizeURL {
+		t.Fatalf("application sign-in callback = %d to %q; want 302 back to the authorize request", appCb.StatusCode, appCb.Header.Get("Location"))
+	}
+	if cookieNamed(appCb.Cookies(), browserSessionCookieName) == nil {
+		t.Errorf("the application sign-in did not set the browser-session cookie")
+	}
+	if cookieNamed(appCb.Cookies(), "access_token") != nil || cookieNamed(appCb.Cookies(), "refresh_token") != nil {
+		t.Errorf("the application sign-in set the console's cookies (D-023)")
+	}
+	if res := c.nav(w.base + authorizeURL); res.StatusCode != http.StatusFound || !strings.HasPrefix(res.Header.Get("Location"), consentPath) {
+		t.Fatalf("/authorize after the application sign-in = %d to %q; want 302 to %s (the application session is live)", res.StatusCode, res.Header.Get("Location"), consentPath)
+	}
+	appSession := sessionOf()
+	if appSession == consoleSession {
+		t.Fatalf("the application sign-in reused the console's session %s; want its own", appSession)
+	}
+
+	// ── 2d. end_session ends the application sign-in, not the console's ────
+	ask, askPage := c.page(w.base + "/api/v1/oidc/logout")
+	confirm := regexp.MustCompile(`href="([^"]*confirm=[0-9a-f]+[^"]*)"`).FindStringSubmatch(askPage)
+	if ask.StatusCode != http.StatusOK || confirm == nil {
+		t.Fatalf("end_session with the browser session = %d; want the Sign out? page with its confirm link", ask.StatusCode)
+	}
+	if ended, endedPage := c.page(w.base + html.UnescapeString(confirm[1])); ended.StatusCode != http.StatusOK || !strings.Contains(endedPage, "You are signed out") {
+		t.Fatalf("confirmed end_session = %d; want the signed-out page", ended.StatusCode)
+	}
+	if revokedAt(appSession) == nil {
+		t.Errorf("end_session left the application session %s live", appSession)
+	}
+	if revokedAt(consoleSession) != nil {
+		t.Errorf("end_session ended the console session %s (D-023: the two sign-outs never end each other's session)", consoleSession)
+	}
+	if st, body, _ := c.bff(http.MethodGet, "/bff/api/v1/validate"); st != http.StatusOK || body["success"] != true || body["authenticated"] == false {
+		t.Errorf("console validate after end_session = %d %v; want 200 success: the console session is the console's own", st, body)
+	}
+	// A second application sign-in, to outlive the console sign-out below.
+	if res := upstreamSignInTo(t, c, pid, authorizeURL); res.StatusCode != http.StatusFound || cookieNamed(res.Cookies(), browserSessionCookieName) == nil {
+		t.Fatalf("second application sign-in = %d; want 302 with the browser-session cookie", res.StatusCode)
+	}
+	appSession2 := sessionOf()
 
 	// ── 3. The same cookies a password sign-in sets, attribute for attribute ─
 	pwID, pwEmail := w.createWithPassword(`,"must_change_password":false`)
@@ -278,12 +396,8 @@ func TestE2E_OSS_UpstreamSignInEstablishesTheConsoleSession(t *testing.T) {
 	}
 
 	// ── 5. Audit: the upstream event names the session the console holds ───
-	var sessionID string
-	if err := db.QueryRow(w.ctx, `SELECT metadata->>'session_id' FROM audit_events WHERE event_type = 'auth.oidc_login.success' AND metadata->>'provider_id' = $1 ORDER BY created_at DESC LIMIT 1`, pid).Scan(&sessionID); err != nil || sessionID == "" {
-		t.Fatalf("auth.oidc_login.success row for the provider: %v; want one with a session_id", err)
-	}
 	var sessionUser string
-	if err := db.QueryRow(w.ctx, `SELECT u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = $1`, sessionID).Scan(&sessionUser); err != nil || sessionUser != email {
+	if err := db.QueryRow(w.ctx, `SELECT u.email FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = $1`, consoleSession).Scan(&sessionUser); err != nil || sessionUser != email {
 		t.Errorf("the audited session belongs to %q (err %v); want %q", sessionUser, err, email)
 	}
 
@@ -297,12 +411,18 @@ func TestE2E_OSS_UpstreamSignInEstablishesTheConsoleSession(t *testing.T) {
 			t.Errorf("logout did not clear the %s cookie", name)
 		}
 	}
-	var revoked *time.Time
-	if err := db.QueryRow(w.ctx, `SELECT revoked_at FROM sessions WHERE id = $1`, sessionID).Scan(&revoked); err != nil || revoked == nil {
-		t.Errorf("session after logout: revoked_at %v (err %v); want revoked", revoked, err)
+	if revokedAt(consoleSession) == nil {
+		t.Errorf("console session %s after logout: want revoked", consoleSession)
 	}
 	if st, body, _ = c.bff(http.MethodGet, "/bff/api/v1/validate"); st != http.StatusOK || body["authenticated"] != false {
 		t.Errorf("validate after logout = %d %v; want 200 {\"authenticated\": false}", st, body)
+	}
+	// ── 6b. The console sign-out leaves the application sign-in usable ─────
+	if revokedAt(appSession2) != nil {
+		t.Errorf("the console sign-out ended the application session %s (D-023: the two sign-outs never end each other's session)", appSession2)
+	}
+	if res := c.nav(w.base + authorizeURL); res.StatusCode != http.StatusFound || !strings.HasPrefix(res.Header.Get("Location"), consentPath) {
+		t.Errorf("/authorize after the console sign-out = %d to %q; want 302 to %s (the application session is still live)", res.StatusCode, res.Header.Get("Location"), consentPath)
 	}
 	var n int
 	if err := db.QueryRow(w.ctx, `SELECT count(*) FROM audit_events WHERE event_type = 'user_session.logout' AND created_at > now() - interval '2 minutes'`).Scan(&n); err != nil || n < 1 {

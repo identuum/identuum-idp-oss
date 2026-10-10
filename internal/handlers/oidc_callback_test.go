@@ -215,10 +215,12 @@ func TestOIDCCallbackRoute_ErrorStatusMapping(t *testing.T) {
 	}
 }
 
-// OSS-UPSTREAM-CONSOLE-SESSION (V4-025, F-1): with the minter wired, the
-// success answer also carries the console's access_token and refresh_token
-// cookies, shaped exactly as POST /api/v1/auth/login shapes them without
-// "remember me" — the same writer, so the attributes cannot drift apart.
+// OSS-UPSTREAM-CONSOLE-SESSION (V4-025, F-1): with the minter wired, a console
+// sign-in's success answer carries the console's access_token and
+// refresh_token cookies, shaped exactly as POST /api/v1/auth/login shapes them
+// without "remember me" — the same writer, so the attributes cannot drift
+// apart — and, since OSS-REVIEW-FIXES-1 (F5, D-023), NOT the application
+// browser-session cookie.
 func TestOIDCCallbackRoute_SuccessSetsTheConsoleCookies(t *testing.T) {
 	res := okResult("/")
 	res.User.ID = res.Session.UserID
@@ -228,8 +230,8 @@ func TestOIDCCallbackRoute_SuccessSetsTheConsoleCookies(t *testing.T) {
 	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/" {
 		t.Fatalf("status = %d to %q; want 302 to /", rec.Code, rec.Header().Get("Location"))
 	}
-	if oidcCallbackCookie(rec, "identuum_session") == nil {
-		t.Errorf("the browser-session cookie is no longer planted")
+	if c := oidcCallbackCookie(rec, "identuum_session"); c != nil {
+		t.Errorf("a console sign-in planted the application browser-session cookie %+v (D-023)", c)
 	}
 	access := oidcCallbackCookie(rec, "access_token")
 	if access == nil || access.Value == "" || access.Path != "/" || !access.HttpOnly || access.SameSite != http.SameSiteLaxMode || access.MaxAge != accessTokenCookieMaxAgeSec {

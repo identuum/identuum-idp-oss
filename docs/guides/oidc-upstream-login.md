@@ -113,11 +113,17 @@ callback redirect URI.
 3. The provider authenticates the user and calls back to
    `GET /api/v1/auth/idp/{provider_id}/callback`.
 4. The IdP validates the ID token against the provider JWKS, applies the `email_domains` gate,
-   JIT-provisions or matches the local user, mints a local session, sets the same session
-   cookies a password sign-in sets (the console's `access_token` and `refresh_token` cookies
-   beside the IdP's own browser-session cookie), and redirects to the stored return URL. The
-   person lands in the console signed in; refresh and sign-out then work as after a password
-   sign-in. Every credential is minted before any cookie is written: if the IdP's own
+   JIT-provisions or matches the local user, mints a local session, sets the cookies of the
+   ONE sign-in the flow was started for, and redirects to the stored return URL. A sign-in
+   started from the console (`return_to` is a console page) sets the same `access_token` and
+   `refresh_token` cookies a password sign-in sets and nothing else: the person lands in the
+   console signed in, and refresh and sign-out then work as after a password sign-in. A
+   sign-in started for an application's `/authorize` (`return_to` is the authorize request)
+   sets only the IdP's own browser-session cookie, and the resumed `/authorize` finds it.
+   Console and application sign-ins stay separate (operator guide, "Console and application
+   sign-ins are separate"): a console sign-in through the provider never signs the person in
+   to an application, and `end_session` and the console's sign-out never end each other's
+   session. Every credential is minted before any cookie is written: if the IdP's own
    browser-session token cannot be issued, or the console's access token cannot be minted,
    the callback fails closed exactly as the browser sign-in does: `503 temporarily
    unavailable, try again`, no cookie, no redirect, the just-created session revoked, and

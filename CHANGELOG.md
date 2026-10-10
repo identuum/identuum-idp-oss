@@ -7,6 +7,20 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **An upstream sign-in establishes one sign-in: the console's or an
+  application's, never both** (OSS-REVIEW-FIXES-1, review finding F5;
+  D-023 preserved). The provider callback now sets the cookies of the one
+  sign-in the flow was started for, which the flow state carries as the
+  stored return URL: started from the console, the console's `access_token`
+  and `refresh_token` cookies only; started for an application's
+  `/authorize` (the return URL is the authorize request), the IdP's own
+  browser-session cookie only. An application's `/authorize` therefore still
+  asks for its own sign-in right after a console sign-in through the
+  provider, and `end_session` and the console's sign-out never end each
+  other's session. Before, the callback planted both families from one
+  session, so a console sign-in through the provider silently signed the
+  person in to every application, and either sign-out cut the other's
+  session. Password sign-in is unchanged.
 - **An upstream sign-in whose console credentials cannot be minted is
   refused, never half-committed** (OSS-REVIEW-FIXES-1, review finding F2).
   The provider callback now mints every credential before it writes any

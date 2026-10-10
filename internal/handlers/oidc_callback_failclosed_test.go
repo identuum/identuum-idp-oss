@@ -19,6 +19,11 @@ import (
 // no cookie of any kind, no redirect, 503 "temporarily unavailable", a
 // failure audited and never a success — and, beyond the browser login, the
 // session the callback service created is revoked, so nothing live is left.
+// Since OSS-REVIEW-FIXES-1 (F5) the browser-session token is minted only for
+// a sign-in started for an application's /authorize, so these sign-ins
+// return there (oidcCallbackAuthorizeReturn).
+
+const oidcCallbackAuthorizeReturn = "/api/v1/oauth/authorize?client_id=app&redirect_uri=https%3A%2F%2Frp.example%2Fdashboard&response_type=code&scope=openid&state=s2"
 
 // newOIDCCallbackWorld builds the callback route over a real in-memory session
 // store (so the test can seed the session the callback service "created" and
@@ -55,7 +60,7 @@ func seedCallbackSession(t *testing.T, repo *handlersSessionRepo, res *service.O
 }
 
 func TestOIDCCallbackRoute_TokenIssueError_FailsClosed(t *testing.T) {
-	res := okResult("/dashboard")
+	res := okResult(oidcCallbackAuthorizeReturn)
 	pid := uuid.New()
 	bts := service.NewBrowserSessionTokenService(nil, failingBrowserTokenRepo{}, service.BrowserSessionTokenServiceOptions{})
 	r, rec, repo := newOIDCCallbackWorld(t, &fakeCallbackHandler{result: res}, bts)
@@ -101,18 +106,19 @@ func TestOIDCCallbackRoute_TokenIssueError_FailsClosed(t *testing.T) {
 }
 
 func TestOIDCCallbackRoute_TokenIssueSuccess_OpaqueCookie(t *testing.T) {
-	// Control: with a working token store the sign-in completes as before —
-	// the browser-session cookie is the opaque token, the console cookies are
-	// set, the redirect goes to the stored return URL, the session stays live.
-	res := okResult("/dashboard")
+	// Control: with a working token store the application sign-in completes
+	// as before — the browser-session cookie is the opaque token, the
+	// redirect goes to the stored return URL, the session stays live; the
+	// console cookies belong to a console sign-in and are not set (F5).
+	res := okResult(oidcCallbackAuthorizeReturn)
 	bts := service.NewBrowserSessionTokenService(nil, newInMemoryBrowserTokenRepo(), service.BrowserSessionTokenServiceOptions{})
 	r, rec, repo := newOIDCCallbackWorld(t, &fakeCallbackHandler{result: res}, bts)
 	seedCallbackSession(t, repo, res)
 
 	w := oidcCbGET(r, cbPath(uuid.New())+"?state=s&code=c")
 
-	if w.Code != http.StatusFound || w.Header().Get("Location") != "/dashboard" {
-		t.Fatalf("status = %d to %q; want 302 to /dashboard", w.Code, w.Header().Get("Location"))
+	if w.Code != http.StatusFound || w.Header().Get("Location") != oidcCallbackAuthorizeReturn {
+		t.Fatalf("status = %d to %q; want 302 back to the authorize request", w.Code, w.Header().Get("Location"))
 	}
 	c := oidcCallbackCookie(w, "identuum_session")
 	if c == nil || c.Value == "" || c.Value == res.RefreshToken {
@@ -121,8 +127,8 @@ func TestOIDCCallbackRoute_TokenIssueSuccess_OpaqueCookie(t *testing.T) {
 	if resolved, err := bts.Resolve(context.Background(), c.Value); err != nil || resolved == nil {
 		t.Fatalf("cookie value is not an opaque browser-session token (err=%v)", err)
 	}
-	if oidcCallbackCookie(w, "access_token") == nil || oidcCallbackCookie(w, "refresh_token") == nil {
-		t.Fatalf("the console cookies were not set on the success path")
+	if oidcCallbackCookie(w, "access_token") != nil || oidcCallbackCookie(w, "refresh_token") != nil {
+		t.Fatalf("the console cookies were set on an application sign-in (D-023)")
 	}
 	if stored := repo.byID[res.Session.ID]; stored == nil || stored.RevokedAt != nil {
 		t.Fatalf("the session was revoked on the success path: %+v", stored)
