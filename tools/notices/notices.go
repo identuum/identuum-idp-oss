@@ -26,6 +26,7 @@ type Component struct {
 	Version   string
 	SPDX      string // an SPDX expression, or "UNKNOWN"
 	Texts     []LicenseText
+	Notice    string // Generated attribution or source-availability information.
 }
 
 // LicenseText is one licence file shipped with a component.
@@ -82,11 +83,18 @@ func Render(in Inputs, comps []Component) string {
 		fmt.Fprintln(&b, strings.Repeat("=", 78))
 		fmt.Fprintf(&b, "%s %s %s\n", c.Ecosystem, c.Name, c.Version)
 		fmt.Fprintf(&b, "License: %s\n", c.SPDX)
+		if c.Notice != "" {
+			fmt.Fprintln(&b, c.Notice)
+		}
 		if len(c.Texts) == 0 {
 			fmt.Fprintln(&b, "(no licence file is shipped with this component)")
 		}
 		for _, t := range c.Texts {
-			fmt.Fprintf(&b, "\n--- %s\n\n%s\n", t.File, strings.TrimRight(t.Text, "\n"))
+			fmt.Fprintf(&b, "\n--- %s\n\n", t.File)
+			b.WriteString(t.Text)
+			if !strings.HasSuffix(t.Text, "\n") {
+				b.WriteByte('\n')
+			}
 		}
 	}
 	return b.String()

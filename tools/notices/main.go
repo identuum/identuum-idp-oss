@@ -68,12 +68,19 @@ var releaseTargets = []string{"linux/amd64", "linux/arm64"}
 
 // inputs returns the build list (path@version) of every release target,
 // united, each module's directory and the vendored identuum-ui commit.
-func inputs(repo string) (Inputs, map[string]string, error) {
-	dirs := map[string]string{}
+// goModule keeps the compiled directories as well as the module root. A
+// module can contain separately licensed subpackages and unshipped assets.
+type goModule struct {
+	Dir      string
+	Packages map[string]bool
+}
+
+func inputs(repo string) (Inputs, map[string]goModule, error) {
+	dirs := map[string]goModule{}
 	for _, target := range releaseTargets {
 		goos, goarch, _ := strings.Cut(target, "/")
 		cmd := exec.Command("go", "list", "-deps", "-f",
-			"{{if .Module}}{{if not .Standard}}{{if .Module.Version}}{{.Module.Path}}@{{.Module.Version}} {{.Module.Dir}}{{end}}{{end}}{{end}}",
+			"{{if .Module}}{{if not .Standard}}{{if .Module.Version}}{{.Module.Path}}@{{.Module.Version}} {{.Module.Dir}} {{.Dir}}{{end}}{{end}}{{end}}",
 			"./cmd/identuum-idp")
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
@@ -82,12 +89,15 @@ func inputs(repo string) (Inputs, map[string]string, error) {
 			return Inputs{}, nil, fmt.Errorf("go list (%s): %w", target, err)
 		}
 		for _, l := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-			if f := strings.Fields(l); len(f) >= 1 {
-				dir := ""
-				if len(f) == 2 {
-					dir = f[1]
+			if f := strings.Fields(l); len(f) == 3 {
+				m := dirs[f[0]]
+				if m.Packages == nil {
+					m = goModule{Dir: f[1], Packages: map[string]bool{}}
 				}
-				dirs[f[0]] = dir
+				m.Packages[f[2]] = true
+				dirs[f[0]] = m
+			} else if len(f) != 0 {
+				return Inputs{}, nil, fmt.Errorf("go list (%s): malformed module directory row", target)
 			}
 		}
 	}
@@ -126,7 +136,7 @@ func licenseFiles(dir string) ([]LicenseText, error) {
 		if err != nil {
 			return nil, err
 		}
-		out = append(out, LicenseText{File: e.Name(), Text: strings.ReplaceAll(string(raw), "\r\n", "\n")})
+		out = append(out, LicenseText{File: e.Name(), Text: string(raw)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
 	return out, nil
@@ -136,7 +146,7 @@ func licenseFiles(dir string) ([]LicenseText, error) {
 func classify(texts []LicenseText) string {
 	var body strings.Builder
 	for _, t := range texts {
-		if n := strings.ToUpper(t.File); strings.HasPrefix(n, "NOTICE") || strings.HasPrefix(n, "PATENTS") {
+		if n := strings.ToUpper(filepath.Base(t.File)); strings.HasPrefix(n, "NOTICE") || strings.HasPrefix(n, "PATENTS") {
 			continue
 		}
 		body.WriteString(t.Text + "\n")
@@ -157,11 +167,54 @@ func classify(texts []LicenseText) string {
 	return strings.Join(ids, " AND ")
 }
 
-func goComponents(list []string, dirs map[string]string) ([]Component, error) {
+// goLicenseFiles collects root and ancestor notices for compiled packages.
+// It deliberately excludes unrelated directories such as quic-go/assets.
+func goLicenseFiles(m goModule) ([]LicenseText, error) {
+	root := filepath.Clean(m.Dir)
+	seen := map[string]bool{}
+	var out []LicenseText
+	collect := func(dir string) error {
+		if seen[dir] {
+			return nil
+		}
+		seen[dir] = true
+		texts, err := licenseFiles(dir)
+		if err != nil {
+			return err
+		}
+		for _, text := range texts {
+			rel, err := filepath.Rel(root, filepath.Join(dir, text.File))
+			if err != nil {
+				return err
+			}
+			text.File = filepath.ToSlash(rel)
+			out = append(out, text)
+		}
+		return nil
+	}
+	if err := collect(root); err != nil {
+		return nil, err
+	}
+	for pkg := range m.Packages {
+		rel, err := filepath.Rel(root, pkg)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			return nil, fmt.Errorf("compiled package directory %s is outside module %s", pkg, root)
+		}
+		for dir := filepath.Clean(pkg); dir != root; dir = filepath.Dir(dir) {
+			if err := collect(dir); err != nil {
+				return nil, err
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
+	return out, nil
+}
+
+func goComponents(list []string, dirs map[string]goModule) ([]Component, error) {
 	var out []Component
 	for _, m := range list {
 		path, version, _ := strings.Cut(m, "@")
-		texts, err := licenseFiles(dirs[m])
+		texts, err := goLicenseFiles(dirs[m])
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", m, err)
 		}
@@ -241,7 +294,66 @@ func npmComponents(ui, commit string) ([]Component, error) {
 			}
 		}
 	}
-	return out, nil
+	return supplementNPM(out)
+}
+
+// supplementNPM keeps obligations in the generated file. Packages that omit a
+// licence file inherit the exact upstream project licence from the same
+// production closure; no generic MIT text or copyright is manufactured.
+func supplementNPM(comps []Component) ([]Component, error) {
+	upstream := func(name string) (Component, LicenseText, bool) {
+		for _, c := range comps {
+			if c.Name != name || c.SPDX != "MIT" {
+				continue
+			}
+			for _, text := range c.Texts {
+				if licenseFile.MatchString(filepath.Base(text.File)) && classify([]LicenseText{text}) == "MIT" {
+					return c, text, true
+				}
+			}
+		}
+		return Component{}, LicenseText{}, false
+	}
+	for i := range comps {
+		c := &comps[i]
+		switch c.Name {
+		case "@vercel/og":
+			if c.Version != "0.11.1" || c.SPDX != "MPL-2.0" {
+				return nil, fmt.Errorf("review @vercel/og source availability for %s (%s)", c.Version, c.SPDX)
+			}
+			c.Notice = "MPL-2.0 source availability: Identuum has not modified @vercel/og. The\n" +
+				"unmodified upstream source of @vercel/og 0.11.1 is available at\n" +
+				"https://registry.npmjs.org/@vercel/og/-/og-0.11.1.tgz\n" +
+				"The archive includes dist/index.edge.js.map and dist/index.node.js.map,\n" +
+				"with original source files in sourcesContent. Covered source remains under MPL-2.0."
+		case "caniuse-lite":
+			if c.SPDX != "CC-BY-4.0" {
+				return nil, fmt.Errorf("review caniuse-lite attribution for %s", c.SPDX)
+			}
+			c.Notice = "Attribution: Can I use browser support data, by Alexis Deveria and\n" +
+				"contributors (https://caniuse.com/), repackaged as caniuse-lite by Ben Briggs\n" +
+				"and contributors (https://github.com/browserslist/caniuse-lite).\n" +
+				"Licensed under CC-BY-4.0: https://creativecommons.org/licenses/by/4.0/\n" +
+				"Changes: caniuse-lite compacts and repackages the original data."
+		case "@next/env", "client-only":
+			if len(c.Texts) != 0 {
+				continue
+			}
+			parent := "next"
+			if c.Name == "client-only" {
+				parent = "react"
+			}
+			p, text, ok := upstream(parent)
+			if !ok || c.SPDX != "MIT" || (c.Name == "@next/env" && c.Version != p.Version) ||
+				(c.Name == "client-only" && c.Version != "0.0.1") {
+				return nil, fmt.Errorf("%s %s: no reviewed upstream MIT licence", c.Name, c.Version)
+			}
+			c.Notice = "This package omits its licence file; the upstream project's MIT text follows."
+			text.File = p.Name + "@" + p.Version + "/" + text.File + " (upstream project licence)"
+			c.Texts = []LicenseText{text}
+		}
+	}
+	return comps, nil
 }
 
 // vendoredComponents finds third-party packages copied inside a package (for
