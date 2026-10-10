@@ -19,27 +19,15 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-
-	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
-// pgxRevokeSessionRepo mirrors what the in-memory fixture does not: the pgx
-// repository's Revoke runs UPDATE ... WHERE id = $1 AND revoked_at IS NULL and
-// answers domain.ErrSessionNotFound when no row changed, so a session that is
-// absent OR already ended is "not found" to the caller.
-type pgxRevokeSessionRepo struct{ *handlersSessionRepo }
-
-func (r *pgxRevokeSessionRepo) Revoke(ctx context.Context, id, by uuid.UUID, reason string) error {
-	s, ok := r.byID[id]
-	if !ok || s.RevokedAt != nil {
-		return domain.ErrSessionNotFound
-	}
-	return r.handlersSessionRepo.Revoke(ctx, id, by, reason)
-}
-
+// The in-memory fixture's Revoke answers as the pgx repository's does since
+// OSS-HARDENING-2 (UPDATE ... WHERE revoked_at IS NULL; no row changed is
+// domain.ErrSessionNotFound), so these tests run over the shared fixture; the
+// pgx-faithful wrapper they first needed is gone.
 func newHintNoiseWorld(t *testing.T) hintWorld {
 	t.Helper()
-	return newHintWorldOver(t, &pgxRevokeSessionRepo{handlersSessionRepo: newHandlersSessionRepo()}, nil, nil)
+	return newHintWorldOver(t, newHandlersSessionRepo(), nil, nil)
 }
 
 // assertLogoutConfirmed: no AUTH-503 sink call, no revocation_unconfirmed audit

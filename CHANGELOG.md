@@ -7,6 +7,42 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **An upstream sign-in fails closed when its browser-session token cannot
+  be issued** (OSS-HARDENING-2 item 2; P2-8). When the opaque browser-session
+  token store refuses at the provider callback, the callback now answers
+  `503 temporarily unavailable, try again` with no cookie of any kind and no
+  redirect, audits `auth.oidc_login.failure` (`reason`
+  `browser_session_token_issue_failed`, `provider_id`, `session_id`,
+  `session_revoked`) and revokes the session it had just created, exactly as
+  the browser sign-in has since P2-8. Before, it planted the raw refresh token
+  as the browser-session cookie — a cookie that authenticates nothing — and
+  sent the person on "signed in". A working token store is unchanged.
+- **A client assertion may name the issuer as its audience**
+  (OSS-HARDENING-2 item 3; OSS-CONFORMANCE-FIXES Q1, owner: (a)). The
+  `private_key_jwt` assertion's `aud` is accepted when it names the token
+  endpoint URL, as before, or the OP's issuer identifier as published by
+  discovery (OpenID Connect Core §9; the conformance suite's
+  `oidcc-ensure-client-assertion-with-iss-aud-succeeds`). Any other
+  audience is still refused with `401 invalid_client`; `iss`, `sub`, `exp`,
+  `iat`, `jti` replay, `alg` and key checks are unchanged.
+- **Every password sign-in is audited as a sign-in of its organization**
+  (OSS-HARDENING-2 item 4). `user_session.login.success`, and the
+  second-factor, enrolment and password-change completions
+  (`user_session.login.mfa_verified`, `user_session.login.mfa_enrolled`),
+  now name the signed-in person as the actor (`actor_type` `user`, id,
+  email, role) and carry `organization_id`, as an upstream sign-in does, so
+  an organization admin sees every sign-in of its members on the Audit
+  page. Additive: the metadata is unchanged.
+- **Signing out of a session already ended is not an error**
+  (OSS-HARDENING-2 item 5). `POST /api/v1/auth/logout` with a bearer token
+  whose session is already revoked — a second sign-out, or one after an
+  administrator revoked it — now answers `204` and audits the logout, as the
+  refresh-token path already did. Before, the database's "no row updated"
+  was read as a store failure: `503 revocation_unconfirmed`, an `AUTH-503`
+  log line and a `user_session.logout.revocation_unconfirmed` row. A real
+  store failure is still refused, logged and marked as before. Found by
+  making the handler tests' in-memory session store answer "not found" for an
+  ended session, as PostgreSQL does.
 - **`private_key_jwt` without `client_id`** (OSS-CONFORMANCE-FIXES;
   CONFORMANCE-FULL-1 Q1). The token, introspection and revocation endpoints
   accept a client assertion whose request carries no `client_id`, as RFC 7523

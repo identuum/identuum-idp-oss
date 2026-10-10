@@ -1661,7 +1661,10 @@ func mountOIDCCallback(router gin.IRouter, resolved OSSRouterDeps) {
 		// The console's cookies after an upstream sign-in (V4-025): the
 		// same minter the password login uses.
 		UserToken: resolved.UserToken,
-		Audit:     resolved.Audit,
+		// Revokes the created session when the sign-in fails closed
+		// (OSS-HARDENING-2 item 2).
+		UserSession: resolved.UserSessionService,
+		Audit:       resolved.Audit,
 	})
 }
 

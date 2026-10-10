@@ -445,7 +445,11 @@ func HandleLocalLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			emitLoginError(c, deps, err, result, req.RememberMe)
 			return
 		}
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		// Audited as a sign-in of the person and their organization, as the
+		// upstream sign-in is (nobody is in the request context yet), so an
+		// organization admin finds its members' sign-ins on the Audit page
+		// (OSS-HARDENING-2 item 4; additive).
+		signedIn := audit.Event{
 			Action:    "user_session.login.success",
 			Outcome:   "success",
 			IPAddress: ip,
@@ -456,7 +460,15 @@ func HandleLocalLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 				// The sign-in method, beside an upstream sign-in's oidc_upstream.
 				"method": "password",
 			},
-		})
+		}
+		if result.User != nil {
+			signedIn.ActorType = audit.ActorTypeUser
+			signedIn.ActorID = result.User.ID
+			signedIn.ActorEmail = result.User.Email
+			signedIn.ActorRole = string(result.User.Role)
+			signedIn.OrganizationID = result.User.OrganizationID
+		}
+		_ = deps.Audit.Record(c.Request.Context(), signedIn)
 		resp := localLoginResponse{
 			UserID:       result.UserID,
 			SessionID:    result.Session.ID.String(),
@@ -804,7 +816,12 @@ func HandleLogout(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 				if domain.IsAuthStoreUnavailable(err) {
 					refuse("verify", err)
 				} else if err == nil && principal != nil && principal.SessionID != uuid.Nil {
-					if err := deps.UserSession.RevokeSession(ctx, principal.SessionID, "logout"); err != nil {
+					// A session the store no longer finds is already ended
+					// (pgx: UPDATE ... WHERE revoked_at IS NULL matched no
+					// row) — a second sign-out, or one after an admin
+					// revoked it — and that is what was asked for, not a
+					// store failure (OSS-HARDENING-2 item 5).
+					if err := deps.UserSession.RevokeSession(ctx, principal.SessionID, "logout"); err != nil && !errors.Is(err, domain.ErrSessionNotFound) {
 						refuse("revoke-session", err)
 					} else if deps.Audit != nil {
 						_ = deps.Audit.Record(ctx, audit.Event{

@@ -75,9 +75,17 @@ var PrivateKeyJWTAssertionAlgorithms = func() []string {
 // ClientAssertionValidatorConfig parameterises the validator.
 type ClientAssertionValidatorConfig struct {
 	// TokenEndpointURL is the absolute URL of the IdP's /token
-	// endpoint. The assertion's aud claim MUST equal this value
-	// (RFC 7523 §3).
+	// endpoint. The assertion's aud claim MUST contain this value
+	// (RFC 7523 §3) or the Issuer below.
 	TokenEndpointURL string
+
+	// Issuer is the OP's issuer identifier, the second audience the
+	// assertion may carry (OpenID Connect Core §9 names the issuer;
+	// RFC 7523 names the token endpoint; current OAuth JWT
+	// client-authentication guidance accepts the issuer identifier).
+	// Optional: empty admits only TokenEndpointURL. Compared as an
+	// exact string, as issuer identifiers are (RFC 8414 §2).
+	Issuer string
 
 	// MaxIATAge is the maximum age of an iat claim. Default 5 min.
 	MaxIATAge time.Duration
@@ -264,12 +272,16 @@ func (v *ClientAssertionValidator) Validate(ctx context.Context, client *domain.
 		return nil, ErrClientAssertionInvalid
 	}
 
-	// aud must contain the configured token endpoint URL.
+	// aud must contain the configured token endpoint URL (RFC 7523 §3) or,
+	// when configured, the OP's issuer identifier (OpenID Connect Core §9;
+	// the conformance suite's oidcc-ensure-client-assertion-with-iss-aud-
+	// succeeds; OSS-HARDENING-2 item 3). Any other audience is refused.
 	tokenAud, err := extractAssertionAudience(verified)
 	if err != nil {
 		return nil, ErrClientAssertionInvalid
 	}
-	if !assertionAudienceContains(tokenAud, v.cfg.TokenEndpointURL) {
+	if !assertionAudienceContains(tokenAud, v.cfg.TokenEndpointURL) &&
+		(v.cfg.Issuer == "" || !assertionAudienceContains(tokenAud, v.cfg.Issuer)) {
 		return nil, ErrClientAssertionInvalid
 	}
 

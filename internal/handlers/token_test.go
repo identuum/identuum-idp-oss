@@ -878,13 +878,20 @@ func (r *handlersSessionRepo) RotateToken(_ context.Context, sessionID uuid.UUID
 func (r *handlersSessionRepo) RecordACRUplift(context.Context, uuid.UUID, time.Time, string) error {
 	panic("not used")
 }
+
+// Revoke answers as PgxSessionRepository.Revoke does: an absent session, or
+// one already revoked, is domain.ErrSessionNotFound (the UPDATE matches no
+// row), so a handler test sees the error class the real store raises
+// (OSS-HARDENING-2 item 5; until then every such call answered nil).
 func (r *handlersSessionRepo) Revoke(_ context.Context, sessionID, _ uuid.UUID, reason string) error {
-	if s, ok := r.byID[sessionID]; ok {
-		t := time.Now()
-		s.IsValid = false
-		s.RevokedAt = &t
-		s.RevokedReason = &reason
+	s, ok := r.byID[sessionID]
+	if !ok || s.RevokedAt != nil {
+		return domain.ErrSessionNotFound
 	}
+	t := time.Now()
+	s.IsValid = false
+	s.RevokedAt = &t
+	s.RevokedReason = &reason
 	return nil
 }
 func (r *handlersSessionRepo) RevokeByUserID(_ context.Context, _ uuid.UUID, _ string) error {

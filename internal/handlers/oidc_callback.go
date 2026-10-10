@@ -45,7 +45,12 @@ type OIDCCallbackHandlerDeps struct {
 	CookieSession *service.CookieSessionService
 	BrowserTokens *service.BrowserSessionTokenService
 	UserToken     *service.UserTokenService
-	Audit         audit.Service
+	// UserSession revokes the session the callback service created when the
+	// sign-in cannot complete (the browser-session token did not issue), so a
+	// refused sign-in leaves no live session behind. Nil leaves that session
+	// to expire on its own; the refusal's audit says which happened.
+	UserSession *service.UserSessionService
+	Audit       audit.Service
 }
 
 // RegisterOIDCCallbackRoutes mounts
@@ -140,9 +145,38 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 				IPAddress:      ip,
 				ExpiresAt:      res.Session.ExpiresAt,
 			})
-			if btErr == nil && issued != nil {
-				cookieValue = issued.Token
+			if btErr != nil || issued == nil {
+				// FAIL CLOSED (P2-8, as finishBrowserSignIn): with
+				// BrowserTokens wired the cookie MUST be the opaque token;
+				// the raw refresh token resolves as no session, so the old
+				// fall-through planted a cookie that authenticated nothing
+				// and sent the person on "signed in". Refuse instead: no
+				// cookie of any kind, no redirect, the browser login's 503
+				// text (a non-credential signal; the provider did sign the
+				// person in). The session the callback service created is
+				// revoked here so a refused sign-in leaves nothing live
+				// (OSS-HARDENING-2 item 2); the audit says whether that
+				// revocation happened.
+				revoked := false
+				if deps.UserSession != nil {
+					revoked = deps.UserSession.RevokeSession(c.Request.Context(), res.Session.ID, "browser_session_token_issue_failed") == nil
+				}
+				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+					Action:    "auth.oidc_login.failure",
+					Outcome:   "error",
+					IPAddress: ip,
+					UserAgent: ua,
+					Metadata: map[string]any{
+						"reason":          "browser_session_token_issue_failed",
+						"provider_id":     providerID.String(),
+						"session_id":      res.Session.ID.String(),
+						"session_revoked": revoked,
+					},
+				})
+				c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
+				return
 			}
+			cookieValue = issued.Token
 		}
 		// A sign-in through an upstream provider offers no "remember me", so
 		// the cookie ends with the browser session.

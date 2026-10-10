@@ -510,11 +510,19 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 		return
 	}
+	// The sign-in event names the person and their organization as its
+	// actor, as the plain password sign-in and the upstream sign-in do
+	// (OSS-HARDENING-2 item 4; additive).
 	_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-		Action:    auditAction,
-		Outcome:   "success",
-		IPAddress: ip,
-		UserAgent: ua,
+		Action:         auditAction,
+		Outcome:        "success",
+		ActorType:      audit.ActorTypeUser,
+		ActorID:        out.User.ID,
+		ActorEmail:     out.User.Email,
+		ActorRole:      string(out.User.Role),
+		OrganizationID: out.User.OrganizationID,
+		IPAddress:      ip,
+		UserAgent:      ua,
 		Metadata: map[string]any{
 			"user_id":    out.User.ID.String(),
 			"session_id": issued.Session.ID.String(),

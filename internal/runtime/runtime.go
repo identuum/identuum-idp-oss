@@ -1155,6 +1155,9 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 	tokenEndpointURL := strings.TrimRight(tokenSvcIssuer, "/") + "/api/v1/oauth/token"
 	assertionValidator, assertionErr := service.NewClientAssertionValidator(service.ClientAssertionValidatorConfig{
 		TokenEndpointURL: tokenEndpointURL,
+		// The issuer identifier discovery publishes is the assertion's other
+		// admissible audience (OSS-HARDENING-2 item 3); the same anchor.
+		Issuer: tokenSvcIssuer,
 	})
 	if assertionErr != nil {
 		pool.Close()

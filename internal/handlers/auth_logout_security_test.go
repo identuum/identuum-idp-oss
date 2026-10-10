@@ -80,7 +80,14 @@ func (v *logoutSecurityVerifier) VerifyBearerToken(context.Context, string) (*do
 func TestLogoutSecurity_SuccessAuditDoesNotDiscloseSessionID(t *testing.T) {
 	repo := &failingSessionRepo{handlersSessionRepo: newHandlersSessionRepo()}
 	h := newUnconfirmedHarness(t, repo)
-	v := &logoutSecurityVerifier{sessionID: uuid.New()}
+	// A live session the bearer names (OSS-HARDENING-2 item 5: the fixture's
+	// Revoke now answers "not found" for an absent session, as pgx does, so
+	// the success path is proven over a session that exists and is ended).
+	issued, err := h.sessions.CreateUserSession(context.Background(), service.CreateUserSessionInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatal("could not create fixture session")
+	}
+	v := &logoutSecurityVerifier{sessionID: issued.Session.ID}
 	e := gin.New()
 	e.POST("/logout", HandleLogout(AuthSessionsHandlerDeps{UserSession: h.sessions, TokenVerifier: v, Audit: h.audit}))
 	r := httptest.NewRequest(http.MethodPost, "/logout", nil)
@@ -89,6 +96,9 @@ func TestLogoutSecurity_SuccessAuditDoesNotDiscloseSessionID(t *testing.T) {
 	e.ServeHTTP(w, r)
 	if w.Code != http.StatusNoContent {
 		t.Fatalf("logout status = %d, want 204", w.Code)
+	}
+	if stored, err := repo.GetByID(context.Background(), issued.Session.ID); err != nil || stored == nil || stored.RevokedAt == nil {
+		t.Error("logout did not revoke the session")
 	}
 	found := false
 	for _, event := range h.audit.Events() {
@@ -107,6 +117,49 @@ func TestLogoutSecurity_SuccessAuditDoesNotDiscloseSessionID(t *testing.T) {
 	}
 	if !found {
 		t.Error("successful logout audit missing")
+	}
+}
+
+// OSS-HARDENING-2 item 5: the pgx store answers domain.ErrSessionNotFound for
+// a session already revoked (its UPDATE matches no row). A bearer logout of
+// such a session — a second sign-out, or a sign-out after an admin revoked it
+// — is not a store failure: the session is ended, which is what the caller
+// asked for. Before, it answered 503 revocation_unconfirmed and audited a
+// failure. The faithful fixture is what made this visible.
+func TestLogoutSecurity_BearerOfAnEndedSessionIsNotAStoreError(t *testing.T) {
+	repo := &failingSessionRepo{handlersSessionRepo: newHandlersSessionRepo()}
+	h := newUnconfirmedHarness(t, repo)
+	issued, err := h.sessions.CreateUserSession(context.Background(), service.CreateUserSessionInput{UserID: uuid.New()})
+	if err != nil {
+		t.Fatal("could not create fixture session")
+	}
+	if err := h.sessions.RevokeSession(context.Background(), issued.Session.ID, "user_requested"); err != nil {
+		t.Fatalf("first revocation: %v", err)
+	}
+	v := &logoutSecurityVerifier{sessionID: issued.Session.ID}
+	e := gin.New()
+	e.POST("/logout", HandleLogout(AuthSessionsHandlerDeps{UserSession: h.sessions, TokenVerifier: v, Audit: h.audit}))
+	r := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	r.Header.Set("Authorization", "Bearer fixture")
+	w := httptest.NewRecorder()
+	e.ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("logout of an ended session: status = %d, want 204; body=%q", w.Code, w.Body.String())
+	}
+	if got := w.Header().Get(LogoutUnconfirmedHeader); got != "" {
+		t.Errorf("%s = %q; want the header absent", LogoutUnconfirmedHeader, got)
+	}
+	var success bool
+	for _, event := range h.audit.Events() {
+		if event.Action == AuditActionLogoutRevocationUnconfirmed {
+			t.Errorf("revocation_unconfirmed audited for an already-ended session: %+v", event.Metadata)
+		}
+		if event.Action == "user_session.logout" && event.Outcome == "success" {
+			success = true
+		}
+	}
+	if !success {
+		t.Error("the sign-out of an ended session was not audited as a logout")
 	}
 }
 

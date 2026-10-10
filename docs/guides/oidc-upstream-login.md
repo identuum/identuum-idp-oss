@@ -117,7 +117,11 @@ callback redirect URI.
    cookies a password sign-in sets (the console's `access_token` and `refresh_token` cookies
    beside the IdP's own browser-session cookie), and redirects to the stored return URL. The
    person lands in the console signed in; refresh and sign-out then work as after a password
-   sign-in.
+   sign-in. If the IdP's own browser-session token cannot be issued at this step, the callback
+   fails closed exactly as the browser sign-in does: `503 temporarily unavailable, try again`,
+   no cookie, no redirect, the just-created session revoked, and `auth.oidc_login.failure`
+   audited (`reason` `browser_session_token_issue_failed`, `session_revoked`). The person
+   retries the sign-in.
 
 ### What the audit log records
 

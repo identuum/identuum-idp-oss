@@ -434,6 +434,12 @@ filters event type, outcome, actor, subject and a date range. Each row says:
   organization A writes a row with A's `organization_id` and the system
   organization as its own.
 
+A sign-in row — `user_session.login.success` for a password or upstream
+sign-in (`metadata.method` says which), the second-factor and enrolment
+completions, and `auth.oidc_login.success` — names the person who signed in
+as its actor and carries their `organization_id`, so an organization admin
+sees every sign-in of its members.
+
 An organization admin sees every row of its organization, whoever acted — a
 site admin included — and no row of another. Rows written before `v0.8.0`
 carry `organization_id` only where their metadata named the organization;
@@ -896,7 +902,9 @@ GET /.well-known/openid-configuration
   "You are signed out" page when there is no redirect.
 - **private_key_jwt:** the token endpoint accepts the client assertion with
   or without `client_id`; without it the assertion's `iss` (which must equal
-  its `sub`) names the client, and with it the two must agree.
+  its `sub`) names the client, and with it the two must agree. The
+  assertion's `aud` names the token endpoint URL or the issuer identifier
+  discovery publishes; any other audience is refused.
 
 ## Factory reset (DESTROYS ALL DATA)
 
