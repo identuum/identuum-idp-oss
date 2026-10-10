@@ -926,23 +926,39 @@ GET /.well-known/openid-configuration
   that page then continues to the `post_logout_redirect_uri` on its own (a
   few seconds at most, whether or not the application answers), or is the
   "You are signed out" page when there is no redirect. The frame lets the
-  application's logout page run its own script. When the page's origin is
-  positively different from the IdP's, the script also gets its own origin's
-  storage and cookies (sandbox `allow-scripts allow-same-origin`), so a page
-  that clears a sign-in marker or calls the application's logout API works;
-  it cannot navigate, submit or script the page that frames it. Origins are
-  compared as a browser computes them (numeric port with the default
-  dropped, host in lower-case ASCII, canonical IP literal), so a page on
+  application's logout page run its own script. When every receiver's
+  origin is positively different from the issuer's, each script also gets
+  its own origin's storage and cookies (sandbox
+  `allow-scripts allow-same-origin`), so a page that clears a sign-in marker
+  or calls the application's logout API works. If any receiver is on the
+  issuer's origin, or any receiver's origin cannot be canonicalized with
+  certainty, **every frame in that end-session fan-out gets `allow-scripts`
+  alone**. This prevents an off-issuer receiver from retaining its normal
+  origin permissions when it redirects to an issuer-origin receiver
+  admitted by the page's frame policy. The comparison is conservative
+  (numeric port with the default dropped, host in lower-case ASCII,
+  canonical IP literal), so a page on
   the IdP's own origin under another spelling, such as `:0443` or a
   long-form IPv6 literal, counts as the IdP's origin. A logout page on the
-  IdP's own origin, on an internationalized (Unicode or punycode) host, or
-  one whose origin cannot be compared with certainty, runs its script
+  IdP's own origin, on an internationalized (Unicode or punycode) host, on
+  a host with a character other than a letter, digit, hyphen or dot (such
+  as `*`), or one whose origin cannot be compared with certainty, runs its script
   without `allow-same-origin`, in
   an opaque origin with no access to its origin's storage or cookies.
-  **Logout pages that clear browser storage must be served from an origin
-  different from the issuer's;** on the issuer's own origin they are not
-  supported. Back-channel logout (`backchannel_logout_uri`) is the
-  alternative. A frame that loads is not proof that the application
+  **Logout pages that clear browser storage need all receivers in their
+  end-session fan-out to be positively off the issuer's origin.** Mixed
+  fan-outs run every receiver scripts-only, without normal-origin storage
+  or cookies; storage-clearing receivers are unsupported in those fan-outs
+  and on the issuer's own origin. Back-channel logout
+  (`backchannel_logout_uri`) is the alternative. On a fan-out whose
+  receivers are all off the issuer's origin, each receiver keeps both
+  permissions, and a frame that receiver nests is not governed by the
+  end-session page's `frame-src`: a scripted page on the issuer's origin
+  that allows framing would run there with both permissions, as the
+  issuer's origin. **Serve no scripted, frameable page on the issuer's
+  origin** (a front-channel receiver registered on the issuer's origin is
+  one); this release does not enforce that rule. A frame that loads is not
+  proof that the application
   cleared its session: the IdP continues after a bounded wait either way.
 - **private_key_jwt:** the token endpoint accepts the client assertion with
   or without `client_id`; without it the assertion's `iss` (which must equal

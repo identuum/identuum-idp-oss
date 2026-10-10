@@ -113,7 +113,9 @@ func fcWorldWith(t *testing.T, issuer string, apps clientsByClientID, rps []stri
 }
 
 // A receiver registered on the OP's own origin runs its script in an opaque
-// origin: allow-scripts without allow-same-origin.
+// origin: allow-scripts without allow-same-origin. Since OSS-REVIEW-FIXES-3
+// (review OSS-PKCE-REVIEW-2026-10-10 R3) the other receiver of that mixed
+// fan-out runs scripts-only too (logout_frontchannel_mixed_fanout_test.go).
 func TestEndSession_AReceiverOnTheOPsOriginNeverGetsAllowSameOriginWithScripts(t *testing.T) {
 	w := fcWorldWith(t, "https://idp.test", clientsByClientID{
 		"fc-self":  {ClientID: "fc-self", FrontchannelLogoutURI: "https://idp.test/rp/fc"},
@@ -121,8 +123,8 @@ func TestEndSession_AReceiverOnTheOPsOriginNeverGetsAllowSameOriginWithScripts(t
 	}, []string{"fc-self", "fc-other"})
 	rec := w.logout("/api/v1/oidc/logout")
 	got := sandboxOf(t, rec.Body.String())
-	if len(got) != 2 || got["https://idp.test/rp/fc"] != sandboxSameOrigin || got["https://other.example/fc"] != sandboxCrossOrigin {
-		t.Errorf("frame sandboxes = %v; want the OP-origin receiver at %q and the other at %q", got, sandboxSameOrigin, sandboxCrossOrigin)
+	if len(got) != 2 || got["https://idp.test/rp/fc"] != sandboxSameOrigin || got["https://other.example/fc"] != sandboxSameOrigin {
+		t.Errorf("frame sandboxes = %v; want both receivers of the mixed fan-out at %q", got, sandboxSameOrigin)
 	}
 	assertNoParentControl(t, rec.Body.String(), rec.Header().Get("Content-Security-Policy"))
 }

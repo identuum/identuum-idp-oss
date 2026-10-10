@@ -68,13 +68,14 @@ func TestFrontchannelFrameSandbox_BrowserEquivalentOriginsAreTheOPsOrigin(t *tes
 }
 
 // aliasCases are receivers registered under another spelling of the OP's own
-// origin, each with the issuer it is an alias of. otherWant is what an
-// unrelated ASCII receiver gets beside it: an internationalized issuer is not
-// canonicalized, so, as with no issuer, no receiver gets allow-same-origin.
-var aliasCases = []struct{ name, issuer, uri, otherWant string }{
-	{"zero-padded default port", "https://idp.test", "https://idp.test:0443/rp/fc", sandboxCrossOrigin},
-	{"IDNA punycode alias", "https://bücher.example", "https://xn--bcher-kva.example/rp/fc", sandboxSameOrigin},
-	{"IPv6 long form", "https://[2001:db8::1]", "https://[2001:0db8:0:0:0:0:0:1]/rp/fc", sandboxCrossOrigin},
+// origin, each with the issuer it is an alias of. On the end_session fan-out
+// an unrelated ASCII receiver beside it gets allow-scripts alone too: a fan-out
+// with any receiver on the OP's origin runs every frame scripts-only
+// (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW-2026-10-10 R3).
+var aliasCases = []struct{ name, issuer, uri string }{
+	{"zero-padded default port", "https://idp.test", "https://idp.test:0443/rp/fc"},
+	{"IDNA punycode alias", "https://bücher.example", "https://xn--bcher-kva.example/rp/fc"},
+	{"IPv6 long form", "https://[2001:db8::1]", "https://[2001:0db8:0:0:0:0:0:1]/rp/fc"},
 }
 
 func TestEndSession_AReceiverOnAnAliasOfTheOPsOriginGetsScriptsAlone(t *testing.T) {
@@ -85,8 +86,8 @@ func TestEndSession_AReceiverOnAnAliasOfTheOPsOriginGetsScriptsAlone(t *testing.
 		}, []string{"fc-alias", "fc-other"})
 		rec := w.logout("/api/v1/oidc/logout")
 		got := sandboxOf(t, rec.Body.String())
-		if len(got) != 2 || got[tc.uri] != sandboxSameOrigin || got["https://other.example/fc"] != tc.otherWant {
-			t.Errorf("%s: frame sandboxes = %v; want the alias receiver at %q and the other at %q", tc.name, got, sandboxSameOrigin, tc.otherWant)
+		if len(got) != 2 || got[tc.uri] != sandboxSameOrigin || got["https://other.example/fc"] != sandboxSameOrigin {
+			t.Errorf("%s: frame sandboxes = %v; want the alias receiver and the other at %q", tc.name, got, sandboxSameOrigin)
 		}
 		assertNoParentControl(t, rec.Body.String(), rec.Header().Get("Content-Security-Policy"))
 	}

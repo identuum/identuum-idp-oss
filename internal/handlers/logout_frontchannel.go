@@ -81,12 +81,34 @@ func frontchannelFrameSandbox(src, issuer string) string {
 	return "allow-scripts"
 }
 
-// webOrigin is raw's origin as a browser computes it, so that two spellings
-// of one origin compare equal: the scheme (http or https), the host in
+// frontchannelFanoutSandbox is the one sandbox every frame of an end_session
+// fan-out gets (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW-2026-10-10 R3,
+// judge ruling (a)). The page's frame-src admits every receiver's origin, and
+// a frame's sandbox does not change when its document navigates: a receiver
+// granted allow-same-origin could redirect its own frame to a receiver on the
+// OP's origin admitted by that frame-src, which would then run as the OP's
+// origin with both permissions. So when any receiver is on the OP's origin,
+// or on an origin that cannot be told apart from it with certainty, every
+// frame runs with allow-scripts alone; only a fan-out whose receivers are all
+// positively off the OP's origin keeps allow-same-origin for them.
+func frontchannelFanoutSandbox(srcs []string, issuer string) string {
+	for _, src := range srcs {
+		if sandbox := frontchannelFrameSandbox(src, issuer); sandbox != "allow-scripts allow-same-origin" {
+			return sandbox
+		}
+	}
+	return "allow-scripts allow-same-origin"
+}
+
+// webOrigin is a conservative comparison form of raw's origin, not a complete
+// browser-origin serializer, so that two spellings of one origin compare
+// equal (dropping one trailing dot may also merge two origins a browser keeps
+// apart, which only ever withholds allow-same-origin): the scheme (http or https), the host in
 // lower-case ASCII (an IP literal in its canonical form, one trailing dot
 // dropped), and the port as a number with the scheme's default dropped. It
 // answers "" for anything it cannot canonicalize with certainty — another
-// scheme, userinfo, an internationalized host, a host a browser would read as
+// scheme, userinfo, an internationalized host, a host with a character other
+// than a letter, digit, hyphen or dot (a "*" among them), a host a browser would read as
 // an IPv4 address written other than as four decimal parts, a port out of
 // range — and the caller then treats the origin as possibly the OP's own.
 func webOrigin(raw string) string {
@@ -138,6 +160,14 @@ func canonicalOriginHost(rawHost, hostname string) string {
 			return ""
 		}
 	}
+	// The page's frame-src lists this host as written, and a "*" there is a
+	// CSP wildcard that admits other hosts, the OP's among them; only letters,
+	// digits, hyphens and dots make a host this comparison can vouch for.
+	for i := 0; i < len(ascii); i++ {
+		if ch := ascii[i]; ch < 0x80 && (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' && ch != '.' {
+			return ""
+		}
+	}
 	labels := strings.Split(ascii, ".")
 	for _, l := range labels {
 		if strings.HasPrefix(l, "xn--") {
@@ -169,7 +199,8 @@ func isNumericHostLabel(label string) bool {
 // the signed-out page carrying the frames. The policy admits exactly the
 // frames' origins and, when there is somewhere to continue to, one script by
 // nonce; nothing else loads, nothing is cached, and no token is in any URL.
-// issuer is the OP's own address, which decides each frame's sandbox.
+// issuer is the OP's own address, which decides the frames' one sandbox
+// (frontchannelFanoutSandbox).
 func renderFrontchannelFanoutPage(c *gin.Context, srcs []string, continueTo, issuer string) {
 	origins := make([]string, 0, len(srcs))
 	seen := map[string]struct{}{}
@@ -217,8 +248,9 @@ func renderFrontchannelFanoutPage(c *gin.Context, srcs []string, continueTo, iss
 		b.WriteString("    <h1>You are signed out</h1>\n    <p>Your session with the identity provider has ended. The applications you signed in to are being told. You can close this window.</p>\n")
 	}
 	b.WriteString("  </main>\n")
+	sandbox := frontchannelFanoutSandbox(srcs, issuer)
 	for _, src := range srcs {
-		b.WriteString("  <iframe src=\"" + html.EscapeString(src) + "\" sandbox=\"" + frontchannelFrameSandbox(src, issuer) + "\" title=\"Signing out of an application\"></iframe>\n")
+		b.WriteString("  <iframe src=\"" + html.EscapeString(src) + "\" sandbox=\"" + sandbox + "\" title=\"Signing out of an application\"></iframe>\n")
 	}
 	if nonce != "" {
 		// Continue once every frame has loaded or failed, and never later
