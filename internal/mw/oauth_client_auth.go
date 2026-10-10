@@ -246,17 +246,33 @@ func RequireOAuthClient(report *lifecycle.StartupReport, authn OAuthClientAuthen
 // confidential client cannot drop its secret by sending a verifier. Every
 // other request is judged exactly as RequireOAuthClient judges it, so a
 // public client gets no other grant here (FUNC-H2).
+//
+// OSS-PUBLIC-CLIENT-PKCE-OPTION: the same credential-less exchange WITHOUT a
+// code_verifier is admitted only for a public client an org_admin turned
+// "PKCE required" off for (AuthenticatedClient.PKCEOptOut); Consume still
+// refuses it when the code was bound to a challenge. For every other client
+// that request falls through to RequireOAuthClient and is refused exactly as
+// before.
 func RequireTokenEndpointClient(report *lifecycle.StartupReport, authn OAuthClientAuthenticator) gin.HandlerFunc {
 	secretOrAssertion := RequireOAuthClient(report, authn)
 	if authn == nil {
 		return secretOrAssertion
 	}
 	return func(c *gin.Context) {
-		if !isPublicPKCEExchange(c) {
+		if !isCredentialLessCodeExchange(c) {
 			secretOrAssertion(c)
 			return
 		}
 		ac, err := authn.Authenticate(c.Request.Context(), c.PostForm("client_id"), "", service.ClientAuthMethodNone)
+		if c.PostForm("code_verifier") == "" {
+			if err == nil && ac != nil && ac.IsPublic && ac.PKCEOptOut {
+				c.Set(oauthClientCtxKey, ac)
+				c.Next()
+				return
+			}
+			secretOrAssertion(c)
+			return
+		}
 		if err != nil || ac == nil {
 			if domain.IsAuthStoreUnavailable(err) {
 				RespondAuthStoreUnavailable(c, "client-auth.none", err)
@@ -270,16 +286,16 @@ func RequireTokenEndpointClient(report *lifecycle.StartupReport, authn OAuthClie
 	}
 }
 
-// isPublicPKCEExchange reports whether the request is a credential-less
-// authorization_code exchange with a PKCE verifier — the only token request a
-// public client may make.
-func isPublicPKCEExchange(c *gin.Context) bool {
+// isCredentialLessCodeExchange reports whether the request is an
+// authorization_code exchange that presents no client credential — the only
+// token request a public client may make, with a PKCE verifier or, for a
+// client with PKCE turned off, without one.
+func isCredentialLessCodeExchange(c *gin.Context) bool {
 	if _, _, hasBasic := c.Request.BasicAuth(); hasBasic {
 		return false
 	}
 	return c.PostForm("grant_type") == "authorization_code" &&
 		c.PostForm("client_id") != "" &&
-		c.PostForm("code_verifier") != "" &&
 		c.PostForm("client_secret") == "" &&
 		c.PostForm("client_assertion") == "" &&
 		c.PostForm("client_assertion_type") == "" &&

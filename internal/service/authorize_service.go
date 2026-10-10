@@ -299,6 +299,11 @@ type AuthorizeResult struct {
 	// ConsentSkipped: the code was issued for a first-party client without
 	// the consent gate (D-018(b)); the code_issued audit records it.
 	ConsentSkipped bool
+	// PublicClientWithoutPKCE: the code was issued to a public client with
+	// no code challenge, which only a client whose org_admin turned "PKCE
+	// required" off can obtain (OSS-PUBLIC-CLIENT-PKCE-OPTION); the
+	// code_issued audit records it.
+	PublicClientWithoutPKCE bool
 }
 
 // Sentinel errors. The handler maps each to either a 302 redirect
@@ -434,9 +439,13 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 	// verifies the verifier whenever a challenge was bound to the code.
 	// Mandatory-for-all was the conformance harness's biggest finding: the
 	// OIDC Basic profile (plain code flow) could not run at all.
+	// OSS-PUBLIC-CLIENT-PKCE-OPTION (owner decision 2026-10-10): "PKCE
+	// required" is a per-client setting, on by default; an org_admin may turn
+	// it off for one public client (Client.RequiresPKCE), which may then omit
+	// the challenge. A challenge it does send is judged exactly as below.
 	challenge := strings.TrimSpace(req.CodeChallenge)
 	challengeMethod := ""
-	if challenge == "" && client.IsPublic {
+	if challenge == "" && client.RequiresPKCE() {
 		return nil, ErrAuthorizeMissingParameters
 	}
 	if challenge != "" {
@@ -661,6 +670,8 @@ func (s *AuthorizeService) Authorize(ctx context.Context, req AuthorizeRequest) 
 		// Reaching here with SkipConsent set means the gate was bypassed:
 		// prompt=consent returned above.
 		ConsentSkipped: skipsConsent,
+		// Only a public client with PKCE turned off gets here without one.
+		PublicClientWithoutPKCE: client.IsPublic && challenge == "",
 	}, nil
 }
 

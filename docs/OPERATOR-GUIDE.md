@@ -871,6 +871,24 @@ GET /.well-known/openid-configuration
   a public client can make: it gets an access token and an ID token, but no
   refresh token (the refresh grant needs client authentication), so it signs
   in again through `/authorize` when the access token expires.
+- **PKCE required (per client, on by default).** Every client, existing and
+  new, has `pkce_required` true. An organization admin may turn it off for
+  one public client through the client admin API (`POST` or `PUT
+  /api/v1/clients` with `"pkce_required": false`); there is no server-wide
+  switch, and the console has no control for it. **Warning:** with PKCE off,
+  an intercepted authorization code can be exchanged without a code
+  verifier. Use it only for a test client, such as the OpenID conformance
+  public-client plan, which sends no PKCE. With it off, that client may
+  omit the `code_challenge` and redeem its code with `client_id` alone; a
+  challenge it does send is still `S256` only and still verified, and its
+  redirect URI must still match exactly. Every read of the client shows
+  `pkce_required`, plus a `pkce_warning` while it is off; each change is
+  audited in `client.updated` (who, the client, `pkce_required_before` and
+  `pkce_required_after`), and each code issued without PKCE carries
+  `issued_without_pkce` in `oauth_authorize.code_issued`. A confidential
+  client, or one created through dynamic client registration, cannot turn
+  it off (`400 invalid_request`); a confidential client may omit PKCE as
+  before, whatever the setting says.
 - **Sign-in happens on the IdP's own page.** `/authorize` signs the user in
   at `/api/v1/auth/browser-login` (email, password, and a TOTP code if they
   enrolled one); being signed in to the console does not carry over. The first

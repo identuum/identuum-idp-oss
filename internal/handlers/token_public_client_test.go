@@ -65,6 +65,7 @@ func (r *publicClientStore) GetConsent(context.Context, uuid.UUID, uuid.UUID, *u
 
 const (
 	publicTestClientID       = "spa-public"
+	publicNoPKCETestClientID = "spa-public-no-pkce"
 	confidentialTestClientID = "web-confidential"
 	publicTestRedirect       = "https://spa.example.com/cb"
 )
@@ -83,6 +84,10 @@ func newPublicExchangeFixture(t *testing.T) *publicExchangeFixture {
 		publicTestClientID: {
 			ID: uuid.New(), ClientID: publicTestClientID, Name: "spa", IsPublic: true,
 			TokenEndpointAuthMethod: "none", RedirectURIs: []string{publicTestRedirect},
+		},
+		publicNoPKCETestClientID: {
+			ID: uuid.New(), ClientID: publicNoPKCETestClientID, Name: "conformance-public", IsPublic: true,
+			TokenEndpointAuthMethod: "none", RedirectURIs: []string{publicTestRedirect}, PKCEOptOut: true,
 		},
 		confidentialTestClientID: {
 			ID: uuid.New(), ClientID: confidentialTestClientID, Name: "web",

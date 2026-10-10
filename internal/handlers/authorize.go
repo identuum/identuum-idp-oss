@@ -217,17 +217,23 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 // wherever Authorize mints a code: the /authorize handler and the consent
 // page's approve (OSS-POLISH, audit F7 — the latter was unaudited).
 func recordCodeIssued(c *gin.Context, auditSvc audit.Service, result *service.AuthorizeResult, scope string) {
+	meta := map[string]any{
+		"client_id":       result.ClientID,
+		"response_type":   "code",
+		"scopes_count":    len(splitWhitespace(scope)),
+		"consent_skipped": result.ConsentSkipped,
+	}
+	// OSS-PUBLIC-CLIENT-PKCE-OPTION: a public client's code issued without
+	// PKCE (its org_admin turned "PKCE required" off) is named in the record.
+	if result.PublicClientWithoutPKCE {
+		meta["issued_without_pkce"] = true
+	}
 	_ = auditSvc.Record(c.Request.Context(), audit.Event{
 		Action:    "oauth_authorize.code_issued",
 		Outcome:   "success",
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
-		Metadata: map[string]any{
-			"client_id":       result.ClientID,
-			"response_type":   "code",
-			"scopes_count":    len(splitWhitespace(scope)),
-			"consent_skipped": result.ConsentSkipped,
-		},
+		Metadata:  meta,
 	})
 }
 

@@ -89,7 +89,15 @@ var (
 	// through dynamic client registration (D-026: only an app an org_admin
 	// creates in the console may skip the consent screen).
 	ErrSkipConsentDynamicClient = errors.New("skip_consent is not available for an app created through dynamic client registration")
-	ErrForbidden                = errors.New("forbidden")
+	// ErrPKCEOptOutConfidentialClient refuses pkce_required=false on a
+	// confidential client: the setting exists only for public clients, and
+	// a confidential client's PKCE posture is unchanged by it.
+	ErrPKCEOptOutConfidentialClient = errors.New("pkce_required can be turned off only for a public client")
+	// ErrPKCEOptOutDynamicClient refuses pkce_required=false on an app created
+	// through dynamic client registration: only an org_admin's console app
+	// may turn PKCE off.
+	ErrPKCEOptOutDynamicClient = errors.New("pkce_required cannot be turned off for an app created through dynamic client registration")
+	ErrForbidden               = errors.New("forbidden")
 	// OSS-GUARDS (CE parity, AdminPermissionsModel.md line 3): an org_admin
 	// never changes its own active state, roles or MFA through the admin
 	// routes, and an organization's last active org_admin is never disabled,

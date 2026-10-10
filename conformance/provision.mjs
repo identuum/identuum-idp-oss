@@ -2,10 +2,11 @@
 //
 // Provisions the conformance fixtures on the FRESH disposable appliance:
 // one organization (mfa_policy=optional), one test user WITHOUT MFA, an
-// active RS256 signing key (testing-only, THE-PKCE-DECISION), and three
+// active RS256 signing key (testing-only, THE-PKCE-DECISION), three
 // confidential OAuth clients registered for the suite's callback (one
 // default, one with id_token_signed_response_alg=RS256, one with
-// token_endpoint_auth_method=client_secret_post).
+// token_endpoint_auth_method=client_secret_post), and one public client with
+// pkce_required=false for the public-client plan.
 //
 // This is the SAME API provisioning path the e2e-full provisioner drives
 // (bootstrapped site_admin -> org -> activation -> org_admin -> resources).
@@ -13,8 +14,8 @@
 // suite's static browser automation cannot type — so the conformance user is
 // deliberately provisioned WITHOUT MFA on an mfa_policy=optional org.
 //
-// stdout: exactly one JSON line {clientN_id, clientN_secret for N in 1..3}
-// for run.sh to substitute into the plan config. Secrets go no further than
+// stdout: exactly one JSON line {clientN_id, clientN_secret for N in 1..3,
+// client4_id} for run.sh to substitute into the plan config. Secrets go no further than
 // the gitignored work directory of one run.
 import { createHmac } from "node:crypto";
 
@@ -186,8 +187,22 @@ const c3 = must(await api("POST", "/api/v1/clients", {
   token_endpoint_auth_method: "client_secret_post",
 }, oaToken), 201, "create client3");
 
+// 8. One PUBLIC client for the suite's public-client plan (oidcc-test-plan,
+// client_auth_type=none), which sends no PKCE. "PKCE required" is a
+// per-client setting, on by default (OSS-PUBLIC-CLIENT-PKCE-OPTION); this
+// test client alone has it turned off, and the admin API must echo that.
+const c4 = must(await api("POST", "/api/v1/clients", {
+  name: "Conformance Public Client", redirect_uris: [CALLBACK], scope: SCOPES,
+  is_public: true, token_endpoint_auth_method: "none", pkce_required: false,
+}, oaToken), 201, "create public client4");
+if (c4.client?.pkce_required !== false) {
+  console.error("provision: public client4 -> pkce_required not echoed false");
+  process.exit(1);
+}
+
 process.stdout.write(JSON.stringify({
   client1_id: c1.client?.client_id, client1_secret: c1.client_secret,
   client2_id: c2.client?.client_id, client2_secret: c2.client_secret,
   client3_id: c3.client?.client_id, client3_secret: c3.client_secret,
+  client4_id: c4.client?.client_id,
 }) + "\n");

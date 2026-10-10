@@ -101,6 +101,11 @@ type AuthenticatedClient struct {
 	// path. The api_resource path is always confidential, so the
 	// field is false for that kind.
 	IsPublic bool
+	// PKCEOptOut mirrors domain.Client.PKCEOptOut: true only for a public
+	// client an org_admin turned "PKCE required" off for, which may then
+	// redeem a code bound without a challenge with no code_verifier
+	// (OSS-PUBLIC-CLIENT-PKCE-OPTION). False on every other path.
+	PKCEOptOut bool
 	// AllowedScopes is the set of scope names this identity is
 	// authorized to receive on issued tokens. Populated by the
 	// api_resource path from APIResource.Scopes; nil for the
@@ -189,6 +194,7 @@ func (s *OAuthClientAuthService) Authenticate(ctx context.Context, clientID, cli
 			AuthRecordID: c.ID,
 			Name:         c.Name,
 			IsPublic:     c.IsPublic,
+			PKCEOptOut:   c.IsPublic && c.PKCEOptOut,
 			IDTokenAlg:   c.EffectiveIDTokenAlg(),
 			// H8: the registered allowed audiences, read by client_credentials.
 			AllowedAudiences: c.AllowedAudiences,

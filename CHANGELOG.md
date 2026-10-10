@@ -7,6 +7,26 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **"PKCE required" is a per-client setting, on by default; an org_admin may
+  turn it off for one public client** (OSS-PUBLIC-CLIENT-PKCE-OPTION, owner
+  decision 2026-10-10). Migration 0052 adds `oauth_clients.pkce_required`,
+  `NOT NULL DEFAULT true`, so every existing and new client keeps PKCE
+  required; a check constraint allows false only on a public client. The
+  client admin API (`POST`/`PUT`/`GET /api/v1/clients`) carries
+  `pkce_required`, always shown, plus a plain `pkce_warning` while it is
+  false; false is refused (`400 invalid_request`) for a confidential client
+  or one created through dynamic registration, and dynamic registration
+  cannot set it. A change is audited in `client.updated` with the actor and
+  `pkce_required_before`/`pkce_required_after`. A public client with it off
+  may omit the code challenge and redeem its code with `client_id` alone; a
+  challenge it sends is still S256-only and verified, `plain` is still
+  refused, its redirect URI must still match exactly, and each code issued
+  without PKCE is marked `issued_without_pkce` in
+  `oauth_authorize.code_issued`. There is no server-wide switch, and
+  confidential clients are unchanged. The conformance provisioning creates
+  its public test client with the setting off, for the public-client plan
+  that sends no PKCE. Production behaviour does not change unless an admin
+  opts a specific client out.
 - **Processes starting together create one active RSA key, not one each**
   (OSS-REVIEW-FIXES-2, review OSS-RS256-REVIEW finding F1). With
   `IDENTUUM_IDP_ADVERTISE_RS256=true`, startup ensures an active RSA key and,

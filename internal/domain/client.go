@@ -288,7 +288,16 @@ type Client struct {
 	// set once, at creation, and never changes (D-026: such an app never skips
 	// the consent screen).
 	DynamicallyRegistered bool
-	TokenTTLSecs          *int
+	// PKCEOptOut is true only when an org_admin turned "PKCE required"
+	// (oauth_clients.pkce_required, API field pkce_required) off for this
+	// PUBLIC client (OSS-PUBLIC-CLIENT-PKCE-OPTION, owner decision
+	// 2026-10-10). It is stored inverted so that the zero value — every
+	// client built anywhere without naming it — keeps PKCE required. It
+	// lets the public client omit the code challenge; a challenge that is
+	// sent is still S256-only and still verified. Confidential clients and
+	// dynamically registered apps never carry it (Validate).
+	PKCEOptOut   bool
+	TokenTTLSecs *int
 	// FrontchannelLogoutURI is the registered RP front-channel
 	// logout URL. When non-empty AND the OP frontchannel-logout
 	// route is live, the OP renders an iframe loading this URI
@@ -388,6 +397,14 @@ func (c *Client) EffectiveIDTokenAlg() string {
 	return "EdDSA"
 }
 
+// RequiresPKCE reports whether an authorization request for this client must
+// carry a code challenge (THE-PKCE-DECISION, OSS-PUBLIC-CLIENT-PKCE-OPTION):
+// every public client unless an org_admin turned pkce_required off for it.
+// A confidential client never must; a challenge any client sends is verified.
+func (c *Client) RequiresPKCE() bool {
+	return c.IsPublic && !c.PKCEOptOut
+}
+
 // Validate performs domain-level validation.
 // Note: scope string is intentionally NOT validated against the static scope list here —
 // dynamic API Resource scopes are user-defined and not present in that list.
@@ -425,6 +442,15 @@ func (c *Client) Validate() error {
 	// vetted by an org_admin, so it never skips the consent screen.
 	if c.DynamicallyRegistered && c.SkipConsent {
 		return ErrSkipConsentDynamicClient
+	}
+	// OSS-PUBLIC-CLIENT-PKCE-OPTION: PKCE may be turned off only for a public
+	// client an org_admin created; a confidential client keeps its own PKCE
+	// posture, and a dynamically registered app was never vetted.
+	if c.PKCEOptOut && !c.IsPublic {
+		return ErrPKCEOptOutConfidentialClient
+	}
+	if c.PKCEOptOut && c.DynamicallyRegistered {
+		return ErrPKCEOptOutDynamicClient
 	}
 
 	method := c.EffectiveAuthMethod()

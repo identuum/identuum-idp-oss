@@ -228,7 +228,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=org_admin
 		// docgen:response=oss.handlers.safeClient
-		// docgen:notes=The cleartext client_secret appears in the response body exactly once. The server retains only the hash. skip_consent true marks a first-party client (no consent page at /authorize, D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6).
+		// docgen:notes=The cleartext client_secret appears in the response body exactly once. The server retains only the hash. skip_consent true marks a first-party client (no consent page at /authorize, D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6). pkce_required defaults to true; false is accepted only for a public client (a confidential or dynamically registered one answers 400 invalid_request) and lets that client omit the PKCE code challenge, while a challenge it sends is still S256-only and verified. WARNING: with pkce_required false an intercepted code can be exchanged without a verifier; use it only for a test client such as the OpenID conformance public-client plan. The response always carries pkce_required, and pkce_warning when it is false. A frontchannel_logout_uri on the issuer's own origin runs its script without its origin's storage (sandbox allow-scripts only); a receiver that must clear browser storage is served from a different origin, or the client uses back-channel logout.
 		// docgen:status=201
 		createG.POST("", HandleCreateClient(deps))
 
@@ -239,7 +239,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:summary=Update OAuth client metadata (does not rotate the client_secret).
 		// docgen:tier=oss
 		// docgen:auth=org_admin
-		// docgen:notes=skip_consent marks or unmarks a first-party client, audited with its before and after values in client.updated (D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6).
+		// docgen:notes=skip_consent marks or unmarks a first-party client, audited with its before and after values in client.updated (D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6). pkce_required turns PKCE on or off for a public client, audited with its before and after values in client.updated; false on a confidential or dynamically registered client answers 400 invalid_request. WARNING: with pkce_required false an intercepted code can be exchanged without a verifier; use it only for a test client. A frontchannel_logout_uri on the issuer's own origin runs its script without its origin's storage; serve a storage-clearing receiver from a different origin, or use back-channel logout.
 		// docgen:response=oss.handlers.safeClient
 		updateG.PUT("/:id", HandleUpdateClient(deps))
 
@@ -374,13 +374,27 @@ type safeClient struct {
 	BackchannelLogoutURI              string     `json:"backchannel_logout_uri,omitempty"`
 	BackchannelLogoutSessionRequired  bool       `json:"backchannel_logout_session_required,omitempty"`
 	IDTokenSignedResponseAlg          string     `json:"id_token_signed_response_alg,omitempty"`
-	CreatedAt                         time.Time  `json:"created_at"`
-	UpdatedAt                         time.Time  `json:"updated_at"`
+	// pkce_required (OSS-PUBLIC-CLIENT-PKCE-OPTION): true unless an org_admin
+	// turned PKCE off for this public client. No omitempty: false must be
+	// visible. It decides nothing for a confidential client, which may omit
+	// PKCE whatever it says. pkce_warning says plainly what false means.
+	PKCERequired bool      `json:"pkce_required"`
+	PKCEWarning  string    `json:"pkce_warning,omitempty"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+// pkceOffWarning is the plain warning every admin read of a public client
+// with PKCE turned off carries.
+const pkceOffWarning = "PKCE is turned off for this public client: an intercepted authorization code can be exchanged without a code verifier. Use this only for a test client, such as the OpenID conformance public-client plan, and turn it back on with pkce_required true."
 
 func toSafeClient(c *domain.Client) safeClient {
 	if c == nil {
 		return safeClient{}
+	}
+	warning := ""
+	if c.PKCEOptOut {
+		warning = pkceOffWarning
 	}
 	return safeClient{
 		ID:                                c.ID,
@@ -402,6 +416,8 @@ func toSafeClient(c *domain.Client) safeClient {
 		BackchannelLogoutURI:              c.BackchannelLogoutURI,
 		BackchannelLogoutSessionRequired:  c.BackchannelLogoutSessionRequired,
 		IDTokenSignedResponseAlg:          c.IDTokenSignedResponseAlg,
+		PKCERequired:                      !c.PKCEOptOut,
+		PKCEWarning:                       warning,
 		CreatedAt:                         c.CreatedAt,
 		UpdatedAt:                         c.UpdatedAt,
 	}
@@ -513,6 +529,8 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			BackchannelLogoutURI              string     `json:"backchannel_logout_uri,omitempty"`
 			BackchannelLogoutSessionRequired  bool       `json:"backchannel_logout_session_required,omitempty"`
 			IDTokenSignedResponseAlg          string     `json:"id_token_signed_response_alg,omitempty"`
+			// PKCERequired: absent is true (OSS-PUBLIC-CLIENT-PKCE-OPTION).
+			PKCERequired *bool `json:"pkce_required,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -553,6 +571,7 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			Scope:                             req.Scope,
 			IsPublic:                          req.IsPublic,
 			SkipConsent:                       req.SkipConsent != nil && *req.SkipConsent,
+			PKCEOptOut:                        req.PKCERequired != nil && !*req.PKCERequired,
 			TokenEndpointAuthMethod:           req.TokenEndpointAuthMethod,
 			TokenEndpointAuthSigningAlg:       req.TokenEndpointAuthSigningAlg,
 			JWKSUri:                           req.JWKSUri,
@@ -581,10 +600,11 @@ func HandleCreateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusCreated, out)
 		createdMeta := map[string]any{
-			"client_id":    client.ClientID,
-			"name":         client.Name,
-			"is_public":    client.IsPublic,
-			"skip_consent": client.SkipConsent,
+			"client_id":     client.ClientID,
+			"name":          client.Name,
+			"is_public":     client.IsPublic,
+			"skip_consent":  client.SkipConsent,
+			"pkce_required": !client.PKCEOptOut,
 		}
 		if skipRequested {
 			createdMeta["mfa_verified"] = true
@@ -633,6 +653,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			IDTokenSignedResponseAlg          *string    `json:"id_token_signed_response_alg,omitempty"`
 			SkipConsent                       *bool      `json:"skip_consent,omitempty"`
 			MFACode                           string     `json:"mfa_code,omitempty"`
+			PKCERequired                      *bool      `json:"pkce_required,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -649,14 +670,16 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		// scope, never fewer.
 		var priorSA *uuid.UUID
 		var priorSkip, priorDynamic, priorPublic bool
+		priorPKCERequired := true
 		var priorScope string
-		if req.Scope != nil || req.ServiceAccountID != nil || req.SkipConsent != nil {
+		if req.Scope != nil || req.ServiceAccountID != nil || req.SkipConsent != nil || req.PKCERequired != nil {
 			if prior, perr := deps.ClientService.GetClient(c.Request.Context(), id); perr == nil && prior != nil {
 				priorSA = prior.ServiceAccountID
 				priorSkip = prior.SkipConsent
 				priorDynamic = prior.DynamicallyRegistered
 				priorPublic = prior.IsPublic
 				priorScope = prior.Scope
+				priorPKCERequired = !prior.PKCEOptOut
 			}
 		}
 		if req.Scope != nil && !requireClientScopeWithinActor(c, *req.Scope, priorScope) {
@@ -698,6 +721,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			BackchannelLogoutSessionRequired:  req.BackchannelLogoutSessionRequired,
 			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
 			SkipConsent:                       req.SkipConsent,
+			PKCERequired:                      req.PKCERequired,
 		})
 		if err != nil {
 			// AUTH-503 (THE-SILENT-EXPIRY): same distinction as create.
@@ -716,6 +740,12 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			if turningSkipOn {
 				meta["mfa_verified"] = true
 			}
+		}
+		// OSS-PUBLIC-CLIENT-PKCE-OPTION: who changed "PKCE required" (the
+		// actor fields) and from what to what.
+		if req.PKCERequired != nil {
+			meta["pkce_required_before"] = priorPKCERequired
+			meta["pkce_required_after"] = !client.PKCEOptOut
 		}
 		_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
 			Action:         "client.updated",
@@ -881,7 +911,8 @@ func HandleRegenerateClientSecret(deps ClientsHandlerDeps) gin.HandlerFunc {
 // skip_consent refusal (D-018(b)) names its rule; every other refusal keeps
 // the flattened answer.
 func respondClientInvalid(c *gin.Context, err error) {
-	if errors.Is(err, domain.ErrSkipConsentPublicClient) || errors.Is(err, domain.ErrSkipConsentDynamicClient) {
+	if errors.Is(err, domain.ErrSkipConsentPublicClient) || errors.Is(err, domain.ErrSkipConsentDynamicClient) ||
+		errors.Is(err, domain.ErrPKCEOptOutConfidentialClient) || errors.Is(err, domain.ErrPKCEOptOutDynamicClient) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
 		return
 	}

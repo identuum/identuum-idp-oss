@@ -100,6 +100,19 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "D-018(b): RFC 7592 management mirrors the 7591 posture: the registration access token must not make its client consent-free.",
 	},
+	// OSS-PUBLIC-CLIENT-PKCE-OPTION: "PKCE required" is turned off only by an
+	// org_admin on the admin surface (clients.go feeds it). A registrant that
+	// could drop PKCE for itself would remove the only code-interception
+	// defence a public client has; Client.Validate also refuses it for a
+	// dynamically registered app.
+	"internal/handlers/dcr.go:HandleDCRRegister.RegisterClientOptions.PKCEOptOut": {
+		State: "absent",
+		Why:   "OSS-PUBLIC-CLIENT-PKCE-OPTION: PKCE stays required for every dynamically registered client; only an org_admin turns it off, on the admin surface (clients.go).",
+	},
+	"internal/handlers/dcr_management.go:HandleDCRManagementPut.UpdateClientOptions.PKCERequired": {
+		State: "absent",
+		Why:   "OSS-PUBLIC-CLIENT-PKCE-OPTION: RFC 7592 management mirrors the 7591 posture: the registration access token must not turn PKCE off for its client.",
+	},
 	// D-026: the marker records that dynamic client registration created the
 	// app. Only HandleDCRRegister feeds it (true); no console request sets or
 	// clears it, so an org_admin can never make a registered app look

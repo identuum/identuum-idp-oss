@@ -115,7 +115,12 @@ type RegisterClientOptions struct {
 	SkipConsent bool
 	// DynamicallyRegistered marks an app created through dynamic client
 	// registration; such an app never skips consent (D-026).
-	DynamicallyRegistered             bool
+	DynamicallyRegistered bool
+	// PKCEOptOut turns "PKCE required" off for a public client the console
+	// creates (OSS-PUBLIC-CLIENT-PKCE-OPTION); false, the default for every
+	// caller that does not set it, keeps PKCE required. Client.Validate
+	// refuses it for a confidential or dynamically registered client.
+	PKCEOptOut                        bool
 	TokenEndpointAuthMethod           string
 	TokenEndpointAuthSigningAlg       string
 	JWKSUri                           string
@@ -184,6 +189,10 @@ type UpdateClientOptions struct {
 	IDTokenSignedResponseAlg *string
 	// SkipConsent: nil leaves it unchanged (D-018(b)).
 	SkipConsent *bool
+	// PKCERequired: nil leaves it unchanged; false turns PKCE off for a
+	// public client, which Client.Validate refuses for any other
+	// (OSS-PUBLIC-CLIENT-PKCE-OPTION).
+	PKCERequired *bool
 }
 
 // errClientNotFound is the sentinel for missing rows. Handlers map
@@ -320,6 +329,7 @@ func (s *ClientService) prepareClient(opts RegisterClientOptions) (*domain.Clien
 		IsPublic:                          opts.IsPublic,
 		SkipConsent:                       opts.SkipConsent,
 		DynamicallyRegistered:             opts.DynamicallyRegistered,
+		PKCEOptOut:                        opts.PKCEOptOut,
 		Scope:                             opts.Scope,
 		RedirectURIs:                      opts.RedirectURIs,
 		PostLogoutRedirectURIs:            opts.PostLogoutRedirectURIs,
@@ -461,6 +471,9 @@ func (s *ClientService) UpdateClient(ctx context.Context, id uuid.UUID, opts Upd
 	}
 	if opts.SkipConsent != nil {
 		client.SkipConsent = *opts.SkipConsent
+	}
+	if opts.PKCERequired != nil {
+		client.PKCEOptOut = !*opts.PKCERequired
 	}
 	if opts.ServiceAccountID != nil {
 		if *opts.ServiceAccountID == uuid.Nil {

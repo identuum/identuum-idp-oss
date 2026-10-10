@@ -741,7 +741,7 @@ What that means in this product:
   operational default. Advertising RS256 does not change the algorithm of
   any client that did not register RS256.
 
-## PKCE — required for public clients, optional to send, never optional to honor
+## PKCE — required for public clients (per-client setting, on by default), optional to send, never optional to honor
 
 PKCE posture (same ruling): **per-client**. A PUBLIC client (no credential)
 MUST send a `code_challenge` (S256 only) — the request is refused without
@@ -751,6 +751,20 @@ its verifier is enforced at the token endpoint, and a code minted without a
 challenge refuses a gratuitous verifier. A public client redeems its code
 with `client_id` and `code_verifier` and no credential (discovery lists
 `none` for the token endpoint only); it receives no refresh token.
+
+**Per-client opt-out for testing (OSS-PUBLIC-CLIENT-PKCE-OPTION, owner
+decision 2026-10-10).** "PKCE required" is a per-client setting,
+`pkce_required`, true for every client by default; there is no server-wide
+switch. The OpenID conformance public-client plan (`oidcc-test-plan` with
+`client_auth_type=none`) sends no PKCE, so the conformance provisioning
+(`conformance/provision.mjs`) creates its public test client with
+`"pkce_required": false` through `POST /api/v1/clients` and checks that the
+response echoes `client.pkce_required` false. Only an org_admin can turn it
+off, only for a public client, and never through dynamic registration. With
+it off the client may omit the challenge and redeem its code with
+`client_id` alone; a challenge it sends is still S256-only and verified, and
+`plain` is still refused. Production behaviour does not change unless an
+admin opts a specific client out. Rule `PKCE-REQUIRED-DEFAULT-1`.
 
 ## Forced re-authentication — prompt=login and max_age
 
