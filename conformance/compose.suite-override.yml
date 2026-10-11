@@ -6,7 +6,8 @@
 # every deviation from their defaults lives HERE.
 #
 #   - mongo data moves from a bind mount INSIDE the clone to a named volume,
-#     so `down --volumes` leaves nothing behind but the clone itself.
+#     so the recorded teardown leaves nothing behind but the clone itself
+#     (run.sh names it with the run's invocation id and records it).
 #   - host ports move to 127.0.0.1:28443/28444 so the suite can never collide
 #     with the dev stack. The IN-NETWORK port stays 8443: BASE_URL and the
 #     localhost.emobix.co.uk network alias (their own trick for making the

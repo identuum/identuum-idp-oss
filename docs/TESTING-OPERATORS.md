@@ -28,39 +28,47 @@ nothing is left behind, and nothing you have is touched.
 
 ```bash
 cd identuum-idp-oss
-DEV_PG_HOST_PORT=35599 make test-full
+IDENTUUM_IDP_COMPOSE_PROJECT=scratch-mint FAST_UP_PG_CONTAINER="$id" DEV_PG_HOST_PORT=35599 make test-full
 ```
 
-`DEV_PG_HOST_PORT` is required: it names the scratch PostgreSQL the
-database-backed phase uses (see "Running a mint against a scratch server"
-below). Without it the port is the default 5513, and the run is refused before
-anything connects.
+The three variables are required: they name the scratch PostgreSQL the
+database-backed phase uses — its project, the full container ID its
+`docker run` printed (`$id`), and its port (see "Running a mint against a
+scratch server" below for the commands). Without them the run is refused
+before anything connects or starts: the port defaults to 5513, and a mint on
+the default dev project, or without the recorded container, is never run.
 
 It takes about 16 minutes and prints its progress phase by phase. All
 passwords the run needs are generated fresh for that run and never shown.
 
 Its last step is `make devseed-live` (about 50 seconds): `make dev-seed` run
-against a disposable project of its own (`identuum-devseed`, host ports 25513
+against a disposable project of its own (`scratch-devseed`, host ports 25513
 and 27113), then every credential it prints is used to sign in, and the
 project is removed again. It needs those two ports free and refuses, naming
 the holder, when one is taken. It also refuses, without removing anything,
-when `identuum-devseed` still has containers, volumes or networks from an
+when `scratch-devseed` still has containers, volumes or networks from an
 earlier run; the refusal says how to remove each one by its own name. It
 refuses too when a volume or network already has one of the names it would
-create, whoever made it, and when another `devseed-live` run is active (it
-holds the lock `/tmp/identuum-devseed.lock`, one fixed path whatever
-`TMPDIR` says; a killed run leaves it, and you remove it by hand). Each
-name it creates ends with a random id of that run
-(`identuum-devseed_postgres-idp-oss-data-v18_<id>`,
-`identuum-devseed_default_<id>`), so an ordinary stack or another run does
+create, whoever made it, when the resolved Compose configuration holds
+anything but its two services, mounts a host path, runs privileged or in
+the host's network, or publishes a port other than its two on 127.0.0.1,
+and when another harness run is active (see "The harness claim and its
+record" below). Each name it creates ends with a random id of that run
+(`scratch-devseed_postgres-idp-oss-data-v18_<id>`,
+`scratch-devseed_default_<id>`), so an ordinary stack or another run does
 not create the same name by accident. At the end it removes only what it
 recorded creating, each after checking it again, and a volume only under a
-name that carries its own id; anything else it finds stays, and the run
-fails. One case is not caught: Docker removes a volume by name, with no
+name that carries its own id. Everything is checked before the first
+removal: when anything it did not create is found — a container, volume or
+network of the project or under one of its names, a recorded one that was
+replaced, or a container of someone else attached to its network or using
+its volume — it removes nothing at all, not even its own resources, and the
+run fails. After the removals it checks that every recorded resource is
+gone. One case is not caught: Docker removes a volume by name, with no
 identity check, so if another Docker user copies the run's exact volume
 name and puts a volume of their own under it after the last check and
 before the removal, that volume is removed and the run does not fail. The
-lock and the mutex below do not stop a Docker user outside these targets.
+claim and the mutex below do not stop a Docker user outside these targets.
 
 `devseed-live` supports exactly one setup: the Docker engine of this
 computer, reached through a unix socket on this computer. It refuses,
@@ -73,21 +81,22 @@ environment, the command line or `make -e`): an option such as `--host`,
 Every Docker command of the run, the nested `make oss-up` included, uses
 the checked endpoint.
 
-The `/tmp` lock keeps out a second run that sees the same `/tmp`. A run
+The `/tmp` claim keeps out a second run that sees the same `/tmp`. A run
 with another `/tmp` (a container sharing the Docker socket, another mount
 namespace) is kept out by the daemon mutex: before it lists or starts
 anything, the run creates a stopped container named
-`identuum-harness-lock-engine` on the checked engine, and Docker refuses a
-second container of that name. identuum-ui's `make e2e-full` takes the same
-mutex, so the two never run against one engine at the same time. The
+`identuum-harness-lock-engine` on the checked engine, labelled with its
+project and ports, and Docker refuses a second container of that name.
+identuum-ui's `make e2e-full` and `make openid-conformance` take the same
+mutex, so no two of them run against one engine at the same time. The
 container is made from the distroless image that
 `deployment/Dockerfile.local` pins
 (`gcr.io/distroless/static-debian12@sha256:d75cdd72...`); it is never
 pulled by the run, and when it is missing the run refuses and prints the
 `docker pull` command. It is never started, and it is removed by its ID
 at the end. When a run is killed, the container stays and the next run
-refuses, naming it: check that no `devseed-live` or `e2e-full` run is
-active, inspect it (`docker container inspect identuum-harness-lock-engine`,
+refuses, naming it: check that no `devseed-live`, `e2e-full` or
+`openid-conformance` run is active, inspect it (`docker container inspect identuum-harness-lock-engine`,
 labels `io.identuum.harness.*`), then remove it by its ID. The run also
 records the engine's ID (`docker info`) and checks it before every later
 Docker command; if another engine answers, the run stops all Docker
@@ -133,15 +142,28 @@ development stack publishes by default. Give the run its own server and move
 only the port:
 
 ```bash
-docker run -d --rm --name scratch-oss-pg -p 127.0.0.1:35514:5432 \
+id=$(docker run -d --rm --name scratch-mint-pg --tmpfs /var/lib/postgresql \
+  -p 127.0.0.1:35514:5432 \
   -e POSTGRES_USER=idp_oss_user -e POSTGRES_PASSWORD=dev-idp_oss_user-not-a-secret \
-  postgres:18-alpine
-DEV_PG_HOST_PORT=35514 make test-full    # or: DEV_PG_HOST_PORT=35514 make verify-integration
-docker stop scratch-oss-pg               # --rm removes the container and its data
+  postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15)
+IDENTUUM_IDP_COMPOSE_PROJECT=scratch-mint FAST_UP_PG_CONTAINER="$id" DEV_PG_HOST_PORT=35514 make test-full
+docker stop "$id"                        # --rm removes the container; tmpfs keeps no volume
 ```
 
-`DEV_PG_HOST_PORT` alone is enough: every test database URL follows it, and
-`make fast-up` reuses the server it finds on that port. The 5513 refusal has
+For `make verify-integration` alone, `DEV_PG_HOST_PORT=35514` is enough:
+every test database URL follows it. A mint (`make test-full`) is a candidate
+run, so its `make fast-up` step is stricter. With a `scratch-` project it
+never starts a database and never trusts a server just because it answers
+the port: it reuses only the container whose full ID you pass in
+`FAST_UP_PG_CONTAINER` (the ID `docker run` printed), after checking on this
+computer's Docker engine that the container is named `scratch-…`, is
+running, publishes exactly 5432 on `127.0.0.1:DEV_PG_HOST_PORT` and mounts
+no folder of this computer, and that the development user can connect.
+Anything else is refused, and nothing is started or stopped. Reusing it
+gives no right to remove it: you stop it yourself. `make fast-up` on the
+default development project keeps its old behaviour (reuse a compatible
+server on the port, or start the development PostgreSQL); a mint refuses
+that project. The 5513 refusal has
 no exception: no environment variable, CI setting or operating system admits
 5513. The CI workflow's test PostgreSQL services use port 45432 (neither 5513
 nor PostgreSQL's own 5432), and its jobs set `DEV_PG_HOST_PORT=45432`.
@@ -180,9 +202,42 @@ the same rules, and has no default: run on its own, it refuses unless
 and hands each target that job's `DEV_PG_HOST_PORT`.
 
 The appliance phases of `make test-full` use their own PostgreSQL (port
-15513, project `identuum-e2e`), and `devseed-live` its own (port 25513,
-project `identuum-devseed`): each phase has its own disposable server, so a
+15513, project `scratch-e2e`), and `devseed-live` its own (port 25513,
+project `scratch-devseed`): each phase has its own disposable server, so a
 mint does not use one server throughout.
+
+### The harness claim and its record
+
+`devseed-live`, identuum-ui's `make e2e-full` / `make e2e-quick` and
+`make openid-conformance` share one claim, the directory
+`/tmp/identuum-harness.lock` (one fixed path, whatever `TMPDIR` says), and
+the daemon mutex above. While one of them runs, the others are refused
+before any Docker command: they never share a host port, whatever their
+project or Docker engine (`devseed-live` and the conformance harness both
+publish 27113). A busy claim is refused at once; nothing waits for it.
+
+Inside the claim, each run keeps its record: `manifest.json` names the run
+(its kind, project, random invocation id, the Docker engine's ID and
+endpoint, its ports and the mutex's ID) and every resource it created —
+containers and networks by full ID, volumes by name and creation time. It
+is rewritten whole after the reservation, after the start and after the
+teardown. A green run removes the claim, the record and the mutex when every
+resource it recorded is gone.
+
+When the teardown is refused or fails — something it did not create was
+found, an identity changed, a removal failed, a resource is still there, or
+the Docker engine changed — the run fails and KEEPS the claim, the mutex
+and the record (its `manifest.json` then says `"state":"refused"`). Every
+later harness run is refused until you resolve it:
+
+1. Read `/tmp/identuum-harness.lock/manifest.json`.
+2. Inspect each resource it names (`docker inspect <id>`,
+   `docker network inspect <id>`, `docker volume inspect <name>`) and the
+   ones the failed run printed. Remove only what you have confirmed belongs
+   to that run; leave anything else.
+3. When no harness run is active, remove the mutex by its ID
+   (`docker container rm <mutex_id>`) and then the directory
+   `/tmp/identuum-harness.lock`.
 
 ## Reading the result
 
@@ -371,10 +426,18 @@ node, openssl. Roughly 4 GB of images.
 
 **Runtime:** first run ~10–20 min (clone + pulls + appliance build);
 afterwards ~5 min. Everything runs on an isolated compose project
-(`identuum-conformance`) with host ports 127.0.0.1:28443/28444/27113 — your
-dev stack, its ports and its data are untouched. Teardown (`down --volumes`
-for both stacks) fires on success, failure or Ctrl-C; only the cached suite
-clone (and its python venv) survives between runs.
+(`scratch-conformance`) with host ports 127.0.0.1:28443/28444/27113 — your
+dev stack, its ports and its data are untouched. It takes the harness claim
+and the daemon mutex first (see "The harness claim and its record"), refuses
+— rather than removes — anything the project already holds, and records
+every container, network and volume it creates. The teardown fires on
+success, failure or Ctrl-C and removes exactly those, each by its recorded
+ID, as one step (no `down`); a refused teardown keeps the claim, the mutex
+and the record. Only the cached suite clone (and its python venv) and the
+images survive between runs. The per-run TLS certificate and key live in a
+private temporary folder, never in the repository, and reach the TLS
+sidecar with `docker cp`; no folder of this computer is mounted into a
+container.
 
 **Reading the result:**
 

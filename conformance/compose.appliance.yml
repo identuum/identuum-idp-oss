@@ -3,8 +3,8 @@
 # The FRESH disposable idp-oss appliance that stands BESIDE the conformance
 # suite, in the SAME isolated compose project and network — so the suite's
 # server and its in-container browser reach the OP by service name
-# (conformance-idp), and one project-level `down --volumes` tears down both
-# stacks together.
+# (conformance-idp), and run.sh's recorded teardown removes both stacks
+# together, each object by its recorded ID.
 #
 # This file deliberately does NOT touch deployment/docker-compose.dev.yml or
 # its volumes: separate service names, separate (anonymous) volumes, separate
@@ -35,7 +35,9 @@ services:
       # now lives outside this repo. run.sh exports CONFORMANCE_REPO.
       context: ${CONFORMANCE_REPO:?run.sh exports this}
       dockerfile: deployment/Dockerfile.local
-    image: identuum-idp-oss:conformance
+    # Scratch-prefixed like every name the harness creates (SPEC K1); the
+    # tag is never removed by the harness (images survive between runs).
+    image: scratch-conformance-idp:local
     depends_on:
       conformance-postgres:
         condition: service_healthy

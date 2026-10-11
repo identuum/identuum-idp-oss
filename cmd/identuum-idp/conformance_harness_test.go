@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"testing"
@@ -14,12 +15,20 @@ import (
 // by THE-SECOND-LOGIN (2026-09-01). Two invariants of conformance/run.sh
 // worth pinning, proven through its committed test seams
 // (CONFORMANCE_STUB_STACK / CONFORMANCE_STUB_PLAN / CONFORMANCE_STUB_TEARDOWN
-// plus a recording `docker` shim on PATH — no real docker, no network):
+// plus a recording `docker` shim on PATH that models the engine ID, the
+// context endpoint and the daemon mutex — no real docker, no network). The
+// harness runs from a private copy of conformance/ whose one claim line points
+// into the test's own directory, so the test never touches /tmp.
 //
-//  1. GUARANTEED TEARDOWN: `down --volumes` on the identuum-conformance
-//     project fires on success, on failure, AND on interrupt mid-plan. A
-//     harness that leaves two stacks running after Ctrl-C is exactly the
-//     debris the owner ruling forbids.
+//  1. GUARANTEED TEARDOWN: the recorded teardown of the scratch-conformance
+//     project fires on success, on failure, AND on interrupt mid-plan, and
+//     releases the harness claim and the daemon mutex. A harness that leaves
+//     two stacks running after Ctrl-C is exactly the debris the owner ruling
+//     forbids. OSS-CANDIDATE-LIFECYCLE-FIX (SPEC K1-K5): that teardown is no
+//     longer a project-level `down --volumes` — it removes only what the run
+//     recorded creating, by ID — the run takes the one harness claim and the
+//     daemon mutex before any docker work, refuses a held claim and any
+//     engine that is not this host's unix socket, and mounts no host path.
 //  2. FLOOR SEMANTICS with the incomplete-module floor EMPTY: the basic plan
 //     is green ONLY when run-test-plan itself exits 0 against the committed
 //     expected-failures/expected-skips files. A nonzero plan fails; so does
@@ -50,26 +59,124 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 		}
 	}
 
+	// SPEC K1/K5, from the source: the project is scratch-prefixed, no
+	// executable line runs a Compose `down` (or --remove-orphans), the TLS
+	// sidecar mounts no host directory, and the built image is a scratch name.
+	{
+		src, err := os.ReadFile(script)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !regexp.MustCompile(`(?m)^PROJECT="scratch-conformance"$`).Match(src) {
+			t.Fatal(`conformance/run.sh does not set PROJECT="scratch-conformance"`)
+		}
+		if m := regexp.MustCompile(`(?m)^\s*(?:docker\s+)?compose\s[^#\n]*\b(down|--remove-orphans)\b`).Find(src); m != nil {
+			t.Fatalf("conformance/run.sh still runs a project-level teardown: %q", m)
+		}
+		tls, err := os.ReadFile(filepath.Join(repo, "conformance", "compose.tls.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(tls), "CONFORMANCE_TLS_DIR") || regexp.MustCompile(`(?m)^\s+volumes:`).Match(tls) {
+			t.Fatal("compose.tls.yml mounts a host directory into the TLS sidecar")
+		}
+		app, err := os.ReadFile(filepath.Join(repo, "conformance", "compose.appliance.yml"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !regexp.MustCompile(`(?m)^\s+image: scratch-conformance-idp:local$`).Match(app) {
+			t.Fatal("compose.appliance.yml does not build the scratch image scratch-conformance-idp:local")
+		}
+	}
+
+	// A private copy of conformance/: the one claim line points at this test's
+	// directory (SPEC K2: the real path is fixed, never derived from TMPDIR).
+	work := t.TempDir()
+	lock := filepath.Join(work, "identuum-harness.lock")
+	copyDir := filepath.Join(work, "repo", "conformance")
+	if err := os.MkdirAll(copyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(filepath.Join(repo, "conformance"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(repo, "conformance", e.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		mode := os.FileMode(0o644)
+		if e.Name() == "run.sh" {
+			const line = "HARNESS_LOCK=/tmp/identuum-harness.lock\n"
+			if strings.Count(string(raw), line) != 1 {
+				t.Fatalf("run.sh does not declare the one fixed claim line %q", line)
+			}
+			raw = []byte(strings.Replace(string(raw), line, "HARNESS_LOCK="+lock+"\n", 1))
+			mode = 0o755
+		}
+		if err := os.WriteFile(filepath.Join(copyDir, e.Name()), raw, mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script = filepath.Join(copyDir, "run.sh")
+
 	// A recording `docker` shim: every invocation is appended to a log the
-	// assertions read back.
+	// assertions read back. It answers the engine ID, a unix-socket context
+	// endpoint and the mutex image, and holds the daemon mutex as a directory
+	// created atomically, like the daemon's name reservation.
 	shimDir := t.TempDir()
 	dockerLog := filepath.Join(shimDir, "docker-calls.log")
-	shim := "#!/usr/bin/env bash\necho \"$@\" >> " + dockerLog + "\nexit 0\n"
+	state := filepath.Join(shimDir, "state")
+	shim := `#!/usr/bin/env bash
+echo "$@" >> ` + dockerLog + `
+S=` + state + `; mkdir -p "$S"
+case "$1 $2" in
+"context inspect") echo unix:///shim/docker.sock; exit 0 ;;
+"image inspect") echo null; exit 0 ;;
+"container create")
+  owner=; for a in "$@"; do case "$a" in io.identuum.harness.mutex-owner=*) owner="${a#*=}" ;; esac; done
+  mkdir "$S/mutex" 2>/dev/null || { echo "Conflict: the mutex name is in use" >&2; exit 1; }
+  echo "$owner" > "$S/mutex/owner"; echo shim-mutex-id; exit 0 ;;
+"container inspect") [ -d "$S/mutex" ] || exit 1; echo "shim-mutex-id $(cat "$S/mutex/owner") shim-engine"; exit 0 ;;
+"container rm") rm -rf "$S/mutex"; exit 0 ;;
+esac
+[ "$1" = info ] && { echo shim-engine; exit 0; }
+exit 0
+`
 	if err := os.WriteFile(filepath.Join(shimDir, "docker"), []byte(shim), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	runHarness := func(t *testing.T, stubPlan string, interrupt bool) (int, string, string) {
+	released := func(t *testing.T, printed string) {
+		t.Helper()
+		if _, err := os.Stat(lock); !os.IsNotExist(err) {
+			t.Fatalf("the harness claim %s was not released; output:\n%s", lock, printed)
+		}
+		if _, err := os.Stat(filepath.Join(state, "mutex")); !os.IsNotExist(err) {
+			t.Fatalf("the daemon mutex was not released; output:\n%s", printed)
+		}
+	}
+	noDown := func(t *testing.T, calls string) {
+		t.Helper()
+		if regexp.MustCompile(`(?m)\bcompose\b.*\b(down|--remove-orphans)\b`).MatchString(calls) {
+			t.Fatalf("a project-level teardown ran; docker calls:\n%s", calls)
+		}
+	}
+
+	runHarnessEnv := func(t *testing.T, stubPlan string, interrupt bool, extra ...string) (int, string, string) {
 		t.Helper()
 		_ = os.Remove(dockerLog)
 		cmd := exec.Command("bash", script)
-		cmd.Dir = repo
-		cmd.Env = append(os.Environ(),
+		cmd.Dir = filepath.Dir(copyDir)
+		cmd.Env = append(append(os.Environ(),
 			"PATH="+shimDir+":"+os.Getenv("PATH"),
 			"CONFORMANCE_STUB_STACK=1",
-			"CONFORMANCE_STUB_TEARDOWN=1",
 			"CONFORMANCE_STUB_PLAN="+stubPlan,
-		)
+		), extra...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		outFile, err := os.CreateTemp(shimDir, "harness-out")
 		if err != nil {
@@ -95,6 +202,10 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 		printed, _ := os.ReadFile(outFile.Name())
 		return code, string(calls), string(printed)
 	}
+	runHarness := func(t *testing.T, stubPlan string, interrupt bool) (int, string, string) {
+		t.Helper()
+		return runHarnessEnv(t, stubPlan, interrupt)
+	}
 
 	// The stub receives the plan name as $1: the config plan passes clean,
 	// the basic plan produces whatever verdict the case under test needs.
@@ -102,34 +213,47 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 		return `case "$1" in *config*) exit 0;; *) ` + basicScript + `;; esac`
 	}
 
-	// ── 1a. SUCCESS path: both plans exit 0 -> exit 0, and the teardown
-	// still ran down --volumes on the project ──
-	code, calls, _ := runHarness(t, perPlan("echo 'all modules ran to completion'; exit 0"), false)
+	const torn = "openid-conformance: teardown (project scratch-conformance: removed only what this run recorded creating"
+
+	// ── 1a. SUCCESS path: both plans exit 0 -> exit 0, and the recorded
+	// teardown still ran, with no down, and released the claim and mutex ──
+	code, calls, printed := runHarness(t, perPlan("echo 'all modules ran to completion'; exit 0"), false)
 	if code != 0 {
-		t.Fatalf("green run exited %d, want 0 (both plans clean against the committed floor)", code)
+		t.Fatalf("green run exited %d, want 0 (both plans clean against the committed floor); output:\n%s", code, printed)
 	}
-	if !strings.Contains(calls, "compose -p identuum-conformance") || !strings.Contains(calls, "down --volumes") {
-		t.Fatalf("teardown did not run 'down --volumes' on the isolated project after success; docker calls:\n%s", calls)
+	if !strings.Contains(printed, torn) {
+		t.Fatalf("the recorded teardown did not run after success; output:\n%s", printed)
+	}
+	noDown(t, calls)
+	released(t, printed)
+	if !regexp.MustCompile(`container create --name identuum-harness-lock-engine .*io\.identuum\.harness\.kind=openid-conformance --label io\.identuum\.harness\.project=scratch-conformance --label io\.identuum\.harness\.ports=28443,28444,27113`).MatchString(calls) {
+		t.Fatalf("the daemon mutex was not taken with this harness's kind, project and ports; docker calls:\n%s", calls)
+	}
+	if first := strings.SplitN(calls, "\n", 2)[0]; !strings.HasPrefix(first, "context inspect") {
+		t.Fatalf("the first docker call is %q, not the endpoint resolution", first)
 	}
 
 	// ── 1b. INTERRUPT mid-plan: teardown STILL fires ──
-	code, calls, _ = runHarness(t, "sleep 30", true)
+	code, calls, printed = runHarness(t, "sleep 30", true)
 	if code == 0 {
 		t.Fatal("an interrupted run exited 0")
 	}
-	if !strings.Contains(calls, "down --volumes") {
-		t.Fatalf("Ctrl-C mid-plan did NOT tear the stacks down; docker calls:\n%s", calls)
+	if !strings.Contains(printed, torn) {
+		t.Fatalf("Ctrl-C mid-plan did NOT run the recorded teardown; output:\n%s", printed)
 	}
+	noDown(t, calls)
+	released(t, printed)
 
 	// ── 2a. FLOOR: a nonzero basic plan (unexpected condition failures)
 	// fails the run — the expected files are the only floor ──
-	code, calls, _ = runHarness(t, perPlan("echo '** Exiting with failure - some test modules have unexpected condition failures/warnings **'; exit 1"), false)
+	code, calls, printed = runHarness(t, perPlan("echo '** Exiting with failure - some test modules have unexpected condition failures/warnings **'; exit 1"), false)
 	if code == 0 {
 		t.Fatal("a basic plan with unexpected condition failures passed as green")
 	}
-	if !strings.Contains(calls, "down --volumes") {
-		t.Fatalf("teardown missing on the failing path; docker calls:\n%s", calls)
+	if !strings.Contains(printed, torn) {
+		t.Fatalf("teardown missing on the failing path; output:\n%s", printed)
 	}
+	noDown(t, calls)
 
 	// ── 2b. FLOOR: a stalled module (an "Incomplete test modules:" block)
 	// fails while the incomplete floor is EMPTY — no recorded set to equal,
@@ -145,7 +269,7 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 	// to end with a verdict and nothing to read. A red run now KEEPS the
 	// export under conformance/.evidence/<UTC stamp>/ and prints the path; a
 	// green run keeps nothing, because kept evidence nobody needs is debris.
-	evidenceDir := filepath.Join(repo, "conformance", ".evidence")
+	evidenceDir := filepath.Join(copyDir, ".evidence")
 	names := func() map[string]bool {
 		seen := map[string]bool{}
 		entries, err := os.ReadDir(evidenceDir)
@@ -181,7 +305,7 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 	}
 
 	before := names()
-	code, _, printed := runHarness(t, exporting("exit 1"), false)
+	code, _, printed = runHarness(t, exporting("exit 1"), false)
 	if code == 0 {
 		t.Fatal("the red case exited 0")
 	}
@@ -219,4 +343,32 @@ func TestConformanceHarness_TeardownAlwaysAndFloorNeverSilentlyMoves(t *testing.
 			t.Errorf("output still says %q instead of the plan's exact name; output:\n%s", vague, printed)
 		}
 	}
+
+	// ── 5. SPEC K2: a held harness claim (another harness run: devseed-live,
+	// e2e-full or another openid-conformance) refuses before any docker call
+	// and is left as it was.
+	if err := os.Mkdir(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lock, "pid"), []byte("held\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, calls, printed = runHarness(t, perPlan("exit 0"), false)
+	if code == 0 || calls != "" || !strings.Contains(printed, "could not take the harness claim") {
+		t.Fatalf("a held claim was not refused before any docker call (exit %d); docker calls:\n%s\noutput:\n%s", code, calls, printed)
+	}
+	if held, _ := os.ReadFile(filepath.Join(lock, "pid")); string(held) != "held\n" {
+		t.Fatal("the held claim was changed")
+	}
+	if err := os.RemoveAll(lock); err != nil {
+		t.Fatal(err)
+	}
+
+	// ── 6. SPEC K2: an engine that is not this host's unix socket is refused
+	// before any docker call, and the claim is released (nothing was taken).
+	code, calls, printed = runHarnessEnv(t, perPlan("exit 0"), false, "DOCKER_HOST=tcp://192.0.2.10:2376")
+	if code == 0 || calls != "" || !strings.Contains(printed, "this host's own Docker engine") {
+		t.Fatalf("a tcp DOCKER_HOST was not refused before any docker call (exit %d); docker calls:\n%s\noutput:\n%s", code, calls, printed)
+	}
+	released(t, printed)
 }
