@@ -1,5 +1,11 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "10191f1049433f7dd12b77468c7c42594504c7cb",
-  "changes": []
+  "base_commit": "1f29aaf95da04461fc3a9d6653b984cc6d1dc3cf",
+  "changes": [
+    {
+      "rule_id": "CI-LOCAL-PARITY-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "OSS-GOVULNCHECK-BUMP: update the govulncheck CI-version fixtures from 1.8.0 to 1.9.0; preserve every assertion and the existing mutation proof. Rulefloor rehash accepts only the changed test fingerprint after review."
+    }
+  ]
 }
