@@ -37,7 +37,17 @@ follows [Semantic Versioning](https://semver.org/).
   `tcp://` or `ssh://` `DOCKER_HOST` or Docker context is refused before any
   other Docker command, and every later call is pinned to the checked
   endpoint); and it refuses 5513 and 5432 as `DEVSEED_LIVE_PG_PORT` however
-  that is set (OSS-MINT-GUARD-5, review OSS-MINT-GUARD-4 R1-R3). `make notices-check` now also regenerates the Go
+  that is set (OSS-MINT-GUARD-5, review OSS-MINT-GUARD-4 R1-R3).
+  `devseed-live` and identuum-ui's `e2e-full` refuse a `COMPOSE_CMD` that is
+  not exactly `docker compose`, so an option in it cannot start the stack on
+  an engine the topology check never saw; they take a daemon-side mutex (the
+  never-started container `identuum-harness-lock-engine`) before any resource
+  call, so a second run against the same engine is refused whatever its
+  `/tmp`, and a held mutex is never broken automatically; and they record the
+  engine's ID and stop every Docker command when another engine answers.
+  A volume put under a run's exact random name by another Docker user after
+  the last check can still be removed without a failure; that gap is
+  documented (OSS-MINT-GUARD-6, review OSS-MINT-GUARD-5 F1/F2/R1). `make notices-check` now also regenerates the Go
   licence texts and compares them (review OSS-FIXES-3 F3).
 - **A front-channel fan-out with any receiver on the issuer's origin runs
   every frame scripts-only** (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW

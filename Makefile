@@ -894,7 +894,16 @@ protected-guard-selftest:
 ## one) is refused before any other docker call, and an accepted one is pinned
 ## on every later call; DEVSEED_LIVE_PG_PORT 5513, 5432 or 05513, selected on
 ## the command line, through `make -e` or by an `override`, is refused before
-## any docker call. COMPOSE_PIN_MAKEFILE runs the same cases against another
+## any docker call. OSS-MINT-GUARD-6 (review OSS-MINT-GUARD-5 F1, F2): a
+## COMPOSE_CMD carrying --host, -H, --context or -c, from the environment, the
+## command line or `make -e`, is refused before any docker call, and so is a
+## bound nested oss-up with such a command, another context, another engine id
+## or another mutex; a command-line DEV_COMPOSE does not reach the nested
+## start; two runs with separate locks (two /tmp) against one modeled daemon:
+## the second is refused at the daemon mutex before any resource call; a held
+## mutex is refused and left as it was; an engine whose ID changes mid-run
+## stops every later removal and seed and keeps the mutex; an absent mutex
+## image is refused. COMPOSE_PIN_MAKEFILE runs the same cases against another
 ## copy of this Makefile (a red baseline or a mutant).
 COMPOSE_PIN_MAKEFILE ?= $(abspath Makefile)
 .PHONY: compose-pin-selftest
@@ -905,7 +914,15 @@ compose-pin-selftest:
 	[ "$$(grep -c "^override DEVSEED_LIVE_LOCK := $$d/fixed/identuum-devseed.lock\$$" "$$d/w/Makefile")" = 1 ] || { echo "check FAILED: compose-pin-selftest — the Makefile does not declare DEVSEED_LIVE_LOCK as the one fixed path /tmp/identuum-devseed.lock"; exit 1; }; \
 	printf '%s\n' '#!/bin/sh' \
 		'echo "docker $$* | cpn=$${COMPOSE_PROJECT_NAME-unset} cro=$${COMPOSE_REMOVE_ORPHANS-unset} iicp=$${IDENTUUM_IDP_COMPOSE_PROJECT-unset} pg=$${DEV_PG_HOST_PORT-unset} dh=$${DOCKER_HOST-unset} dctx=$${DOCKER_CONTEXT-unset}" >> "$$STUB_D/calls"' \
-		'S="$$STUB_D/state"; mkdir -p "$$S/c" "$$S/n" "$$S/v"; V0=identuum-devseed_postgres-idp-oss-data-v18; N0=identuum-devseed_default' \
+		'engine="$${STUB_DAEMON:-$$STUB_D}"; S="$$engine/state"; mkdir -p "$$S/c" "$$S/n" "$$S/v"; V0=identuum-devseed_postgres-idp-oss-data-v18; N0=identuum-devseed_default' \
+		'while [ "$${1:-}" = --host ] || [ "$${1:-}" = -H ] || [ "$${1:-}" = --context ] || [ "$${1:-}" = -c ]; do echo "guard6-selector $$1 $$2" >> "$$STUB_D/other"; shift 2; done' \
+		'[ "$${1:-}" != container ] || shift' \
+		'if [ "$${1:-}" = info ] || [ "$${1:-} $${2:-}" = "system info" ]; then cat "$$engine/engine-id" 2>/dev/null || echo guard6-engine-a; exit 0; fi' \
+		'if [ "$$1 $$2" = "image inspect" ]; then [ -e "$$STUB_D/no-mutex-image" ] && exit 1; echo null; exit 0; fi' \
+		'if [ "$${1:-}" = create ]; then nm=; ow=; en=; prev=; for a in "$$@"; do [ "$$prev" != --name ] || nm="$$a"; case "$$a" in io.identuum.harness.mutex-owner=*) ow=$${a#*=};; io.identuum.harness.engine=*) en=$${a#*=};; esac; prev="$$a"; done; [ "$$nm" = identuum-harness-lock-engine ] || { echo "unmodeled mutex name" >&2; exit 97; }; mkdir "$$engine/mutex" 2>/dev/null || { echo "Conflict: mutex name is already in use" >&2; exit 1; }; printf "%s\n" "$$*" > "$$engine/mutex/labels"; echo "$$ow" > "$$engine/mutex/owner"; echo "$$en" > "$$engine/mutex/engine"; echo guard6-mutex-id; exit 0; fi' \
+		'if [ "$${1:-}" = inspect ]; then for a in "$$@"; do case "$$a" in guard6-mutex-id|identuum-harness-lock-engine) [ -d "$$engine/mutex" ] || exit 1; case "$$*" in *mutex-owner*) echo "guard6-mutex-id $$(cat "$$engine/mutex/owner" 2>/dev/null) $$(cat "$$engine/mutex/engine" 2>/dev/null)";; *) echo guard6-mutex-id;; esac; exit 0;; esac; done; fi' \
+		'if [ "$${1:-}" = rm ]; then for a in "$$@"; do [ "$$a" != guard6-mutex-id ] || { rm -rf "$$engine/mutex"; echo guard6-mutex-released >> "$$STUB_D/other"; exit 0; }; done; fi' \
+		'if [ "$${1:-}" = ps ] && [ -e "$$STUB_D/pause" ] && [ ! -e "$$STUB_D/ready" ]; then : > "$$STUB_D/ready"; i=0; while [ ! -e "$$STUB_D/resume" ]; do i=$$((i+1)); [ $$i -lt 500 ] || exit 98; /bin/sleep 0.01; done; fi' \
 		'if [ "$$1 $$2" = "context inspect" ]; then [ -n "$${DOCKER_HOST:-}" ] && { echo "$$DOCKER_HOST"; exit 0; }; [ -e "$$STUB_D/context-fail" ] && exit 1; cat "$$STUB_D/endpoint" 2>/dev/null || echo unix:///var/run/docker.sock; exit 0; fi' \
 		'ovarg=; for a in "$$@"; do case "$$a" in *invocation.json) ovarg=$$a;; esac; done; ovany=$${ovarg:-$$(ls "$$TMPDIR"/devseed-live.*/invocation.json 2>/dev/null | head -1)}' \
 		'inv=; [ -z "$$ovany" ] || inv=$$(sed -n "s/.*\"io.identuum.harness.invocation\":\"\([0-9a-f]*\)\".*/\1/p" "$$ovany" | head -1)' \
@@ -929,7 +946,7 @@ compose-pin-selftest:
 		'"volume ls") for f in "$$S"/v/*; do [ -e "$$f" ] || continue; read -r ct pj iv < "$$f"; match "$${f##*/}" "$$pj" "$$iv" || continue; echo "$${f##*/}"; done; [ -n "$$proj" ] && [ -e "$$STUB_D/leftover" ] && echo deadbeef; [ -z "$$filt" ] && [ -e "$$STUB_D/foreign-volume" ] && echo "$${V0}_$$inv"; exit 0;;' \
 		'"network inspect") [ -e "$$S/n/$$last" ] || exit 1; read -r nm pj iv < "$$S/n/$$last"; echo "$$last $$iv"; exit 0;;' \
 		'"volume inspect") [ -e "$$S/v/$$last" ] || exit 1; read -r ct pj iv < "$$S/v/$$last"; case "$$fmt" in *index*) echo "$$ct $$iv"' \
-		'  if [ -e "$$STUB_D/replace-after-inspect" ]; then rm -f "$$S/v/$$last"; echo "2026-10-10T00:00:07Z $$pj $$iv" > "$$S/v/$$V0"; echo replaced-after-inspect >> "$$STUB_D/other"; fi;;' \
+		'  if [ -e "$$STUB_D/replace-after-inspect" ]; then rm -f "$$S/v/$$last"; echo "2026-10-10T00:00:07Z $$pj $$iv" > "$$S/v/$$V0"; echo replaced-after-inspect >> "$$STUB_D/other"; fi; if [ -e "$$STUB_D/replace-exact-after-inspect" ]; then echo "2026-10-10T00:00:07Z $$pj $$iv" > "$$S/v/$$last"; echo replaced-exact-after-inspect >> "$$STUB_D/other"; fi;;' \
 		'  *) echo "$$ct";; esac; exit 0;;' \
 		'"network rm") rm -f "$$S/n/$$last"; exit 0;;' \
 		'"volume rm") [ -e "$$S/v/$$last" ] || { echo "Error response from daemon: get $$last: no such volume" >&2; exit 1; }; rm -f "$$S/v/$$last"; exit 0;;' \
@@ -937,7 +954,8 @@ compose-pin-selftest:
 		'"rm "*) rm -f "$$S/c/$$last"; exit 0;;' \
 		'esac' \
 		'exit 0' > "$$d/bin/docker"; \
-	printf '%s\n' '#!/bin/sh' 'echo "curl $$*" >> "$$STUB_D/other"' 'S="$$STUB_D/state"' \
+	printf '%s\n' '#!/bin/sh' 'echo "curl $$*" >> "$$STUB_D/other"' 'engine="$${STUB_DAEMON:-$$STUB_D}"; S="$$engine/state"' \
+		'if [ -e "$$STUB_D/change-engine" ]; then echo guard6-engine-b > "$$engine/engine-id"; echo guard6-engine-changed >> "$$STUB_D/calls"; fi' \
 		'for V in "$$S"/v/identuum-devseed_postgres-idp-oss-data-v18*; do if [ -e "$$STUB_D/replace-volume" ] && [ -e "$$V" ]; then read -r ct pj iv < "$$V"; echo "2026-10-10T00:00:05Z $$pj $$iv" > "$$V"; fi; done' \
 		'if [ -e "$$STUB_D/foreign-container" ]; then echo "identuum-devseed-intruder-1 identuum-devseed someone-else" > "$$S/c/f1"; fi' \
 		'exit 0' > "$$d/bin/curl"; \
@@ -985,7 +1003,9 @@ compose-pin-selftest:
 	run $(MAKE) --no-print-directory devseed-live; rc=$$?; \
 	verdict "REVIEW-R1: the volume and the network devseed-live creates carry its invocation id in their names, resolved with its overlay, and its one volume removal names that volume" "$$(grep -q 'check OK: teardown' "$$d/out" || echo " teardown-not-ok")$$(grep -E ' compose .*-f [^ ]*invocation.json .*config --format json' "$$d/calls" >/dev/null || echo " not-resolved-with-overlay")$$(cat "$$d"/tmp/devseed-live.*/invocation.json 2>/dev/null | grep -qE '"postgres-idp-oss-data-v18":[{]"name":"identuum-devseed_postgres-idp-oss-data-v18_[0-9a-f]{32}"' || echo " volume-name-without-id")$$(cat "$$d"/tmp/devseed-live.*/invocation.json 2>/dev/null | grep -qE '"default":[{]"name":"identuum-devseed_default_[0-9a-f]{32}"' || echo " network-name-without-id")$$( [ "$$(grep -cE '^docker volume rm identuum-devseed_postgres-idp-oss-data-v18_[0-9a-f]{32} ' "$$d/calls")" = 1 ] || echo " not-one-own-volume-rm")$$( [ "$$(grep -cE '^docker volume rm ' "$$d/calls")" = 1 ] || echo " other-volume-rm")"; \
 	: > "$$d/replace-after-inspect"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/replace-after-inspect"; \
-	verdict "REVIEW-R1 (E-RACE): another writer replaces the volume after the final identity inspection and before the removal; the replacement survives, the removal names only this run's volume, the run is red" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -q replaced-after-inspect "$$d/other" 2>/dev/null || echo " no-replacement")$$(grep -qE '^docker volume rm identuum-devseed_postgres-idp-oss-data-v18 ' "$$d/calls" && echo " replacement-name-removed")$$( [ -e "$$d/state/v/identuum-devseed_postgres-idp-oss-data-v18" ] || echo " replacement-gone")$$(grep -q 'check FAILED: teardown' "$$d/out" || echo " no-failed-teardown")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+	verdict "REVIEW-R1 shared-name control (E-RACE under the configured name): another writer replaces the volume, under the name the project's config resolves to, after the final identity inspection and before the removal; the replacement survives, the removal names only this run's volume, the run is red" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -q replaced-after-inspect "$$d/other" 2>/dev/null || echo " no-replacement")$$(grep -qE '^docker volume rm identuum-devseed_postgres-idp-oss-data-v18 ' "$$d/calls" && echo " replacement-name-removed")$$( [ -e "$$d/state/v/identuum-devseed_postgres-idp-oss-data-v18" ] || echo " replacement-gone")$$(grep -q 'check FAILED: teardown' "$$d/out" || echo " no-failed-teardown")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+	: > "$$d/replace-exact-after-inspect"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/replace-exact-after-inspect"; \
+	verdict "REVIEW-R1 accepted residual (judge ruling Q3 (a)): a writer that copies this run's exact volume name after the final identity inspection has its volume removed by that name, and the teardown is not refused" "$$(grep -q replaced-exact-after-inspect "$$d/other" 2>/dev/null || echo ' no-replacement')$$( [ -z "$$(ls "$$d/state/v" 2>/dev/null)" ] || echo ' replacement-kept')$$(grep -q 'check OK: teardown' "$$d/out" || echo ' teardown-refused')$$( [ ! -e "$$lock" ] || echo ' lock-left')"; \
 	: > "$$d/ignore-names"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/ignore-names"; \
 	verdict "a recorded volume whose name does not carry the invocation id is not removed by name; the run is red" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(kept 'volume rm' volume)$$( [ -e "$$d/state/v/identuum-devseed_postgres-idp-oss-data-v18" ] || echo " volume-gone")$$(grep -q 'name lacks the invocation id of this run' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
 	for form in tcp ssh context current unresolved; do \
@@ -1016,6 +1036,67 @@ compose-pin-selftest:
 	done; rm -f "$$d/w/override.mk"; \
 	run $(MAKE) --no-print-directory devseed-live DEVSEED_LIVE_PG_PORT=35599; rc=$$?; \
 	verdict "a free scratch devseed PostgreSQL port (35599) is carried to every compose call of the run" "$$(grep -q 'check OK: preflight — ports 35599 and 27113 free' "$$d/out" || echo " port-not-checked")$$(grep -qE ' compose .* up ' "$$d/calls" || echo " never-started")$$(grep ' compose ' "$$d/calls" | grep -v ' pg=35599 ' | grep -q . && echo " port-not-carried")"; \
+	: 'GUARD-6 F1 (review OSS-MINT-GUARD-5): the exact supported command; every refusal precedes any docker call.'; \
+	for selector in --host -H --context -c; do \
+		case $$selector in --host|-H) value=tcp://model.invalid:2375;; *) value=remote-model;; esac; \
+		command="docker $$selector $$value compose"; \
+		for form in env command env-e nested; do \
+			case $$form in \
+				env) run env COMPOSE_CMD="$$command" $(MAKE) --no-print-directory devseed-live;; \
+				command) run $(MAKE) --no-print-directory devseed-live COMPOSE_CMD="$$command";; \
+				env-e) run env COMPOSE_CMD="$$command" $(MAKE) -e --no-print-directory devseed-live;; \
+				nested) run $(MAKE) --no-print-directory devseed-live COMPOSE_CMD="$$command" IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e;; \
+			esac; rc=$$?; \
+			verdict "GUARD6-F1/$$form/$$selector: refuses COMPOSE_CMD before ANY Docker or nested startup" "$$( [ $$rc -ne 0 ] || echo ' exit-0')$$( [ ! -s "$$d/calls" ] || echo ' docker-called')$$(grep -qE 'REFUS|refus' "$$d/out" || echo ' no-refusal')$$(grep -qE ' compose .* (build|up) ' "$$d/calls" 2>/dev/null && echo ' nested-start-selected-unchecked-engine')"; \
+		done; \
+	done; \
+	: 'GUARD-6 F2: two lock namespaces (two /tmp), one daemon.'; \
+	mkdir -p "$$d/ns2/w/deployment" "$$d/ns2/tmp" "$$d/ns2/fixed" "$$d/daemon"; \
+	cp "$$d/w/deployment/docker-compose.dev.yml" "$$d/ns2/w/deployment/docker-compose.dev.yml"; \
+	sed "s#$$d/fixed/identuum-devseed.lock#$$d/ns2/fixed/identuum-devseed.lock#" "$$d/w/Makefile" > "$$d/ns2/w/Makefile"; \
+	rm -rf "$$d/state" "$$d/calls" "$$d/other"; : > "$$d/pause"; \
+	(cd "$$d/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_CMD -u DOCKER_HOST -u DOCKER_CONTEXT STUB_D="$$d" STUB_DAEMON="$$d/daemon" TMPDIR="$$d/tmp" PATH="$$d/bin:/usr/bin:/bin" $(MAKE) --no-print-directory devseed-live) > "$$d/first.out" 2>&1 & first=$$!; \
+	i=0; while [ ! -e "$$d/ready" ] && kill -0 $$first 2>/dev/null; do i=$$((i+1)); [ $$i -lt 500 ] || break; /bin/sleep 0.01; done; \
+	control=; [ -e "$$d/ready" ] && [ -d "$$d/fixed/identuum-devseed.lock" ] && kill -0 $$first 2>/dev/null || control=' first-not-holding-local-lock'; \
+	(cd "$$d/ns2/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_CMD -u DOCKER_HOST -u DOCKER_CONTEXT STUB_D="$$d/ns2" STUB_DAEMON="$$d/daemon" TMPDIR="$$d/ns2/tmp" PATH="$$d/bin:/usr/bin:/bin" $(MAKE) --no-print-directory devseed-live) > "$$d/second.out" 2>&1; rc=$$?; \
+	: > "$$d/resume"; wait $$first; rm -f "$$d/pause" "$$d/ready" "$$d/resume"; \
+	verdict "GUARD6-F2/separate-namespaces: second refuses while first holds the SAME daemon" "$$control$$( [ $$rc -ne 0 ] || echo ' second-exit-0')$$(grep -qE ' compose |^docker (ps|volume|network|rm) ' "$$d/ns2/calls" 2>/dev/null && echo ' second-resource-call')$$(grep -qE 'mutex|identuum-harness-lock-engine' "$$d/second.out" || echo ' no-mutex-refusal')$$(grep -q 'check OK: teardown' "$$d/first.out" || echo ' first-cleanup-not-run')$$( [ ! -d "$$d/daemon/mutex" ] || echo ' first-mutex-left')"; \
+	: 'A stale mutex with no owner process is never broken automatically.'; \
+	rm -rf "$$d/mutex"; mkdir "$$d/mutex"; echo stale-owner > "$$d/mutex/labels"; \
+	run $(MAKE) --no-print-directory devseed-live; rc=$$?; \
+	verdict "GUARD6-F2/stale: refuses without breaking daemon mutex" "$$( [ $$rc -ne 0 ] || echo ' exit-0')$$(grep -q stale-owner "$$d/mutex/labels" 2>/dev/null || echo ' stale-mutex-changed')$$(grep -qE ' compose |^docker (ps|volume|network|rm) ' "$$d/calls" 2>/dev/null && echo ' resource-call')$$(grep -q identuum-harness-lock-engine "$$d/out" || echo ' mutex-not-named')"; \
+	rm -rf "$$d/mutex"; \
+	: 'The modeled engine changes after the start and the record, before the seed and the teardown.'; \
+	: > "$$d/change-engine"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/change-engine"; \
+	verdict "GUARD6-F2/engine-change: refuses before any later operation on changed engine" "$$(grep -q guard6-engine-changed "$$d/calls" || echo ' change-not-injected')$$( [ $$rc -ne 0 ] || echo ' exit-0')$$(sed -n '/guard6-engine-changed/,$$p' "$$d/calls" | grep -qE '^docker (rm|volume rm|network rm|.* compose )' && echo ' cleanup-on-changed-engine')$$(grep -qiE 'daemon.*(chang|ident)|engine.*(chang|ident)' "$$d/out" || echo ' no-identity-refusal')$$( [ -d "$$d/mutex" ] || echo ' mutex-released-on-changed-engine')$$(grep -q '^go ' "$$d/other" && echo ' seeded-on-changed-engine')"; \
+	rm -f "$$d/engine-id"; rm -rf "$$d/mutex"; \
+	run $(MAKE) --no-print-directory devseed-live; rc=$$?; \
+	cr=$$(grep -n '^docker container create ' "$$d/calls" | head -1 | cut -d: -f1); fr=$$(grep -nE '^docker (ps|volume|network) | compose ' "$$d/calls" | head -1 | cut -d: -f1); \
+	rl=$$(grep -n '^docker container rm guard6-mutex-id' "$$d/calls" | tail -1 | cut -d: -f1); lr=$$(grep -nE '^docker (rm -f -v|network rm|volume rm) ' "$$d/calls" | tail -1 | cut -d: -f1); \
+	verdict "GUARD6-F2/green: the daemon mutex identuum-harness-lock-engine is created (never started, no network, this run's owner and engine labels) after the topology check and the engine id, before any resource call, and removed by its ID after the teardown" "$$(grep -q 'check OK: up' "$$d/out" || echo ' not-started')$$( [ -n "$$cr" ] && [ -n "$$fr" ] && [ "$$cr" -lt "$$fr" ] || echo ' mutex-not-before-resources')$$(head -2 "$$d/calls" | sed -n 2p | grep -q '^docker info ' || echo ' engine-id-not-second')$$( [ -n "$$rl" ] && [ -n "$$lr" ] && [ "$$rl" -gt "$$lr" ] || echo ' mutex-not-released-after-teardown')$$(grep '^docker container create ' "$$d/calls" | grep -- '--name identuum-harness-lock-engine ' | grep -- '--network=none' | grep -q -- 'io.identuum.harness.mutex-owner=[0-9a-f]\{32\} ' || echo ' mutex-args')$$(grep -qE '^docker (container )?start ' "$$d/calls" && echo ' mutex-started')$$( [ ! -d "$$d/mutex" ] || echo ' mutex-left')$$(grep -q 'check OK: mutex — released' "$$d/out" || echo ' no-release-line')"; \
+	: > "$$d/no-mutex-image"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/no-mutex-image"; \
+	verdict "GUARD6-F2/no-image: without the pinned mutex image on the engine, the run is refused before any resource call and pulls nothing" "$$( [ $$rc -ne 0 ] || echo ' exit-0')$$(grep -qE ' compose |^docker (ps|volume|network|rm|pull|container create) ' "$$d/calls" && echo ' acted')$$(grep -q 'docker pull gcr.io/distroless/static-debian12@sha256:' "$$d/out" || echo ' no-pull-advice')$$( [ ! -d "$$d/mutex" ] || echo ' mutex-created')$$( [ ! -e "$$lock" ] || echo ' lock-left')"; \
+	: 'GUARD-6 F1, nested: an oss-up under the harness binding re-checks the command, the endpoint, the engine and the mutex itself.'; \
+	bind="IDENTUUM_HARNESS_ENGINE_ID=guard6-engine-a IDENTUUM_HARNESS_MUTEX_ID=guard6-mutex-id DOCKER_HOST=unix:///var/run/docker.sock IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e"; \
+	mkdir "$$d/mutex"; \
+	for selector in --host -H --context -c; do \
+		case $$selector in --host|-H) value=tcp://model.invalid:2375;; *) value=remote-model;; esac; \
+		run env $$bind $(MAKE) --no-print-directory oss-up COMPOSE_CMD="docker $$selector $$value compose"; rc=$$?; \
+		verdict "GUARD6-F1/nested-oss-up/$$selector: a bound oss-up refuses a COMPOSE_CMD that is not docker compose before any docker call" "$$( [ $$rc -ne 0 ] || echo ' exit-0')$$( [ ! -s "$$d/calls" ] || echo ' docker-called')$$(grep -q 'REFUSED under the harness binding' "$$d/out" || echo ' no-refusal')"; \
+	done; \
+	for form in context engine mutex; do \
+		case $$form in \
+			context) run env $$bind DOCKER_CONTEXT=remote-model $(MAKE) --no-print-directory oss-up;; \
+			engine) run env $$bind IDENTUUM_HARNESS_ENGINE_ID=guard6-engine-z $(MAKE) --no-print-directory oss-up;; \
+			mutex) run env $$bind IDENTUUM_HARNESS_MUTEX_ID=another-mutex $(MAKE) --no-print-directory oss-up;; \
+		esac; rc=$$?; \
+		verdict "GUARD6-F1/nested-oss-up/$$form: a bound oss-up whose $$form is not the harness's is refused before any build or start" "$$( [ $$rc -ne 0 ] || echo ' exit-0')$$(grep -q ' compose ' "$$d/calls" 2>/dev/null && echo ' compose-called')$$(grep -q 'REFUSED under the harness binding' "$$d/out" || echo ' no-refusal')"; \
+	done; \
+	run env $$bind $(MAKE) --no-print-directory oss-up; rc=$$?; \
+	verdict "GUARD6-F1/nested-oss-up/bound: a bound oss-up whose command, endpoint, engine and mutex are the harness's builds and starts" "$$( [ $$rc -eq 0 ] || echo " exit $$rc")$$(grep -qE ' compose .* build ' "$$d/calls" || echo ' not-built')$$(grep -qE ' compose .* up ' "$$d/calls" || echo ' not-started')"; \
+	rm -rf "$$d/mutex"; \
+	run $(MAKE) --no-print-directory devseed-live 'DEV_COMPOSE=docker --host tcp://model.invalid:2375 compose -p identuum-devseed -f deployment/docker-compose.dev.yml'; rc=$$?; \
+	verdict "GUARD6-F1/dev-compose: a command-line DEV_COMPOSE does not reach the nested oss-up, which starts with the fixed command" "$$(grep -q 'check OK: up' "$$d/out" || echo ' up-failed')$$(grep -q 'guard6-selector' "$$d/other" 2>/dev/null && echo ' selector-reached-docker')$$(grep -qE ' compose .* up ' "$$d/calls" || echo ' never-started')"; \
 	if [ $$fails -ne 0 ]; then echo "check FAILED: compose-pin-selftest $$fails of $$n case(s)"; exit 1; fi; \
 	echo "check OK: compose-pin-selftest $$n case(s): oss-up and devseed-live pin their compose project, clear inherited compose settings and never act on resources they did not create"
 
@@ -2247,10 +2328,17 @@ dev-seed: protected-guard
 ##                  each other's resources); with it a random invocation id is
 ##                  drawn, the label io.identuum.harness.invocation that binds
 ##                  what this run creates to this run;
+##   command        the Compose command is fixed (OSS-MINT-GUARD-6, review
+##                  OSS-MINT-GUARD-5 F1): COMPOSE_CMD, from the environment,
+##                  the command line or `make -e`, must be exactly
+##                  `docker compose` (COMPOSE_CMD_IS_DOCKER_COMPOSE), else
+##                  refused before the lock and any docker command; the run
+##                  calls `docker compose` itself, and the nested oss-up gets
+##                  COMPOSE_CMD='docker compose' on its command line with
+##                  MAKEFLAGS, MAKEOVERRIDES, MFLAGS and MAKEFILES cleared;
 ##   topology       exactly one supported topology (OSS-MINT-GUARD-5, review
 ##                  OSS-MINT-GUARD-4 R2, owner ruling Q-TOPOLOGY (b)): this
 ##                  host's own Docker engine through a unix socket on this
-##                  host, because the lock serializes only callers on this
 ##                  host. A DOCKER_HOST that is not unix:///... is refused
 ##                  before any docker command; then the endpoint docker itself
 ##                  resolves (DOCKER_HOST, else DOCKER_CONTEXT, else the
@@ -2258,6 +2346,29 @@ dev-seed: protected-guard
 ##                  only) must be unix:///..., else refused; every later docker
 ##                  call, oss-up's included, is pinned to it (DOCKER_HOST set
 ##                  to it, DOCKER_CONTEXT unset);
+##   engine         the daemon's ID (`docker info`) is recorded (OSS-MINT-GUARD-6,
+##                  F2, judge ruling Q2 (a)); every later docker call of the
+##                  recipe first checks that the same ID answers, and so do
+##                  the nested oss-build and oss-up (HARNESS_BINDING_CHECK) and
+##                  each devseed step; a changed or silent daemon stops every
+##                  further docker command, the run is red and nothing more is
+##                  removed. The check precedes each call: an engine switched
+##                  inside one docker or Compose call is not seen;
+##   mutex          then, before any resource call, the daemon mutex: the
+##                  never-started container HARNESS_MUTEX
+##                  (identuum-harness-lock-engine) created on the checked
+##                  engine from HARNESS_MUTEX_IMAGE (--pull=never: an absent
+##                  image is a refusal naming `docker pull`), labelled with
+##                  this run's id and the engine's. The daemon refuses a
+##                  second container of that name, so a second devseed-live
+##                  or e2e-full run against this engine is refused, from
+##                  whatever filesystem namespace or /tmp it runs. Held
+##                  through the teardown, then removed by its ID after its
+##                  labels are re-read; a mutex that already exists (held, or
+##                  left by a killed run) is never removed by the harness: the
+##                  refusal names it, for an operator to inspect and remove
+##                  by its ID once no harness run is active. The /tmp lock
+##                  above stays as well;
 ##   preflight      the project holds NO container, volume or network (by its
 ##                  compose label) and no container is named identuum-devseed
 ##                  or identuum-devseed-postgres, else refused naming them and
@@ -2307,11 +2418,14 @@ dev-seed: protected-guard
 ##                  rm`). Docker removes a volume by name with no identity
 ##                  precondition, so between the last inspection and the
 ##                  removal another writer could replace a volume under a
-##                  shared name (review OSS-MINT-GUARD-4 R1, E-RACE); no other
-##                  writer creates a name carrying this run's random id, and a
-##                  recorded volume without it is refused, not removed. The
-##                  residual: a writer that copies this run's name from the
-##                  daemon inside that interval. A container, network or volume of the
+##                  shared name (review OSS-MINT-GUARD-4 R1, E-RACE); the
+##                  random id in the name keeps an ordinary stack's volume out
+##                  of reach, and a recorded volume without it is refused, not
+##                  removed. The accepted residual (judge ruling Q3 (a),
+##                  OSS-MINT-GUARD-6): a writer outside the harness that copies
+##                  this run's exact name from the daemon inside that interval
+##                  can have its volume removed without a red verdict; neither
+##                  lock nor mutex binds such a writer. A container, network or volume of the
 ##                  project, or one carrying a name this run would create, that
 ##                  is not in the record — a foreign same-project container, a
 ##                  same-name replacement, whatever its labels — is refused:
@@ -2331,6 +2445,37 @@ dev-seed: protected-guard
 ## every log go to mode-600 files (umask 077) in a fresh mktemp directory that
 ## is left for the owner; this recipe prints only check names. test-full-mint
 ## runs it BEFORE the e2e half (owner ruling v, 2026-10-08, amends P-089).
+## OSS-MINT-GUARD-6 (review OSS-MINT-GUARD-5 F1): the harnesses' Compose
+## command is fixed, not the caller's. COMPOSE_CMD_IS_DOCKER_COMPOSE is yes only
+## when COMPOSE_CMD's own text, read with $(value) and never expanded (a
+## caller's make function or shell text does not run), is exactly
+## `docker compose`: a global option in it (--host, -H, --context, -c or any
+## other) would select an engine the topology check never saw.
+COMPOSE_CMD_IS_DOCKER_COMPOSE = $(if $(and $(findstring $(value COMPOSE_CMD),docker compose),$(findstring docker compose,$(value COMPOSE_CMD))),yes,no)
+## OSS-MINT-GUARD-6 (F2, judge ruling Q2 (a)): the daemon mutex. One
+## never-started container of this fixed name on the checked engine, shared by
+## devseed-live and identuum-ui's e2e-full: the daemon refuses a second
+## container of one name, so every caller of that engine is serialized,
+## whatever its filesystem namespace or /tmp. Created from the distroless
+## runtime image deployment/Dockerfile.local pins (no VOLUME, so creating it
+## creates no volume), never pulled by the harness. A held one is never broken
+## automatically. `override`, so no command line moves either.
+override HARNESS_MUTEX := identuum-harness-lock-engine
+override HARNESS_MUTEX_IMAGE := gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
+## HARNESS_BINDING_CHECK: the nested oss-build and oss-up of a harness run
+## (devseed-live and e2e-full pass IDENTUUM_HARNESS_ENGINE_ID and
+## IDENTUUM_HARNESS_MUTEX_ID) re-check before their own docker call that
+## COMPOSE_CMD is exactly docker compose, DOCKER_CONTEXT is unset and
+## DOCKER_HOST a unix socket, the daemon answering has the ID the harness
+## recorded, and the daemon mutex is still the harness's own. An ordinary
+## oss-up, without the binding, is unchanged.
+HARNESS_BINDING_CHECK = @if [ -n "$${IDENTUUM_HARNESS_ENGINE_ID:-}" ]; then \
+	r="$@: REFUSED under the harness binding (nothing was built or started)"; \
+	[ "$(COMPOSE_CMD_IS_DOCKER_COMPOSE)" = yes ] || { echo "$$r — COMPOSE_CMD is not exactly 'docker compose'" >&2; exit 2; }; \
+	case "$${DOCKER_CONTEXT:-}|$${DOCKER_HOST:-}" in "|unix:///"*) ;; *) echo "$$r — the Docker endpoint is not the harness's pinned unix socket" >&2; exit 2;; esac; \
+	[ "$$(docker info --format '{{.ID}}' 2>/dev/null)" = "$$IDENTUUM_HARNESS_ENGINE_ID" ] || { echo "$$r — the Docker daemon answering is not the engine the harness checked (its ID changed, or it did not answer)" >&2; exit 2; }; \
+	[ -n "$${IDENTUUM_HARNESS_MUTEX_ID:-}" ] && [ "$$(docker container inspect --format '{{.Id}}' $(HARNESS_MUTEX) 2>/dev/null)" = "$$IDENTUUM_HARNESS_MUTEX_ID" ] || { echo "$$r — the daemon mutex $(HARNESS_MUTEX) is not the harness's own" >&2; exit 2; }; \
+	fi
 DEVSEED_LIVE_PROJECT := identuum-devseed
 DEVSEED_LIVE_PG_PORT := 25513
 DEVSEED_LIVE_APP_PORT := 27113
@@ -2349,15 +2494,16 @@ devseed-live:
 	done; \
 	case "$$pg" in ''|0*|*[!0-9]*) echo "devseed-live: REFUSED — DEVSEED_LIVE_PG_PORT '$$pg' is not a port number (no docker command was run)"; exit 2;; esac; \
 	if [ $${#pg} -gt 5 ] || [ "$$pg" -gt 65535 ] || [ "$$pg" = 5513 ] || [ "$$pg" = 5432 ]; then echo "devseed-live: REFUSED — DEVSEED_LIVE_PG_PORT $$pg is not a port devseed-live starts PostgreSQL on: 5513 (the owner's PostgreSQL) and 5432 are refused however they are selected, and a port must be 1-65535; choose a free scratch port (no docker command was run)"; exit 2; fi; \
+	if [ "$(COMPOSE_CMD_IS_DOCKER_COMPOSE)" != yes ]; then echo "devseed-live: REFUSED — COMPOSE_CMD is not exactly 'docker compose'. This target fixes its Compose command: a global option in it (--host, -H, --context, -c or any other) would select an engine the topology check never saw. Unset COMPOSE_CMD (no docker command was run)"; exit 2; fi; \
 	export IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_PG_HOST_PORT="$$pg" DEV_APP_PORT="$$app"; \
-	dc() { env -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS $(COMPOSE_CMD) -p "$$p" -f deployment/docker-compose.dev.yml --profile app "$$@"; }; \
+	dc() { ( unset COMPOSE_PROJECT_NAME COMPOSE_REMOVE_ORPHANS; docker compose -p "$$p" -f deployment/docker-compose.dev.yml --profile app "$$@" ); }; \
 	dir=$$(mktemp -d "$${TMPDIR:-/tmp}/devseed-live.XXXXXX"); fails=0; cleaned=0; \
 	ok() { echo "devseed-live: check OK: $$1"; }; \
 	bad() { echo "devseed-live: check FAILED: $$1"; fails=$$((fails+1)); }; \
 	lock='$(DEVSEED_LIVE_LOCK)'; \
 	if ! mkdir "$$lock" 2>/dev/null; then echo "devseed-live: check FAILED: preflight — could not take $$lock: another devseed-live run on this machine holds it, or a killed one left it (every run takes this one lock, whatever its TMPDIR); remove it only after confirming no devseed-live run is active (refused; no docker command was run)"; exit 1; fi; \
 	echo $$$$ > "$$lock/pid"; trap 'rm -rf "$$lock"' EXIT; \
-	topo="devseed-live supports exactly one topology: this host's own Docker engine, through a unix socket on this host (unix:///...), because its lock $$lock serializes only callers on this host; unset DOCKER_HOST and DOCKER_CONTEXT, or select the local context (docker context use <name>)"; \
+	topo="devseed-live supports exactly one topology: this host's own Docker engine, through a unix socket on this host (unix:///...); unset DOCKER_HOST and DOCKER_CONTEXT, or select the local context (docker context use <name>)"; \
 	case "$${DOCKER_HOST:-unix:///}" in unix:///*) ;; *) echo "devseed-live: check FAILED: preflight — DOCKER_HOST selects an endpoint that is not this host's own Docker engine (not a unix socket). $$topo (refused; no docker command was run)"; exit 1;; esac; \
 	if ! ep=$$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — the Docker context could not be resolved, so the engine this run would use is unknown. $$topo (refused; nothing was started)"; exit 1; fi; \
 	case "$$ep" in unix:///*) ;; *) echo "devseed-live: check FAILED: preflight — the selected Docker context's endpoint is not this host's own Docker engine (not a unix socket). $$topo (refused; nothing was started)"; exit 1;; esac; \
@@ -2366,6 +2512,23 @@ devseed-live:
 	lab=io.identuum.harness.invocation; iid=$$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n'); \
 	case "$$iid" in *[!0-9a-f]*|'') echo "devseed-live: check FAILED: preflight — no invocation id could be drawn from /dev/urandom (refused; no docker command was run)"; exit 1;; esac; \
 	[ $${#iid} -eq 32 ] || { echo "devseed-live: check FAILED: preflight — no invocation id could be drawn from /dev/urandom (refused; no docker command was run)"; exit 1; }; \
+	eflag="$$dir/engine-changed"; \
+	if ! eng=$$(docker info --format '{{.ID}}' 2>>"$$dir/preflight.log") || [ -z "$$eng" ]; then echo "devseed-live: check FAILED: preflight — the Docker daemon did not report its ID, so this run cannot bind to the engine it checked (refused; nothing was started)"; exit 1; fi; \
+	still() { [ ! -e "$$eflag" ] && [ "$$(command docker info --format '{{.ID}}' 2>/dev/null)" = "$$eng" ] && return 0; : > "$$eflag"; echo "devseed-live: REFUSED — the Docker daemon answering is not the engine checked at preflight (its ID changed, or it did not answer); no further docker command is run" >&2; return 1; }; \
+	docker() { still || return 1; command docker "$$@"; }; \
+	mx='$(HARNESS_MUTEX)'; mimg='$(HARNESS_MUTEX_IMAGE)'; mid=; \
+	mfmt='{{.Id}} {{index .Config.Labels "io.identuum.harness.mutex-owner"}} {{index .Config.Labels "io.identuum.harness.engine"}}'; \
+	release_mutex() { [ -n "$$mid" ] || return 0; m=$$mid; mid=; \
+		if [ -e "$$eflag" ]; then bad "engine — the Docker daemon answering is not the engine checked at preflight (its ID changed, or it did not answer): no further docker command was run, nothing more was removed, and the daemon mutex $$mx is left on the engine it was taken on; inspect that engine by hand"; return; fi; \
+		if [ "$$(docker container inspect --format "$$mfmt" "$$m" 2>>"$$dir/down.log")" = "$$m $$iid $$eng" ] && docker container rm "$$m" >>"$$dir/down.log" 2>&1; then ok "mutex — released the daemon mutex $$mx, this run's, by its ID"; \
+		else bad "mutex — the daemon mutex $$mx is no longer this run's, or could not be removed; it was left in place: inspect it (docker container inspect $$mx) by hand (log: $$dir/down.log)"; fi; }; \
+	if ! vols=$$(docker image inspect --format '{{json .Config.Volumes}}' "$$mimg" 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — the daemon mutex image $$mimg is not on this engine; pull it once (docker pull $$mimg) and re-run (refused; nothing was started)"; exit 1; fi; \
+	[ "$$vols" = null ] || { echo "devseed-live: check FAILED: preflight — the daemon mutex image $$mimg declares a VOLUME, so creating the mutex would create a volume (refused; nothing was started)"; exit 1; }; \
+	if ! mid=$$(docker container create --name "$$mx" --pull=never --network=none --restart=no --read-only --label io.identuum.harness.mutex=engine-v1 --label "io.identuum.harness.mutex-owner=$$iid" --label "io.identuum.harness.engine=$$eng" --label io.identuum.harness.kind=devseed-live "$$mimg" /identuum-harness-lock 2>>"$$dir/preflight.log") || [ -z "$$mid" ]; then mid=; \
+		echo "devseed-live: check FAILED: preflight — could not take the daemon mutex: container $$mx could not be created on this engine. Another harness run (devseed-live or e2e-full, from any filesystem namespace) holds it, or a killed run left it; it is never removed automatically. Inspect it (docker container inspect $$mx; labels io.identuum.harness.*) and remove it by its ID only after confirming that no harness run is active on this engine (refused; nothing was started)"; exit 1; fi; \
+	trap 'release_mutex; rm -rf "$$lock"' EXIT; \
+	if [ "$$(docker container inspect --format "$$mfmt" "$$mid" 2>>"$$dir/preflight.log")" != "$$mid $$iid $$eng" ]; then echo "devseed-live: check FAILED: preflight — the daemon mutex $$mx read back is not the one this run created (refused; nothing was started)"; exit 1; fi; \
+	ok "preflight — took the daemon mutex $$mx on the engine checked; held through the teardown, and every later docker call first checks that the same engine answers"; \
 	record() { \
 		if ! rc=$$(docker ps -aq --no-trunc --filter "label=$$lab=$$iid" 2>>"$$dir/down.log") || ! rn=$$(docker network ls -q --no-trunc --filter "label=$$lab=$$iid" 2>>"$$dir/down.log") || \
 			! rv=$$(docker volume ls -q --filter "label=$$lab=$$iid" 2>>"$$dir/down.log"); then return 1; fi; \
@@ -2403,7 +2566,7 @@ devseed-live:
 		c=$$(printf '%s' "$$cs" | grep -c .); v=$$(printf '%s' "$$vs" | grep -c .); \
 		if [ -z "$$strange" ] && [ "$$c" = 0 ] && [ "$$v" = 0 ]; then ok "teardown — removed the $$removed resource(s) this run recorded creating, each by ID after rechecking its identity; 0 containers and 0 volumes of $$p left"; \
 		elif [ "$$c" != 0 ] || [ "$$v" != 0 ]; then bad "teardown — project $$p still has $$c container(s) and $$v volume(s)"; fi; }; \
-	cleanup() { [ "$$cleaned" = 1 ] && return 0; cleaned=1; teardown; rm -rf "$$lock"; echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; }; \
+	cleanup() { [ "$$cleaned" = 1 ] && return 0; cleaned=1; teardown; release_mutex; rm -rf "$$lock"; echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; }; \
 	finish() { cleanup; trap - EXIT; \
 		if [ "$$fails" -eq 0 ]; then echo "devseed-live: green"; exit 0; fi; echo "devseed-live: RED — $$fails check(s) failed"; exit 1; }; \
 	left=; for q in 'ps -aq' 'volume ls -q' 'network ls -q'; do \
@@ -2438,11 +2601,12 @@ devseed-live:
 		if [ -n "$$holder" ]; then echo "devseed-live: check FAILED: preflight — host port $$port is taken by: $$holder(refused; nothing was started)"; exit 1; fi; \
 	done; ok "preflight — ports $$pg and $$app free"; \
 	trap 'cleanup' EXIT; trap 'bad "interrupted"; finish' INT TERM; \
-	if $(MAKE) --no-print-directory oss-up IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_COMPOSE_PROJECT="$$p" DEV_APP_CONTAINER="$$p" DEV_PG_HOST_PORT="$$pg" DEV_APP_PORT="$$app" COMPOSE_FILE="deployment/docker-compose.dev.yml -f $$dir/invocation.json" >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p, every resource labelled with this run's invocation id"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
+	if env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKEFILES $(MAKE) --no-print-directory oss-up COMPOSE_CMD='docker compose' IDENTUUM_HARNESS_ENGINE_ID="$$eng" IDENTUUM_HARNESS_MUTEX_ID="$$mid" IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_COMPOSE_PROJECT="$$p" DEV_APP_CONTAINER="$$p" DEV_PG_HOST_PORT="$$pg" DEV_APP_PORT="$$app" COMPOSE_FILE="deployment/docker-compose.dev.yml -f $$dir/invocation.json" >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p, every resource labelled with this run's invocation id"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
 	if record; then ok "record — this run created $$(grep -c . "$$dir/created") resource(s), recorded by ID in $$dir/created"; else bad "record — docker could not list what this run created"; finish; fi; \
 	i=0; until curl -fsS --max-time 2 "http://127.0.0.1:$$app/health" >/dev/null 2>&1; do \
 		i=$$((i+1)); if [ $$i -ge 60 ]; then bad "health — no answer on 127.0.0.1:$$app within 120s"; finish; fi; sleep 2; done; \
 	ok "health — 127.0.0.1:$$app answers"; \
+	still || finish; \
 	if (umask 077; go run ./tools/devseed --issuer "http://127.0.0.1:$$app" --container "$$p" \
 		--i-know-this-is-a-dev-database --json >"$$dir/seed.json" 2>"$$dir/seed.err"); then ok "seed — devseed --container --json exit 0"; \
 	else bad "seed — devseed exit non-zero (stderr in $$dir/seed.err)"; finish; fi; \
@@ -2450,6 +2614,7 @@ devseed-live:
 	grep -E '^    --- (PASS|FAIL): TestDevseedLive/' "$$dir/credentials.log" | sed -E 's/^    --- PASS: TestDevseedLive\//devseed-live: check OK: credentials — /; s/^    --- FAIL: TestDevseedLive\//devseed-live: check FAILED: credentials — /; s/ \([0-9.]+s\)$$//; s/_/ /g'; \
 	n=$$(grep -cE '^    --- PASS: TestDevseedLive/' "$$dir/credentials.log"); \
 	if [ "$$rc" -eq 0 ] && [ "$$n" -eq 4 ]; then ok "credentials — 4 of 4 sign-in checks"; else bad "credentials — go test exit $$rc, $$n of 4 passed (log: $$dir/credentials.log)"; fi; \
+	still || finish; \
 	(umask 077; go run ./tools/devseed --issuer "http://127.0.0.1:$$app" --container "$$p" \
 		--i-know-this-is-a-dev-database --json >"$$dir/seed2.json" 2>"$$dir/seed2.err"); rc=$$?; \
 	answer=$$(grep -oE '[a-z_]+ login: [^ ]+ already has TOTP enrolled' "$$dir/seed2.err" | head -1); \
@@ -3193,9 +3358,12 @@ clean:
 ## name for the file's container, image and volume names, and with
 ## COMPOSE_PROJECT_NAME and COMPOSE_REMOVE_ORPHANS cleared. oss-up refuses a
 ## DEV_APP_CONTAINER that is not that project's app container.
-## compose-pin-selftest proves it with a docker stub.
+## compose-pin-selftest proves it with a docker stub. Started by a harness
+## (devseed-live, e2e-full), each first runs HARNESS_BINDING_CHECK
+## (OSS-MINT-GUARD-6).
 DEV_COMPOSE = env -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS IDENTUUM_IDP_COMPOSE_PROJECT=$(DEV_COMPOSE_PROJECT) $(COMPOSE_CMD) -p $(DEV_COMPOSE_PROJECT) -f $(COMPOSE_FILE)
 oss-build:
+	$(HARNESS_BINDING_CHECK)
 	$(DEV_COMPOSE) --profile app build --build-arg COMMIT=$(COMMIT) app
 
 ## oss-up: bring up Postgres + the OSS app container together.
@@ -3209,6 +3377,7 @@ oss-build:
 ##     docker stop identuum-idp-app
 ##   first (non-destructive; revert with `docker start identuum-idp-app`).
 oss-up: protected-guard oss-app-container-check oss-build
+	$(HARNESS_BINDING_CHECK)
 	$(DEV_COMPOSE) --profile app up -d
 	@# THE-LYING-READY: `up -d` returns as soon as the container is CREATED, and
 	@# the entrypoint still has to migrate before it serves — so this target

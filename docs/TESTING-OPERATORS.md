@@ -52,20 +52,49 @@ holds the lock `/tmp/identuum-devseed.lock`, one fixed path whatever
 `TMPDIR` says; a killed run leaves it, and you remove it by hand). Each
 name it creates ends with a random id of that run
 (`identuum-devseed_postgres-idp-oss-data-v18_<id>`,
-`identuum-devseed_default_<id>`), so no other stack or run creates the
-same name. At the end it removes only what it recorded creating, each
-after checking it again, and a volume only under a name that carries its
-own id; anything else stays, and the run fails.
+`identuum-devseed_default_<id>`), so an ordinary stack or another run does
+not create the same name by accident. At the end it removes only what it
+recorded creating, each after checking it again, and a volume only under a
+name that carries its own id; anything else it finds stays, and the run
+fails. One case is not caught: Docker removes a volume by name, with no
+identity check, so if another Docker user copies the run's exact volume
+name and puts a volume of their own under it after the last check and
+before the removal, that volume is removed and the run does not fail. The
+lock and the mutex below do not stop a Docker user outside these targets.
 
 `devseed-live` supports exactly one setup: the Docker engine of this
 computer, reached through a unix socket on this computer. It refuses,
 before any other Docker command, a `DOCKER_HOST` that is not a
 `unix:///` socket, and a Docker context (`DOCKER_CONTEXT` or the current
-one) whose endpoint is not one, such as `tcp://` or `ssh://`. The reason:
-its lock is a directory on this computer, so it cannot keep out a client
-on another computer that uses the same engine. A unix socket forwarded
-from another computer, or shared into a container with its own `/tmp`,
-looks local and is not detected; do not run it that way.
+one) whose endpoint is not one, such as `tcp://` or `ssh://`. It also
+refuses a `COMPOSE_CMD` that is not exactly `docker compose` (from the
+environment, the command line or `make -e`): an option such as `--host`,
+`-H`, `--context` or `-c` in it would start the stack on another engine.
+Every Docker command of the run, the nested `make oss-up` included, uses
+the checked endpoint.
+
+The `/tmp` lock keeps out a second run that sees the same `/tmp`. A run
+with another `/tmp` (a container sharing the Docker socket, another mount
+namespace) is kept out by the daemon mutex: before it lists or starts
+anything, the run creates a stopped container named
+`identuum-harness-lock-engine` on the checked engine, and Docker refuses a
+second container of that name. identuum-ui's `make e2e-full` takes the same
+mutex, so the two never run against one engine at the same time. The
+container is made from the distroless image that
+`deployment/Dockerfile.local` pins
+(`gcr.io/distroless/static-debian12@sha256:d75cdd72...`); it is never
+pulled by the run, and when it is missing the run refuses and prints the
+`docker pull` command. It is never started, and it is removed by its ID
+at the end. When a run is killed, the container stays and the next run
+refuses, naming it: check that no `devseed-live` or `e2e-full` run is
+active, inspect it (`docker container inspect identuum-harness-lock-engine`,
+labels `io.identuum.harness.*`), then remove it by its ID. The run also
+records the engine's ID (`docker info`) and checks it before every later
+Docker command; if another engine answers, the run stops all Docker
+commands, fails, and leaves the mutex in place. These checks do not prove
+where a unix socket leads: a socket forwarded from another computer can
+answer with a stable ID, and an engine switched inside one Docker command
+is not seen.
 
 `DEVSEED_LIVE_PG_PORT` (default 25513) may be set to another free port.
 It is refused, before any Docker command, when it is 5513 or 5432, has a

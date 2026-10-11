@@ -40,7 +40,8 @@ evidence chain works. The operator tier is
 
 ## What one `make test-full` run does
 
-Stands a FRESH appliance (`down --volumes`, rebuild from this working tree,
+Stands a FRESH appliance (its own project `identuum-e2e`, refused when
+anything of that project is left over, rebuilt from this working tree,
 `INSECURE_DEV_MODE` = rate limits off, nothing else), bootstraps site_admin
 with a run-local password (never printed), then runs 14 witnessed phases,
 serially — `--workers=1` everywhere. (Measured 2026-09-04 in identuum-ui:
@@ -64,8 +65,8 @@ rationale was false, both login paths do a plain RFC 6238 window match.)
 | admin-reset | destructive: `recover-site-admin` on the populated appliance — old password refused, a site_admin session minted before the reset refused after it, new password through first-login enrolment to working authority, tenant data surviving by id (TEST-spec R2) |
 | auth503-scan | LAST: store errors the appliance logged and answered as 503 (AUTH-503) are scanned, never swallowed |
 
-After the e2e half, `test-full-mint` runs **`make devseed-live`** (owner
-ruling u, 2026-10-07): the `make dev-seed` path proved end to end on a
+Before the e2e half, `test-full-mint` runs **`make devseed-live`** (owner
+ruling u, 2026-10-07; moved before it by ruling v, 2026-10-08): the `make dev-seed` path proved end to end on a
 disposable project of its own (`identuum-devseed`, Postgres on 25513, the
 app on 27113, from `deployment/docker-compose.dev.yml`). Each step prints
 `check OK:` or `check FAILED:`: preflight (both ports free, else refused
@@ -78,14 +79,23 @@ gets `invalid_client`), second run (a re-seed refuses: the org_admin already
 has TOTP and devseed keeps no copy of the secret), and teardown (also on
 failure: it removes only what the run recorded creating, by ID, and its
 volume only under the run's own invocation-unique name; never a
-project-level `down`). It runs only against this computer's own Docker
-engine through a unix socket, and refuses 5513 and 5432 as its
-PostgreSQL port (see `docs/TESTING-OPERATORS.md`). The `--json` output
+project-level `down`; a volume another Docker user puts under that exact
+name after the last check is removed without a failure, the one accepted
+gap). It runs only against this computer's own Docker engine through a
+unix socket, with `COMPOSE_CMD` exactly `docker compose`, holds the daemon
+mutex `identuum-harness-lock-engine` (shared with identuum-ui's e2e-full)
+from before its first resource call to the end of its teardown, re-checks
+the engine's ID before every Docker command, and refuses 5513 and 5432 as
+its PostgreSQL port (see `docs/TESTING-OPERATORS.md`). The `--json` output
 goes to a mode-600 file in a fresh `mktemp` directory, left in place and
 never printed. It adds about 50 seconds to a mint. Run it alone with
 `make devseed-live`.
 
-Teardown destroys the appliance and its volume before AND after. The record
+Preflight refuses leftovers rather than deleting them; teardown removes only
+what the run recorded creating (by ID, and its volume only under the run's
+own invocation-unique name, with the copied-exact-name gap described in
+`docs/TESTING-OPERATORS.md`), and holds the daemon mutex
+`identuum-harness-lock-engine` until it is done. The record
 (`GATE-RUN.e2e-full.txt`, gitignored in identuum-ui) is minted as the LAST
 act of a slice close, post-commit at clean HEAD; the wiki check's
 `witness-ui-e2e` gate fails a present-but-stale record (absent = no claim).
