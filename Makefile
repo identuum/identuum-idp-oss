@@ -953,6 +953,7 @@ compose-pin-selftest:
 		'*" config --networks "*) echo default; exit 0;;' \
 		'*" config --services "*) printf "postgres-idp-oss\napp\n"; exit 0;;' \
 		'*" config --format json "*) bm=; [ -e "$$STUB_D/bind-mount" ] && bm=",\"volumes\":[{\"type\":\"bind\",\"source\":\"/tmp\",\"target\":\"/x\"}]"' \
+		'  key=$$(cat "$$STUB_D/config-key" 2>/dev/null); [ -z "$$key" ] || bm="$$bm,\"$$key\":[\"container:identuum-idp-oss-postgres:ro\"]"' \
 		'  echo "{\"name\":\"scratch-devseed\",\"services\":{\"postgres-idp-oss\":{\"container_name\":\"scratch-devseed-postgres\",\"image\":\"postgres:18-alpine\",\"ports\":[{\"host_ip\":\"127.0.0.1\",\"published\":\"$${DEV_PG_HOST_PORT}\",\"target\":5432}]},\"app\":{\"container_name\":\"scratch-devseed\",\"image\":\"scratch-devseed:local\",\"ports\":[{\"host_ip\":\"127.0.0.1\",\"published\":\"$${DEV_APP_PORT}\",\"target\":7113}]$$bm}},\"volumes\":{\"postgres-idp-oss-data-v18\":{\"name\":\"$$V\"}},\"networks\":{\"default\":{\"name\":\"$$N\"}}}"; exit 0;;' \
 		'*" compose "*" up "*) [ -e "$$STUB_D/ignore-names" ] && { V=$$V0; N=$$N0; }' \
 		'  if [ -e "$$STUB_D/late" ]; then echo "2026-10-10T00:00:09Z - -" > "$$S/v/$$V"; else echo "2026-10-10T00:00:01Z scratch-devseed $${inv:--}" > "$$S/v/$$V"; fi' \
@@ -967,24 +968,29 @@ compose-pin-selftest:
 		'"ps "*) case "$$filt" in *invocation=*) [ ! -e "$$STUB_D/list-fails" ] || exit 1;; esac; for f in "$$S"/c/*; do [ -e "$$f" ] || continue; read -r nm pj iv at < "$$f"; match "$$nm" "$$pj" "$$iv" "$$at" || continue; if [ -n "$$q" ]; then echo "$${f##*/}"; else echo "$${f##*/} $$nm"; fi; done; [ -n "$$proj" ] && [ -e "$$STUB_D/leftover" ] && echo deadbeef; exit 0;;' \
 		'"network ls") for f in "$$S"/n/*; do [ -e "$$f" ] || continue; read -r nm pj iv < "$$f"; match "$$nm" "$$pj" "$$iv" || continue; if [ -n "$$q" ]; then echo "$${f##*/}"; else case "$$fmt" in *.ID*) echo "$${f##*/} $$nm";; *) echo "$$nm";; esac; fi; done; [ -n "$$proj" ] && [ -e "$$STUB_D/leftover" ] && echo deadbeef; [ -z "$$filt" ] && [ -e "$$STUB_D/foreign-network" ] && echo "$${N0}_$$inv"; exit 0;;' \
 		'"volume ls") for f in "$$S"/v/*; do [ -e "$$f" ] || continue; read -r ct pj iv < "$$f"; match "$${f##*/}" "$$pj" "$$iv" || continue; echo "$${f##*/}"; done; [ -n "$$proj" ] && [ -e "$$STUB_D/leftover" ] && echo deadbeef; [ -z "$$filt" ] && [ -e "$$STUB_D/foreign-volume" ] && echo "$${V0}_$$inv"; exit 0;;' \
-		'"network inspect") [ -e "$$S/n/$$last" ] || exit 1; read -r nm pj iv < "$$S/n/$$last"; echo "$$last $$iv"; exit 0;;' \
+		'"network inspect") [ -e "$$S/n/$$last" ] || exit 1; read -r nm pj iv < "$$S/n/$$last"; case "$$fmt" in *index*) echo "$$last $$iv";; *) echo "$$nm";; esac; exit 0;;' \
 		'"volume inspect") [ -e "$$S/v/$$last" ] || exit 1; read -r ct pj iv < "$$S/v/$$last"; case "$$fmt" in *index*) echo "$$ct $$iv"' \
 		'  k=$$(cat "$$STUB_D/vinspect" 2>/dev/null || echo 0); k=$$((k+1)); echo $$k > "$$STUB_D/vinspect"; [ $$k -eq 2 ] || exit 0' \
 		'  if [ -e "$$STUB_D/replace-after-inspect" ]; then rm -f "$$S/v/$$last"; echo "2026-10-10T00:00:07Z $$pj $$iv" > "$$S/v/$$V0"; echo replaced-after-inspect >> "$$STUB_D/other"; fi; if [ -e "$$STUB_D/replace-exact-after-inspect" ]; then echo "2026-10-10T00:00:07Z $$pj $$iv" > "$$S/v/$$last"; echo replaced-exact-after-inspect >> "$$STUB_D/other"; fi;;' \
 		'  *) echo "$$ct";; esac; exit 0;;' \
 		'"network rm") rm -f "$$S/n/$$last"; exit 0;;' \
 		'"volume rm") [ -e "$$S/v/$$last" ] || { echo "Error response from daemon: get $$last: no such volume" >&2; exit 1; }; rm -f "$$S/v/$$last"; exit 0;;' \
-		'"inspect "*) [ -e "$$S/c/$$last" ] || exit 1; read -r nm pj iv < "$$S/c/$$last"; echo "$$last $$iv"; exit 0;;' \
-		'"rm "*) [ -e "$$STUB_D/rm-fails" ] && [ "$$last" = c2 ] && { echo "Error response from daemon: cannot remove c2" >&2; exit 1; }; [ -e "$$STUB_D/rm-noop" ] || rm -f "$$S/c/$$last"; exit 0;;' \
+		'"inspect "*) [ -e "$$S/c/$$last" ] || exit 1; read -r nm pj iv < "$$S/c/$$last"; case "$$fmt" in *Mounts*) for v in "$$S"/v/*; do [ -e "$$v" ] && echo "$${v##*/}"; done;; *compose.project*) echo "$$last $$iv $$pj /$$nm";; *) echo "$$last $$iv";; esac; exit 0;;' \
+		'"rm "*) case " $$* " in *" -v "*) rm -f "$$S/v/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"; echo implicit-anonymous-removal >> "$$STUB_D/other";; esac; [ -e "$$STUB_D/rm-fails" ] && [ "$$last" = c2 ] && { echo "Error response from daemon: cannot remove c2" >&2; exit 1; }; [ -e "$$STUB_D/rm-noop" ] || rm -f "$$S/c/$$last"; exit 0;;' \
 		'esac' \
 		'exit 0' > "$$d/bin/docker"; \
 	printf '%s\n' '#!/bin/sh' 'echo "curl $$*" >> "$$STUB_D/other"' 'engine="$${STUB_DAEMON:-$$STUB_D}"; S="$$engine/state"' \
 		'if [ -e "$$STUB_D/change-engine" ]; then echo guard6-engine-b > "$$engine/engine-id"; echo guard6-engine-changed >> "$$STUB_D/calls"; fi' \
 		'for V in "$$S"/v/scratch-devseed_postgres-idp-oss-data-v18*; do if [ -e "$$STUB_D/replace-volume" ] && [ -e "$$V" ]; then read -r ct pj iv < "$$V"; echo "2026-10-10T00:00:05Z $$pj $$iv" > "$$V"; fi; done' \
+		'if [ -e "$$STUB_D/record-damage" ]; then read -r nm pj iv < "$$S/c/c1"; echo "foreign-preserve foreign-project $$iv" > "$$S/c/spoof"; fi' \
+		'for r in "$$TMPDIR"/devseed-live.*/created; do case "$$(cat "$$STUB_D/record-damage" 2>/dev/null)" in missing) rm -f "$$r";; incomplete) echo "incomplete" >> "$$r";; manifest) rm -f "$$STUB_D/fixed/identuum-harness.lock/manifest.json";; esac; done' \
+		'if [ -e "$$STUB_D/anonymous" ]; then pj=$$(cat "$$STUB_D/anonymous"); echo "2030-01-01T00:00:00Z $$pj -" > "$$S/v/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"; fi' \
 		'if [ -e "$$STUB_D/foreign-container" ]; then echo "scratch-devseed-intruder-1 scratch-devseed someone-else" > "$$S/c/f1"; fi' \
 		'exit 0' > "$$d/bin/curl"; \
 	printf '#!/bin/sh\necho "go $$*" >> "%s/other"\nexit 0\n' "$$d" > "$$d/bin/go"; \
 	printf '#!/bin/sh\nexit 1\n' > "$$d/bin/lsof"; chmod +x "$$d/bin/docker" "$$d/bin/curl" "$$d/bin/go" "$$d/bin/lsof"; \
+	printf '%s\n' '#!/bin/sh' 'if [ "$$#" = 0 ]; then exec /usr/bin/mktemp "$$STUB_D/tmp/probe.XXXXXX"; fi' 'exec /usr/bin/mktemp "$$@"' > "$$d/bin/mktemp"; chmod +x "$$d/bin/mktemp"; \
+	printf '#!/bin/sh\nexec "%s" "$$@"\n' "$$(command -v node)" > "$$d/bin/node"; chmod +x "$$d/bin/node"; \
 	for t in pg_isready psql; do printf '#!/bin/sh\necho "%s $$*" >> "%s/other"\n[ -e "%s/pg-ready" ]\n' "$$t" "$$d" "$$d" > "$$d/bin/$$t"; chmod +x "$$d/bin/$$t"; done; \
 	run() { rm -rf "$$d/calls" "$$d/state" "$$d/other" "$$d/vinspect" "$$d"/tmp/devseed-live.*; (cd "$$d/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS -u IDENTUUM_IDP_COMPOSE_PROJECT -u DEV_APP_CONTAINER -u DOCKER_HOST -u DOCKER_CONTEXT -u DEVSEED_LIVE_PG_PORT STUB_D="$$d" TMPDIR="$$d/tmp" PATH="$$d/bin:$$PATH" "$$@") > "$$d/out" 2>&1; }; \
 	verdict() { n=$$((n + 1)); if [ -z "$$2" ]; then echo "  ok    $$1"; else echo "  FAIL  $$1:$$2"; fails=$$((fails + 1)); fi; }; \
@@ -995,7 +1001,7 @@ compose-pin-selftest:
 	nodown() { grep -qE ' compose .* down( |$$)' "$$d/calls" && echo " compose-down-called"; }; \
 	removed() { grep -qE "^docker $$1( |$$)" "$$d/calls" || echo " $$2-not-removed"; }; \
 	kept() { grep -qE "^docker $$1( |$$)" "$$d/calls" && echo " $$2-removed"; }; \
-	none_removed() { grep -qE '^docker (rm -f -v|network rm|volume rm) ' "$$d/calls" && echo " something-removed"; }; \
+	none_removed() { grep -qE '^docker (rm -f|network rm|volume rm) ' "$$d/calls" && echo " something-removed"; }; \
 	retained() { [ -d "$$lock" ] || echo " claim-released"; [ -d "$$d/mutex" ] || echo " mutex-released"; grep -q '"state":"refused"' "$$lock/manifest.json" 2>/dev/null || echo " no-refused-record"; grep -q 'is KEPT with' "$$d/out" || echo " kept-not-named"; }; \
 	reset() { rm -rf "$$lock" "$$d/mutex"; }; \
 	run env COMPOSE_PROJECT_NAME=identuum-idp-oss COMPOSE_REMOVE_ORPHANS=true IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up; rc=$$?; \
@@ -1012,7 +1018,7 @@ compose-pin-selftest:
 	first=$$(grep ' compose ' "$$d/calls" | grep -v ' config ' | head -1); \
 	verdict "devseed-live under an outer command-line project starts only -p scratch-devseed, and removes nothing before its own start" "$$(pinned scratch-devseed 3)$$(startfirst "$$first")"; \
 	lock="$$d/fixed/identuum-harness.lock"; \
-	verdict "devseed-live labels what it starts with its invocation id, records it by ID, removes exactly that by ID (two containers, the network, the volume), runs no compose down, and releases its lock" "$$(grep -q -- '-f [^ ]*invocation.json' "$$d/calls" || echo " no-overlay")$$(grep -q 'check OK: record — this run created 4 resource' "$$d/out" || echo " not-recorded")$$(removed 'rm -f -v c1' container-c1)$$(removed 'rm -f -v c2' container-c2)$$(removed 'network rm n1' network)$$(removed 'volume rm scratch-devseed_postgres-idp-oss-data-v18_[0-9a-f]{32}' volume)$$(nodown)$$( [ -z "$$(ls "$$d/state/c" "$$d/state/n" "$$d/state/v" 2>/dev/null | grep -v '^$$' | grep -v ':$$')" ] || echo " residue")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
+	verdict "devseed-live labels what it starts with its invocation id, records it by ID, removes exactly that by ID (two containers, the network, the volume), runs no compose down, and releases its lock" "$$(grep -q -- '-f [^ ]*invocation.json' "$$d/calls" || echo " no-overlay")$$(grep -q 'check OK: record — this run created 4 resource' "$$d/out" || echo " not-recorded")$$(removed 'rm -f c1' container-c1)$$(removed 'rm -f c2' container-c2)$$(removed 'network rm n1' network)$$(removed 'volume rm scratch-devseed_postgres-idp-oss-data-v18_[0-9a-f]{32}' volume)$$(nodown)$$( [ -z "$$(ls "$$d/state/c" "$$d/state/n" "$$d/state/v" 2>/dev/null | grep -v '^$$' | grep -v ':$$')" ] || echo " residue")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
 	for kind in volume network; do \
 		: > "$$d/foreign-$$kind"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/foreign-$$kind"; \
 		verdict "devseed-live refuses a $$kind with a name it would create whatever its labels (seen only unfiltered), before any start or removal" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -E ' compose .* (up|down|build) ' "$$d/calls" >/dev/null && echo " compose-acted")$$(grep -qE '^docker (rm|network rm|volume rm) ' "$$d/calls" && echo " removed")$$(grep -q 'already exist' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")"; \
@@ -1023,7 +1029,7 @@ compose-pin-selftest:
 	verdict "REVIEW-H1: a caller with another TMPDIR takes the same lock, so it is refused before any docker call and leaves the lock" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( [ ! -s "$$d/calls" ] || echo " docker-called")$$(grep -q held "$$lock/pid" 2>/dev/null || echo " lock-taken")$$(grep -qF "$$lock" "$$d/out" || echo " lock-not-named")$$( [ ! -e "$$d/tmp2/identuum-harness.lock" ] || echo " lock-under-TMPDIR")"; \
 	rm -rf "$$lock"; \
 	: > "$$d/late"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/late"; \
-	verdict "SPEC-K5: a volume with a recorded name that appears during the run without this run's invocation label refuses the WHOLE teardown before the first removal (nothing removed); the run is red and keeps its claim, mutex and record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$(nodown)$$(grep -q 'teardown — refused for' "$$d/out" || echo " no-refusal-line")$$(retained)"; reset; \
+	verdict "SPEC-K5: a volume with a recorded name that appears during the run without this run's invocation label refuses the WHOLE teardown before the first removal (nothing removed); the run is red and keeps its claim, mutex and record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$(nodown)$$(grep -q 'teardown — refused' "$$d/out" || echo " no-refusal-line")$$(retained)"; reset; \
 	: > "$$d/replace-volume"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/replace-volume"; \
 	verdict "REVIEW-H2 + SPEC-K5: a same-name, same-label replacement of the recorded volume (its creation time changed) refuses the WHOLE teardown: neither it nor this run's own containers and network are removed; the run is red and keeps its claim, mutex and record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$(nodown)$$(grep -q 'replaced since it was recorded' "$$d/out" || echo " no-refusal-line")$$( [ -n "$$(ls "$$d/state/v" 2>/dev/null)" ] || echo " replacement-gone")$$( [ -e "$$d/state/c/c1" ] || echo " own-container-gone")$$(retained)"; reset; \
 	: > "$$d/foreign-container"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/foreign-container"; \
@@ -1037,7 +1043,7 @@ compose-pin-selftest:
 	: > "$$d/replace-exact-after-inspect"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/replace-exact-after-inspect"; \
 	verdict "REVIEW-R1 accepted residual (judge ruling Q3 (a)): a writer that copies this run's exact volume name after the final identity inspection has its volume removed by that name, and the teardown is not refused" "$$(grep -q replaced-exact-after-inspect "$$d/other" 2>/dev/null || echo ' no-replacement')$$( [ -z "$$(ls "$$d/state/v" 2>/dev/null)" ] || echo ' replacement-kept')$$(grep -q 'check OK: teardown' "$$d/out" || echo ' teardown-refused')$$( [ ! -e "$$lock" ] || echo ' lock-left')"; \
 	: > "$$d/ignore-names"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/ignore-names"; \
-	verdict "a recorded volume whose name does not carry the invocation id refuses the WHOLE teardown (nothing removed by name or ID); the run is red and keeps its claim, mutex and record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$( [ -e "$$d/state/v/scratch-devseed_postgres-idp-oss-data-v18" ] || echo " volume-gone")$$(grep -q 'name lacks the invocation id of this run' "$$d/out" || echo " no-refusal-line")$$(retained)"; reset; \
+	verdict "a recorded volume whose name does not carry the invocation id refuses the WHOLE teardown (nothing removed by name or ID); the run is red and keeps its claim, mutex and record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$( [ -e "$$d/state/v/scratch-devseed_postgres-idp-oss-data-v18" ] || echo " volume-gone")$$(grep -q 'creation record missing or incomplete' "$$d/out" || echo " no-refusal-line")$$(retained)"; reset; \
 	: 'OSS-CANDIDATE-LIFECYCLE-FIX (SPEC K4, K5): attachments, failed removals, failed records.'; \
 	: > "$$d/foreign-member"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/foreign-member"; \
 	verdict "SPEC-K5: a container this run did not create, attached to its recorded network or using its recorded volume (outside the project), refuses the WHOLE teardown; nothing is removed; claim, mutex and record kept" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$(grep -q 'container fm, not recorded, is attached' "$$d/out" || echo " no-attachment-line")$$( [ -e "$$d/state/c/fm" ] || echo " member-gone")$$(retained)"; reset; \
@@ -1047,6 +1053,12 @@ compose-pin-selftest:
 	verdict "SPEC-K5: a recorded container still present after its removal is red (every recorded object is proved gone before the claim is released); claim, mutex and record kept" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -q 'still present after its removal: container:c1' "$$d/out" || echo " not-proved-gone")$$(retained)"; reset; \
 	: > "$$d/list-fails"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/list-fails"; \
 	verdict "SPEC-K4: when what the run created cannot be listed (no record), nothing is removed; the run is red and keeps its claim, mutex and reservation record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$(grep -q 'docker could not list what this run created' "$$d/out" || echo " no-record-failure-line")$$(retained)"; reset; \
+	for damage in missing incomplete manifest; do echo "$$damage" > "$$d/record-damage"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/record-damage"; \
+		verdict "R-ADV B1 $$damage creation record refuses without label reconstruction" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(none_removed)$$(retained)"; reset; done; \
+	for label in scratch-devseed unlabelled; do echo "$$label" > "$$d/anonymous"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/anonymous"; \
+	verdict "R-ADV B3 $$label anonymous mount refuses with no implicit removal" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(none_removed)$$(retained)"; reset; done; \
+	for key in volumes_from external_links links pid ipc uts use_api_socket devices configs secrets provider; do echo "$$key" > "$$d/config-key"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/config-key"; \
+		verdict "R-ADV B2 $$key refuses before startup" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(grep -qE ' compose .* (up|build) ' "$$d/calls" && echo ' started')"; done; \
 	: > "$$d/bind-mount"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/bind-mount"; \
 	verdict "SPEC-K1: a resolved config that mounts a host path is refused before any start, and the claim and mutex are released (nothing was created)" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -qE ' compose .* (up|build) ' "$$d/calls" && echo " started")$$(grep -q 'a host mount' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")$$( [ ! -d "$$d/mutex" ] || echo " mutex-left")"; \
 	for form in tcp ssh context current unresolved; do \
@@ -1113,7 +1125,7 @@ compose-pin-selftest:
 	rm -f "$$d/engine-id"; reset; \
 	run $(MAKE) --no-print-directory devseed-live; rc=$$?; \
 	cr=$$(grep -n '^docker container create ' "$$d/calls" | head -1 | cut -d: -f1); fr=$$(grep -nE '^docker (ps|volume|network) | compose ' "$$d/calls" | head -1 | cut -d: -f1); \
-	rl=$$(grep -n '^docker container rm guard6-mutex-id' "$$d/calls" | tail -1 | cut -d: -f1); lr=$$(grep -nE '^docker (rm -f -v|network rm|volume rm) ' "$$d/calls" | tail -1 | cut -d: -f1); \
+	rl=$$(grep -n '^docker container rm guard6-mutex-id' "$$d/calls" | tail -1 | cut -d: -f1); lr=$$(grep -nE '^docker (rm -f|network rm|volume rm) ' "$$d/calls" | tail -1 | cut -d: -f1); \
 	verdict "GUARD6-F2/green: the daemon mutex identuum-harness-lock-engine is created (never started, no network, this run's owner and engine labels) after the topology check and the engine id, before any resource call, and removed by its ID after the teardown" "$$(grep -q 'check OK: up' "$$d/out" || echo ' not-started')$$( [ -n "$$cr" ] && [ -n "$$fr" ] && [ "$$cr" -lt "$$fr" ] || echo ' mutex-not-before-resources')$$(head -2 "$$d/calls" | sed -n 2p | grep -q '^docker info ' || echo ' engine-id-not-second')$$( [ -n "$$rl" ] && [ -n "$$lr" ] && [ "$$rl" -gt "$$lr" ] || echo ' mutex-not-released-after-teardown')$$(grep '^docker container create ' "$$d/calls" | grep -- '--name identuum-harness-lock-engine ' | grep -- '--network=none' | grep -q -- 'io.identuum.harness.mutex-owner=[0-9a-f]\{32\} ' || echo ' mutex-args')$$(grep '^docker container create ' "$$d/calls" | grep -- 'io.identuum.harness.project=scratch-devseed ' | grep -q -- 'io.identuum.harness.ports=25513,27113 ' || echo ' mutex-not-labelled-with-project-and-ports')$$(grep -qE '^docker (container )?start ' "$$d/calls" && echo ' mutex-started')$$( [ ! -d "$$d/mutex" ] || echo ' mutex-left')$$(grep -q 'check OK: mutex — released' "$$d/out" || echo ' no-release-line')"; \
 	: > "$$d/no-mutex-image"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/no-mutex-image"; \
 	verdict "GUARD6-F2/no-image: without the pinned mutex image on the engine, the run is refused before any resource call and pulls nothing" "$$( [ $$rc -ne 0 ] || echo ' exit-0')$$(grep -qE ' compose |^docker (ps|volume|network|rm|pull|container create) ' "$$d/calls" && echo ' acted')$$(grep -q 'docker pull gcr.io/distroless/static-debian12@sha256:' "$$d/out" || echo ' no-pull-advice')$$( [ ! -d "$$d/mutex" ] || echo ' mutex-created')$$( [ ! -e "$$lock" ] || echo ' lock-left')"; \
@@ -2674,11 +2686,14 @@ devseed-live:
 	record() { \
 		if ! rc=$$(docker ps -aq --no-trunc --filter "label=$$lab=$$iid" 2>>"$$dir/down.log") || ! rn=$$(docker network ls -q --no-trunc --filter "label=$$lab=$$iid" 2>>"$$dir/down.log") || \
 			! rv=$$(docker volume ls -q --filter "label=$$lab=$$iid" 2>>"$$dir/down.log"); then return 1; fi; \
-		{ for c in $$rc; do echo "container $$c"; done; for n in $$rn; do echo "network $$n"; done; \
-			for v in $$rv; do t=$$(docker volume inspect --format '{{.CreatedAt}}' "$$v" 2>>"$$dir/down.log") && [ -n "$$t" ] || return 1; echo "volume $$v $$t"; done; } > "$$dir/created.part" || return 1; \
-		mv "$$dir/created.part" "$$dir/created" && wm created; }; \
+		for c in $$rc; do got=$$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$$lab\"}} {{index .Config.Labels \"com.docker.compose.project\"}} {{.Name}}" "$$c") || return 1; \
+			read -r id marker project name <<<"$$got"; [ "$$id $$marker $$project" = "$$c $$iid $$p" ] || return 1; case "$$name" in /"$$p"|/"$$p-postgres") ;; *) return 1;; esac; \
+			mounts=$$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "$$c") || return 1; for v in $$mounts; do printf '%s\n' "$$rv" | grep -qxF "$$v" || return 1; done; done; \
+		{ for c in $$rc; do echo "container $$c"; done; for n in $$rn; do name=$$(docker network inspect --format '{{.Name}}' "$$n") || return 1; grep -qxF "network:$$name" "$$dir/inventory" || return 1; echo "network $$n"; done; \
+			for v in $$rv; do grep -qxF "volume:$$v" "$$dir/inventory" || return 1; t=$$(docker volume inspect --format '{{.CreatedAt}}' "$$v" 2>>"$$dir/down.log") && [ -n "$$t" ] || return 1; echo "volume $$v $$t"; done; } > "$$dir/created.part" || return 1; \
+		mv "$$dir/created.part" "$$dir/created" && wm created && cksum "$$dir/created" "$$lock/manifest.json" > "$$dir/created.complete.part" && mv "$$dir/created.complete.part" "$$dir/created.complete"; }; \
 	teardown() { \
-		if [ ! -e "$$dir/created" ] && ! record; then keep=1; bad "teardown — refused: docker could not list what this run created, so nothing was removed; inspect project $$p by hand (log: $$dir/down.log)"; return; fi; \
+		if [ ! -f "$$dir/created.complete" ] || [ ! -f "$$dir/created" ] || [ ! -f "$$lock/manifest.json" ] || [ "$$(cksum "$$dir/created" "$$lock/manifest.json")" != "$$(cat "$$dir/created.complete")" ]; then keep=1; bad "teardown — refused: creation record missing or incomplete; labels cannot reconstruct it; nothing was removed; inspect project $$p by hand (log: $$dir/down.log)"; return; fi; \
 		if ! allc=$$(docker ps -aq --no-trunc 2>>"$$dir/down.log") || ! projc=$$(docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log") || \
 			! namec=$$(docker ps -a --no-trunc --format '{{.ID}} {{.Names}}' 2>>"$$dir/down.log") || \
 			! alln=$$(docker network ls --no-trunc --format '{{.ID}} {{.Name}}' 2>>"$$dir/down.log") || ! projn=$$(docker network ls -q --no-trunc --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log") || \
@@ -2693,7 +2708,8 @@ devseed-live:
 			*) if printf '%s\n' "$$allv" | grep -qxF "$$nm"; then rec volume "$$nm" || strange="$$strange volume:$$nm"; fi;; esac; done; \
 		while read -r kind id t; do case "$$kind" in \
 			container) printf '%s\n' "$$allc" | grep -qxF "$$id" || continue; \
-				[ "$$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || strange="$$strange container:$$id(identity changed)";; \
+				[ "$$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || strange="$$strange container:$$id(identity changed)"; \
+				if ! mounts=$$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "$$id" 2>>"$$dir/down.log"); then strange="$$strange container:$$id(mount inspection failed)"; else for v in $$mounts; do rec volume "$$v" || strange="$$strange container:$$id(unrecorded volume $$v)"; done; fi;; \
 			network) printf '%s\n' "$$alln" | awk '{print $$1}' | grep -qxF "$$id" || continue; \
 				[ "$$(docker network inspect --format "{{.Id}} {{index .Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || { strange="$$strange network:$$id(identity changed)"; continue; }; \
 				if ! us=$$(docker ps -aq --no-trunc --filter "network=$$id" 2>>"$$dir/down.log"); then strange="$$strange network:$$id(its members could not be listed)"; continue; fi; \
@@ -2707,7 +2723,7 @@ devseed-live:
 		while read -r kind id t; do case "$$kind" in \
 			container) printf '%s\n' "$$allc" | grep -qxF "$$id" || continue; \
 				[ "$$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || { keep=1; bad "teardown — container $$id changed identity right before its removal; not removed"; continue; }; \
-				if docker rm -f -v "$$id" >>"$$dir/down.log" 2>&1; then removed=$$((removed+1)); else keep=1; bad "teardown — removing this run's container $$id failed (log: $$dir/down.log)"; fi;; \
+				if docker rm -f "$$id" >>"$$dir/down.log" 2>&1; then removed=$$((removed+1)); else keep=1; bad "teardown — removing this run's container $$id failed (log: $$dir/down.log)"; fi;; \
 			network) printf '%s\n' "$$alln" | awk '{print $$1}' | grep -qxF "$$id" || continue; \
 				[ "$$(docker network inspect --format "{{.Id}} {{index .Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || { keep=1; bad "teardown — network $$id changed identity right before its removal; not removed"; continue; }; \
 				if docker network rm "$$id" >>"$$dir/down.log" 2>&1; then removed=$$((removed+1)); else keep=1; bad "teardown — removing this run's network $$id failed (log: $$dir/down.log)"; fi;; \
@@ -2751,8 +2767,9 @@ devseed-live:
 	for e in $$inv; do printf '%s' "$$flat" | grep -qF "\"name\":\"$${e#*:}\"" || { echo "devseed-live: check FAILED: preflight — $$e is not the name docker compose resolves for it with this run's overlay (refused; nothing was started)"; exit 1; }; done; \
 	kbad() { echo "devseed-live: check FAILED: preflight — the resolved config is not this harness's project alone: $$1 (refused; nothing was started)"; exit 1; }; \
 	[ "$$(printf '%s\n' $$sk | sort | tr '\n' ' ')" = "app postgres-idp-oss " ] || kbad "its services ($$(printf '%s ' $$sk)) are not exactly app and postgres-idp-oss"; \
-	for f in '"privileged":true' '"network_mode":"host"' '"network_mode":"container:' '"network_mode":"service:' '"pid":"host"' '"ipc":"host"' '"type":"bind"' '"external":true' '"driver_opts":'; do \
+	for f in '"volumes_from":' '"external_links":' '"links":' '"network_mode":' '"pid":' '"ipc":' '"uts":' '"use_api_socket":' '"devices":' '"device_cgroup_rules":' '"gpus":' '"configs":' '"secrets":' '"provider":' '"develop":' '"post_start":' '"pre_stop":' '"credential_spec":' '"runtime":' '"cgroup":' '"cgroup_parent":' '"extra_hosts":' '"privileged":true' '"network_mode":"host"' '"network_mode":"container:' '"network_mode":"service:' '"pid":"host"' '"ipc":"host"' '"type":"bind"' '"external":true' '"driver_opts":'; do \
 		case "$$flat" in *"$$f"*) kbad "it carries $$f — a privileged or host-namespace service, a host mount, an external network or volume, or a volume backed by a host path";; esac; done; \
+	printf '%s' "$$cfg" | node -e 'const c=JSON.parse(require("fs").readFileSync(0,"utf8")); for(const d of Object.values(c.volumes||{}))if(d.driver&&d.driver!=="local")process.exit(1);for(const d of Object.values(c.networks||{}))if(d.driver_opts||d.driver&&d.driver!=="bridge")process.exit(1);for(const s of Object.values(c.services||{})){for(const m of s.volumes||[])if(!m||m.type!=="tmpfs"&&(m.type!=="volume"||!m.source||!Object.hasOwn(c.volumes||{},m.source)))process.exit(1);for(const k of Object.keys(s.networks||{}))if(!Object.hasOwn(c.networks||{},k))process.exit(1);}' || kbad "a mount or network source is outside the declared scratch inventory"; \
 	[ "$$(printf '%s' "$$flat" | grep -o '"published":"[0-9]*"' | sed 's/[^0-9]//g' | sort -u | tr '\n' ' ')" = "$$(printf '%s\n' "$$pg" "$$app" | sort -u | tr '\n' ' ')" ] || kbad "its published ports are not exactly $$pg and $$app"; \
 	[ "$$(printf '%s' "$$flat" | grep -o '"host_ip":"[^"]*"' | sort -u)" = '"host_ip":"127.0.0.1"' ] && [ "$$(printf '%s' "$$flat" | grep -o '"published":' | grep -c .)" = "$$(printf '%s' "$$flat" | grep -o '"host_ip":' | grep -c .)" ] || kbad "a port is published on an address other than 127.0.0.1"; \
 	for cn in $$(printf '%s' "$$flat" | grep -o '"container_name":"[^"]*"' | sed 's/.*:"//; s/"$$//'); do [ "$$cn" = "$$p" ] || [ "$$cn" = "$$p-postgres" ] || kbad "a container is named $$cn"; done; \

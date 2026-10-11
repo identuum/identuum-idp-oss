@@ -145,6 +145,35 @@ case "$1 $2" in
 "container rm") rm -rf "$S/mutex"; exit 0 ;;
 esac
 [ "$1" = info ] && { echo shim-engine; exit 0; }
+if [ "${STUB_RESOURCES:-}" = 1 ]; then
+  mkdir -p "$S/c"
+  iv=$(cat "$S/mutex/owner")
+  case "$1 $2" in
+  "ps "*)
+    case "$*" in *label=io.identuum.harness.invocation=*) [ -e "$S/seeded" ] || { echo "conformance-idp scratch-conformance $iv" > "$S/c/c1"; : > "$S/seeded"; } ;; esac
+    for f in "$S"/c/*; do
+      [ -e "$f" ] || continue; read -r name project marker < "$f"
+      case "$*" in *label=com.docker.compose.project=scratch-conformance*) [ "$project" = scratch-conformance ] || continue ;; esac
+      case "$*" in *--format*) echo "${f##*/} $name" ;; *) echo "${f##*/}" ;; esac
+    done; exit 0 ;;
+  "inspect "*)
+    for a in "$@"; do last=$a; done
+    [ -e "$S/c/$last" ] || exit 1; read -r name project marker < "$S/c/$last"
+    case "$*" in
+    *Mounts*) [ ! -e "$S/anonymous" ] || echo ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff ;;
+    *compose.project*) echo "$last $marker $project $name" ;;
+    *) echo "$last $marker" ;;
+    esac; exit 0 ;;
+  "volume ls")
+    if [ -e "$S/anonymous" ]; then
+      case "$*" in *label=io.identuum*) exit 0 ;; *label=com.docker.compose.project*) [ "$(cat "$S/anonymous")" = scratch-conformance ] || exit 0 ;; esac
+      echo ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+    fi; exit 0 ;;
+  "rm "*)
+    case " $* " in *" -v "*) rm -f "$S/anonymous" ;; esac
+    for a in "$@"; do last=$a; done; rm -f "$S/c/$last"; exit 0 ;;
+  esac
+fi
 exit 0
 `
 	if err := os.WriteFile(filepath.Join(shimDir, "docker"), []byte(shim), 0o755); err != nil {
@@ -226,6 +255,84 @@ exit 0
 	}
 	noDown(t, calls)
 	released(t, printed)
+
+	// R-ADV B1: loss or truncation of creation evidence never authorizes a
+	// new label census, including a foreign container with a copied label.
+	for _, damage := range []string{"missing", "incomplete", "manifest"} {
+		t.Run("R-ADV-B1-"+damage, func(t *testing.T) {
+			action := "rm -f " + lock + "/created"
+			if damage == "incomplete" {
+				action = "echo 'container foreign' > " + lock + "/created"
+			} else if damage == "manifest" {
+				action = "rm -f " + lock + "/manifest.json"
+			}
+			spoof := "echo \"foreign-preserve foreign-project $(cat " + state + "/mutex/owner)\" > " + state + "/c/spoof; "
+			code, calls, printed := runHarnessEnv(t, perPlan(spoof+action+"; exit 0"), false, "STUB_RESOURCES=1")
+			if code == 0 || !strings.Contains(printed, "TEARDOWN REFUSED") {
+				t.Errorf("damaged creation evidence did not refuse cleanup (exit %d)", code)
+			}
+			if regexp.MustCompile(`(?m)^(?:rm|network rm|volume rm|container rm) `).MatchString(calls) {
+				t.Error("damaged evidence authorized resource or mutex removal")
+			}
+			if _, err := os.Stat(lock); err != nil {
+				t.Error("claim was not retained")
+			}
+			if _, err := os.Stat(filepath.Join(state, "mutex")); err != nil {
+				t.Error("mutex was not retained")
+			}
+			_ = os.RemoveAll(lock)
+			if _, err := os.Stat(filepath.Join(state, "c", "spoof")); err != nil {
+				t.Error("foreign label-spoof container was removed")
+			}
+			_ = os.RemoveAll(state)
+		})
+	}
+	for _, label := range []string{"scratch-conformance", "unlabelled"} {
+		t.Run("R-ADV-B3-anonymous-"+label, func(t *testing.T) {
+			action := "echo " + label + " > " + state + "/anonymous; exit 0"
+			code, calls, printed := runHarnessEnv(t, perPlan(action), false, "STUB_RESOURCES=1")
+			if code == 0 || !strings.Contains(printed, "TEARDOWN REFUSED") {
+				t.Error("anonymous mount did not refuse teardown")
+			}
+			if regexp.MustCompile(`(?m)^(?:rm|network rm|volume rm|container rm) `).MatchString(calls) {
+				t.Error("unrecorded mount authorized removal, including implicit rm -v")
+			}
+			for _, path := range []string{lock, filepath.Join(state, "mutex"), filepath.Join(state, "anonymous")} {
+				if _, err := os.Stat(path); err != nil {
+					t.Error("refused teardown did not retain all resources and claims")
+				}
+			}
+			_ = os.RemoveAll(lock)
+			_ = os.RemoveAll(state)
+		})
+	}
+
+	// R-ADV B2: exercise the real resolved-config validator without Docker.
+	raw, err := os.ReadFile(script)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validator := strings.SplitN(strings.SplitN(string(raw), " node -e '\n", 2)[1], "\n'; then", 2)[0]
+	for _, key := range []string{"volumes_from", "external_links", "links", "network_mode", "pid", "ipc", "uts", "use_api_socket", "devices", "configs", "secrets", "provider"} {
+		t.Run("R-ADV-B2-"+key, func(t *testing.T) {
+			cfg := `{"name":"scratch-conformance","services":{"conformance-idp":{},"conformance-op":{},"conformance-postgres":{"` + key + `":["container:identuum-idp-oss-postgres:ro"]},"mongodb":{},"nginx":{},"server":{}},"networks":{},"volumes":{}}`
+			cmd := exec.Command("node", "-e", validator)
+			cmd.Stdin = strings.NewReader(cfg)
+			cmd.Env = append(os.Environ(), "PROJECT=scratch-conformance", "PORTS=28443 28444 27113", "INVOCATION=offline", "LABEL=io.identuum.harness.invocation", "EXPECTED="+filepath.Join(work, "expected"), "OVERLAY="+filepath.Join(work, "overlay"))
+			if cmd.Run() == nil {
+				t.Error("outside-run attachment accepted")
+			}
+		})
+	}
+	// R-ADV B3: known image VOLUME destinations must have named coverage.
+	for file, target := range map[string]string{"compose.appliance.yml": "/var/lib/postgresql", "compose.suite-override.yml": "/data/configdb"} {
+		t.Run("R-ADV-B3-"+file, func(t *testing.T) {
+			raw, err := os.ReadFile(filepath.Join(copyDir, file))
+			if err != nil || !strings.Contains(string(raw), ":"+target+"\n") {
+				t.Error("image-declared volume has no explicit named coverage")
+			}
+		})
+	}
 	if !regexp.MustCompile(`container create --name identuum-harness-lock-engine .*io\.identuum\.harness\.kind=openid-conformance --label io\.identuum\.harness\.project=scratch-conformance --label io\.identuum\.harness\.ports=28443,28444,27113`).MatchString(calls) {
 		t.Fatalf("the daemon mutex was not taken with this harness's kind, project and ports; docker calls:\n%s", calls)
 	}

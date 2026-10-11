@@ -22,6 +22,7 @@ services:
   mongodb:
     volumes: !override
       - conformance-mongo-data:/data/db
+      - conformance-mongo-config:/data/configdb
   nginx:
     ports: !override
       - "127.0.0.1:28443:8443"
@@ -29,3 +30,4 @@ services:
 
 volumes:
   conformance-mongo-data:
+  conformance-mongo-config:

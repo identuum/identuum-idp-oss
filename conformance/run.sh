@@ -139,7 +139,7 @@ release_claim() {
 		echo "openid-conformance: the harness claim $HARNESS_LOCK is KEPT with this run's record ($MANIFEST, $CREATED): what it created was not all proved gone. Inspect the resources the record names, resolve them by hand, then remove $HARNESS_LOCK (and the daemon mutex $MUTEX, by its ID, if it is still there)" >&2
 		return 0
 	fi
-	rm -f "$HARNESS_LOCK/pid" "$EXPECTED" "$INVENTORY" "$OVERLAY" "$CREATED" "$CREATED.part" "$ENGINE_FLAG" "$MANIFEST" "$MANIFEST.part"
+	rm -f "$HARNESS_LOCK/pid" "$EXPECTED" "$INVENTORY" "$OVERLAY" "$CREATED" "$CREATED.part" "$CREATED.complete" "$CREATED.complete.part" "$ENGINE_FLAG" "$MANIFEST" "$MANIFEST.part"
 	rmdir "$HARNESS_LOCK" 2>/dev/null ||
 		echo "openid-conformance: could not release the harness claim $HARNESS_LOCK — remove it once no harness run is active" >&2
 }
@@ -254,15 +254,30 @@ record_created() {
 		! rv=$(docker volume ls -q --filter "label=$LABEL=$INVOCATION"); then
 		return 1
 	fi
+	for c in $rc; do
+		got=$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$LABEL\"}} {{index .Config.Labels \"com.docker.compose.project\"}} {{index .Config.Labels \"com.docker.compose.service\"}}" "$c") || return 1
+		read -r id marker project name <<<"$got"; name=${name#/}
+		[ "$id $marker $project" = "$c $INVOCATION $PROJECT" ] || return 1
+		case "$name" in conformance-idp|conformance-op|conformance-postgres|mongodb|nginx|server) ;; *) return 1;; esac
+		users=$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "$c") || return 1
+		for v in $users; do
+			grep -qxF "$v" <<<"$rv" || { echo "unrecorded volume $v attached to $c" >&2; return 1; }
+		done
+	done
 	{
 		for c in $rc; do echo "container $c"; done
-		for n in $rn; do echo "network $n"; done
+		for n in $rn; do
+			name=$(docker network inspect --format '{{.Name}}' "$n") || return 1
+			grep -qxF "network"$'\t'"$name" "$INVENTORY" || return 1
+			echo "network $n"
+		done
 		for v in $rv; do
+			grep -qxF "volume"$'\t'"$v" "$INVENTORY" || return 1
 			t=$(docker volume inspect --format '{{.CreatedAt}}' "$v") && [ -n "$t" ] || return 1
 			echo "volume $v $t"
 		done
 	} >"$CREATED.part" || return 1
-	mv "$CREATED.part" "$CREATED" && write_manifest created
+	mv "$CREATED.part" "$CREATED" && write_manifest created && cksum "$CREATED" "$MANIFEST" >"$CREATED.complete.part" && mv "$CREATED.complete.part" "$CREATED.complete"
 }
 recorded() { grep -qxF "$1 $2" "$CREATED" || grep -qF "$1 $2 " "$CREATED"; }
 # remove_recorded: WHOLE STEP (SPEC K5). Phase 1 checks everything before the
@@ -278,6 +293,10 @@ recorded() { grep -qxF "$1 $2" "$CREATED" || grep -qF "$1 $2 " "$CREATED"; }
 # OSS-MINT-GUARD-6) — the claim and the mutex bind cooperating harness runs,
 # not such a writer.
 remove_recorded() {
+	if [ ! -f "$CREATED.complete" ] || [ ! -f "$CREATED" ] || [ ! -f "$MANIFEST" ] || [ "$(cksum "$CREATED" "$MANIFEST")" != "$(cat "$CREATED.complete")" ]; then
+		echo "  creation record missing or incomplete; nothing was removed"
+		return 1
+	fi
 	local all_c proj_c all_n proj_n all_v proj_v strange="" failed="" left="" kind id t name got c n v users
 	if ! all_c=$(docker ps -aq --no-trunc) ||
 		! proj_c=$(docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$PROJECT") ||
@@ -309,6 +328,11 @@ remove_recorded() {
 			listed "$id" "$all_c" || continue
 			got=$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$LABEL\"}}" "$id") || got=""
 			[ "$got" = "$id $INVOCATION" ] || strange+="  container $id (its identity changed since it was recorded)"$'\n'
+			if ! users=$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "$id"); then
+				strange+="  container $id (mounts could not be listed)"$'\n'
+			else
+				for v in $users; do recorded volume "$v" || strange+="  container $id (unrecorded volume $v is attached)"$'\n'; done
+			fi
 			;;
 		network)
 			awk '{print $1}' <<<"$all_n" | grep -qxF -- "$id" || continue
@@ -359,7 +383,7 @@ remove_recorded() {
 				failed+="  container $id (its identity changed right before its removal; not removed)"$'\n'
 				continue
 			fi
-			docker rm -f -v "$id" >/dev/null || failed+="  container $id (docker rm failed)"$'\n'
+			docker rm -f "$id" >/dev/null || failed+="  container $id (docker rm failed)"$'\n'
 			;;
 		network)
 			awk '{print $1}' <<<"$all_n" | grep -qxF -- "$id" || continue
@@ -416,9 +440,9 @@ teardown() {
 		fi
 	fi
 	[ -n "$WORK" ] && rm -rf "$WORK"
-	if [ ! -e "$CREATED" ] && ! record_created; then
+	if [ ! -f "$CREATED.complete" ] || [ ! -f "$CREATED" ] || [ ! -f "$MANIFEST" ] || [ "$(cksum "$CREATED" "$MANIFEST")" != "$(cat "$CREATED.complete")" ]; then
 		RETAIN=1
-		echo "openid-conformance: TEARDOWN REFUSED for project $PROJECT — what this run created could not be listed, so nothing was removed; inspect the project's containers, networks and volumes and remove them by hand" >&2
+		echo "openid-conformance: TEARDOWN REFUSED for project $PROJECT — the creation record is missing or incomplete, so nothing was removed; labels cannot reconstruct creation evidence; inspect the project's containers, networks and volumes and remove them by hand" >&2
 		[ "$ec" -ne 0 ] || ec=1
 	elif refused=$(remove_recorded); then
 		echo "openid-conformance: teardown (project $PROJECT: removed only what this run recorded creating — both stacks — each by ID after rechecking its identity, and proved every one gone; no down; the cached clone and the images survive)"
@@ -498,6 +522,14 @@ for (const [svc, def] of Object.entries(cfg.services || {})) {
 	if (!def) continue;
 	if (def.container_name !== undefined) bad.push(`service ${svc} sets container_name ${def.container_name}`);
 	if (def.privileged) bad.push(`service ${svc} is privileged`);
+	for (const key of ["volumes_from", "external_links", "links", "network_mode", "pid", "ipc", "uts", "use_api_socket", "devices", "device_cgroup_rules", "gpus", "configs", "secrets", "provider", "develop", "post_start", "pre_stop", "credential_spec", "runtime", "cgroup", "cgroup_parent", "extra_hosts"]) {
+		if (def[key] !== undefined) bad.push(`service ${svc} sets forbidden reference key ${key}`);
+	}
+	for (const m of def.volumes || []) {
+		if (m && m.type === "volume" && (!m.source || !Object.hasOwn(cfg.volumes || {}, m.source))) bad.push(`service ${svc} has an unowned volume source`);
+	}
+	for (const key of Object.keys(def.networks || {})) if (!Object.hasOwn(cfg.networks || {}, key)) bad.push(`service ${svc} has an unowned network`);
+
 	for (const mode of ["network_mode", "pid", "ipc"]) {
 		const v = def[mode];
 		if (typeof v === "string" && (v === "host" || v.startsWith("container:") || v.startsWith("service:"))) bad.push(`service ${svc} ${mode} ${v}`);
@@ -516,6 +548,7 @@ for (const kind of ["networks", "volumes"]) {
 		names[kind].push(unique[kind][key]);
 		if (def && def.external) bad.push(`${kind} ${key} is external (${name})`);
 		if (def && def.driver_opts) bad.push(`${kind} ${key} sets driver options`);
+		if (def && def.driver && def.driver !== (kind === "volumes" ? "local" : "bridge")) bad.push(`${kind} ${key} uses an unreviewed host/plugin driver`);
 		if (!name.startsWith(`${project}_`) || prot(name)) bad.push(`${kind} ${key} resolves to ${name}`);
 	}
 }
@@ -608,7 +641,6 @@ if [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
 	[ "$(printf '%s\n' "$op" | grep -c .)" = 1 ] && recorded container "$op" || fail "the conformance-op container of this run is not exactly one recorded container"
 	docker cp "$WORK/tls/." "$op:/etc/nginx/conf.d/" >/dev/null || fail "could not copy the TLS files into the recorded conformance-op container"
 	compose up -d --no-build --no-recreate || fail "compose up failed"
-	record_created || fail "could not record what this run created"
 	echo "openid-conformance: recorded $(grep -c . "$CREATED") resource(s) this run created, by ID"
 
 	echo "openid-conformance: waiting for the OP appliance"
@@ -630,6 +662,8 @@ if [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
 	PROV=$(CONFORMANCE_OP_BASE=http://127.0.0.1:27113 \
 		CONFORMANCE_CALLBACK="https://localhost.emobix.co.uk:8443/test/a/identuum-oss/callback" \
 		node "$HERE/provision.mjs") || fail "provisioning failed"
+else
+	record_created || fail "could not record the offline stack"
 fi
 
 # ── plan configs: substitute fixtures into the throwaway work dir ───────────

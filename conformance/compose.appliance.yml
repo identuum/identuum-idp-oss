@@ -7,7 +7,7 @@
 # together, each object by its recorded ID.
 #
 # This file deliberately does NOT touch deployment/docker-compose.dev.yml or
-# its volumes: separate service names, separate (anonymous) volumes, separate
+# its volumes: separate service names, separate invocation-owned named volumes, separate
 # host ports (127.0.0.1:27113 for the provisioning glue only). The dev
 # stack's data cannot be reached from here.
 #
@@ -15,6 +15,8 @@
 services:
   conformance-postgres:
     image: postgres:18
+    volumes:
+      - conformance-postgres-data:/var/lib/postgresql
     environment:
       POSTGRES_USER: idp_oss_user
       # The declared throwaway-placeholder convention the
@@ -58,3 +60,6 @@ services:
       # Rate limiting off for the harness (same escape hatch e2e-full uses):
       # the suite fires many same-IP logins in quick succession.
       IDENTUUM_IDP_INSECURE_DEV_MODE: "true"
+
+volumes:
+  conformance-postgres-data:
