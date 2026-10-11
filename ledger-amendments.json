@@ -1,22 +1,5 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "682ca1e3a700c0b9bddd2e974fc8fde98c86d4f8",
-  "changes": [
-    {
-      "rule_id": "CONFORMANCE-FLOOR-1",
-      "change_class": "proof_changed",
-      "reason": "Strengthen existing ownership/floor rules with B1 persisted creation evidence, B2 resolved reference refusals and B3 explicit volume ownership; preserve existing verdict and mutation floors. OSS-TEARDOWN-MESSAGES adds, no weaker: refused-teardown and leftover output offers read-only inspection only and leaves removal to the owner; the shared claim reports its holder; the resolved config is held to one reviewed allowlist of service keys and values; an empty record is sealed before the first create; the claim is mode 700; names are re-checked absent right before the first create."
-    },
-    {
-      "rule_id": "CONFORMANCE-FLOOR-1",
-      "change_class": "sentence_changed",
-      "after_sentence_sha256": "5bd1ba7a03610127c6b25600b5db8a8c7beb289aee8a9c45018afac2716905dd",
-      "reason": "Strengthen existing ownership/floor rules with B1 persisted creation evidence, B2 resolved reference refusals and B3 explicit volume ownership; preserve existing verdict and mutation floors."
-    },
-    {
-      "rule_id": "CONFORMANCE-FLOOR-1",
-      "change_class": "test_fingerprint_changed",
-      "reason": "Strengthen existing ownership/floor rules with B1 persisted creation evidence, B2 resolved reference refusals and B3 explicit volume ownership; preserve existing verdict and mutation floors. OSS-TEARDOWN-MESSAGES adds, no weaker: refused-teardown and leftover output offers read-only inspection only and leaves removal to the owner; the shared claim reports its holder; the resolved config is held to one reviewed allowlist of service keys and values; an empty record is sealed before the first create; the claim is mode 700; names are re-checked absent right before the first create."
-    }
-  ]
+  "base_commit": "74bd8876ece33bf0b2cd4db40d07192909504162",
+  "changes": []
 }
