@@ -1,11 +1,22 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "1f29aaf95da04461fc3a9d6653b984cc6d1dc3cf",
+  "base_commit": "c2fba7cc3835c8813fc351847d8ba5a5839f5003",
   "changes": [
     {
-      "rule_id": "CI-LOCAL-PARITY-1",
+      "rule_id": "CONFORMANCE-FLOOR-1",
+      "change_class": "proof_changed",
+      "reason": "OSS-CANDIDATE-LIFECYCLE-FIX (SPEC K1-K5): conformance/run.sh now takes the shared harness claim and the daemon mutex, runs as scratch-conformance, records what it creates and removes only that by ID as one whole step with no project-level down. The sentence's teardown clause is restated to match (no weaker: both stacks are still torn down on success, failure and interrupt, and the verdict-floor clauses are unchanged); the bound test was extended to prove the claim, mutex, topology refusal and no-down behaviour, rehashed after review, and re-proved by two watched mutations (M13 re-watched and a claim-release kill)."
+    },
+    {
+      "rule_id": "CONFORMANCE-FLOOR-1",
+      "change_class": "sentence_changed",
+      "after_sentence_sha256": "edeca684255e18f5d4071176b07460e3ba19b81ce2f091a00265440c51fc6753",
+      "reason": "OSS-CANDIDATE-LIFECYCLE-FIX (SPEC K1-K5): conformance/run.sh now takes the shared harness claim and the daemon mutex, runs as scratch-conformance, records what it creates and removes only that by ID as one whole step with no project-level down. The sentence's teardown clause is restated to match (no weaker: both stacks are still torn down on success, failure and interrupt, and the verdict-floor clauses are unchanged); the bound test was extended to prove the claim, mutex, topology refusal and no-down behaviour, rehashed after review, and re-proved by two watched mutations (M13 re-watched and a claim-release kill)."
+    },
+    {
+      "rule_id": "CONFORMANCE-FLOOR-1",
       "change_class": "test_fingerprint_changed",
-      "reason": "OSS-GOVULNCHECK-BUMP: update the govulncheck CI-version fixtures from 1.8.0 to 1.9.0; preserve every assertion and the existing mutation proof. Rulefloor rehash accepts only the changed test fingerprint after review."
+      "reason": "OSS-CANDIDATE-LIFECYCLE-FIX (SPEC K1-K5): conformance/run.sh now takes the shared harness claim and the daemon mutex, runs as scratch-conformance, records what it creates and removes only that by ID as one whole step with no project-level down. The sentence's teardown clause is restated to match (no weaker: both stacks are still torn down on success, failure and interrupt, and the verdict-floor clauses are unchanged); the bound test was extended to prove the claim, mutex, topology refusal and no-down behaviour, rehashed after review, and re-proved by two watched mutations (M13 re-watched and a claim-release kill)."
     }
   ]
 }
