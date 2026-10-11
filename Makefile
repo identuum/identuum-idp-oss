@@ -992,7 +992,7 @@ compose-pin-selftest:
 	printf '%s\n' '#!/bin/sh' 'if [ "$$#" = 0 ]; then exec /usr/bin/mktemp "$$STUB_D/tmp/probe.XXXXXX"; fi' 'exec /usr/bin/mktemp "$$@"' > "$$d/bin/mktemp"; chmod +x "$$d/bin/mktemp"; \
 	printf '#!/bin/sh\nexec "%s" "$$@"\n' "$$(command -v node)" > "$$d/bin/node"; chmod +x "$$d/bin/node"; \
 	for t in pg_isready psql; do printf '#!/bin/sh\necho "%s $$*" >> "%s/other"\n[ -e "%s/pg-ready" ]\n' "$$t" "$$d" "$$d" > "$$d/bin/$$t"; chmod +x "$$d/bin/$$t"; done; \
-	run() { rm -rf "$$d/calls" "$$d/state" "$$d/other" "$$d/vinspect" "$$d"/tmp/devseed-live.*; (cd "$$d/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS -u IDENTUUM_IDP_COMPOSE_PROJECT -u DEV_APP_CONTAINER -u DOCKER_HOST -u DOCKER_CONTEXT -u DEVSEED_LIVE_PG_PORT STUB_D="$$d" TMPDIR="$$d/tmp" PATH="$$d/bin:$$PATH" "$$@") > "$$d/out" 2>&1; }; \
+	run() { rm -rf "$$d/calls" "$$d/state" "$$d/other" "$$d/vinspect" "$$d"/tmp/devseed-live.*; (cd "$$d/w" && env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKELEVEL -u COMPOSE_PROJECT_NAME -u COMPOSE_REMOVE_ORPHANS -u IDENTUUM_IDP_COMPOSE_PROJECT -u DEV_APP_CONTAINER -u DOCKER_HOST -u DOCKER_CONTEXT -u DEVSEED_LIVE_PG_PORT -u IDENTUUM_IDP_TEST_DATABASE_URL STUB_D="$$d" TMPDIR="$$d/tmp" PATH="$$d/bin:$$PATH" "$$@") > "$$d/out" 2>&1; }; \
 	verdict() { n=$$((n + 1)); if [ -z "$$2" ]; then echo "  ok    $$1"; else echo "  FAIL  $$1:$$2"; fails=$$((fails + 1)); fi; }; \
 	pinned() { want=$$1; miss=; c=$$(grep -c ' compose ' "$$d/calls" 2>/dev/null); [ "$${c:-0}" -ge "$$2" ] || miss="$$miss only-$${c:-0}-compose-calls"; \
 		grep ' compose ' "$$d/calls" 2>/dev/null | grep -vF -- " -p $$want " >/dev/null && miss="$$miss unpinned"; \
