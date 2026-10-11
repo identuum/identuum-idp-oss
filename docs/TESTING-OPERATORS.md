@@ -47,7 +47,8 @@ and 27113), then every credential it prints is used to sign in, and the
 project is removed again. It needs those two ports free and refuses, naming
 the holder, when one is taken. It also refuses, without removing anything,
 when `scratch-devseed` still has containers, volumes or networks from an
-earlier run; the refusal says how to remove each one by its own name. It
+earlier run; the refusal names each one with a read-only `docker inspect`
+command and leaves removal to you. It
 refuses too when a volume or network already has one of the names it would
 create, whoever made it, when the resolved Compose configuration holds
 anything but its two services, mounts a host path, runs privileged or in
@@ -97,7 +98,7 @@ pulled by the run, and when it is missing the run refuses and prints the
 at the end. When a run is killed, the container stays and the next run
 refuses, naming it: check that no `devseed-live`, `e2e-full` or
 `openid-conformance` run is active, inspect it (`docker container inspect identuum-harness-lock-engine`,
-labels `io.identuum.harness.*`), then remove it by its ID. The run also
+labels `io.identuum.harness.*`). Removing it is a manual owner decision. The run also
 records the engine's ID (`docker info`) and checks it before every later
 Docker command; if another engine answers, the run stops all Docker
 commands, fails, and leaves the mutex in place. These checks do not prove
@@ -231,13 +232,14 @@ and the record (its `manifest.json` then says `"state":"refused"`). Every
 later harness run is refused until you resolve it:
 
 1. Read `/tmp/identuum-harness.lock/manifest.json`.
-2. Inspect each resource it names (`docker inspect <id>`,
-   `docker network inspect <id>`, `docker volume inspect <name>`) and the
-   ones the failed run printed. Remove only what you have confirmed belongs
-   to that run; leave anything else.
-3. When no harness run is active, remove the mutex by its ID
-   (`docker container rm <mutex_id>`) and then the directory
-   `/tmp/identuum-harness.lock`.
+2. Run the read-only inspection commands the refusal printed for each
+   resource it names (`docker inspect <id>`, `docker network inspect <id>`,
+   `docker volume inspect <name>`, and `docker container inspect` for the
+   mutex). The harness never prints a removal command: a label or a name
+   proves no ownership, and what it found may be protected.
+3. Removal is a manual owner decision. Only the owner decides whether any
+   resource, the mutex or the directory `/tmp/identuum-harness.lock` is
+   removed, after confirming that no harness run is active.
 
 ## Reading the result
 

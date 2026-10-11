@@ -145,6 +145,9 @@ case "$1 $2" in
 "container rm") rm -rf "$S/mutex"; exit 0 ;;
 esac
 [ "$1" = info ] && { echo shim-engine; exit 0; }
+if [ "${STUB_LEFTOVER:-}" = 1 ]; then
+  case "$1 $2" in "ps "*|"volume ls"|"network ls") echo deadbeef; exit 0 ;; esac
+fi
 if [ "${STUB_RESOURCES:-}" = 1 ]; then
   mkdir -p "$S/c"
   iv=$(cat "$S/mutex/owner")
@@ -193,6 +196,15 @@ exit 0
 		t.Helper()
 		if regexp.MustCompile(`(?m)\bcompose\b.*\b(down|--remove-orphans)\b`).MatchString(calls) {
 			t.Fatalf("a project-level teardown ran; docker calls:\n%s", calls)
+		}
+	}
+	inspectionOnly := func(t *testing.T, printed string) {
+		t.Helper()
+		if regexp.MustCompile(`docker\s+(?:(?:container\s+)?rm\b|(?:volume|network)\s+rm\b|[^\n]*\bprune\b|compose[^\n]*\bdown\s+[^\n]*(?:-v\b|--volumes\b))`).MatchString(printed) {
+			t.Error("refusal offers a deleting command")
+		}
+		if !strings.Contains(printed, "Removal is a manual owner decision.") {
+			t.Error("refusal does not leave removal to the owner")
 		}
 	}
 
@@ -271,11 +283,15 @@ exit 0
 			if code == 0 || !strings.Contains(printed, "TEARDOWN REFUSED") {
 				t.Errorf("damaged creation evidence did not refuse cleanup (exit %d)", code)
 			}
+			inspectionOnly(t, printed)
 			if regexp.MustCompile(`(?m)^(?:rm|network rm|volume rm|container rm) `).MatchString(calls) {
 				t.Error("damaged evidence authorized resource or mutex removal")
 			}
-			if _, err := os.Stat(lock); err != nil {
+			if fi, err := os.Stat(lock); err != nil {
 				t.Error("claim was not retained")
+			} else if fi.Mode().Perm() != 0o700 {
+				// N5: the record names the invocation id; only this user reads it.
+				t.Errorf("the kept claim has mode %o, want 700", fi.Mode().Perm())
 			}
 			if _, err := os.Stat(filepath.Join(state, "mutex")); err != nil {
 				t.Error("mutex was not retained")
@@ -294,6 +310,10 @@ exit 0
 			if code == 0 || !strings.Contains(printed, "TEARDOWN REFUSED") {
 				t.Error("anonymous mount did not refuse teardown")
 			}
+			inspectionOnly(t, printed)
+			if !strings.Contains(printed, "docker inspect ") || !strings.Contains(printed, "c1") {
+				t.Error("recorded container has no inspection command")
+			}
 			if regexp.MustCompile(`(?m)^(?:rm|network rm|volume rm|container rm) `).MatchString(calls) {
 				t.Error("unrecorded mount authorized removal, including implicit rm -v")
 			}
@@ -307,20 +327,135 @@ exit 0
 		})
 	}
 
+	// N3: a run that fails after its teardown is armed but before it created
+	// anything (here the work dir cannot be made) tears down nothing, proves
+	// its project empty and releases the claim and the mutex; one whose
+	// project holds an object it did not record refuses and keeps both.
+	t.Run("N3-failed-before-create-releases", func(t *testing.T) {
+		code, calls, printed := runHarnessEnv(t, perPlan("exit 0"), false, "TMPDIR="+filepath.Join(work, "absent"))
+		if code == 0 || !strings.Contains(printed, torn) {
+			t.Errorf("a run that failed before creating anything did not tear down cleanly (exit %d); output:\n%s", code, printed)
+		}
+		if regexp.MustCompile(`(?m)^(?:rm|network rm|volume rm) `).MatchString(calls) {
+			t.Error("a run that created nothing removed a resource")
+		}
+		released(t, printed)
+	})
+	t.Run("N3-failed-after-partial-create-retains", func(t *testing.T) {
+		if err := os.MkdirAll(filepath.Join(state, "c"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(state, "c", "partial"), []byte("conformance-idp scratch-conformance -\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		code, calls, printed := runHarnessEnv(t, perPlan("exit 0"), false, "STUB_RESOURCES=1", "TMPDIR="+filepath.Join(work, "absent"))
+		if code == 0 || !strings.Contains(printed, "TEARDOWN REFUSED") {
+			t.Errorf("an unrecorded project object did not refuse the teardown (exit %d)", code)
+		}
+		inspectionOnly(t, printed)
+		if regexp.MustCompile(`(?m)^(?:rm|network rm|volume rm|container rm) `).MatchString(calls) {
+			t.Error("a refused teardown removed something")
+		}
+		for _, path := range []string{lock, filepath.Join(state, "mutex"), filepath.Join(state, "c", "partial")} {
+			if _, err := os.Stat(path); err != nil {
+				t.Errorf("%s was not kept", filepath.Base(path))
+			}
+		}
+		_ = os.RemoveAll(lock)
+		_ = os.RemoveAll(state)
+	})
+
 	// R-ADV B2: exercise the real resolved-config validator without Docker.
 	raw, err := os.ReadFile(script)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("inspection-only-leftover-advice", func(t *testing.T) {
+		start := strings.Index(string(raw), "\tleftovers=\"\"")
+		if start < 0 {
+			t.Fatal("leftover preflight missing")
+		}
+		end := strings.Index(string(raw)[start:], "\t# The resolved config")
+		if end < 0 {
+			t.Fatal("leftover preflight end missing")
+		}
+		// Run only the real read-only leftover block; no clone or daemon path.
+		helper := regexp.MustCompile(`(?ms)^inspection_command\(\) \{.*?^\}`).FindString(string(raw))
+		cmd := exec.Command("bash", "-c", "PROJECT=scratch-conformance; fail() { echo \"$*\"; exit 2; };\n"+helper+"\n"+string(raw)[start:start+end])
+		cmd.Env = append(os.Environ(), "PATH="+shimDir+":"+os.Getenv("PATH"), "STUB_LEFTOVER=1")
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			t.Error("leftovers accepted")
+		}
+		inspectionOnly(t, string(out))
+		for _, command := range []string{"docker inspect ", "docker volume inspect ", "docker network inspect "} {
+			if !strings.Contains(string(out), command) || !strings.Contains(string(out), "deadbeef") {
+				t.Errorf("missing %s advice", command)
+			}
+		}
+	})
+	t.Run("N5-name-appeared-before-create-is-not-adopted", func(t *testing.T) {
+		start := strings.Index(string(raw), "\t# N5 (OSS-TEARDOWN-MESSAGES): the pull")
+		end := strings.Index(string(raw), "\tcompose up --no-start --no-build")
+		if start < 0 || end < start {
+			t.Fatal("the pre-create name check is missing")
+		}
+		inventory := filepath.Join(work, "inventory")
+		if err := os.WriteFile(inventory, []byte("volume\tscratch-conformance_conformance-mongo-data_0123\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		listed := regexp.MustCompile(`(?ms)^listed\(\) \{.*?\}$`).FindString(string(raw))
+		vol := filepath.Join(t.TempDir(), "docker")
+		if err := os.WriteFile(vol, []byte("#!/bin/sh\n[ \"$1 $2\" = \"volume ls\" ] && echo scratch-conformance_conformance-mongo-data_0123\nexit 0\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("bash", "-c", "INVENTORY="+inventory+"; fail() { echo \"$*\"; exit 2; };\n"+listed+"\n"+string(raw)[start:end]+"echo ADOPTED\n")
+		cmd.Env = append(os.Environ(), "PATH="+filepath.Dir(vol)+":"+os.Getenv("PATH"))
+		out, _ := cmd.CombinedOutput()
+		if strings.Contains(string(out), "ADOPTED") || !strings.Contains(string(out), "appeared after the preflight") {
+			t.Errorf("a same-name volume that appeared before the first create was adopted; output:\n%s", out)
+		}
+	})
 	validator := strings.SplitN(strings.SplitN(string(raw), " node -e '\n", 2)[1], "\n'; then", 2)[0]
-	for _, key := range []string{"volumes_from", "external_links", "links", "network_mode", "pid", "ipc", "uts", "use_api_socket", "devices", "configs", "secrets", "provider"} {
-		t.Run("R-ADV-B2-"+key, func(t *testing.T) {
-			cfg := `{"name":"scratch-conformance","services":{"conformance-idp":{},"conformance-op":{},"conformance-postgres":{"` + key + `":["container:identuum-idp-oss-postgres:ro"]},"mongodb":{},"nginx":{},"server":{}},"networks":{},"volumes":{}}`
-			cmd := exec.Command("node", "-e", validator)
-			cmd.Stdin = strings.NewReader(cfg)
-			cmd.Env = append(os.Environ(), "PROJECT=scratch-conformance", "PORTS=28443 28444 27113", "INVOCATION=offline", "LABEL=io.identuum.harness.invocation", "EXPECTED="+filepath.Join(work, "expected"), "OVERLAY="+filepath.Join(work, "overlay"))
-			if cmd.Run() == nil {
-				t.Error("outside-run attachment accepted")
+	if strings.Contains(validator, "'") {
+		t.Error("the validator body carries a single quote, which ends the shell quoting around it")
+	}
+	validate := func(cfg string) error {
+		cmd := exec.Command("node", "-e", validator)
+		cmd.Stdin = strings.NewReader(cfg)
+		cmd.Env = append(os.Environ(), "PROJECT=scratch-conformance", "PORTS=28443 28444 27113", "INVOCATION=offline", "LABEL=io.identuum.harness.invocation", "EXPECTED="+filepath.Join(work, "expected"), "OVERLAY="+filepath.Join(work, "overlay"))
+		return cmd.Run()
+	}
+	// N1/N2 positive control: the shape the real compose files resolve to is
+	// accepted, so a refusal below is the allowlist's, not a broken parse.
+	t.Run("N1-allowlist-control", func(t *testing.T) {
+		cfg := `{"name":"scratch-conformance","services":{` +
+			`"conformance-idp":{"build":{"context":"/r","dockerfile":"deployment/Dockerfile.local"},"image":"scratch-conformance-idp:local","depends_on":{"conformance-postgres":{"condition":"service_healthy","required":true}},"environment":{"A":"b"},"ports":[{"mode":"ingress","host_ip":"127.0.0.1","target":7113,"published":"27113","protocol":"tcp"}],"networks":{"default":null}},` +
+			`"conformance-op":{"image":"nginx:1.27-bookworm","depends_on":{"conformance-idp":{"condition":"service_started","required":true}},"networks":{"default":null}},` +
+			`"conformance-postgres":{"image":"postgres:18-bookworm","environment":{"A":"b"},"healthcheck":{"test":["CMD","pg_isready"]},"volumes":[{"type":"volume","source":"pg","target":"/var/lib/postgresql"}],"networks":{"default":null}},` +
+			`"mongodb":{"image":"mongo:6.0.13","logging":{"driver":"json-file","options":{"max-file":"5","max-size":"500k"}},"volumes":[{"type":"volume","source":"md","target":"/data/db"}],"networks":{"default":null}},` +
+			`"nginx":{"image":"nginx","ports":[{"host_ip":"127.0.0.1","target":8443,"published":"28443"}],"networks":{"default":{"aliases":["localhost.emobix.co.uk"]}},"logging":{"driver":"json-file"}},` +
+			`"server":{"image":"server","environment":{"A":"b"},"restart":"no","labels":{"io.identuum.harness.invocation":"offline"},"networks":{"default":null}}},` +
+			`"networks":{"default":{"name":"scratch-conformance_default"}},"volumes":{"pg":{"name":"scratch-conformance_pg"},"md":{"name":"scratch-conformance_md"}}}`
+		if err := validate(cfg); err != nil {
+			t.Errorf("the reviewed shape was refused: %v", err)
+		}
+	})
+	attacks := map[string]string{}
+	for _, key := range []string{"volumes_from", "external_links", "links", "network_mode", "pid", "ipc", "uts", "use_api_socket", "devices", "configs", "secrets", "provider", "cap_add", "security_opt", "userns_mode", "volume_driver", "privileged", "deploy", "env_file", "tmpfs", "logging"} {
+		attacks[key] = `"conformance-postgres":{"` + key + `":["container:identuum-idp-oss-postgres:ro"]}`
+	}
+	for _, build := range []string{"network", "additional_contexts", "ssh", "secrets", "privileged"} {
+		attacks["build-"+build] = `"conformance-postgres":{"image":"scratch-conformance-x","build":{"context":".","` + build + `":["host"]}}`
+	}
+	attacks["logging-remote"] = `"conformance-postgres":{"logging":{"driver":"syslog","options":{"syslog-address":"udp://203.0.113.1:514"}}}`
+	attacks["label-impersonate"] = `"conformance-postgres":{"labels":{"com.docker.compose.project":"identuum-idp-oss"}}`
+	attacks["network-ipv4"] = `"conformance-postgres":{"networks":{"default":{"ipv4_address":"10.0.0.2"}}}`
+	for name, svc := range attacks {
+		t.Run("R-ADV-B2-"+name, func(t *testing.T) {
+			cfg := `{"name":"scratch-conformance","services":{"conformance-idp":{},"conformance-op":{},` + svc + `,"mongodb":{},"nginx":{},"server":{}},"networks":{"default":{"name":"scratch-conformance_default"}},"volumes":{}}`
+			if validate(cfg) == nil {
+				t.Error("an unreviewed service key or value was accepted")
 			}
 		})
 	}
@@ -460,12 +595,29 @@ exit 0
 	if err := os.WriteFile(filepath.Join(lock, "pid"), []byte("held\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(lock, "holder"), []byte("final-conformance scratch-test <>;\t"+strings.Repeat("x", 90)+"\nSECOND-LINE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	code, calls, printed = runHarness(t, perPlan("exit 0"), false)
 	if code == 0 || calls != "" || !strings.Contains(printed, "could not take the harness claim") {
 		t.Fatalf("a held claim was not refused before any docker call (exit %d); docker calls:\n%s\noutput:\n%s", code, calls, printed)
 	}
 	if held, _ := os.ReadFile(filepath.Join(lock, "pid")); string(held) != "held\n" {
 		t.Fatal("the held claim was changed")
+	}
+	wantHolder := ("final-conformance scratch-test " + strings.Repeat("x", 90))[:80]
+	if !strings.Contains(printed, "holder: "+wantHolder+"\n") || strings.Contains(printed, "SECOND-LINE") {
+		t.Error("holder first-line filtering or length bound failed")
+	}
+	for _, kind := range []string{"final-conformance", "testbook-fixtures", "human-acceptance"} {
+		if !strings.Contains(printed, kind) {
+			t.Errorf("holder list omits %s", kind)
+		}
+	}
+	_ = os.Remove(filepath.Join(lock, "holder"))
+	_, _, printed = runHarness(t, perPlan("exit 0"), false)
+	if !strings.Contains(printed, "holder: no holder file") {
+		t.Error("missing holder fallback not printed")
 	}
 	if err := os.RemoveAll(lock); err != nil {
 		t.Fatal(err)

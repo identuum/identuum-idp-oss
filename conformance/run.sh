@@ -110,11 +110,26 @@ fail() { echo "openid-conformance: $*" >&2; exit 2; }
 # One fixed path per machine, shared by every harness; a test rewrites this
 # one line in its private copy only.
 HARNESS_LOCK=/tmp/identuum-harness.lock
+# N5 (OSS-TEARDOWN-MESSAGES): the claim, its record and the work dir are
+# readable by this user only; the record carries the invocation id.
+umask 077
 if ! mkdir "$HARNESS_LOCK" 2>/dev/null; then
-	echo "openid-conformance: REFUSING — could not take the harness claim $HARNESS_LOCK (it already exists: another harness run on this machine may hold it — openid-conformance, idp-oss devseed-live or identuum-ui e2e-full/e2e-quick, whatever its TMPDIR — or a refused teardown kept it, with its record). Read $HARNESS_LOCK/manifest.json when present; remove the claim only after confirming no harness run is active and the resources its record names are gone (nothing was started)" >&2
+	# The holder line is another writer's text: first line only, filtered to
+	# [A-Za-z0-9._ -], at most 80 characters.
+	holder='no holder file'
+	if [ -f "$HARNESS_LOCK/holder" ]; then
+		IFS= read -r holder <"$HARNESS_LOCK/holder" || true
+		holder=$(printf '%s' "$holder" | LC_ALL=C tr -cd 'A-Za-z0-9._ -' | cut -c1-80)
+	fi
+	{
+		echo "openid-conformance: REFUSING — could not take the harness claim $HARNESS_LOCK (it already exists: another harness run on this machine may hold it — openid-conformance, idp-oss devseed-live, identuum-ui e2e-full/e2e-quick, final-conformance, testbook-fixtures or human-acceptance, whatever its TMPDIR — or a refused teardown kept it, with its record; nothing was started)"
+		echo "openid-conformance: holder: $holder"
+		echo "Read $HARNESS_LOCK/manifest.json when present. Removal is a manual owner decision."
+	} >&2
 	exit 1
 fi
 echo "$$" >"$HARNESS_LOCK/pid"
+printf 'openid-conformance %s\n' "$PROJECT" >"$HARNESS_LOCK/holder"
 LABEL=io.identuum.harness.invocation
 INVOCATION=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
 EXPECTED="$HARNESS_LOCK/expected"
@@ -134,12 +149,44 @@ RETAIN=0
 WORK=""
 teardown_done=0
 
+# OSS-TEARDOWN-MESSAGES: a refusal prints what was found and READ-ONLY
+# commands to inspect it — never a deleting command; removal is the owner's
+# manual decision. Advice is printed, never executed (an engine-change
+# refusal permits no further docker call). The format shows identity and
+# ownership labels only, never configuration or environment.
+inspection_command() {
+	local kind=$1 id=$2 format cmd
+	case "$kind" in
+	container) cmd='docker inspect'; format='{{.Id}} {{.Name}} {{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "io.identuum.harness.invocation"}}' ;;
+	network) cmd='docker network inspect'; format='{{.Id}} {{.Name}} {{index .Labels "com.docker.compose.project"}} {{index .Labels "io.identuum.harness.invocation"}}' ;;
+	volume) cmd='docker volume inspect'; format='{{.Name}} {{.CreatedAt}} {{index .Labels "com.docker.compose.project"}} {{index .Labels "io.identuum.harness.invocation"}}' ;;
+	*) return 0 ;;
+	esac
+	printf '  found %s %s; inspect its ID, name and ownership labels:\n    %s --format %q %q\n' "$kind" "$id" "$cmd" "$format" "$id"
+}
+
+inspection_advice() {
+	local kind id created
+	echo "Removal is a manual owner decision. Inspect on the original engine $ENGINE_ID ($ENDPOINT); the commands below are read-only."
+	echo "Recorded project $PROJECT, invocation label $LABEL=$INVOCATION (a record, not proof of current ownership). List the project's objects:"
+	printf '    docker %s --filter %q\n' "ps -a" "label=com.docker.compose.project=$PROJECT" "volume ls" "label=com.docker.compose.project=$PROJECT" "network ls" "label=com.docker.compose.project=$PROJECT"
+	if [ -f "$CREATED" ]; then
+		while read -r kind id created; do
+			[ -n "$id" ] || continue
+			inspection_command "$kind" "$id"
+			[ "$kind" != volume ] || echo "    (recorded creation time $created)"
+		done <"$CREATED"
+	fi
+	[ -z "$MUTEX_ID" ] || inspection_command container "$MUTEX_ID"
+}
+
 release_claim() {
 	if [ "$RETAIN" = 1 ]; then
-		echo "openid-conformance: the harness claim $HARNESS_LOCK is KEPT with this run's record ($MANIFEST, $CREATED): what it created was not all proved gone. Inspect the resources the record names, resolve them by hand, then remove $HARNESS_LOCK (and the daemon mutex $MUTEX, by its ID, if it is still there)" >&2
+		echo "openid-conformance: the harness claim $HARNESS_LOCK is KEPT with this run's record ($MANIFEST, $CREATED): what it created was not all proved gone. The claim and the daemon mutex stay until the owner decides." >&2
+		inspection_advice >&2
 		return 0
 	fi
-	rm -f "$HARNESS_LOCK/pid" "$EXPECTED" "$INVENTORY" "$OVERLAY" "$CREATED" "$CREATED.part" "$CREATED.complete" "$CREATED.complete.part" "$ENGINE_FLAG" "$MANIFEST" "$MANIFEST.part"
+	rm -f "$HARNESS_LOCK/pid" "$HARNESS_LOCK/holder" "$EXPECTED" "$INVENTORY" "$OVERLAY" "$CREATED" "$CREATED.part" "$CREATED.complete" "$CREATED.complete.part" "$ENGINE_FLAG" "$MANIFEST" "$MANIFEST.part"
 	rmdir "$HARNESS_LOCK" 2>/dev/null ||
 		echo "openid-conformance: could not release the harness claim $HARNESS_LOCK — remove it once no harness run is active" >&2
 }
@@ -152,7 +199,7 @@ release_mutex() {
 	fi
 	if [ -e "$ENGINE_FLAG" ]; then
 		RETAIN=1
-		echo "openid-conformance: the daemon mutex $MUTEX was not released — the Docker daemon answering is not the engine checked at preflight (its ID changed, or it did not answer); no further docker command was run, and the mutex is left on the engine it was taken on: inspect that engine by hand" >&2
+		echo "openid-conformance: the daemon mutex $MUTEX was not released — the Docker daemon answering is not the engine checked at preflight (its ID changed, or it did not answer); no further docker command was run, and the mutex is left on the engine it was taken on. Removal is a manual owner decision. Inspect that engine with read-only commands: docker container inspect $MUTEX" >&2
 		return 1
 	fi
 	got=$(docker container inspect --format "$MUTEX_FORMAT" "$m") || got=""
@@ -161,7 +208,7 @@ release_mutex() {
 		return 0
 	fi
 	RETAIN=1
-	echo "openid-conformance: the daemon mutex $MUTEX is no longer this run's, or could not be removed; it was left in place: inspect it (docker container inspect $MUTEX) by hand" >&2
+	echo "openid-conformance: the daemon mutex $MUTEX is no longer this run's, or could not be removed; it was left in place. Removal is a manual owner decision. Inspect it read-only: docker container inspect $MUTEX" >&2
 	return 1
 }
 # write_manifest STATE: the public projection of this run's record (SPEC K6),
@@ -235,7 +282,7 @@ if ! MUTEX_ID=$(docker container create --name "$MUTEX" --pull=never --network=n
 	--label "io.identuum.harness.project=$PROJECT" --label "io.identuum.harness.ports=28443,28444,27113" \
 	"$MUTEX_IMAGE" /identuum-harness-lock) || [ -z "$MUTEX_ID" ]; then
 	MUTEX_ID=""
-	fail "REFUSING — could not take the daemon mutex: container $MUTEX could not be created on this engine. Another harness run (openid-conformance, idp-oss devseed-live or identuum-ui e2e-full, from any filesystem namespace) holds it, or a killed run left it; it is never removed automatically. Inspect it (docker container inspect $MUTEX; labels io.identuum.harness.*) and remove it by its ID only after confirming that no harness run is active on this engine (nothing was started)"
+	fail "REFUSING — could not take the daemon mutex: container $MUTEX could not be created on this engine. Another harness run (openid-conformance, idp-oss devseed-live or identuum-ui e2e-full, from any filesystem namespace) holds it, or a killed run left it; it is never removed automatically. Removal is a manual owner decision. Inspect it read-only (docker container inspect $MUTEX; labels io.identuum.harness.*) (nothing was started)"
 fi
 [ "$(docker container inspect --format "$MUTEX_FORMAT" "$MUTEX_ID")" = "$MUTEX_ID $INVOCATION $ENGINE_ID" ] ||
 	fail "REFUSING — the daemon mutex $MUTEX read back is not the one this run created (nothing was started)"
@@ -277,6 +324,15 @@ record_created() {
 			echo "volume $v $t"
 		done
 	} >"$CREATED.part" || return 1
+	seal_record
+}
+# seal_record publishes CREATED.part as the record, with the manifest and the
+# cksum seal over both. N3 (OSS-TEARDOWN-MESSAGES): an EMPTY record is sealed
+# before the first creating command, so a run that fails before it created
+# anything tears down nothing, proves its project empty and releases the claim
+# and the mutex; anything of the project found then is still unrecorded, and
+# refuses.
+seal_record() {
 	mv "$CREATED.part" "$CREATED" && write_manifest created && cksum "$CREATED" "$MANIFEST" >"$CREATED.complete.part" && mv "$CREATED.complete.part" "$CREATED.complete"
 }
 recorded() { grep -qxF "$1 $2" "$CREATED" || grep -qF "$1 $2 " "$CREATED"; }
@@ -383,7 +439,7 @@ remove_recorded() {
 				failed+="  container $id (its identity changed right before its removal; not removed)"$'\n'
 				continue
 			fi
-			docker rm -f "$id" >/dev/null || failed+="  container $id (docker rm failed)"$'\n'
+			docker rm -f "$id" >/dev/null || failed+="  container $id (its removal failed)"$'\n'
 			;;
 		network)
 			awk '{print $1}' <<<"$all_n" | grep -qxF -- "$id" || continue
@@ -392,7 +448,7 @@ remove_recorded() {
 				failed+="  network $id (its identity changed right before its removal; not removed)"$'\n'
 				continue
 			fi
-			docker network rm "$id" >/dev/null || failed+="  network $id (docker network rm failed)"$'\n'
+			docker network rm "$id" >/dev/null || failed+="  network $id (its removal failed)"$'\n'
 			;;
 		volume)
 			listed "$id" "$all_v" || continue
@@ -401,7 +457,7 @@ remove_recorded() {
 				failed+="  volume $id (replaced right before its removal; not removed)"$'\n'
 				continue
 			fi
-			docker volume rm "$id" >/dev/null || failed+="  volume $id (docker volume rm failed)"$'\n'
+			docker volume rm "$id" >/dev/null || failed+="  volume $id (its removal failed)"$'\n'
 			;;
 		esac
 	done <"$CREATED"
@@ -442,7 +498,7 @@ teardown() {
 	[ -n "$WORK" ] && rm -rf "$WORK"
 	if [ ! -f "$CREATED.complete" ] || [ ! -f "$CREATED" ] || [ ! -f "$MANIFEST" ] || [ "$(cksum "$CREATED" "$MANIFEST")" != "$(cat "$CREATED.complete")" ]; then
 		RETAIN=1
-		echo "openid-conformance: TEARDOWN REFUSED for project $PROJECT — the creation record is missing or incomplete, so nothing was removed; labels cannot reconstruct creation evidence; inspect the project's containers, networks and volumes and remove them by hand" >&2
+		echo "openid-conformance: TEARDOWN REFUSED for project $PROJECT — the creation record is missing or incomplete, so nothing was removed; labels cannot reconstruct creation evidence" >&2
 		[ "$ec" -ne 0 ] || ec=1
 	elif refused=$(remove_recorded); then
 		echo "openid-conformance: teardown (project $PROJECT: removed only what this run recorded creating — both stacks — each by ID after rechecking its identity, and proved every one gone; no down; the cached clone and the images survive)"
@@ -451,7 +507,7 @@ teardown() {
 		{
 			echo "openid-conformance: TEARDOWN REFUSED for project $PROJECT — these were not created by this run, changed identity, are attached to what it created, or could not be removed or proved gone:"
 			printf '%s' "$refused"
-			echo "Nothing else was removed. Inspect them (docker inspect / docker network inspect / docker volume inspect) and resolve them by hand."
+			echo "Nothing else was removed."
 		} >&2
 		[ "$ec" -ne 0 ] || ec=1
 	fi
@@ -495,9 +551,13 @@ if [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
 	for q in "ps -aq" "volume ls -q" "network ls -q"; do
 		# shellcheck disable=SC2086
 		out=$(docker $q --filter "label=com.docker.compose.project=$PROJECT") || fail "REFUSING — docker $q failed, so leftovers of $PROJECT were not counted (nothing was started)"
-		[ -z "$out" ] || leftovers+=" ${q%% *}"
+		if [ -n "$out" ]; then
+			leftovers+=" ${q%% *}"
+			kind=${q%% *}; [ "$kind" != ps ] || kind=container
+			for id in $out; do inspection_command "$kind" "$id" >&2; done
+		fi
 	done
-	[ -z "$leftovers" ] || fail "REFUSING — project $PROJECT already has resources this run did not create ($leftovers ); they are never removed by assumption. If they are a previous run's (no harness run is active), remove each by its own name or ID: docker rm -f -v <container>, docker network rm <network>, docker volume rm <volume>, listed with --filter label=com.docker.compose.project=$PROJECT. No project-level down is offered (nothing was started)"
+	[ -z "$leftovers" ] || fail "REFUSING — project $PROJECT already has resources this run did not create ($leftovers ); the listing found their com.docker.compose.project=$PROJECT label, which proves no creation authority. Removal is a manual owner decision. Use the read-only inspection commands above (nothing was started)."
 	# The resolved config, read before any resource action and never printed
 	# (it carries environment values): node prints names only and writes the
 	# names this run creates and the invocation overlay.
@@ -518,26 +578,35 @@ const invocation = process.env.INVOCATION;
 if (cfg.name !== project) bad.push(`project name ${cfg.name}`);
 const svcs = Object.keys(cfg.services || {}).sort();
 if (svcs.join(" ") !== allowed.join(" ")) bad.push(`services ${svcs.join(",")} are not exactly ${allowed.join(",")}`);
+// N1/N2 (OSS-TEARDOWN-MESSAGES): ONE reviewed allowlist of service keys and
+// values, the same rule in all three harnesses (devseed-live, e2e-full):
+// a key not on it is refused (cap_add, privileged, userns_mode,
+// volume_driver, devices, security_opt, deploy, env_file, a host namespace,
+// ...); build takes context and dockerfile only; labels only the
+// invocation label; logging only json-file with size options; a mount is a
+// named volume of this project or a tmpfs; a network belongs to this project, with
+// aliases only, none protected; a port is a reserved one on 127.0.0.1.
+const KEYS = ["build", "container_name", "depends_on", "environment", "healthcheck", "image", "labels", "logging", "networks", "ports", "profiles", "restart", "volumes"];
 for (const [svc, def] of Object.entries(cfg.services || {})) {
 	if (!def) continue;
+	for (const key of Object.keys(def)) if (!KEYS.includes(key)) bad.push(`service ${svc} sets unreviewed key ${key}`);
 	if (def.container_name !== undefined) bad.push(`service ${svc} sets container_name ${def.container_name}`);
-	if (def.privileged) bad.push(`service ${svc} is privileged`);
-	for (const key of ["volumes_from", "external_links", "links", "network_mode", "pid", "ipc", "uts", "use_api_socket", "devices", "device_cgroup_rules", "gpus", "configs", "secrets", "provider", "develop", "post_start", "pre_stop", "credential_spec", "runtime", "cgroup", "cgroup_parent", "extra_hosts"]) {
-		if (def[key] !== undefined) bad.push(`service ${svc} sets forbidden reference key ${key}`);
+	for (const key of Object.keys(def.build || {})) if (key !== "context" && key !== "dockerfile") bad.push(`service ${svc} sets unreviewed build key ${key}`);
+	for (const [k, v] of Object.entries(def.labels || {})) if (k !== process.env.LABEL || v !== invocation) bad.push(`service ${svc} sets label ${k}`);
+	const log = def.logging;
+	if (log && (log.driver !== "json-file" || Object.keys(log).some((k) => k !== "driver" && k !== "options") || Object.keys(log.options || {}).some((k) => k !== "max-size" && k !== "max-file"))) bad.push(`service ${svc} logs through an unreviewed driver or option`);
+	if (def.restart !== undefined && !["no", "always", "on-failure", "unless-stopped"].includes(def.restart)) bad.push(`service ${svc} restart ${def.restart}`);
+	for (const [key, n] of Object.entries(def.networks || {})) {
+		if (!Object.hasOwn(cfg.networks || {}, key)) bad.push(`service ${svc} has an unowned network`);
+		for (const k of Object.keys(n || {})) if (k !== "aliases") bad.push(`service ${svc} sets unreviewed network key ${k}`);
+		for (const a of (n && n.aliases) || []) if (prot(a)) bad.push(`service ${svc} alias ${a}`);
 	}
 	for (const m of def.volumes || []) {
-		if (m && m.type === "volume" && (!m.source || !Object.hasOwn(cfg.volumes || {}, m.source))) bad.push(`service ${svc} has an unowned volume source`);
+		if (!m || m.type !== "volume" && m.type !== "tmpfs") bad.push(`service ${svc} mounts a ${(m && m.type) || "host"} path`);
+		else if (m.type === "volume" && (!m.source || !Object.hasOwn(cfg.volumes || {}, m.source))) bad.push(`service ${svc} has an unowned volume source`);
 	}
-	for (const key of Object.keys(def.networks || {})) if (!Object.hasOwn(cfg.networks || {}, key)) bad.push(`service ${svc} has an unowned network`);
-
-	for (const mode of ["network_mode", "pid", "ipc"]) {
-		const v = def[mode];
-		if (typeof v === "string" && (v === "host" || v.startsWith("container:") || v.startsWith("service:"))) bad.push(`service ${svc} ${mode} ${v}`);
-	}
-	for (const m of def.volumes || []) if (!m || m.type !== "volume" && m.type !== "tmpfs") bad.push(`service ${svc} mounts a ${(m && m.type) || "host"} path`);
 	for (const p of def.ports || []) if (!p || p.host_ip !== "127.0.0.1" || !ports.includes(String(p.published))) bad.push(`service ${svc} publishes ${(p && p.host_ip) || "*"}:${(p && p.published) || "?"}`);
 	if (def.build && !(typeof def.image === "string" && def.image.startsWith(`${project}-`))) bad.push(`service ${svc} builds image ${def.image || "-"}`);
-	for (const n of Object.values(def.networks || {})) for (const a of (n && n.aliases) || []) if (prot(a)) bad.push(`service ${svc} alias ${a}`);
 }
 const names = { networks: [], volumes: [] };
 const unique = { networks: {}, volumes: {} };
@@ -573,9 +642,11 @@ console.log(`openid-conformance: resolved config OK — project ${project}; netw
 	taken=""
 	while IFS=$'\t' read -r kind name; do
 		case "$kind" in volume) all=$all_volumes ;; network) all=$all_networks ;; *) continue ;; esac
-		! listed "$name" "$all" || taken+=" $kind:$name"
+		listed "$name" "$all" || continue
+		taken+=" $kind:$name"
+		inspection_command "$kind" "$name" >&2
 	done <"$EXPECTED"
-	[ -z "$taken" ] || fail "REFUSING —$taken already exist(s), whatever its labels; a same-name volume or network is not this run's, and Compose would reuse it. Inspect it and decide by hand (nothing was started)"
+	[ -z "$taken" ] || fail "REFUSING —$taken already exist(s), whatever its labels; a same-name volume or network is not this run's, and Compose would reuse it. Removal is a manual owner decision. Use the read-only inspection commands above (nothing was started)."
 	for port in $PORTS; do
 		holder="$(docker ps --filter "publish=$port" --format '{{.Names}}' | tr '\n' ' ' || true)"
 		[ -n "$holder" ] || holder="$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $1" pid "$2}' | sort -u | tr '\n' ' ' || true)"
@@ -585,7 +656,9 @@ console.log(`openid-conformance: resolved config OK — project ${project}; netw
 	COMPOSE_FILES+=(-f "$OVERLAY")
 	echo "openid-conformance: preflight OK — project $PROJECT unused, the names it creates absent, ports $PORTS free"
 fi
-# The teardown is armed now — after every refusal, before the first create.
+# The teardown is armed now — after every refusal, before the first create,
+# with an empty sealed record (N3).
+: >"$CREATED.part" && seal_record || fail "REFUSING — the empty creation record could not be sealed (nothing was started)"
 trap teardown EXIT
 
 # ── stand everything up ─────────────────────────────────────────────────────
@@ -635,6 +708,17 @@ if [ -z "${CONFORMANCE_STUB_STACK:-}" ]; then
 	# Created first, not started: the record names every object before any
 	# runs, and the TLS files are copied into the recorded conformance-op
 	# container by its ID.
+	# N5 (OSS-TEARDOWN-MESSAGES): the pull and the build took time since the
+	# preflight; right before the first creating command every name this run
+	# creates is proved absent again, so a volume or network that appeared
+	# meanwhile — whatever its labels, this invocation's included — is never
+	# adopted (it is unrecorded, so the teardown refuses and keeps the claim).
+	all_volumes=$(docker volume ls --format '{{.Name}}') && all_networks=$(docker network ls --format '{{.Name}}') ||
+		fail "could not list Docker volumes and networks right before the first create"
+	while IFS=$'\t' read -r kind name; do
+		case "$kind" in volume) all=$all_volumes ;; network) all=$all_networks ;; *) continue ;; esac
+		! listed "$name" "$all" || fail "REFUSING — $kind $name appeared after the preflight, before this run created anything; it is not adopted"
+	done <"$INVENTORY"
 	compose up --no-start --no-build || fail "compose up --no-start failed"
 	record_created || fail "could not record what this run created"
 	op=$(docker ps -aq --no-trunc --filter "label=$LABEL=$INVOCATION" --filter "label=com.docker.compose.service=conformance-op") || op=""

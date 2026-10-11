@@ -955,10 +955,10 @@ compose-pin-selftest:
 		'*" config --format json "*) bm=; [ -e "$$STUB_D/bind-mount" ] && bm=",\"volumes\":[{\"type\":\"bind\",\"source\":\"/tmp\",\"target\":\"/x\"}]"' \
 		'  key=$$(cat "$$STUB_D/config-key" 2>/dev/null); [ -z "$$key" ] || bm="$$bm,\"$$key\":[\"container:identuum-idp-oss-postgres:ro\"]"' \
 		'  echo "{\"name\":\"scratch-devseed\",\"services\":{\"postgres-idp-oss\":{\"container_name\":\"scratch-devseed-postgres\",\"image\":\"postgres:18-alpine\",\"ports\":[{\"host_ip\":\"127.0.0.1\",\"published\":\"$${DEV_PG_HOST_PORT}\",\"target\":5432}]},\"app\":{\"container_name\":\"scratch-devseed\",\"image\":\"scratch-devseed:local\",\"ports\":[{\"host_ip\":\"127.0.0.1\",\"published\":\"$${DEV_APP_PORT}\",\"target\":7113}]$$bm}},\"volumes\":{\"postgres-idp-oss-data-v18\":{\"name\":\"$$V\"}},\"networks\":{\"default\":{\"name\":\"$$N\"}}}"; exit 0;;' \
-		'*" compose "*" up "*) [ -e "$$STUB_D/ignore-names" ] && { V=$$V0; N=$$N0; }' \
+		'*" compose "*" up "*) [ -e "$$STUB_D/up-fails" ] && exit 1; [ -e "$$STUB_D/ignore-names" ] && { V=$$V0; N=$$N0; }' \
 		'  if [ -e "$$STUB_D/late" ]; then echo "2026-10-10T00:00:09Z - -" > "$$S/v/$$V"; else echo "2026-10-10T00:00:01Z scratch-devseed $${inv:--}" > "$$S/v/$$V"; fi' \
 		'  echo "$$N scratch-devseed $${inv:--}" > "$$S/n/n1"; echo "scratch-devseed-postgres scratch-devseed $${inv:--}" > "$$S/c/c1"; echo "scratch-devseed scratch-devseed $${inv:--}" > "$$S/c/c2"' \
-		'  [ ! -e "$$STUB_D/foreign-member" ] || echo "scratch-intruder someone-else - attached" > "$$S/c/fm"; exit 0;;' \
+		'  [ ! -e "$$STUB_D/foreign-member" ] || echo "scratch-intruder someone-else - attached" > "$$S/c/fm"; [ ! -e "$$STUB_D/up-fails-partial" ] || exit 1; exit 0;;' \
 		'*" compose "*) exit 0;;' \
 		'esac' \
 		'q=; fmt=; filt=; prev=; last=; for a in "$$@"; do case "$$prev" in --filter) filt="$$filt $$a";; --format) fmt="$$a";; esac; case "$$a" in -q|-aq) q=1;; esac; prev="$$a"; last="$$a"; done' \
@@ -1002,7 +1002,8 @@ compose-pin-selftest:
 	removed() { grep -qE "^docker $$1( |$$)" "$$d/calls" || echo " $$2-not-removed"; }; \
 	kept() { grep -qE "^docker $$1( |$$)" "$$d/calls" && echo " $$2-removed"; }; \
 	none_removed() { grep -qE '^docker (rm -f|network rm|volume rm) ' "$$d/calls" && echo " something-removed"; }; \
-	retained() { [ -d "$$lock" ] || echo " claim-released"; [ -d "$$d/mutex" ] || echo " mutex-released"; grep -q '"state":"refused"' "$$lock/manifest.json" 2>/dev/null || echo " no-refused-record"; grep -q 'is KEPT with' "$$d/out" || echo " kept-not-named"; }; \
+	advice() { grep -qE 'docker ((container )?rm |(volume|network) rm |.*prune|compose .*down .* (-v|--volumes))' "$$d/out" && echo " deleting-advice"; grep -qF 'Removal is a manual owner decision.' "$$d/out" || echo " no-owner-decision"; }; \
+	retained() { [ -d "$$lock" ] || echo " claim-released"; [ -d "$$d/mutex" ] || echo " mutex-released"; grep -q '"state":"refused"' "$$lock/manifest.json" 2>/dev/null || echo " no-refused-record"; grep -q 'is KEPT with' "$$d/out" || echo " kept-not-named"; advice; }; \
 	reset() { rm -rf "$$lock" "$$d/mutex"; }; \
 	run env COMPOSE_PROJECT_NAME=identuum-idp-oss COMPOSE_REMOVE_ORPHANS=true IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up; rc=$$?; \
 	verdict "oss-up under an inherited COMPOSE_PROJECT_NAME=identuum-idp-oss builds and starts -p identuum-e2e" "$$( [ $$rc -eq 0 ] || echo " exit $$rc")$$(pinned identuum-e2e 2)"; \
@@ -1013,7 +1014,7 @@ compose-pin-selftest:
 	run env IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e $(MAKE) --no-print-directory oss-up DEV_APP_CONTAINER=identuum-idp-oss-dev; rc=$$?; \
 	verdict "oss-up with a DEV_APP_CONTAINER that is not the project's is refused before any docker call" "$$( [ $$rc -eq 2 ] || echo " exit $$rc")$$( [ ! -s "$$d/calls" ] || echo " docker-called")"; \
 	: > "$$d/leftover"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/leftover"; \
-	verdict "devseed-live refuses scratch-devseed leftovers without a compose command, and offers no project-level down" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( grep -q ' compose ' "$$d/calls" && echo " compose-called")$$( grep -q 'resources this run did not create' "$$d/out" || echo " no-refusal-line")$$( grep -q 'down --volumes' "$$d/out" && echo " down-offered")"; \
+	verdict "devseed-live refuses scratch-devseed leftovers and offers inspection only" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( grep -q ' compose ' "$$d/calls" && echo " compose-called")$$( grep -q 'resources this run did not create' "$$d/out" || echo " no-refusal-line")$$(advice)$$(for c in 'docker inspect ' 'docker volume inspect ' 'docker network inspect '; do grep -qF "$$c" "$$d/out" || echo " missing-inspection"; done)$$(grep -q deadbeef "$$d/out" || echo " missing-id")"; \
 	run $(MAKE) --no-print-directory devseed-live IDENTUUM_IDP_COMPOSE_PROJECT=identuum-e2e; \
 	first=$$(grep ' compose ' "$$d/calls" | grep -v ' config ' | head -1); \
 	verdict "devseed-live under an outer command-line project starts only -p scratch-devseed, and removes nothing before its own start" "$$(pinned scratch-devseed 3)$$(startfirst "$$first")"; \
@@ -1025,6 +1026,10 @@ compose-pin-selftest:
 	done; \
 	mkdir "$$lock"; echo held > "$$lock/pid"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; \
 	verdict "SPEC-K2: the harness claim is shared — held by any harness run (openid-conformance, e2e-full or devseed-live), devseed-live is refused before any docker call and leaves it" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( [ ! -s "$$d/calls" ] || echo " docker-called")$$(grep -q held "$$lock/pid" 2>/dev/null || echo " lock-taken")$$(grep -q 'openid-conformance or identuum-ui e2e-full' "$$d/out" || echo " other-harnesses-not-named")"; \
+	verdict "holder fallback" "$$(grep -qF 'holder: no holder file' "$$d/out" || echo " no-fallback")"; \
+	printf 'final-conformance scratch-test <>;\t%090d\nSECOND-LINE\n' 0 > "$$lock/holder"; \
+	run $(MAKE) --no-print-directory devseed-live; rc=$$?; want=$$(head -1 "$$lock/holder" | LC_ALL=C tr -cd 'A-Za-z0-9._ -' | cut -c1-80); \
+	verdict "holder first line filtered and bounded, all workspace holder kinds named" "$$(grep -qxF "devseed-live: holder: $$want" "$$d/out" || echo " bad-holder")$$(grep -q SECOND-LINE "$$d/out" && echo " second-line")$$(for k in final-conformance testbook-fixtures human-acceptance; do grep -qF "$$k" "$$d/out" || echo " missing-kind"; done)$$( [ ! -s "$$d/calls" ] || echo " docker-called")"; \
 	run env TMPDIR="$$d/tmp2" $(MAKE) --no-print-directory devseed-live; rc=$$?; \
 	verdict "REVIEW-H1: a caller with another TMPDIR takes the same lock, so it is refused before any docker call and leaves the lock" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$( [ ! -s "$$d/calls" ] || echo " docker-called")$$(grep -q held "$$lock/pid" 2>/dev/null || echo " lock-taken")$$(grep -qF "$$lock" "$$d/out" || echo " lock-not-named")$$( [ ! -e "$$d/tmp2/identuum-harness.lock" ] || echo " lock-under-TMPDIR")"; \
 	rm -rf "$$lock"; \
@@ -1043,7 +1048,7 @@ compose-pin-selftest:
 	: > "$$d/replace-exact-after-inspect"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/replace-exact-after-inspect"; \
 	verdict "REVIEW-R1 accepted residual (judge ruling Q3 (a)): a writer that copies this run's exact volume name after the final identity inspection has its volume removed by that name, and the teardown is not refused" "$$(grep -q replaced-exact-after-inspect "$$d/other" 2>/dev/null || echo ' no-replacement')$$( [ -z "$$(ls "$$d/state/v" 2>/dev/null)" ] || echo ' replacement-kept')$$(grep -q 'check OK: teardown' "$$d/out" || echo ' teardown-refused')$$( [ ! -e "$$lock" ] || echo ' lock-left')"; \
 	: > "$$d/ignore-names"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/ignore-names"; \
-	verdict "a recorded volume whose name does not carry the invocation id refuses the WHOLE teardown (nothing removed by name or ID); the run is red and keeps its claim, mutex and record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$( [ -e "$$d/state/v/scratch-devseed_postgres-idp-oss-data-v18" ] || echo " volume-gone")$$(grep -q 'creation record missing or incomplete' "$$d/out" || echo " no-refusal-line")$$(retained)"; reset; \
+	verdict "a recorded volume whose name does not carry the invocation id refuses the WHOLE teardown (nothing removed by name or ID); the run is red and keeps its claim, mutex and record" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$( [ -e "$$d/state/v/scratch-devseed_postgres-idp-oss-data-v18" ] || echo " volume-gone")$$(grep -q 'teardown — refused' "$$d/out" || echo " no-refusal-line")$$(retained)"; reset; \
 	: 'OSS-CANDIDATE-LIFECYCLE-FIX (SPEC K4, K5): attachments, failed removals, failed records.'; \
 	: > "$$d/foreign-member"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/foreign-member"; \
 	verdict "SPEC-K5: a container this run did not create, attached to its recorded network or using its recorded volume (outside the project), refuses the WHOLE teardown; nothing is removed; claim, mutex and record kept" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(none_removed)$$(grep -q 'container fm, not recorded, is attached' "$$d/out" || echo " no-attachment-line")$$( [ -e "$$d/state/c/fm" ] || echo " member-gone")$$(retained)"; reset; \
@@ -1057,8 +1062,13 @@ compose-pin-selftest:
 		verdict "R-ADV B1 $$damage creation record refuses without label reconstruction" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(none_removed)$$(retained)"; reset; done; \
 	for label in scratch-devseed unlabelled; do echo "$$label" > "$$d/anonymous"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/anonymous"; \
 	verdict "R-ADV B3 $$label anonymous mount refuses with no implicit removal" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(none_removed)$$(retained)"; reset; done; \
-	for key in volumes_from external_links links pid ipc uts use_api_socket devices configs secrets provider; do echo "$$key" > "$$d/config-key"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/config-key"; \
+	for key in volumes_from external_links links pid ipc uts use_api_socket devices configs secrets provider cap_add security_opt userns_mode volume_driver privileged deploy env_file logging tmpfs; do echo "$$key" > "$$d/config-key"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/config-key"; \
 		verdict "R-ADV B2 $$key refuses before startup" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(grep -qE ' compose .* (up|build) ' "$$d/calls" && echo ' started')"; done; \
+	: 'N3 (OSS-TEARDOWN-MESSAGES): a run that fails before it created anything releases the claim and the mutex; one that created something first keeps them.'; \
+	: > "$$d/up-fails"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/up-fails"; \
+	verdict "N3: an oss-up that fails before creating anything tears down nothing, proves the project empty and releases the claim and the daemon mutex" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(none_removed)$$(grep -q 'check OK: teardown' "$$d/out" || echo ' teardown-not-ok')$$( [ ! -e "$$lock" ] || echo ' lock-left')$$( [ ! -d "$$d/mutex" ] || echo ' mutex-left')"; reset; \
+	: > "$$d/up-fails-partial"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/up-fails-partial"; \
+	verdict "N3: an oss-up that fails after creating part of the project refuses the whole teardown; nothing removed; claim, mutex and record kept with inspection-only advice" "$$( [ $$rc -ne 0 ] || echo ' exit 0')$$(none_removed)$$(grep -q 'teardown — refused' "$$d/out" || echo ' no-refusal-line')$$(retained)$$(grep -qF 'docker inspect ' "$$d/out" || echo ' no-inspection')"; reset; \
 	: > "$$d/bind-mount"; run $(MAKE) --no-print-directory devseed-live; rc=$$?; rm -f "$$d/bind-mount"; \
 	verdict "SPEC-K1: a resolved config that mounts a host path is refused before any start, and the claim and mutex are released (nothing was created)" "$$( [ $$rc -ne 0 ] || echo " exit 0")$$(grep -qE ' compose .* (up|build) ' "$$d/calls" && echo " started")$$(grep -q 'a host mount' "$$d/out" || echo " no-refusal-line")$$( [ ! -e "$$lock" ] || echo " lock-left")$$( [ ! -d "$$d/mutex" ] || echo " mutex-left")"; \
 	for form in tcp ssh context current unresolved; do \
@@ -2486,13 +2496,14 @@ dev-seed: protected-guard
 ##                  through the teardown, then removed by its ID after its
 ##                  labels are re-read; a mutex that already exists (held, or
 ##                  left by a killed run) is never removed by the harness: the
-##                  refusal names it, for an operator to inspect and remove
-##                  by its ID once no harness run is active. The /tmp lock
+##                  refusal names it with a read-only inspection command;
+##                  removal is a manual owner decision. The /tmp lock
 ##                  above stays as well;
 ##   preflight      the project holds NO container, volume or network (by its
 ##                  compose label) and no container is named scratch-devseed
-##                  or scratch-devseed-postgres, else refused naming them and
-##                  how to remove each by its own name — leftovers are never
+##                  or scratch-devseed-postgres, else refused naming them
+##                  with read-only inspection commands (removal is a manual
+##                  owner decision, OSS-TEARDOWN-MESSAGES) — leftovers are never
 ##                  deleted by assumption (judge ruling Q2(b), OSS-MINT-GUARD-2;
 ##                  until then a `down --volumes` ran first, on whatever the
 ##                  project held); then the names this run creates — each
@@ -2649,9 +2660,16 @@ devseed-live:
 	dir=$$(mktemp -d "$${TMPDIR:-/tmp}/devseed-live.XXXXXX"); fails=0; cleaned=0; keep=0; \
 	ok() { echo "devseed-live: check OK: $$1"; }; \
 	bad() { echo "devseed-live: check FAILED: $$1"; fails=$$((fails+1)); }; \
+	insp() { case "$$1" in container) ic='docker inspect'; ifm='{{.Id}} {{.Name}} {{index .Config.Labels "com.docker.compose.project"}} {{index .Config.Labels "io.identuum.harness.invocation"}}';; \
+		network) ic='docker network inspect'; ifm='{{.Id}} {{.Name}} {{index .Labels "com.docker.compose.project"}} {{index .Labels "io.identuum.harness.invocation"}}';; \
+		*) ic='docker volume inspect'; ifm='{{.Name}} {{.CreatedAt}} {{index .Labels "com.docker.compose.project"}} {{index .Labels "io.identuum.harness.invocation"}}';; esac; \
+		printf "devseed-live:   found %s %s; inspect its ID, name and ownership labels:\n    %s --format '%s' '%s'\n" "$$1" "$$2" "$$ic" "$$ifm" "$$2"; }; \
 	lock='$(HARNESS_LOCK)'; \
-	if ! mkdir "$$lock" 2>/dev/null; then echo "devseed-live: check FAILED: preflight — could not take $$lock: another harness run on this machine holds it (devseed-live, openid-conformance or identuum-ui e2e-full/e2e-quick; every run takes this one claim, whatever its TMPDIR), or a killed run left it, or a refused teardown kept it with its record; read $$lock/manifest.json when present, and remove the claim only after confirming no harness run is active and the resources its record names are gone (refused; no docker command was run)"; exit 1; fi; \
-	echo $$$$ > "$$lock/pid"; trap 'rm -rf "$$lock"' EXIT; \
+	if ! mkdir "$$lock" 2>/dev/null; then hl='no holder file'; \
+		if [ -f "$$lock/holder" ]; then IFS= read -r hl < "$$lock/holder" || true; hl=$$(printf '%s' "$$hl" | LC_ALL=C tr -cd 'A-Za-z0-9._ -' | cut -c1-80); fi; \
+		echo "devseed-live: check FAILED: preflight — could not take $$lock: another harness run on this machine holds it (devseed-live, final-conformance, testbook-fixtures, human-acceptance, openid-conformance or identuum-ui e2e-full/e2e-quick; every run takes this one claim, whatever its TMPDIR), or a killed run left it, or a refused teardown kept it with its record; read $$lock/manifest.json when present. Removal is a manual owner decision (refused; no docker command was run)"; \
+		echo "devseed-live: holder: $$hl"; exit 1; fi; \
+	echo $$$$ > "$$lock/pid"; printf 'devseed-live %s\n' "$$p" > "$$lock/holder"; trap 'rm -rf "$$lock"' EXIT; \
 	topo="devseed-live supports exactly one topology: this host's own Docker engine, through a unix socket on this host (unix:///...); unset DOCKER_HOST and DOCKER_CONTEXT, or select the local context (docker context use <name>)"; \
 	case "$${DOCKER_HOST:-unix:///}" in unix:///*) ;; *) echo "devseed-live: check FAILED: preflight — DOCKER_HOST selects an endpoint that is not this host's own Docker engine (not a unix socket). $$topo (refused; no docker command was run)"; exit 1;; esac; \
 	if ! ep=$$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — the Docker context could not be resolved, so the engine this run would use is unknown. $$topo (refused; nothing was started)"; exit 1; fi; \
@@ -2669,16 +2687,16 @@ devseed-live:
 	mfmt='{{.Id}} {{index .Config.Labels "io.identuum.harness.mutex-owner"}} {{index .Config.Labels "io.identuum.harness.engine"}}'; \
 	release_mutex() { [ -n "$$mid" ] || return 0; m=$$mid; mid=; \
 		if [ "$$keep" = 1 ]; then echo "devseed-live: the daemon mutex $$mx ($$m) is KEPT with the claim $$lock: this run's resources were not all proved gone"; return; fi; \
-		if [ -e "$$eflag" ]; then keep=1; bad "engine — the Docker daemon answering is not the engine checked at preflight (its ID changed, or it did not answer): no further docker command was run, nothing more was removed, and the daemon mutex $$mx is left on the engine it was taken on; inspect that engine by hand"; return; fi; \
+		if [ -e "$$eflag" ]; then keep=1; bad "engine — the Docker daemon answering is not the engine checked at preflight (its ID changed, or it did not answer): no further docker command was run, nothing more was removed, and the daemon mutex $$mx is left on the engine it was taken on. Removal is a manual owner decision. Inspect that engine read-only: docker container inspect $$mx"; return; fi; \
 		if [ "$$(docker container inspect --format "$$mfmt" "$$m" 2>>"$$dir/down.log")" = "$$m $$iid $$eng" ] && docker container rm "$$m" >>"$$dir/down.log" 2>&1; then ok "mutex — released the daemon mutex $$mx, this run's, by its ID"; \
-		else keep=1; bad "mutex — the daemon mutex $$mx is no longer this run's, or could not be removed; it was left in place: inspect it (docker container inspect $$mx) by hand (log: $$dir/down.log)"; fi; }; \
+		else keep=1; bad "mutex — the daemon mutex $$mx is no longer this run's, or could not be removed; it was left in place. Removal is a manual owner decision. Inspect it read-only: docker container inspect $$mx (log: $$dir/down.log)"; fi; }; \
 	wm() { { printf '{"schema":"identuum.harness.run.v1","kind":"devseed-live","state":"%s","project":"%s","invocation":"%s","daemon_id":"%s","endpoint":"%s","mutex_id":"%s","ports":[%s,%s],"resources":[' "$$1" "$$p" "$$iid" "$$eng" "$$ep" "$$mid" "$$pg" "$$app"; sep=; \
 		if [ -e "$$dir/created" ]; then while read -r k i t; do [ -n "$$k" ] || continue; if [ "$$k" = volume ]; then printf '%s{"kind":"volume","name":"%s","created_at":"%s"}' "$$sep" "$$i" "$$t"; else printf '%s{"kind":"%s","id":"%s"}' "$$sep" "$$k" "$$i"; fi; sep=,; done < "$$dir/created"; fi; \
 		printf ']}\n'; } > "$$lock/manifest.json.part" && mv "$$lock/manifest.json.part" "$$lock/manifest.json"; }; \
 	if ! vols=$$(docker image inspect --format '{{json .Config.Volumes}}' "$$mimg" 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — the daemon mutex image $$mimg is not on this engine; pull it once (docker pull $$mimg) and re-run (refused; nothing was started)"; exit 1; fi; \
 	[ "$$vols" = null ] || { echo "devseed-live: check FAILED: preflight — the daemon mutex image $$mimg declares a VOLUME, so creating the mutex would create a volume (refused; nothing was started)"; exit 1; }; \
 	if ! mid=$$(docker container create --name "$$mx" --pull=never --network=none --restart=no --read-only --label io.identuum.harness.mutex=engine-v1 --label "io.identuum.harness.mutex-owner=$$iid" --label "io.identuum.harness.engine=$$eng" --label io.identuum.harness.kind=devseed-live --label "io.identuum.harness.project=$$p" --label "io.identuum.harness.ports=$$pg,$$app" "$$mimg" /identuum-harness-lock 2>>"$$dir/preflight.log") || [ -z "$$mid" ]; then mid=; \
-		echo "devseed-live: check FAILED: preflight — could not take the daemon mutex: container $$mx could not be created on this engine. Another harness run (devseed-live, openid-conformance or e2e-full, from any filesystem namespace) holds it, or a killed run left it; it is never removed automatically. Inspect it (docker container inspect $$mx; labels io.identuum.harness.*) and remove it by its ID only after confirming that no harness run is active on this engine (refused; nothing was started)"; exit 1; fi; \
+		echo "devseed-live: check FAILED: preflight — could not take the daemon mutex: container $$mx could not be created on this engine. Another harness run (devseed-live, openid-conformance or e2e-full, from any filesystem namespace) holds it, or a killed run left it; it is never removed automatically. Removal is a manual owner decision. Inspect it read-only (docker container inspect $$mx; labels io.identuum.harness.*) (refused; nothing was started)"; exit 1; fi; \
 	trap 'release_mutex; [ "$$keep" = 1 ] || rm -rf "$$lock"' EXIT; \
 	if [ "$$(docker container inspect --format "$$mfmt" "$$mid" 2>>"$$dir/preflight.log")" != "$$mid $$iid $$eng" ]; then echo "devseed-live: check FAILED: preflight — the daemon mutex $$mx read back is not the one this run created (refused; nothing was started)"; exit 1; fi; \
 	ok "preflight — took the daemon mutex $$mx on the engine checked; held through the teardown, and every later docker call first checks that the same engine answers"; \
@@ -2691,9 +2709,10 @@ devseed-live:
 			mounts=$$(docker inspect --format '{{range .Mounts}}{{if eq .Type "volume"}}{{println .Name}}{{end}}{{end}}' "$$c") || return 1; for v in $$mounts; do printf '%s\n' "$$rv" | grep -qxF "$$v" || return 1; done; done; \
 		{ for c in $$rc; do echo "container $$c"; done; for n in $$rn; do name=$$(docker network inspect --format '{{.Name}}' "$$n") || return 1; grep -qxF "network:$$name" "$$dir/inventory" || return 1; echo "network $$n"; done; \
 			for v in $$rv; do grep -qxF "volume:$$v" "$$dir/inventory" || return 1; t=$$(docker volume inspect --format '{{.CreatedAt}}' "$$v" 2>>"$$dir/down.log") && [ -n "$$t" ] || return 1; echo "volume $$v $$t"; done; } > "$$dir/created.part" || return 1; \
-		mv "$$dir/created.part" "$$dir/created" && wm created && cksum "$$dir/created" "$$lock/manifest.json" > "$$dir/created.complete.part" && mv "$$dir/created.complete.part" "$$dir/created.complete"; }; \
+		seal; }; \
+	seal() { mv "$$dir/created.part" "$$dir/created" && wm created && cksum "$$dir/created" "$$lock/manifest.json" > "$$dir/created.complete.part" && mv "$$dir/created.complete.part" "$$dir/created.complete"; }; \
 	teardown() { \
-		if [ ! -f "$$dir/created.complete" ] || [ ! -f "$$dir/created" ] || [ ! -f "$$lock/manifest.json" ] || [ "$$(cksum "$$dir/created" "$$lock/manifest.json")" != "$$(cat "$$dir/created.complete")" ]; then keep=1; bad "teardown — refused: creation record missing or incomplete; labels cannot reconstruct it; nothing was removed; inspect project $$p by hand (log: $$dir/down.log)"; return; fi; \
+		if [ ! -f "$$dir/created.complete" ] || [ ! -f "$$dir/created" ] || [ ! -f "$$lock/manifest.json" ] || [ "$$(cksum "$$dir/created" "$$lock/manifest.json")" != "$$(cat "$$dir/created.complete")" ]; then keep=1; bad "teardown — refused: creation record missing or incomplete; labels cannot reconstruct it; nothing was removed (log: $$dir/down.log)"; return; fi; \
 		if ! allc=$$(docker ps -aq --no-trunc 2>>"$$dir/down.log") || ! projc=$$(docker ps -aq --no-trunc --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log") || \
 			! namec=$$(docker ps -a --no-trunc --format '{{.ID}} {{.Names}}' 2>>"$$dir/down.log") || \
 			! alln=$$(docker network ls --no-trunc --format '{{.ID}} {{.Name}}' 2>>"$$dir/down.log") || ! projn=$$(docker network ls -q --no-trunc --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/down.log") || \
@@ -2719,7 +2738,7 @@ devseed-live:
 				[ "$$(docker volume inspect --format "{{.CreatedAt}} {{index .Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$t $$iid" ] || { strange="$$strange volume:$$id(replaced since it was recorded)"; continue; }; \
 				if ! us=$$(docker ps -aq --no-trunc --filter "volume=$$id" 2>>"$$dir/down.log"); then strange="$$strange volume:$$id(its users could not be listed)"; continue; fi; \
 				for c in $$us; do rec container "$$c" || strange="$$strange volume:$$id(container $$c, not recorded, uses it)"; done;; esac; done < "$$dir/created"; \
-		if [ -n "$$strange" ]; then keep=1; bad "teardown — refused for$$strange: this run did not record creating it (by ID, with its invocation label), its identity changed since, or something it did not create is attached to what it did; the whole step was refused before the first removal, so NOTHING was removed, this run's own resources included; inspect them by hand"; return; fi; \
+		if [ -n "$$strange" ]; then keep=1; bad "teardown — refused for$$strange: this run did not record creating it (by ID, with its invocation label), its identity changed since, or something it did not create is attached to what it did; the whole step was refused before the first removal, so NOTHING was removed, this run's own resources included"; return; fi; \
 		while read -r kind id t; do case "$$kind" in \
 			container) printf '%s\n' "$$allc" | grep -qxF "$$id" || continue; \
 				[ "$$(docker inspect --format "{{.Id}} {{index .Config.Labels \"$$lab\"}}" "$$id" 2>>"$$dir/down.log")" = "$$id $$iid" ] || { keep=1; bad "teardown — container $$id changed identity right before its removal; not removed"; continue; }; \
@@ -2740,18 +2759,26 @@ devseed-live:
 		c=$$(printf '%s' "$$cs" | grep -c .); v=$$(printf '%s' "$$vs" | grep -c .); \
 		if [ "$$c" = 0 ] && [ "$$v" = 0 ]; then ok "teardown — removed the $$removed resource(s) this run recorded creating, each by ID after rechecking its identity, and proved each gone; 0 containers and 0 volumes of $$p left"; \
 		else keep=1; bad "teardown — project $$p still has $$c container(s) and $$v volume(s)"; fi; }; \
+	advise() { echo "devseed-live: Removal is a manual owner decision. Inspect on the original engine $$eng ($$ep); the commands below are read-only."; \
+		echo "devseed-live: recorded project $$p, invocation label $$lab=$$iid (a record, not proof of current ownership). List the project's objects:"; \
+		for q in 'ps -a' 'volume ls' 'network ls'; do echo "    docker $$q --filter label=com.docker.compose.project=$$p"; done; \
+		if [ -f "$$dir/created" ]; then while read -r k i t; do [ -n "$$i" ] || continue; insp "$$k" "$$i"; [ "$$k" != volume ] || echo "    (recorded creation time $$t)"; done < "$$dir/created"; fi; \
+		insp container "$$mx"; }; \
 	cleanup() { [ "$$cleaned" = 1 ] && return 0; cleaned=1; teardown; if [ "$$keep" = 1 ]; then wm refused; else wm torn-down; fi; release_mutex; \
-		if [ "$$keep" = 1 ]; then echo "devseed-live: the claim $$lock is KEPT with this run's record ($$lock/manifest.json, $$dir/created): what it created was not all proved gone. Inspect the resources the record names, resolve them by hand, then remove $$lock (and the daemon mutex $$mx, by its ID, if it is still there)"; else rm -rf "$$lock"; fi; \
+		if [ "$$keep" = 1 ]; then echo "devseed-live: the claim $$lock is KEPT with this run's record ($$lock/manifest.json, $$dir/created): what it created was not all proved gone. The claim and the daemon mutex stay until the owner decides."; advise; else rm -rf "$$lock"; fi; \
 		echo "devseed-live: files left for the owner in $$dir (mode 600, never printed)"; }; \
 	finish() { cleanup; trap - EXIT; \
 		if [ "$$fails" -eq 0 ]; then echo "devseed-live: green"; exit 0; fi; echo "devseed-live: RED — $$fails check(s) failed"; exit 1; }; \
-	left=; for q in 'ps -aq' 'volume ls -q' 'network ls -q'; do \
+	left=; found=; for q in 'ps -aq' 'volume ls -q' 'network ls -q'; do \
 		if ! out=$$(docker $$q --filter "label=com.docker.compose.project=$$p" 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — docker $$q failed, so leftovers of $$p were not counted (refused; nothing was started)"; exit 1; fi; \
+		k=$${q%% *}; [ "$$k" != ps ] || k=container; for i in $$out; do found="$$found $$k:$$i"; done; \
 		[ -z "$$out" ] || left="$$left $${q%% *}"; done; \
 	for n in "$$p" "$$p-postgres"; do \
 		if ! out=$$(docker ps -aq --filter "name=^/?$$n\$$" 2>>"$$dir/preflight.log"); then echo "devseed-live: check FAILED: preflight — docker ps failed, so container $$n was not looked for (refused; nothing was started)"; exit 1; fi; \
+		for i in $$out; do found="$$found container:$$i"; done; \
 		[ -z "$$out" ] || left="$$left container:$$n"; done; \
-	if [ -n "$$left" ]; then echo "devseed-live: check FAILED: preflight — project $$p already has resources this run did not create ($$left ); they are never removed by assumption. If they are a previous devseed-live run's (no devseed-live run is active), remove each by its own name: docker rm -f -v <container>, docker network rm <network>, docker volume rm <volume>, listed by docker ps -a, docker network ls and docker volume ls with --filter label=com.docker.compose.project=$$p. A project-level down is not offered: it acts on the config's names, which this target does not create (refused; nothing was started)"; exit 1; fi; \
+	if [ -n "$$left" ]; then echo "devseed-live: check FAILED: preflight — project $$p already has resources this run did not create ($$left ); the listing found them by the project label or a container name, which proves no creation authority, so they are never removed by assumption. Removal is a manual owner decision. The commands below are read-only (refused; nothing was started)"; \
+		for e in $$found; do insp "$${e%%:*}" "$${e#*:}"; done; exit 1; fi; \
 	ok "preflight — project $$p has no containers, volumes or networks, so everything it holds from here on is this run's"; \
 	if ! vk=$$(dc config --volumes 2>>"$$dir/preflight.log") || ! nk=$$(dc config --networks 2>>"$$dir/preflight.log") || ! sk=$$(dc config --services 2>>"$$dir/preflight.log"); then \
 		echo "devseed-live: check FAILED: preflight — docker compose config failed, so the names this run would create are unknown (refused; nothing was started)"; exit 1; fi; \
@@ -2766,20 +2793,14 @@ devseed-live:
 	flat=$$(printf '%s' "$$cfg" | tr -d ' \t\n'); \
 	for e in $$inv; do printf '%s' "$$flat" | grep -qF "\"name\":\"$${e#*:}\"" || { echo "devseed-live: check FAILED: preflight — $$e is not the name docker compose resolves for it with this run's overlay (refused; nothing was started)"; exit 1; }; done; \
 	kbad() { echo "devseed-live: check FAILED: preflight — the resolved config is not this harness's project alone: $$1 (refused; nothing was started)"; exit 1; }; \
-	[ "$$(printf '%s\n' $$sk | sort | tr '\n' ' ')" = "app postgres-idp-oss " ] || kbad "its services ($$(printf '%s ' $$sk)) are not exactly app and postgres-idp-oss"; \
-	for f in '"volumes_from":' '"external_links":' '"links":' '"network_mode":' '"pid":' '"ipc":' '"uts":' '"use_api_socket":' '"devices":' '"device_cgroup_rules":' '"gpus":' '"configs":' '"secrets":' '"provider":' '"develop":' '"post_start":' '"pre_stop":' '"credential_spec":' '"runtime":' '"cgroup":' '"cgroup_parent":' '"extra_hosts":' '"privileged":true' '"network_mode":"host"' '"network_mode":"container:' '"network_mode":"service:' '"pid":"host"' '"ipc":"host"' '"type":"bind"' '"external":true' '"driver_opts":'; do \
-		case "$$flat" in *"$$f"*) kbad "it carries $$f — a privileged or host-namespace service, a host mount, an external network or volume, or a volume backed by a host path";; esac; done; \
-	printf '%s' "$$cfg" | node -e 'const c=JSON.parse(require("fs").readFileSync(0,"utf8")); for(const d of Object.values(c.volumes||{}))if(d.driver&&d.driver!=="local")process.exit(1);for(const d of Object.values(c.networks||{}))if(d.driver_opts||d.driver&&d.driver!=="bridge")process.exit(1);for(const s of Object.values(c.services||{})){for(const m of s.volumes||[])if(!m||m.type!=="tmpfs"&&(m.type!=="volume"||!m.source||!Object.hasOwn(c.volumes||{},m.source)))process.exit(1);for(const k of Object.keys(s.networks||{}))if(!Object.hasOwn(c.networks||{},k))process.exit(1);}' || kbad "a mount or network source is outside the declared scratch inventory"; \
-	[ "$$(printf '%s' "$$flat" | grep -o '"published":"[0-9]*"' | sed 's/[^0-9]//g' | sort -u | tr '\n' ' ')" = "$$(printf '%s\n' "$$pg" "$$app" | sort -u | tr '\n' ' ')" ] || kbad "its published ports are not exactly $$pg and $$app"; \
-	[ "$$(printf '%s' "$$flat" | grep -o '"host_ip":"[^"]*"' | sort -u)" = '"host_ip":"127.0.0.1"' ] && [ "$$(printf '%s' "$$flat" | grep -o '"published":' | grep -c .)" = "$$(printf '%s' "$$flat" | grep -o '"host_ip":' | grep -c .)" ] || kbad "a port is published on an address other than 127.0.0.1"; \
-	for cn in $$(printf '%s' "$$flat" | grep -o '"container_name":"[^"]*"' | sed 's/.*:"//; s/"$$//'); do [ "$$cn" = "$$p" ] || [ "$$cn" = "$$p-postgres" ] || kbad "a container is named $$cn"; done; \
-	case "$$flat" in *'"image":"'"$$p"':local"'*) ;; *) kbad "the built app image is not $$p:local";; esac; \
-	case "$$(printf '%s' "$$flat" | grep -o '"aliases":\[[^]]*\]')" in *identuum-idp-oss*) kbad "a network alias takes a protected name";; esac; \
+	: 'N1/N2 (OSS-TEARDOWN-MESSAGES): one reviewed allowlist of service keys and values, the rule openid-conformance and e2e-full apply too; a key not on it (cap_add, privileged, userns_mode, volume_driver, devices, security_opt, deploy, env_file, a host namespace, ...) is refused; build takes context and dockerfile only, labels only the invocation label of this run, logging only json-file with size options.'; \
+	if ! msg=$$(printf '%s' "$$cfg" | P="$$p" PG="$$pg" APP="$$app" LAB="$$lab" IID="$$iid" node -e 'const c=JSON.parse(require("fs").readFileSync(0,"utf8")),e=process.env,bad=[],prot=(n)=>typeof n==="string"&&n.startsWith("identuum-idp-oss"),KEYS=["build","container_name","depends_on","environment","healthcheck","image","labels","logging","networks","ports","profiles","restart","volumes"],svcs=Object.keys(c.services||{}).sort(),pub=[];if(svcs.join(" ")!=="app postgres-idp-oss")bad.push("its services ("+svcs.join(" ")+") are not exactly app and postgres-idp-oss");for(const [s,d] of Object.entries(c.services||{})){if(!d)continue;for(const k of Object.keys(d))if(!KEYS.includes(k))bad.push("service "+s+" sets unreviewed key "+k);if(d.container_name!==undefined&&d.container_name!==e.P&&d.container_name!==e.P+"-postgres")bad.push("a container is named "+d.container_name);for(const k of Object.keys(d.build||{}))if(k!=="context"&&k!=="dockerfile")bad.push("service "+s+" sets unreviewed build key "+k);for(const [k,v] of Object.entries(d.labels||{}))if(k!==e.LAB||v!==e.IID)bad.push("service "+s+" sets label "+k);const l=d.logging;if(l&&(l.driver!=="json-file"||Object.keys(l).some((k)=>k!=="driver"&&k!=="options")||Object.keys(l.options||{}).some((k)=>k!=="max-size"&&k!=="max-file")))bad.push("service "+s+" logs through an unreviewed driver or option");if(d.restart!==undefined&&!["no","always","on-failure","unless-stopped"].includes(d.restart))bad.push("service "+s+" restart "+d.restart);for(const [k,n] of Object.entries(d.networks||{})){if(!Object.hasOwn(c.networks||{},k))bad.push("service "+s+" has an unowned network");for(const nk of Object.keys(n||{}))if(nk!=="aliases")bad.push("service "+s+" sets unreviewed network key "+nk);for(const a of (n&&n.aliases)||[])if(prot(a))bad.push("a network alias takes a protected name");}for(const m of d.volumes||[]){if(!m||m.type!=="volume"&&m.type!=="tmpfs")bad.push("service "+s+" has a host mount ("+((m&&m.type)||"host")+")");else if(m.type==="volume"&&(!m.source||!Object.hasOwn(c.volumes||{},m.source)))bad.push("service "+s+" has an unowned volume source");}for(const q of d.ports||[]){pub.push(String(q&&q.published));if(!q||q.host_ip!=="127.0.0.1")bad.push("a port is published on an address other than 127.0.0.1");}if(d.build&&d.image!==e.P+":local")bad.push("service "+s+" builds image "+(d.image||"-"));}if(!Object.values(c.services||{}).some((d)=>d&&d.image===e.P+":local"))bad.push("the built app image is not "+e.P+":local");if([...new Set(pub)].sort().join(" ")!==[e.PG,e.APP].sort().join(" "))bad.push("its published ports are not exactly "+e.PG+" and "+e.APP);for(const [kind,want] of [["volumes","local"],["networks","bridge"]])for(const [k,d] of Object.entries(c[kind]||{})){if(d&&d.external)bad.push(kind+" "+k+" is external");if(d&&d.driver_opts)bad.push(kind+" "+k+" sets driver options");if(d&&d.driver&&d.driver!==want)bad.push(kind+" "+k+" uses an unreviewed driver");}if(bad.length){console.log(bad.join("; "));process.exit(1);}' 2>/dev/null); then kbad "$${msg:-the resolved config could not be read}"; fi; \
 	ok "preflight — the resolved config holds only app and postgres-idp-oss of $$p: no privileged or host-namespace service, no host mount, no external network or volume, ports $$pg and $$app on 127.0.0.1 only"; \
 	if ! allv=$$(docker volume ls --format '{{.Name}}' 2>>"$$dir/preflight.log") || ! alln=$$(docker network ls --format '{{.Name}}' 2>>"$$dir/preflight.log"); then \
 		echo "devseed-live: check FAILED: preflight — docker volume ls or network ls failed, so the names this run would create were not looked for (refused; nothing was started)"; exit 1; fi; \
 	taken=; for e in $$inv; do case "$$e" in volume:*) all=$$allv;; *) all=$$alln;; esac; printf '%s\n' "$$all" | grep -qxF "$${e#*:}" && taken="$$taken $$e"; done; \
-	if [ -n "$$taken" ]; then echo "devseed-live: check FAILED: preflight —$$taken already exist(s), whatever its labels; a same-name volume or network is not this run's, and Compose would reuse it. Inspect it (docker volume inspect / docker network inspect) and decide by hand (refused; nothing was started)"; exit 1; fi; \
+	if [ -n "$$taken" ]; then echo "devseed-live: check FAILED: preflight —$$taken already exist(s), whatever its labels; a same-name volume or network is not this run's, and Compose would reuse it. Removal is a manual owner decision. The commands below are read-only (refused; nothing was started)"; \
+		for e in $$taken; do insp "$${e%%:*}" "$${e#*:}"; done; exit 1; fi; \
 	printf '%s\n' $$inv > "$$dir/inventory"; \
 	ok "preflight — the names this run creates ($$(printf '%s\n' $$inv | tr '\n' ' '| sed 's/ $$//')) are absent, recorded in $$dir/inventory"; \
 	for port in $$pg $$app; do \
@@ -2787,6 +2808,7 @@ devseed-live:
 		[ -n "$$holder" ] || holder=$$(lsof -nP -iTCP:"$$port" -sTCP:LISTEN 2>/dev/null | awk 'NR>1{print $$1" pid "$$2}' | sort -u | tr '\n' ' '); \
 		if [ -n "$$holder" ]; then echo "devseed-live: check FAILED: preflight — host port $$port is taken by: $$holder(refused; nothing was started)"; exit 1; fi; \
 	done; ok "preflight — ports $$pg and $$app free"; \
+	: > "$$dir/created.part"; seal || { echo "devseed-live: check FAILED: preflight — the empty creation record could not be sealed (refused; nothing was started)"; exit 1; }; \
 	trap 'cleanup' EXIT; trap 'bad "interrupted"; finish' INT TERM; \
 	if env -u MAKEFLAGS -u MAKEOVERRIDES -u MFLAGS -u MAKEFILES $(MAKE) --no-print-directory oss-up COMPOSE_CMD='docker compose' IDENTUUM_HARNESS_ENGINE_ID="$$eng" IDENTUUM_HARNESS_MUTEX_ID="$$mid" IDENTUUM_IDP_COMPOSE_PROJECT="$$p" DEV_COMPOSE_PROJECT="$$p" DEV_APP_CONTAINER="$$p" DEV_PG_HOST_PORT="$$pg" DEV_APP_PORT="$$app" COMPOSE_FILE="deployment/docker-compose.dev.yml -f $$dir/invocation.json" >"$$dir/up.log" 2>&1; then ok "up — oss-up built the tree and started project $$p, every resource labelled with this run's invocation id"; else bad "up — oss-up failed (log: $$dir/up.log)"; finish; fi; \
 	if record; then ok "record — this run created $$(grep -c . "$$dir/created") resource(s), recorded by ID in $$dir/created"; else bad "record — docker could not list what this run created"; finish; fi; \
