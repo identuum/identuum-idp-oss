@@ -468,6 +468,182 @@ jobs:
       - name: Govulncheck
         run: govulncheck ./...
 
+  # OSS-CANDIDATE-0.9.11: the tagless candidate's image and binary proof. It
+  # repeats publish-image.yml's checks on the pushed commit (build, binary
+  # version, real-Postgres /readyz, schema, serving version and commit,
+  # Trivy, cleanup) and publish-binaries.yml's Linux cross-build, and it
+  # publishes nothing: no registry login, no push, no release, no
+  # attestation. The amd64 image is loaded into the runner only; it is not
+  # the published multi-arch index. arm64 is built, not executed here.
+  candidate-image-proof:
+    name: Candidate image and binary proof (no push)
+    runs-on: ubuntu-24.04
+    env:
+      CANDIDATE_VERSION: 0.9.11
+      PROOF_IMAGE: identuum-idp-oss:candidate-proof
+      PROOF_LABEL: identuum.candidate-proof
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Compute commit and scratch names
+        id: meta
+        run: |
+          set -euo pipefail
+          {
+            echo "commit=$(git rev-parse HEAD)"
+            echo "short_sha=$(git rev-parse --short=12 HEAD)"
+            echo "scratch=candidate-proof-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          } >> "${GITHUB_OUTPUT}"
+          mkdir -p proof dist
+
+      - name: The embedded UI matches its manifest
+        run: go test ./internal/uiexport -run '^TestVendoredTreeMatchesManifest$' -count=1
+
+      - name: Build linux/amd64 and linux/arm64 binaries
+        env:
+          COMMIT: ${{ steps.meta.outputs.commit }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build \
+              -trimpath \
+              -ldflags "-s -w -X main.buildVersion=${CANDIDATE_VERSION} -X github.com/identuum/identuum-idp-oss/internal/buildinfo.Commit=${COMMIT}" \
+              -o "dist/identuum-idp-oss_${CANDIDATE_VERSION}_linux_${arch}" \
+              ./cmd/identuum-idp
+          done
+          BIN="dist/identuum-idp-oss_${CANDIDATE_VERSION}_linux_amd64"
+          OUT="$("${BIN}" version)"
+          echo "amd64 binary version: ${OUT}"
+          case "${OUT}" in
+            *"${CANDIDATE_VERSION}"*"${COMMIT:0:12}"*) ;;
+            *) echo "::error::binary reports '${OUT}', expected ${CANDIDATE_VERSION} and ${COMMIT}"; exit 1 ;;
+          esac
+          cd dist
+          sha256sum "identuum-idp-oss_${CANDIDATE_VERSION}_linux_amd64" "identuum-idp-oss_${CANDIDATE_VERSION}_linux_arm64" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload the candidate binaries
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-v0.9.11-linux-binaries
+          path: |
+            dist/identuum-idp-oss_0.9.11_linux_amd64
+            dist/identuum-idp-oss_0.9.11_linux_arm64
+            dist/SHA256SUMS
+          if-no-files-found: error
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Build the amd64 image (loaded, never pushed)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deployment/Dockerfile.local
+          push: false
+          load: true
+          tags: ${{ env.PROOF_IMAGE }}
+          platforms: linux/amd64
+          build-args: |
+            VERSION=${{ env.CANDIDATE_VERSION }}
+            COMMIT=${{ steps.meta.outputs.short_sha }}
+
+      - name: Image identity and binary version
+        run: |
+          set -euo pipefail
+          docker image inspect --format 'id={{.Id}} os={{.Os}} architecture={{.Architecture}}' "${PROOF_IMAGE}" | tee proof/image-identity.txt
+          BIN_VERSION="$(docker run --rm --entrypoint /app/identuum-idp "${PROOF_IMAGE}" --version)"
+          echo "binary --version: ${BIN_VERSION}" | tee proof/version.txt
+          case "${BIN_VERSION}" in
+            *"${CANDIDATE_VERSION}"*) ;;
+            *) echo "::error::binary version '${BIN_VERSION}' is not ${CANDIDATE_VERSION}"; exit 1 ;;
+          esac
+
+      - name: The image serves against a real Postgres
+        # Scratch names carry this run's ID and a label; nothing that already
+        # exists under those names is used. postgres:18-alpine is pinned by
+        # digest; Postgres service images are exempt under IMG-NONALPINE.
+        env:
+          SCRATCH: ${{ steps.meta.outputs.scratch }}
+          SHORT_SHA: ${{ steps.meta.outputs.short_sha }}
+        run: |
+          set -euo pipefail
+          for n in "${SCRATCH}" "${SCRATCH}-pg"; do
+            if docker container inspect "$n" >/dev/null 2>&1; then echo "::error::container $n already exists"; exit 1; fi
+          done
+          if docker network inspect "${SCRATCH}" >/dev/null 2>&1; then echo "::error::network ${SCRATCH} already exists"; exit 1; fi
+          docker network create --label "${PROOF_LABEL}=${SCRATCH}" "${SCRATCH}" >/dev/null
+          docker run -d --name "${SCRATCH}-pg" --label "${PROOF_LABEL}=${SCRATCH}" --network "${SCRATCH}" \
+            -e POSTGRES_USER=identuum_idp -e POSTGRES_PASSWORD=dev-identuum_idp-not-a-secret -e POSTGRES_DB=identuum_idp \
+            postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873 >/dev/null
+          for _ in $(seq 1 60); do
+            docker exec "${SCRATCH}-pg" pg_isready -h 127.0.0.1 -U identuum_idp -d identuum_idp >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker run -d --name "${SCRATCH}" --label "${PROOF_LABEL}=${SCRATCH}" --network "${SCRATCH}" -p 127.0.0.1:7113:7113 \
+            -e IDENTUUM_IDP_DATABASE_URL="postgres://identuum_idp:dev-identuum_idp-not-a-secret@${SCRATCH}-pg:5432/identuum_idp?sslmode=disable" \
+            -e IDENTUUM_IDP_OSS_LISTEN=0.0.0.0:7113 \
+            -e IDENTUUM_IDP_DATA_DIR=/app/data \
+            -e IDENTUUM_IDP_OSS_ISSUER=http://localhost:7113 \
+            -e IDENTUUM_IDP_UI_PUBLIC_BASE_URL=http://localhost:7113 \
+            "${PROOF_IMAGE}" >/dev/null
+          code=000
+          for _ in $(seq 1 90); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:7113/readyz || true)"
+            [ "${code}" = 200 ] && break
+            sleep 1
+          done
+          echo "readyz: ${code}" | tee proof/readiness.txt
+          if [ "${code}" != 200 ]; then
+            echo "::error::/readyz answered ${code} after 90s"
+            docker logs "${SCRATCH}" 2>&1 | tail -40
+            exit 1
+          fi
+          newest="$(find migrations -maxdepth 1 -name '[0-9]*.sql' | sed -E 's#.*/0*([0-9]+)_.*#\1#' | sort -n | tail -1)"
+          schema="$(docker exec "${SCRATCH}-pg" psql -tA -U identuum_idp -d identuum_idp -c 'SELECT max(version_id) FROM goose_db_version')"
+          echo "migrated schema: ${schema}; newest migration in this checkout: ${newest}" | tee proof/schema.txt
+          [ "${schema}" = "${newest}" ] || { echo "::error::schema ${schema} is not the newest migration ${newest}"; exit 1; }
+          ver="$(docker exec "${SCRATCH}" /app/identuum-idp version)"
+          echo "serving version: ${ver}" | tee proof/serving-version.txt
+          case "${ver}" in
+            *"${CANDIDATE_VERSION} (commit ${SHORT_SHA})"*) ;;
+            *) echo "::error::the serving image reports '${ver}', not ${CANDIDATE_VERSION} (commit ${SHORT_SHA})"; exit 1 ;;
+          esac
+
+      - name: Remove this run's labelled containers and network
+        if: always()
+        env:
+          SCRATCH: ${{ steps.meta.outputs.scratch }}
+        run: |
+          set -uo pipefail
+          for id in $(docker ps -aq --filter "label=${PROOF_LABEL}=${SCRATCH}"); do docker rm -f "$id" >/dev/null; done
+          for id in $(docker network ls -q --filter "label=${PROOF_LABEL}=${SCRATCH}"); do docker network rm "$id" >/dev/null; done
+          left="$(docker ps -aq --filter "label=${PROOF_LABEL}=${SCRATCH}") $(docker network ls -q --filter "label=${PROOF_LABEL}=${SCRATCH}")"
+          echo "cleanup: labelled leftovers [${left// /}]" | tee -a proof/cleanup.txt
+          [ -z "${left// /}" ]
+
+      - name: Vulnerability scan (Trivy) — fail on HIGH/CRITICAL
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.PROOF_IMAGE }}
+          format: table
+          output: proof/trivy.txt
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Upload the image proof
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: candidate-v0.9.11-image-proof
+          path: proof/
+          if-no-files-found: error
+
   integration:
     name: Integration Tests
     runs-on: ubuntu-24.04
