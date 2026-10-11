@@ -428,14 +428,16 @@ exit 0
 	}
 	// N1/N2 positive control: the shape the real compose files resolve to is
 	// accepted, so a refusal below is the allowlist's, not a broken parse.
+	// OSS-ALLOWLIST-NULL-FIX: Compose 5.6.0 writes command and entrypoint as
+	// null on every service that sets neither.
 	t.Run("N1-allowlist-control", func(t *testing.T) {
 		cfg := `{"name":"scratch-conformance","services":{` +
-			`"conformance-idp":{"build":{"context":"/r","dockerfile":"deployment/Dockerfile.local"},"image":"scratch-conformance-idp:local","depends_on":{"conformance-postgres":{"condition":"service_healthy","required":true}},"environment":{"A":"b"},"ports":[{"mode":"ingress","host_ip":"127.0.0.1","target":7113,"published":"27113","protocol":"tcp"}],"networks":{"default":null}},` +
-			`"conformance-op":{"image":"nginx:1.27-bookworm","depends_on":{"conformance-idp":{"condition":"service_started","required":true}},"networks":{"default":null}},` +
-			`"conformance-postgres":{"image":"postgres:18-bookworm","environment":{"A":"b"},"healthcheck":{"test":["CMD","pg_isready"]},"volumes":[{"type":"volume","source":"pg","target":"/var/lib/postgresql"}],"networks":{"default":null}},` +
-			`"mongodb":{"image":"mongo:6.0.13","logging":{"driver":"json-file","options":{"max-file":"5","max-size":"500k"}},"volumes":[{"type":"volume","source":"md","target":"/data/db"}],"networks":{"default":null}},` +
-			`"nginx":{"image":"nginx","ports":[{"host_ip":"127.0.0.1","target":8443,"published":"28443"}],"networks":{"default":{"aliases":["localhost.emobix.co.uk"]}},"logging":{"driver":"json-file"}},` +
-			`"server":{"image":"server","environment":{"A":"b"},"restart":"no","labels":{"io.identuum.harness.invocation":"offline"},"networks":{"default":null}}},` +
+			`"conformance-idp":{"build":{"context":"/r","dockerfile":"deployment/Dockerfile.local"},"command":null,"entrypoint":null,"image":"scratch-conformance-idp:local","depends_on":{"conformance-postgres":{"condition":"service_healthy","required":true}},"environment":{"A":"b"},"ports":[{"mode":"ingress","host_ip":"127.0.0.1","target":7113,"published":"27113","protocol":"tcp"}],"networks":{"default":null}},` +
+			`"conformance-op":{"command":null,"entrypoint":null,"image":"nginx:1.27-bookworm","depends_on":{"conformance-idp":{"condition":"service_started","required":true}},"networks":{"default":null}},` +
+			`"conformance-postgres":{"command":null,"entrypoint":null,"image":"postgres:18-bookworm","environment":{"A":"b"},"healthcheck":{"test":["CMD","pg_isready"]},"volumes":[{"type":"volume","source":"pg","target":"/var/lib/postgresql"}],"networks":{"default":null}},` +
+			`"mongodb":{"command":null,"entrypoint":null,"image":"mongo:6.0.13","logging":{"driver":"json-file","options":{"max-file":"5","max-size":"500k"}},"volumes":[{"type":"volume","source":"md","target":"/data/db"}],"networks":{"default":null}},` +
+			`"nginx":{"command":null,"entrypoint":null,"image":"nginx","ports":[{"host_ip":"127.0.0.1","target":8443,"published":"28443"}],"networks":{"default":{"aliases":["localhost.emobix.co.uk"]}},"logging":{"driver":"json-file"}},` +
+			`"server":{"command":null,"entrypoint":null,"image":"server","environment":{"A":"b"},"restart":"no","labels":{"io.identuum.harness.invocation":"offline"},"networks":{"default":null}}},` +
 			`"networks":{"default":{"name":"scratch-conformance_default"}},"volumes":{"pg":{"name":"scratch-conformance_pg"},"md":{"name":"scratch-conformance_md"}}}`
 		if err := validate(cfg); err != nil {
 			t.Errorf("the reviewed shape was refused: %v", err)
@@ -451,6 +453,10 @@ exit 0
 	attacks["logging-remote"] = `"conformance-postgres":{"logging":{"driver":"syslog","options":{"syslog-address":"udp://203.0.113.1:514"}}}`
 	attacks["label-impersonate"] = `"conformance-postgres":{"labels":{"com.docker.compose.project":"identuum-idp-oss"}}`
 	attacks["network-ipv4"] = `"conformance-postgres":{"networks":{"default":{"ipv4_address":"10.0.0.2"}}}`
+	attacks["command"] = `"conformance-postgres":{"command":["sh","-c","id"]}`
+	attacks["command-string"] = `"conformance-postgres":{"command":"sh -c id"}`
+	attacks["entrypoint"] = `"conformance-postgres":{"entrypoint":["/bin/sh"]}`
+	attacks["entrypoint-empty"] = `"conformance-postgres":{"entrypoint":[]}`
 	for name, svc := range attacks {
 		t.Run("R-ADV-B2-"+name, func(t *testing.T) {
 			cfg := `{"name":"scratch-conformance","services":{"conformance-idp":{},"conformance-op":{},` + svc + `,"mongodb":{},"nginx":{},"server":{}},"networks":{"default":{"name":"scratch-conformance_default"}},"volumes":{}}`
