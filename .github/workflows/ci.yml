@@ -103,7 +103,7 @@ env:
   # sha256 of grype_<version>_linux_amd64.tar.gz from the release's own
   # checksums file; bumped together with GRYPE_VERSION.
   GRYPE_SHA256: 0a9ee97ef5ae2ee953b0a80098105052e846cdbe319a57d808b519c33cd1343d
-  GOVULNCHECK_VERSION: v1.8.0
+  GOVULNCHECK_VERSION: v1.9.0
   # THE-LAST-BORROWER (2026-09-21): lictor is the judge `make grype-scan`
   # runs (`lictor grype --repo …`, the port of this repository's retired
   # tools/grype-gate; github.com/ozgurcd/lictor). Pinned the rulefloor way —
