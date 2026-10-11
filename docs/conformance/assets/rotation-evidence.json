@@ -1,0 +1,423 @@
+{
+  "comp-basic": {
+    "wait_status": "CONFIGURED",
+    "operation": {
+      "schema": "identuum.rotation-operation.v1",
+      "changes": [
+        {
+          "algorithm": "RS256",
+          "new_kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "old_kids_sha256": [
+            "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+            "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        },
+        {
+          "algorithm": "ES256",
+          "new_kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "old_kids_sha256": [
+            "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        }
+      ],
+      "before": [
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "after": [
+        {
+          "kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "default_signer": "ES256",
+      "rs256_signer": "explicit-client-only",
+      "duration": "CONFIGURED through module completion and isolated teardown",
+      "old_keys_retained": true
+    },
+    "adverse_conditions": []
+  },
+  "comp-post": {
+    "wait_status": "CONFIGURED",
+    "operation": {
+      "schema": "identuum.rotation-operation.v1",
+      "changes": [
+        {
+          "algorithm": "RS256",
+          "new_kid_sha256": "98d248f1c4c7957319eb81903fbca62451a714fd12837178ac5137895703ebe4",
+          "old_kids_sha256": [
+            "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        },
+        {
+          "algorithm": "ES256",
+          "new_kid_sha256": "41f49e6dd8d333558a017f4060f3474455d65f0750699911ade746761acc34f9",
+          "old_kids_sha256": [
+            "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        }
+      ],
+      "before": [
+        {
+          "kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "after": [
+        {
+          "kid_sha256": "41f49e6dd8d333558a017f4060f3474455d65f0750699911ade746761acc34f9",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "98d248f1c4c7957319eb81903fbca62451a714fd12837178ac5137895703ebe4",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "default_signer": "ES256",
+      "rs256_signer": "explicit-client-only",
+      "duration": "CONFIGURED through module completion and isolated teardown",
+      "old_keys_retained": true
+    },
+    "adverse_conditions": []
+  },
+  "comp-pkjwt": {
+    "wait_status": "CONFIGURED",
+    "operation": {
+      "schema": "identuum.rotation-operation.v1",
+      "changes": [
+        {
+          "algorithm": "RS256",
+          "new_kid_sha256": "8be72d3fa8c8b20497b90063bd9d2d4ea4cca4399128105fda24d97d3898744e",
+          "old_kids_sha256": [
+            "98d248f1c4c7957319eb81903fbca62451a714fd12837178ac5137895703ebe4"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        },
+        {
+          "algorithm": "ES256",
+          "new_kid_sha256": "be07dd84cca9168909c7afa66be31fc2118695b0993a3f9ff726265b49db44cd",
+          "old_kids_sha256": [
+            "41f49e6dd8d333558a017f4060f3474455d65f0750699911ade746761acc34f9"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        }
+      ],
+      "before": [
+        {
+          "kid_sha256": "41f49e6dd8d333558a017f4060f3474455d65f0750699911ade746761acc34f9",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "98d248f1c4c7957319eb81903fbca62451a714fd12837178ac5137895703ebe4",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "after": [
+        {
+          "kid_sha256": "be07dd84cca9168909c7afa66be31fc2118695b0993a3f9ff726265b49db44cd",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "8be72d3fa8c8b20497b90063bd9d2d4ea4cca4399128105fda24d97d3898744e",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "41f49e6dd8d333558a017f4060f3474455d65f0750699911ade746761acc34f9",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "98d248f1c4c7957319eb81903fbca62451a714fd12837178ac5137895703ebe4",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "default_signer": "ES256",
+      "rs256_signer": "explicit-client-only",
+      "duration": "CONFIGURED through module completion and isolated teardown",
+      "old_keys_retained": true
+    },
+    "adverse_conditions": []
+  },
+  "comp-none": {
+    "wait_status": "CONFIGURED",
+    "operation": {
+      "schema": "identuum.rotation-operation.v1",
+      "changes": [
+        {
+          "algorithm": "RS256",
+          "new_kid_sha256": "d95614b21546eb4f7b8a8e3f5779ee3f840ab2365fb7725e0cf9dde97516a099",
+          "old_kids_sha256": [
+            "8be72d3fa8c8b20497b90063bd9d2d4ea4cca4399128105fda24d97d3898744e"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        },
+        {
+          "algorithm": "ES256",
+          "new_kid_sha256": "aac66a0f960dbb9b4b41b930cc07df5bc25e18156e74336ea7f8493bf7eb489f",
+          "old_kids_sha256": [
+            "be07dd84cca9168909c7afa66be31fc2118695b0993a3f9ff726265b49db44cd"
+          ],
+          "old_status": "rotating",
+          "new_status": "active"
+        }
+      ],
+      "before": [
+        {
+          "kid_sha256": "be07dd84cca9168909c7afa66be31fc2118695b0993a3f9ff726265b49db44cd",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "8be72d3fa8c8b20497b90063bd9d2d4ea4cca4399128105fda24d97d3898744e",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "41f49e6dd8d333558a017f4060f3474455d65f0750699911ade746761acc34f9",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "98d248f1c4c7957319eb81903fbca62451a714fd12837178ac5137895703ebe4",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "after": [
+        {
+          "kid_sha256": "aac66a0f960dbb9b4b41b930cc07df5bc25e18156e74336ea7f8493bf7eb489f",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "d95614b21546eb4f7b8a8e3f5779ee3f840ab2365fb7725e0cf9dde97516a099",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "be07dd84cca9168909c7afa66be31fc2118695b0993a3f9ff726265b49db44cd",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "8be72d3fa8c8b20497b90063bd9d2d4ea4cca4399128105fda24d97d3898744e",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "41f49e6dd8d333558a017f4060f3474455d65f0750699911ade746761acc34f9",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "98d248f1c4c7957319eb81903fbca62451a714fd12837178ac5137895703ebe4",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "ff51e28523016e0fb1e263b213c3fb787ed4bd2ba3cd69a6a3e05fcda9744a43",
+          "algorithm": "ES256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "69ff7f76e7b6cf3a31a8ad88e6c1330db7700d6818850a4eb4506e9fa69f07bb",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "e5009f073ea8cffa65e3204a090456d626fdcccc797ae1d53372ac8a21231345",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "976bd6235be42b153640dfbcbee61ff8f4c37223ffd68f4fd56849ded8fa4d85",
+          "algorithm": "RS256",
+          "key_status": "published"
+        },
+        {
+          "kid_sha256": "c08f6c2a3328a77a7dd9ad4edae398a776cdf10fa911dc82263da6a90047e833",
+          "algorithm": "EdDSA",
+          "key_status": "published"
+        }
+      ],
+      "default_signer": "ES256",
+      "rs256_signer": "explicit-client-only",
+      "duration": "CONFIGURED through module completion and isolated teardown",
+      "old_keys_retained": true
+    },
+    "adverse_conditions": []
+  }
+}

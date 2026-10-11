@@ -32,6 +32,13 @@ uses backup/restore, not an in-place migration-down command.
 The upgrade and rollback proof on the release tree is part of publication.
 It is still pending.
 
+The comprehensive OpenID Connect conformance run on candidate revision
+`e17835e` completed with no new failure against the expected results; its
+record is `docs/conformance/CONFORMANCE-FINAL-v0.9.11.md`. One test is
+skipped by design: public clients receive no refresh token, so the suite
+skips `oidcc-refresh-token` in the public-client plan. A reviewer accepted
+the 27 pages the suite leaves to a human. This is not a certification claim.
+
 ### Security
 
 - **Public clients require PKCE by default.** Existing and new public

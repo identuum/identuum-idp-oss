@@ -1,0 +1,47 @@
+Secret-class scan
+Method: three rounds HTML/entity, percent and JSON Unicode decoding.
+Public URL allowlist: GitHub, GitLab, OpenID; no userinfo/query or credential fragment.
+Markers, SHA-256 hex strings and the two named public condition identifiers are excluded.
+IP candidates must parse; Basic values must decode to a credential pair.
+Summary selection omits all detailed traces, screenshots, private keys and configurations.
+Pattern scans do not prove absence of every possible opaque credential or encoding.
+CLASS jwt_or_jwe
+PATTERN (?<![A-Za-z0-9_-])[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)?
+AFTER_REDACTION_HITS 0
+CLASS pem_private_key
+PATTERN -----BEGIN [A-Z ]*(?:PRIVATE KEY|SECRET)[A-Z ]*-----[\s\S]*?(?:-----END [A-Z ]*(?:PRIVATE KEY|SECRET)[A-Z ]*-----|\Z)
+AFTER_REDACTION_HITS 0
+CLASS private_jwk_member
+PATTERN ["'](?:d|p|q|dp|dq|qi|k)["']\s*:\s*["'][A-Za-z0-9_+/=-]{8,}["']
+AFTER_REDACTION_HITS 0
+CLASS basic_or_bearer_value
+PATTERN (?i)\b(?:Basic|Bearer)\s+[A-Za-z0-9+/=_-]{8,}
+AFTER_REDACTION_HITS 0
+CLASS secret_token_code_cookie_value
+PATTERN (?i)["']?(?:client_secret|password|access_token|refresh_token|id_token|logout_token|id_token_hint|client_assertion|authorization_code|code_verifier|session_id|cookie|set-cookie|authorization|secret|token|code|state)["']?\s*[:=]\s*(?:"[^"\r\n]+"|'[^'\r\n]+'|[^\s,;<>`]+)
+AFTER_REDACTION_HITS 0
+CLASS absolute_local_path
+PATTERN /(?:Users|home|private|tmp|var|opt|workspace|app)/[^\s<>`"']+|[A-Za-z]:\\[^\s<>`"']+|\x7e/[^\s<>`"']+
+AFTER_REDACTION_HITS 0
+CLASS local_username
+PATTERN (?i)\bodemir\b
+AFTER_REDACTION_HITS 0
+CLASS private_hostname
+PATTERN (?i)\blocalhost(?:\.[A-Za-z0-9.-]+)?\b|\bhost\.docker\.internal\b|\b[A-Za-z0-9.-]+\.(?:local|internal|lan|test)\b|\bidentuum-conformance(?:-[A-Za-z0-9-]+)?\b
+AFTER_REDACTION_HITS 0
+CLASS ip_address
+PATTERN (?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])|\[?(?:[a-fA-F0-9]{0,4}:){2,}[a-fA-F0-9:]+\]?
+AFTER_REDACTION_HITS 0
+CLASS email_identity
+PATTERN [A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}
+AFTER_REDACTION_HITS 0
+CLASS high_entropy_candidate
+PATTERN (?<![A-Za-z0-9])[A-Za-z0-9+/=]{48,}(?![A-Za-z0-9])
+AFTER_REDACTION_HITS 0
+CLASS unsafe_url
+PATTERN (?i)https?://[^\s<>"'`]+
+AFTER_REDACTION_HITS 0
+Predicates are defined in redaction.py, matching the prior public record classes.
+TOTAL_AFTER_REDACTION_HITS 0
+Archive members verified byte-identical to scanned sources.
+RESULT PASS

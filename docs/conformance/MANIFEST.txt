@@ -1,0 +1,122 @@
+Public conformance evidence manifest
+Hashes: SHA-256 over exact output bytes; sizes: bytes.
+Counts are replacement operations, not unique secrets. Detailed exports are excluded.
+
+ASSET assets/basic.html
+SOURCE run/basic/index.html (module selection)
+SHA256 e64e21073da8a1cdc73452a560f198fbe16ca2322020f1778292d69a3d689004
+SIZE 4244
+SOURCE_SHA256 f159f4fc5d1767d369365f21c2579d1b0a272dc2b72e775b76f1e389376deb26
+REDACTIONS {}
+
+ASSET assets/bc-logout.html
+SOURCE run/bc-logout/index.html (module selection)
+SHA256 a82d9335adf404a055207efeaef338f263b3287f2223f89863cb9cb4738c8b54
+SIZE 633
+SOURCE_SHA256 acd293026d82d4dc9614bf01272a28bf8fbb452b4466ef46ad5d8b00480d09bf
+REDACTIONS {}
+
+ASSET assets/comp-basic.html
+SOURCE run/comp-basic/index.html (module selection) + controlled rotation index (source digest over original/controlled SHA-256 pair)
+SHA256 248889071c29331d7249e77b88c9deb3fb576bd7ba9f668bde41c0fd7f269905
+SIZE 4364
+SOURCE_SHA256 5fad385a73b875b8b35397201ddc73b47c48a77dfb6fa12ca341b8f5edca62bd
+REDACTIONS {}
+
+ASSET assets/comp-none.html
+SOURCE run/comp-none/index.html (module selection) + controlled rotation index (source digest over original/controlled SHA-256 pair)
+SHA256 4ddead4c1912793549a5d56673ca51a3815aeaa7f46d7df147a738d216134c37
+SIZE 4363
+SOURCE_SHA256 56740465c89bb078253af798222b591453d07dba0483f96f94111050780c45cb
+REDACTIONS {}
+
+ASSET assets/comp-pkjwt.html
+SOURCE run/comp-pkjwt/index.html (module selection) + controlled rotation index (source digest over original/controlled SHA-256 pair)
+SHA256 4f2f247bbe3d08eb8a1dec3c98cfc7b9d1cd20d8d2c5498764a10e10ce0f8e80
+SIZE 4499
+SOURCE_SHA256 2ec5a928f774ba071a1d20be617e3fda2106911a3d872c6048a798ad77237ad6
+REDACTIONS {}
+
+ASSET assets/comp-post.html
+SOURCE run/comp-post/index.html (module selection) + controlled rotation index (source digest over original/controlled SHA-256 pair)
+SHA256 d6f6ae23d1c4e0f246df15f69fb39174e314603be7eb4942025f1df544d1a80d
+SIZE 4362
+SOURCE_SHA256 c685494d73c88199f08d24c03cf3e1b89e7c446b3477246766af388194737136
+REDACTIONS {}
+
+ASSET assets/config.html
+SOURCE run/config/index.html (module selection)
+SHA256 0f06294ebdb363a704ef99bffd8b02805a0b6af10537c915d0440d9ea7c1bd3b
+SIZE 487
+SOURCE_SHA256 c8370901ec055f2b81aa86fa5460972bbb651da97d2ac51d6ec35de38e30c87e
+REDACTIONS {}
+
+ASSET assets/fc-logout.html
+SOURCE run/fc-logout/index.html (module selection)
+SHA256 b4fb5755efdcad378329cfc586ef2fdeb230d7ff6f5b693be367eb5537c48615
+SIZE 635
+SOURCE_SHA256 338a76d8e1cf0d4a9fd37730090bc3bdbf6595a3041ee0d251023bdaae33ec35
+REDACTIONS {}
+
+ASSET assets/rp-logout.html
+SOURCE run/rp-logout/index.html (module selection)
+SHA256 1d7ae48938547d6c53bb213b3077179fdfbb448d0080b532d6d73a30f561ca0c
+SIZE 1788
+SOURCE_SHA256 00d37ba13f92bab8ece5f8f04cd165ccba0c71f8f76c208ea76931de4c2c9b93
+REDACTIONS {}
+
+ASSET assets/rotate-keys.html
+SOURCE run/rotation/index.html (module selection)
+SHA256 15e3afb6d0d4b7546f42ab881c344e9fabcae4b4cf24c3da3b57e3f84b0ea01f
+SIZE 484
+SOURCE_SHA256 51464a0c3bbd67f28e340c310a4df3cd0f2e0940e0fff03ec94efce0a55e9a16
+REDACTIONS {}
+
+ASSET assets/census.json
+SOURCE run/census.json (closed schema)
+SHA256 3077dd25d1db0d93298e5686530fc2016f6ffe7f384bec1be0ab75b35c590efa
+SIZE 27008
+SOURCE_SHA256 3077dd25d1db0d93298e5686530fc2016f6ffe7f384bec1be0ab75b35c590efa
+REDACTIONS {}
+
+ASSET assets/rotation-evidence.json
+SOURCE run/census.json (controlled rotation selection)
+SHA256 20f0d5baa3a2f84c58b532d9e9d84ce668c139dc5731897df0cfedc286f0af22
+SIZE 14665
+SOURCE_SHA256 20f0d5baa3a2f84c58b532d9e9d84ce668c139dc5731897df0cfedc286f0af22
+REDACTIONS {}
+
+ASSET assets/unassisted-rotation.json
+SOURCE run/census.json (unassisted module rows)
+SHA256 f1d00592baec4c7687dc1f5158813c814bf2b6269dab7a82a2732410f6c773d9
+SIZE 529
+SOURCE_SHA256 f1d00592baec4c7687dc1f5158813c814bf2b6269dab7a82a2732410f6c773d9
+REDACTIONS {}
+
+ASSET assets/run.json
+SOURCE run/run.json (allowlist)
+SHA256 ed4f44e3bd81ab9578dd69af477a5a6cffc31fb315998281fe8185f62e77045f
+SIZE 5212
+SOURCE_SHA256 ed4f44e3bd81ab9578dd69af477a5a6cffc31fb315998281fe8185f62e77045f
+REDACTIONS {}
+
+ASSET assets/compare.txt
+SOURCE run/compare.txt
+SHA256 4e21916098aa2878733f42a569fdf2ee1d07e24bebe31847686d74d9ac3ec59a
+SIZE 12031
+SOURCE_SHA256 4e21916098aa2878733f42a569fdf2ee1d07e24bebe31847686d74d9ac3ec59a
+REDACTIONS {}
+
+ASSET assets/teardown.txt
+SOURCE run/teardown.txt
+SHA256 e356b81057eadcd1383face3b4e7afd97a3c867e8d603269d6e5fe8622dc5d9e
+SIZE 1369
+SOURCE_SHA256 e356b81057eadcd1383face3b4e7afd97a3c867e8d603269d6e5fe8622dc5d9e
+REDACTIONS {}
+
+ASSET CONFORMANCE-FINAL-v0.9.11.md
+SOURCE generated page from selected evidence
+SHA256 9564c201c9e4eaf63a8e287376ad638de1a70d94abee1d7e82cfa865240c663d
+SIZE 4457
+SOURCE_SHA256 9564c201c9e4eaf63a8e287376ad638de1a70d94abee1d7e82cfa865240c663d
+REDACTIONS {}

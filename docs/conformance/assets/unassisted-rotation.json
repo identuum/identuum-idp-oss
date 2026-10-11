@@ -1,0 +1,30 @@
+{
+  "comp-basic": [
+    {
+      "module": "oidcc-server-rotate-keys",
+      "status": "FINISHED",
+      "result": "FAILED"
+    }
+  ],
+  "comp-post": [
+    {
+      "module": "oidcc-server-rotate-keys",
+      "status": "FINISHED",
+      "result": "FAILED"
+    }
+  ],
+  "comp-pkjwt": [
+    {
+      "module": "oidcc-server-rotate-keys",
+      "status": "FINISHED",
+      "result": "FAILED"
+    }
+  ],
+  "comp-none": [
+    {
+      "module": "oidcc-server-rotate-keys",
+      "status": "FINISHED",
+      "result": "FAILED"
+    }
+  ]
+}
