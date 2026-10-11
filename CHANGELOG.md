@@ -5,378 +5,352 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.11`
 
-- **Test runs never use port 5513, and judge the database the driver will
-  actually use** (maintainer tooling; no product change; OSS-MINT-GUARD-2,
-  reviews OSS-MINT-ISOLATION M1-M4 and OSS-MINT-COVERAGE C1-C5). Every
-  database-backed test target (`test-db`, `ci-integration-test`,
-  `integration-test`, `rulefloor-integration`, `verify-integration`,
-  `validate`, `verify-oss`, `test-full`) refuses port 5513, the default,
-  before anything connects or is removed: set `DEV_PG_HOST_PORT` to a scratch
-  server. There is no exception, CI included: the CI workflow's test
-  databases use port 45432 (OSS-MINT-GUARD-4, review
-  OSS-MINT-GUARD-3-PREREVIEW H3). A
-  test URL is accepted only as one `127.0.0.1`/`localhost` server on that
-  port and a `*_test` database with no option but `sslmode`: a `port`,
-  `host`, `hostaddr`, `dbname`, `database` or `service` option could send
-  the driver to another server or database than the URL appears to name,
-  and was accepted before. `tools/integration-witness` has no default
-  database any more and applies the same rules; the CI integration recorder
-  runs only in the CI Integration Tests job; `dev.env.example` no longer sets
-  a test URL. `oss-up` pins its compose project, so an inherited
-  `COMPOSE_PROJECT_NAME` cannot redirect it, and `devseed-live` refuses
-  leftovers of its project instead of deleting them; it holds one lock per
-  machine for its project, whatever `TMPDIR` says, and removes only the
-  containers, network and volume it recorded creating, each rechecked by
-  identity first (OSS-MINT-GUARD-4, review OSS-MINT-GUARD-3-PREREVIEW H1/H2).
-  `devseed-live` names its volume and network with its run's random id and
-  removes a volume only under such a name, so a volume another writer
-  creates under the project's usual name is never removed; it runs only
-  against this machine's own Docker engine through a unix socket (a
-  `tcp://` or `ssh://` `DOCKER_HOST` or Docker context is refused before any
-  other Docker command, and every later call is pinned to the checked
-  endpoint); and it refuses 5513 and 5432 as `DEVSEED_LIVE_PG_PORT` however
-  that is set (OSS-MINT-GUARD-5, review OSS-MINT-GUARD-4 R1-R3).
-  `devseed-live` and identuum-ui's `e2e-full` refuse a `COMPOSE_CMD` that is
-  not exactly `docker compose`, so an option in it cannot start the stack on
-  an engine the topology check never saw; they take a daemon-side mutex (the
-  never-started container `identuum-harness-lock-engine`) before any resource
-  call, so a second run against the same engine is refused whatever its
-  `/tmp`, and a held mutex is never broken automatically; and they record the
-  engine's ID and stop every Docker command when another engine answers.
-  A volume put under a run's exact random name by another Docker user after
-  the last check can still be removed without a failure; that gap is
-  documented (OSS-MINT-GUARD-6, review OSS-MINT-GUARD-5 F1/F2/R1). `make notices-check` now also regenerates the Go
-  licence texts and compares them (review OSS-FIXES-3 F3).
-- **A front-channel fan-out with any receiver on the issuer's origin runs
-  every frame scripts-only** (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW
-  R3). The `end_session` page admits every receiver's origin in one
-  `frame-src`, and a frame keeps its sandbox when its page navigates: an
-  off-issuer receiver granted `allow-scripts allow-same-origin` could
-  redirect its own frame to a receiver on the issuer's origin, which then ran
-  as the issuer's origin with both permissions. When any receiver of the
-  page is on the issuer's origin, or on an origin that cannot be compared
-  with certainty (including a host with a character other than a letter,
-  digit, hyphen or dot, such as a `*` that `frame-src` reads as a wildcard),
-  every frame of that page now gets `allow-scripts` alone. That repairs the
-  mixed fan-out. A fan-out whose receivers are all positively off the
-  issuer's origin keeps both permissions, so its frames can still use
-  storage, and that page is contained only on a condition: a receiver could
-  nest a frame of a scripted, frameable page on the issuer's origin, which
-  the page's `frame-src` does not govern, and that nested page would run as
-  the issuer's origin. Such a page is contained only if every scripted page
-  on the issuer's origin refuses to be framed by an off-issuer ancestor
-  (`frame-ancestors`); the operator guide asks for exactly that. This
-  release makes no unconditional containment promise for it.
-  Storage-clearing receivers therefore need every receiver of their
-  end-session fan-out off the issuer's origin, or back-channel logout.
-- **A "PKCE required" change audit never reports an old value it did not
-  read** (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW R4). `PUT
-  /api/v1/clients/:id` took `pkce_required_before` (and
-  `skip_consent_before`) from a separate read that started from "required"
-  and kept it when the read failed or found nothing, so a successful
-  `false -> true` change could be audited as `true -> true`. Both before
-  values now come from the row the update itself read and changed. A store
-  read that fails during the update answers `503` with nothing written or
-  audited, instead of `400 invalid request`. This adds no transaction
-  guarantee against concurrent updates.
-- **THIRD_PARTY_NOTICES adds the missing licence texts and attributions**
-  (OSS-REVIEW-FIXES-3, licence check OSS-LICENSE-CHECK). The generator now
-  collects the licence files of each compiled Go package up to its module
-  root (adding the ISC and BSD-2-Clause texts of two `go-webauthn/x`
-  subpackages and the BSD-3-Clause text of a `prometheus/client_golang`
-  internal package), keeps every licence text byte for byte, states where
-  the unmodified MPL-2.0 source of `@vercel/og` 0.11.1 is available, credits
-  the CC-BY-4.0 `caniuse-lite` data, and gives `@next/env` and `client-only`,
-  which ship no licence file, the exact MIT text of their upstream projects
-  (`next` and `react`). Generated by `make notices`; `make notices-check`
-  is unchanged.
-- **"PKCE required" is a per-client setting, on by default, so public
-  clients require PKCE unless an org_admin turns it off for one public
-  client** (OSS-PUBLIC-CLIENT-PKCE-OPTION, owner
-  decision 2026-10-10). Migration 0052 adds `oauth_clients.pkce_required`,
-  `NOT NULL DEFAULT true`, so every existing and new client keeps PKCE
-  required; a check constraint allows false only on a public client. The
-  client admin API (`POST`/`PUT`/`GET /api/v1/clients`) carries
-  `pkce_required`, always shown, plus a plain `pkce_warning` while it is
-  false; false is refused (`400 invalid_request`) for a confidential client
-  or one created through dynamic registration, and dynamic registration
-  cannot set it. A change is audited in `client.updated` with the actor and
-  `pkce_required_before`/`pkce_required_after`. A public client with it off
-  may omit the code challenge and redeem its code with `client_id` alone; a
-  challenge it sends is still S256-only and verified, `plain` is still
-  refused, its redirect URI must still match exactly, and each code issued
-  without PKCE is marked `issued_without_pkce` in
-  `oauth_authorize.code_issued`. There is no server-wide switch, and
-  confidential clients are unchanged: PKCE stays optional for them. The
-  conformance provisioning creates
-  its public test client with the setting off, for the public-client plan
-  that sends no PKCE. Production behaviour does not change unless an admin
-  opts a specific client out.
-- **Processes starting together create one active RSA key, not one each**
-  (OSS-REVIEW-FIXES-2, review OSS-RS256-REVIEW finding F1). With
-  `IDENTUUM_IDP_ADVERTISE_RS256=true`, startup ensures an active RSA key and,
-  on a fresh installation, the default EdDSA key. That ran before the
-  single-replica lease chose the serving process and was a read followed by an
-  unconditional insert, so two processes starting at once against one
-  database could each add an active key, and both stayed in the published
-  key set and the signer's candidates. The decision that a key is missing and
-  the insert now run in one transaction under a database lock; the second
-  process waits, sees the first one's key and reuses it. An existing active
-  key is still reused, a rotating-only RSA key still gets a new active one,
-  and the option off still creates nothing. No migration.
-- **Front-channel logout frames let the application's logout page run its
-  script** (OSS-REVIEW-FIXES-1, review finding F1; OSS-PUBLIC-CLIENT-PKCE-OPTION,
-  review OSS-FIXES-REVIEW-2026-10-10 R1 and R2). The hidden frames the
-  `end_session` page and `GET /api/v1/oidc/frontchannel-logout` load now
-  carry `sandbox="allow-scripts allow-same-origin"` for a logout page whose
-  origin is positively different from the IdP's, so a page on its own origin
-  that clears its sign-in marker from storage or calls its own logout API
-  works; it still cannot navigate the top window, submit forms or open
-  popups (no `allow-top-navigation`, `allow-forms` or `allow-popups`, and the
-  page's own policy, `frame-ancestors 'none'`, `form-action 'none'` and
-  `base-uri 'none'`, is unchanged). Whether it can reach the script of the
-  page that frames it is narrower: a page with any receiver on the issuer's
-  origin runs every frame scripts-only (the OSS-REVIEW-FIXES-3 entry above);
-  a page whose receivers are all off the issuer's origin keeps
-  storage-capable frames and is contained only if every scripted page on the
-  issuer's origin refuses to be framed by an off-issuer ancestor (the same
-  entry). There is no unconditional promise that the framing page is
-  contained. Origins are
-  compared conservatively, not as a complete browser-origin serializer:
-  the port as a number with the default dropped, the host in lower-case
-  ASCII with one trailing dot dropped, IP literals in canonical form, and no
-  IDNA mapping. A logout page on the IdP's own origin
-  under any such spelling (for example `:0443` or a long-form IPv6 literal),
-  one on an internationalized (Unicode or punycode) host, or one whose origin
-  cannot be canonicalized with certainty, gets `allow-scripts` alone, never
-  both. Its
-  script runs in an opaque origin without its origin's storage or cookies,
-  so a logout page that must clear browser storage is not supported on the
-  issuer's own origin: serve it from a different origin, or use back-channel
-  logout. Before, every frame was `sandbox="allow-same-origin"` without
-  `allow-scripts`: the page loaded, its script never ran, and the IdP
-  continued as if the application had been told.
-- **A wrong sign-in code counts against the shared allowance for at least
-  fifteen minutes; pending sign-in misses may stay counted up to the handle
-  lifetime longer** (OSS-REVIEW-FIXES-1, review finding
-  F4; P-103). The sign-in code step keeps one wrong-code counter per sign-in
-  attempt handle and no attempt times, and the shared allowance aged those
-  misses from the handle's creation: five wrong codes entered four minutes
-  into a handle's life left the allowance eleven minutes later, and another
-  sign-in or proof of that user could spend a fresh five. The misses of a
-  handle now count until the latest moment they can have been made — the
-  handle's five-minute expiry, or the moment the fifth wrong code
-  invalidated it — is fifteen minutes old: never released early, at most
-  the handle's life late, and still one count per attempt. The reported
-  wait follows that moment. Proof-route misses already carried their own
-  times and are unchanged.
-- **A rerun of `recover-site-admin` finishes the access-token revocation a
-  failed run left behind** (OSS-REVIEW-FIXES-1, review finding F3). The
-  command revokes refresh tokens first and denylists the access tokens
-  linked to them second; when the denylist write failed after the refresh
-  tokens were revoked, the command exited non-zero as documented, but the
-  advised rerun found no newly revoked refresh token, denylisted nothing and
-  reported success while an access token minted through one of those
-  refresh tokens — which carries no session and is judged by the denylist
-  alone — still introspected active. Every subject-wide revocation
-  (`recover-site-admin`, a password change or reset, an MFA reset) now also
-  denylists the linked access tokens of the person's already-revoked,
-  unexpired refresh tokens that the denylist does not hold yet, so a rerun
-  completes the work and a completed run changes nothing. Other users'
-  tokens are untouched.
-- **An upstream sign-in establishes one sign-in: the console's or an
-  application's, never both** (OSS-REVIEW-FIXES-1, review finding F5;
-  D-023 preserved). The provider callback now sets the cookies of the one
-  sign-in the flow was started for, which the flow state carries as the
-  stored return URL: started from the console, the console's `access_token`
-  and `refresh_token` cookies only; started for an application's
-  `/authorize` (the return URL is the authorize request), the IdP's own
-  browser-session cookie only. An edition without a console minter uses the
-  browser-session cookie for both. An application's `/authorize` therefore still
-  asks for its own sign-in right after a console sign-in through the
-  provider, and `end_session` and the console's sign-out never end each
-  other's session. Before, the callback planted both families from one
-  session, so a console sign-in through the provider silently signed the
-  person in to every application, and either sign-out cut the other's
-  session. Password sign-in is unchanged.
-- **An upstream sign-in whose console credentials cannot be minted is
-  refused, never half-committed** (OSS-REVIEW-FIXES-1, review finding F2).
-  The provider callback now mints every credential before it writes any
-  cookie: when a console-purpose sign-in's access token cannot be minted (the
-  signing key cannot be read), it answers `503 temporarily unavailable, try
-  again` with no cookie of any kind and no redirect, attempts to revoke the
-  new session and audits whether cleanup succeeded, in
-  `auth.oidc_login.failure` (`reason`
-  `console_token_issue_failed`, `provider_id`, `session_id`,
-  `session_revoked`), exactly as it does when the browser-session token
-  cannot be issued. Before, it planted the browser-session and refresh
-  cookies and redirected "signed in" without the access cookie, so a browser
-  that still held another user's valid `access_token` cookie kept validating
-  as that user in the console while the audit said the new person had signed
-  in. A working minter is unchanged: the new person's cookies replace the old
-  ones.
+Security, sign-in and logout fixes, with a sign-in provider page in the
+embedded console. identuum-ui `43bc5a4` embedded (`v0.9.10` embedded
+`9e478fd`; `43bc5a4`'s `package.json` says `0.9.11`). The delta since
+`v0.9.10` (`git rev-list --count v0.9.10..2e7942d` and `git diff --shortstat
+v0.9.10..2e7942d`, measured at `2e7942d`, before the notes commit) is 122
+commits, 169 files, +13521/−1845. The endpoint count stays 159 (`go run
+./tools/api-docgen --dry-run`).
 
-- **Optional RS256 discovery advertisement for OpenID conformance.**
-  `IDENTUUM_IDP_ADVERTISE_RS256=true` advertises `[EdDSA, ES256, RS256]`
-  and ensures an active RSA signing key at startup. The option defaults to
-  false, preserving discovery and initial key generation. EdDSA remains the
-  default signer; RS256 signs only for clients that register it. The
-  conformance appliance enables the option to meet Discovery 1.0 §3, and
-  the config plan no longer permits the RS256 expected failure.
+This release adds one SQL migration:
+`0052_oauth_clients_pkce_required.sql`. The tracked `migrations/`
+directory contains 52 SQL files, with head `0052` (tracked root
+`migrations/[0-9]{4}*.sql`, one file per migration).
+Migration 0052 adds `oauth_clients.pkce_required` with
+`NOT NULL DEFAULT true` and a constraint allowing opt-out only for public
+clients. Existing rows keep PKCE required. Before upgrading, pause writes
+and back up the database, Compose file and matching encryption key using
+`docs/OPERATOR-GUIDE.md`. To roll back to v0.9.10, restore that pre-upgrade
+dump into an empty database before starting the old binary; it refuses a
+newer schema. Keep the volume and matching key. Restoration discards all
+changes since the backup, including saved opt-outs. Migration 0052's Down
+operation drops the constraint and column, but the operator-guide rollback
+uses backup/restore, not an in-place migration-down command.
+The upgrade and rollback proof on the release tree is part of publication.
+It is still pending.
 
-- **A refused browser sign-in leaves no live session** (OSS-HARDENING-3
-  item 2). When the browser sign-in fails closed because its browser-session
-  token cannot be issued (P2-8), the session the sign-in had just created is
-  now revoked, as the upstream callback's refusal does, and the
-  `user_session.browser_login.failure` row says so (`session_revoked`
-  beside `reason` and `session_id`). Before, that session stayed live until
-  it expired on its own. The refusal itself is unchanged: `503`, no cookie,
-  no redirect.
-- **A session ended meanwhile is not a store error, on every sign-out and
-  revocation** (OSS-HARDENING-3 item 3). The database answers "no row
-  updated" for a session another sign-out or an administrator ended between
-  a request's lookup and its own revocation. That answer is now read as the
-  state the request asked for, as `POST /api/v1/auth/logout` reads it since
-  OSS-HARDENING-2: the end-session cookie and bearer paths and the
-  front-channel logout complete without the `AUTH-503` line, the
-  `revocation_unconfirmed` audit row and the `X-Identuum-Logout` header;
-  `POST /api/v1/me/sessions/revoke-current` answers `401 unauthorized` (the
-  route's answer for a revoked session) instead of `500`;
-  `POST /api/v1/me/sessions/revoke-others` ends the remaining sessions and
-  counts only those it ended instead of stopping at `500`;
-  `POST /api/v1/revoke` answers its idempotent success instead of `500`; and
-  the refresh-token logout no longer reports `503 revocation_unconfirmed`
-  for it. Every other store error is still refused, logged and marked as
-  before. The password change already recorded that case only in its audit
-  metadata (`session_revocation_clean`) and is unchanged.
-- **The recovery-code consumption event names the person and their
-  organization** (OSS-HARDENING-3 item 4).
-  `user_session.login.mfa_recovery_code_consumed` now carries the actor
-  fields (`actor_type` `user`, id, email, role) and `organization_id` the
-  sign-in events carry since OSS-HARDENING-2, so an organization admin sees
-  a member running their recovery list down. Additive: the metadata
-  (`user_id`, `session_id`, `remaining_recovery_codes_count`) is unchanged.
-- **An upstream sign-in fails closed when its browser-session token cannot
-  be issued** (OSS-HARDENING-2 item 2; P2-8). When the opaque browser-session
-  token store refuses at the provider callback, the callback now answers
-  `503 temporarily unavailable, try again` with no cookie of any kind and no
-  redirect, audits `auth.oidc_login.failure` (`reason`
-  `browser_session_token_issue_failed`, `provider_id`, `session_id`,
-  `session_revoked`) and attempts to revoke the new session, recording in
-  `session_revoked` whether cleanup succeeded, exactly as the browser sign-in
-  has since P2-8. Before, it planted the raw refresh token
-  as the browser-session cookie — a cookie that authenticates nothing — and
-  sent the person on "signed in". A working token store is unchanged.
-- **A client assertion may name the issuer as its audience**
-  (OSS-HARDENING-2 item 3; OSS-CONFORMANCE-FIXES Q1, owner: (a)). The
-  `private_key_jwt` assertion's `aud` is accepted when it names the token
-  endpoint URL, as before, or the OP's issuer identifier as published by
-  discovery (OpenID Connect Core §9; the conformance suite's
-  `oidcc-ensure-client-assertion-with-iss-aud-succeeds`). Any other
-  audience is still refused with `401 invalid_client`; `iss`, `sub`, `exp`,
-  `iat`, `jti` replay, `alg` and key checks are unchanged.
-- **Every password sign-in is audited as a sign-in of its organization**
-  (OSS-HARDENING-2 item 4). `user_session.login.success`, and the
-  second-factor, enrolment and password-change completions
-  (`user_session.login.mfa_verified`, `user_session.login.mfa_enrolled`),
-  now name the signed-in person as the actor (`actor_type` `user`, id,
-  email, role) and carry `organization_id`, as an upstream sign-in does, so
-  an organization admin sees every sign-in of its members on the Audit
-  page. Additive: the metadata is unchanged.
-- **Signing out of a session already ended is not an error**
-  (OSS-HARDENING-2 item 5). `POST /api/v1/auth/logout` with a bearer token
-  whose session is already revoked — a second sign-out, or one after an
-  administrator revoked it — now answers `204` and audits the logout, as the
-  refresh-token path already did. Before, the database's "no row updated"
-  was read as a store failure: `503 revocation_unconfirmed`, an `AUTH-503`
-  log line and a `user_session.logout.revocation_unconfirmed` row. A real
-  store failure is still refused, logged and marked as before. Found by
-  making the handler tests' in-memory session store answer "not found" for an
-  ended session, as PostgreSQL does.
-- **`private_key_jwt` without `client_id`** (OSS-CONFORMANCE-FIXES;
-  CONFORMANCE-FULL-1 Q1). The token, introspection and revocation endpoints
-  accept a client assertion whose request carries no `client_id`, as RFC 7523
-  §2.2 and OpenID Connect Core §9 allow: the assertion's `iss`, which must
-  equal its `sub`, names the client. A request that carries both a
-  `client_id` and an assertion whose `iss` differs is refused, as before. Every
-  other assertion check (signature, key, `alg`, `aud`, `exp`, `iat`, `jti`
-  replay) is unchanged. Before, such a request answered `401 invalid_client`,
-  which interrupted every `private_key_jwt` module of the OpenID conformance
-  suite.
-- **Front-channel logout fires from `end_session`** (OSS-CONFORMANCE-FIXES;
-  CONFORMANCE-FULL-1 Q2). RP-initiated logout now loads the
-  `frontchannel_logout_uri` of every relying party of the ended session (the
-  same set the back-channel fan-out notifies) in hidden frames on the page the
-  browser ends on — with `iss` and `sid` for a client that registered
-  `frontchannel_logout_session_required` — and then continues to the validated
-  `post_logout_redirect_uri` on its own, never later than a few seconds even
-  when a relying party does not answer; with no redirect that page is the
-  "You are signed out" page. The page's policy admits exactly those frames'
-  origins and its one script by nonce. Before, discovery advertised
-  `frontchannel_logout_supported` while `end_session` never loaded a frame
-  (only `GET /api/v1/oidc/frontchannel-logout?client_id=` did). With no
-  front-channel relying party the responses are as before.
-- **No false "session not found" error on a hinted logout**
-  (OSS-CONFORMANCE-FIXES; CONFORMANCE-FULL-1 Q3). RP-initiated logout with a
-  valid `id_token_hint` for the browser's own session no longer revokes that
-  session a second time, and a hint naming a session the store no longer
-  finds is read as already ended. Before, every such logout logged an
-  `AUTH-503 … logout.hint-session: session not found` ERROR line and audited
-  `revocation_unconfirmed: true` although the logout had succeeded. A hint
-  naming another live session still ends it; a real store failure is still
-  logged, audited and marked as before.
-- **An upstream sign-in is audited as a sign-in of its organization**
-  (OSS-CONFORMANCE-FIXES item 5; OSS-UPSTREAM-CONSOLE-SESSION Q2). The
-  provider callback now also records `user_session.login.success` with
-  `metadata.method` = `oidc_upstream` and `metadata.provider_id`, so every
-  console sign-in is found by one event type; a password sign-in's event now
-  carries `metadata.method` = `password` (additive). `auth.oidc_login_initiated`,
-  `auth.oidc_login.success` and the new event name the organization, and the
-  two success events the signed-in person as the actor, so an organization
-  admin can audit its own members' upstream sign-ins.
-- **An upstream OIDC sign-in lands in the console signed in**
-  (OSS-UPSTREAM-CONSOLE-SESSION; test-book V4-025, finding F-1). The
-  provider callback now also sets the `access_token` and `refresh_token`
-  cookies a password sign-in sets, minted from the same session through the
-  same code, so the console's validate, refresh and sign-out work as after a
-  password sign-in. Before, the callback set only the IdP's own
-  browser-session cookie and the console returned to `/login` signed out.
-  Password sign-in, the OAuth/OIDC client flows and refused upstream
-  sign-ins are unchanged.
-- **A test setting for back-channel logout against a local receiver.** The
-  new **test** setting `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER=true`
-  (off by default, logged as a `WARNING` at startup) lets a client register
-  a plain-`http` `backchannel_logout_uri` and lets the delivery reach a
-  receiver on loopback or a private network, so the delivered path can be
-  tested end to end on one machine. It mirrors
-  `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_UPSTREAM_ISSUER`. With it unset nothing
-  changes: registration still requires `https` and the delivery client
-  still refuses loopback and private addresses. Do not use it in production.
-- **`recover-site-admin` ends every session of the recovered
-  administrator** (OSS-RECOVER-REVOKE). After the password and MFA reset the
-  command revokes every `site_admin` session and refresh token and denylists
-  the access tokens linked to those refresh tokens, so a session minted
-  before the recovery is refused after it; other users are untouched. If the
-  revocation fails the command exits non-zero, says the reset happened, and
-  tells the operator to run it again; it never reports success over live
-  sessions. Before, the command updated the user row only and a pre-reset
-  session stayed live to token expiry.
-- **One wrong-code allowance per user for every second-factor check**
-  (OSS-MFA-BUDGET-1, P-103). The sign-in code step and the proof routes
-  (step-up, MFA disable, recovery-code regenerate, skip-consent) now spend
-  one allowance of 5 wrong codes in 15 minutes, where they had 5 each. At
-  the bound every code of that user, right or wrong, is refused with the
-  route's usual answer until the oldest miss leaves the window; a sign-in
-  code and a proof code checked at the same time take turns.
-- **`pkg/extension`: entitlements and quotas on API resource create**
-  (OSS-SEAM-5, P-094, P-095). `runtime.Options.Entitlements` and
-  `runtime.Options.Quotas` bound a create: OSS counts and inserts in one
-  transaction under a lock per organization, so concurrent creates cannot
-  pass the ceiling (409 `quota_exceeded`); an error, a panic or an
-  unavailable snapshot is 403 `restricted`. A ceiling never bypasses an OSS
-  check. With neither set nothing changes.
+### Security
+
+- **Public clients require PKCE by default.** Existing and new public
+  clients keep that protection. An `org_admin` can set
+  `pkce_required: false` for one public client through the client admin API.
+  There is no server-wide switch. Confidential clients keep their existing
+  optional-PKCE behavior. Dynamically registered clients cannot opt out.
+  An opted-out client can omit the challenge. A challenge it sends must
+  still use S256 and pass verification. Admin responses show a warning
+  about intercepted authorization codes. Audit events record the setting
+  and public codes issued without PKCE. Client PKCE and skip-consent
+  setting changes are audited with the before values read by the update
+  itself. A failed prior read answers `503` and changes nothing.
+  This adds no transaction or concurrent-update guarantee. Migration 0052
+  stores `oauth_clients.pkce_required` with `NOT NULL DEFAULT true`.
+  (`e64b625`, `c901acc`; OSS-PKCE-REVIEW R4)
+- **Second-factor checks share one wrong-code allowance per user.**
+  Sign-in, step-up, MFA disable, recovery-code regeneration and skip-consent
+  proofs share five wrong codes. Each miss counts for at least fifteen
+  minutes. Pending sign-in misses use a conservative time bound, rather
+  than exact attempt timestamps. They can remain counted for the handle
+  lifetime longer; that lifetime defaults to five minutes. At the limit,
+  correct and incorrect codes are refused until enough counted misses age
+  out. Previously, sign-in and proof routes had separate allowances, and
+  pending misses could age out too soon. (`ac22ed0`, `bc76547`)
+- **Site-admin recovery ends the recovered administrator's old access.**
+  `recover-site-admin` revokes their sessions and refresh tokens. It also
+  blocks access tokens linked to those refresh tokens. Other users are
+  unaffected. A revocation failure produces a non-zero exit after the
+  password and MFA reset and asks the operator to rerun the command.
+  The rerun also checks already-revoked, unexpired refresh tokens for
+  linked access tokens still missing from the denylist. This completes
+  cleanup that an earlier partial failure left unfinished.
+  (`1c1c6dd`, `ac15c01`)
+- **Failed credential issuance refuses sign-in and attempts cleanup.**
+  Local browser sign-in and upstream callbacks answer `503` without new
+  cookies or a redirect when the required credential cannot be issued.
+  The upstream callback mints all required credentials before writing any
+  cookie. It also refuses a failed console access-token mint.
+  Each refusal attempts to revoke the newly created session and audits
+  whether that attempt succeeded. Cleanup is not guaranteed.
+  (`b144a67`, `f5fd94e`, `669e641`)
+- **Upstream sign-in keeps console and application sessions separate.**
+  A console-purpose callback sets only the console's cookies. An
+  application-purpose callback sets only the IdP's browser-session cookie.
+  Application authorization still requires its own sign-in after console
+  sign-in. Console sign-out and application `end_session` do not end each
+  other's session. An edition without a console minter uses the
+  browser-session cookie instead. (`734feca`)
+- **Concurrent startup no longer creates duplicate active signing keys.**
+  With `IDENTUUM_IDP_ADVERTISE_RS256=true`, automatic provisioning checks
+  for a usable active key and inserts a missing key under one database
+  lock and transaction. Processes starting together reuse the first key.
+  This covers RSA and the initial EdDSA key when the store is empty.
+  It does not remove keys already present. (`19ccb7a`)
+- **Front-channel frames can run logout scripts, with restricted storage
+  access.** Both logout surfaces now allow
+  scripts. A receiver gets `allow-same-origin` only when the conservative
+  origin comparison positively establishes that it differs from the
+  issuer. The comparison normalizes numeric ports, ASCII host case and
+  canonical IP literals. Same-origin, uncertain and internationalized
+  origins get scripts-only. Such receivers cannot use their normal-origin
+  storage; storage-clearing receivers need a supported different origin
+  or back-channel logout. When an end-session fan-out includes any
+  receiver on the issuer origin, or one whose origin cannot be
+  canonicalized (including a host with a character other than a letter,
+  digit, hyphen or dot), every frame on that page is scripts-only, which
+  repairs the mixed fan-out. A fan-out whose receivers are all off the
+  issuer origin keeps both permissions (storage-capable frames) and is
+  contained only on a condition: a receiver could nest a frame of a
+  scripted, frameable page on the issuer origin, which the page's frame
+  policy does not govern, so the page is contained only if every scripted
+  page on the issuer origin refuses framing by off-issuer ancestors
+  (`frame-ancestors`). The release does not enforce that condition and
+  makes no unconditional containment promise. (`ea9814d`, `cdebcca`, `f2abcff`,
+  `4c3bcdd`, `0bc068e`; OSS-PKCE-REVIEW R1/R2/R3)
+
+### Known advisories
+
+GO-2026-5932 affects the `golang.org/x/crypto/openpgp` package family in
+all versions; no fixed version is published. The dependency remains at
+`golang.org/x/crypto v0.57.0` for other cryptographic packages. The
+2026-10-11 review at OSS `bb5da79` verified no OpenPGP imports or linkage
+using the import graph, Linux build closures and an unstripped binary's
+symbols. Grype 0.120.1, with its 2026-10-11 database, reported no match on
+the tested Linux amd64 and arm64 binaries. A recheck at `2e7942d` found no
+`openpgp` package in the `linux/amd64` or `linux/arm64` build closure of
+`./cmd/identuum-idp` (`go list -deps`). Module-only scans can still report
+this advisory. The release binaries themselves have not been scanned yet.
+These measurements do not certify future binaries or scanner databases.
+
+### Sign-in and sessions
+
+- **RS256 discovery advertising is optional and off by default.**
+  `IDENTUUM_IDP_ADVERTISE_RS256=true` adds RS256 to discovery and creates
+  a usable active RSA signing key if needed. The default remains
+  `[EdDSA, ES256]`. EdDSA remains the default signer, with ES256 fallback.
+  RS256 signs ID tokens only for clients that register it.
+  Conformance runs enable the option. The repository config-plan floor
+  no longer allows the earlier RS256 discovery failure.
+  (`850c90d`, `c8f0111`)
+- **A console-purpose upstream OIDC sign-in reaches the console signed in.**
+  Console validation, refresh and sign-out work after provider sign-in
+  started from the console. Previously, the console returned to its login
+  page signed out. (`1b76378`)
+- **Account-settings authenticator enrollment survives a server restart.**
+  An unfinished enrollment is found in the database until its existing
+  expiry. A restart no longer requires the person to start again.
+  (`f595fa6`)
+- **Private-key authentication need not repeat the client identifier.**
+  A `private_key_jwt` assertion with matching issuer and subject identifies
+  the client at token, introspection and revocation endpoints.
+  An explicit `client_id` must still match. The audience can be the token
+  endpoint URL or the server's exact issuer identifier.
+  All other assertion checks remain in force. (`5129ad8`, `b144a67`)
+- **Sign-in audit events identify the person and organization.**
+  Password and upstream sign-ins record their method in a common success
+  event. Password second-factor completions and recovery-code consumption
+  also identify the person and organization. Organization admins can find
+  these events for their members. (`5129ad8`, `b144a67`, `f5fd94e`)
+
+### Logout
+
+- **RP-initiated logout notifies registered front-channel receivers.**
+  The `end_session` page loads frames for the ended session's relying
+  parties. Clients requesting session information receive the issuer and
+  session identifier. The page then continues once to the validated
+  post-logout redirect, with a bounded wait and a no-script fallback.
+  Frame loading or timeout does not prove that an application ended its
+  own session. (`5129ad8`, `c925626`)
+- **An already-ended session no longer causes a false store-failure alarm.**
+  A valid logout hint does not revoke the browser's session twice.
+  Bearer, refresh-token, RP-initiated and front-channel logout also handle
+  sessions ended by another request. Current-session revocation answers
+  `401` for an ended session. Revoking other sessions continues and counts
+  only sessions that this request ended. Individual revocation keeps its
+  idempotent success. Real store failures still refuse the operation.
+  (`5129ad8`, `b144a67`, `f5fd94e`)
+- **Shutdown waits for back-channel logout deliveries already started.**
+  It waits within the shutdown budget before closing the database pool.
+  A warning identifies work still running when that budget expires.
+  (`d62baee`)
+
+### Console
+
+- **Organization admins can open the sign-in provider page from Settings.**
+  They can create, update or remove their organization's provider in the
+  embedded console. The embedded console `43bc5a4` contains the page
+  mount. (`identuum-ui:72a1304`, vendored in `2e7942d`)
+
+### Operations/docs
+
+- **The source guide separates first-build checks from full validation.**
+  Build, untagged tests and static analysis are described separately.
+  `make validate` requires Docker and a selected scratch port other than
+  5513. It checks the test endpoint before resetting the selected
+  development database volume. An accepted run still deletes that volume.
+  It starts or reuses PostgreSQL, runs integration tests
+  and removes development containers only after a successful run.
+  The guide warns against using data that must be kept.
+  (`9d8ed3d`, `b4122f1`, `3bab55c`)
+- **PostgreSQL healthchecks use loopback TCP.** Published, development and
+  conformance stacks no longer rely on a local Unix socket probe.
+  (`af46403`)
+- **A test-only receiver option supports local back-channel delivery tests.**
+  `IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER=true` permits
+  plain HTTP registration and delivery to loopback or private addresses.
+  It is off by default and prints a startup warning when enabled.
+  Keep it off in production. Normal HTTPS and address restrictions remain
+  when it is unset. (`a6b642e`)
+- **Operator guides explain backup, upgrade, rollback and database restore.**
+  They also cover health fields,
+  image-only license inspection and the release procedure. (`368b6a1`)
+- **Public audit evidence links earlier security fixes to their checks.**
+  The evidence document distinguishes verified fixes from remaining audit
+  limits. (`93ab38f`)
+- **Database-backed source tests validate the selected scratch endpoint.**
+  `DEV_PG_HOST_PORT` moves database creation, migration and test defaults
+  together. An explicit URL must name one `127.0.0.1` or `localhost` server
+  on that port, a plain database name ending in `_test`, and no option
+  except one `sslmode`. Redirecting connection options are refused before
+  connection; Make also refuses `PGHOSTADDR` and `PGSERVICE`. The
+  integration witness has no default database or development-URL fallback.
+  Make targets and hand-run Go tests apply the endpoint policy without the
+  former non-test-database escape. Port 5513 is refused in CI too; CI uses
+  45432. Appliance phases use their own disposable servers. This policy
+  concerns source-test entries, not normal operator migration of a live
+  database. (`2b68356`, `0f9c1ad`, `8cf42bc`, `ea263d3`, `b4122f1`,
+  `024b234`, `3bab55c`)
+- **Test-isolation hardening closes four review gaps.** This changes
+  developer tooling only. G1: ordinary test runners (`make test`, the race
+  runner, CI's test step and hand-run `go test`) and every database-backed
+  test check the effective test-database endpoint before connecting. The
+  former hosted exception for port 5513 is removed, so no runner trusts a
+  marker instead of the real endpoint. (`024b234`, `3bab55c`) G2:
+  `make devseed-live` and the console's e2e runner refuse an existing
+  volume or network under any name they would create, whatever its label,
+  and remove only what they recorded creating. (`ecb450c`,
+  `identuum-ui:d9e5f38`) G3: `make notices-check` checks the complete
+  notices content, npm blocks included. (`9d40390`, `c9341e4`) G4: the
+  console's expired-organization test fixture accepts only the harness's
+  own loopback ports as HTTP bases. (`identuum-ui:f69d413`) Independent
+  re-reviews checked these fixes and their later corrections, through the
+  OSS-MINT-GUARD-6 review, and found no blocking gap. The documented limits
+  below remain.
+- **The live devseed check removes recorded resources after identity
+  checks.** `make devseed-live` refuses existing project resources or
+  expected volume/network names. Runs take the shared harness claim
+  `/tmp/identuum-harness.lock`, regardless of `TMPDIR`. Cleanup checks
+  recorded identities and invocation labels; foreign or replaced resources
+  remain, and a refused cleanup fails the run.
+  (`ecb450c`, `25ae7f2`, `0a92507`, `5b06786`)
+- **The live devseed check uses this machine's own Docker engine.** Before
+  any other Docker command, it refuses a `DOCKER_HOST` or Docker context
+  whose endpoint is not a unix socket. Every later Docker call is pinned to
+  the checked endpoint. The engine-ID check does not prove physical locality.
+  (`0a92507`, `062665b`)
+- **The live devseed check gives its volume and network unique run names.**
+  Their names carry the run's random id. Cleanup removes a volume only under
+  a name carrying that id, after checking its creation time and invocation
+  label. A volume another writer creates under the project's usual name is
+  never removed; a refused cleanup fails the run. (`0a92507`)
+- **The live devseed check refuses database ports 5513 and 5432.**
+  `DEVSEED_LIVE_PG_PORT` is checked before any Docker command, however it is
+  set. Those ports, a leading zero and a value outside the valid decimal
+  port range are refused. (`0a92507`)
+- **Source appliance startup pins its Compose project.** `oss-build` and
+  `oss-up` use an explicit project and clear inherited Compose
+  project/orphan settings. `oss-up` refuses a mismatched app-container name;
+  `devseed-live` refuses leftovers instead of deleting them before startup.
+  (`b4122f1`)
+- **The live devseed check fixes its Compose command.** It refuses a
+  `COMPOSE_CMD` other than exactly `docker compose` before any Docker
+  command. Nested `oss-build` and `oss-up` recheck the command, endpoint,
+  engine and mutex under the harness binding before building or starting.
+  (`062665b`)
+- **The source harnesses share one lock on each Docker engine.**
+  `make devseed-live` and the console's full/quick harness take the
+  daemon-side mutex, the never-started container
+  `identuum-harness-lock-engine`, before resource calls. A second run is
+  refused even with a different `/tmp`; a held mutex is never removed
+  automatically. Each run checks the recorded engine ID before later
+  Docker commands and stops them if a different engine answers.
+  (`062665b`, `identuum-ui:b7962a7`)
+- **The harnesses run as scratch projects under one claim.**
+  `make devseed-live` runs as `scratch-devseed` and `make openid-conformance`
+  as `scratch-conformance`. With the console's `e2e-full` (`scratch-e2e`)
+  they share the claim `/tmp/identuum-harness.lock` and the daemon mutex,
+  labelled with the run's project and ports. A mint (`make test-full`) needs
+  a `scratch-` project and reuses only the scratch PostgreSQL named by its
+  full container ID; the default development project is refused.
+  (`5b06786`, `identuum-ui:6630c0e`)
+- **Harness teardown is one recorded step.** Each harness checks every
+  resource before its first removal. A resource it did not create, a
+  replaced resource, a foreign container attached to its resources, damaged
+  creation evidence or an unknown mounted volume stops the whole teardown.
+  Every removed resource is checked gone. A refused teardown keeps the
+  claim, the mutex and the run's `manifest.json` record. It prints only
+  read-only `docker inspect` advice; removal stays a manual operator
+  decision. (`5b06786`, `e376775`, `2e60304`)
+- **The conformance harness no longer runs `down`.** It refuses leftovers,
+  removes only what it created, keeps its TLS files out of host mounts and
+  builds `scratch-conformance-idp:local`. (`5b06786`)
+- **Harness Compose configs are held to one allowlist.** `devseed-live`
+  and `openid-conformance` accept only reviewed service keys and values in
+  the resolved config. `command` and `entrypoint` are accepted only when
+  null, as Docker Compose 5.6.0 writes them. (`2e60304`, `82bfb4b`)
+- **The harnesses document their remaining limits.** A forwarded unix
+  socket can keep a stable engine ID; the checks do not prove physical
+  locality or detect an engine switched inside one Docker call. Another
+  Docker user's volume under a run's exact random name after its last
+  check can still be removed without a failed run. (`062665b`,
+  `identuum-ui:b7962a7`)
+- **Full/quick e2e teardown returns Docker's status explicitly.** This
+  corrects EXIT-trap cleanup under Bash 5.2 and changes developer tooling.
+  (`identuum-ui:4062da8`)
+
+### Maintenance
+
+- **Go integrations can apply entitlements and API-resource quotas.**
+  The public options `runtime.Options.Entitlements` and `Quotas` apply
+  during API-resource creation. Counting and insertion share a transaction
+  under an organization lock, so concurrent creates cannot exceed the quota.
+  A quota refusal answers `409 quota_exceeded`. An unavailable entitlement
+  snapshot or a policy error or panic answers `403 restricted`.
+  These controls cannot bypass existing checks.
+  Leaving both options unset preserves existing behavior. (`da4f7fa`)
+- **CI uses the pinned Go/staticcheck toolchain action.** Its shared Go
+  cache is disabled. Verification and publication runners use Ubuntu 24.04.
+  Source documentation explains the patched staticcheck installation.
+  (`daad84f`, `e962e5c`, `ab35654`, `93ab38f`; `ab35654` replaces
+  `4a330da`, the same change as first pushed)
+- **CI pins govulncheck v1.9.0 instead of v1.8.0**, with matching parity
+  fixtures; this changes developer tooling. (`bb5da79`)
+- **THIRD_PARTY_NOTICES adds missing licence texts and attributions.**
+  Licence files of compiled Go subpackages are now included (ISC and
+  BSD-2-Clause texts in `go-webauthn/x`, BSD-3-Clause in a
+  `prometheus/client_golang` internal package). For the embedded console
+  the file states where the unmodified MPL-2.0 source of `@vercel/og` is
+  available, credits the CC-BY-4.0 `caniuse-lite` data, and supplies the
+  upstream MIT text for `@next/env` and `client-only`. (`5397e31`)
+  The notices cover the Go module closure of `./cmd/identuum-idp` for
+  `linux/amd64` and `linux/arm64`, excluding the standard library, and the
+  embedded console's lockfile production npm closure without host-specific
+  native packages, including packages vendored inside those packages.
+  The file is regenerated for embedded console `43bc5a4`: 48 Go modules
+  and 38 npm packages. Its npm blocks are unchanged from `9e478fd`.
+  (`2e7942d`) This source change adds the named texts and attributions; it
+  does not certify every distribution obligation.
+- **The notices check detects licence-text drift.** `make notices-check`
+  regenerates the Go licence texts for both Linux release architectures and
+  checks the complete header and recorded digest of the npm licence blocks.
+  A mismatch fails the check. The npm check compares the retained body with
+  its recorded digest; it does not independently regenerate npm blocks or
+  prove complete coverage if both body and digest change together.
+  (`9d40390`, `c9341e4`)
+- **API-docgen documentation identifies the real route registry.**
+  The registry is the source comment blocks read by `extract.go`, not a
+  separate registry file. (`726fb32`)
 
 ## `v0.9.10`
 
