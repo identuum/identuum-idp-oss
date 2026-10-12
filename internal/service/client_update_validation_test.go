@@ -31,6 +31,10 @@ func (r *recordingClientRepo) Update(_ context.Context, c *domain.Client) error 
 	return nil
 }
 
+func (r *recordingClientRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return mutateClientByReadAndWrite(ctx, r, id, fn)
+}
+
 func newRecordingClientService() (*ClientService, *recordingClientRepo) {
 	repo := &recordingClientRepo{stored: domain.Client{
 		ID:           uuid.New(),

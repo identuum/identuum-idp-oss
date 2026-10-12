@@ -193,6 +193,13 @@ type UpdateClientOptions struct {
 	// public client, which Client.Validate refuses for any other
 	// (OSS-PUBLIC-CLIENT-PKCE-OPTION).
 	PKCERequired *bool
+	// ExpectScope and ExpectSkipConsent, when set, are the stored values the
+	// caller read and decided on before the save (the scope cap; a request
+	// that keeps skip_consent on without the MFA code). The save compares them
+	// with the locked row and refuses with ErrClientChangedDuringSave when
+	// another save changed them in between (C1, CLIENT-UPDATE-AUTH-BASIS-1).
+	ExpectScope       *string
+	ExpectSkipConsent *bool
 }
 
 // errClientNotFound is the sentinel for missing rows. Handlers map
@@ -201,6 +208,10 @@ var errClientNotFound = errors.New("service: client not found")
 
 // ErrClientSecretPublicClient: a public client has no secret to regenerate.
 var ErrClientSecretPublicClient = errors.New("service: cannot regenerate secret for a public client")
+
+// ErrClientChangedDuringSave: another save changed what this one was decided
+// on (UpdateClientOptions.ExpectScope / ExpectSkipConsent). Nothing was saved.
+var ErrClientChangedDuringSave = errors.New("this client was changed by someone else while you were saving; nothing was saved, reload it and try again")
 
 // RegisterClient creates a new OAuth client.
 //
@@ -383,19 +394,63 @@ func (s *ClientService) UpdateClientReportingPrior(ctx context.Context, id uuid.
 }
 
 // updateClient is UpdateClient; prior, when not nil, receives the client as
-// read, before the change. A store that cannot be read answers
-// AuthStoreUnavailable, as GetClient does, and a missing client not-found;
-// neither writes anything.
+// locked, before the change. C1 (OSS v0.9.12): the read, the change and the
+// write are one locked step (repository MutateClient), so a save never writes
+// back fields it read before another save committed. A store that cannot read,
+// lock, write or commit answers AuthStoreUnavailable (503), a missing client
+// not-found; neither writes anything.
 func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts UpdateClientOptions, prior *domain.Client) (*domain.Client, error) {
-	client, err := s.repo.GetClientByID(ctx, id)
-	if err != nil && !errors.Is(err, domain.ErrClientNotFound) {
-		return nil, domain.AuthStoreUnavailable("client", err)
+	// A service account being bound is checked BEFORE the client is locked: the
+	// check reads through its own connection, and holding the client's
+	// transaction while waiting for a second connection could stall a busy
+	// pool. The account is then key-share locked first inside the save, so it
+	// cannot be deleted before the save commits.
+	var lockSA *uuid.UUID
+	var boundOrg *uuid.UUID
+	if opts.ServiceAccountID != nil && *opts.ServiceAccountID != uuid.Nil {
+		current, err := s.GetClient(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if current.IsPublic {
+			return nil, fmt.Errorf("public client may not bind a service account")
+		}
+		if s.saBinding != nil {
+			if err := s.saBinding.ValidateBindingForClient(ctx, *opts.ServiceAccountID, current.OrganizationID); err != nil {
+				return nil, err
+			}
+		}
+		lockSA = opts.ServiceAccountID
+		boundOrg = current.OrganizationID
 	}
-	if err != nil || client == nil {
+	var applyErr error
+	before, client, err := s.repo.MutateClient(ctx, id, lockSA, func(client *domain.Client) error {
+		applyErr = s.applyClientUpdate(client, opts, lockSA != nil, boundOrg)
+		return applyErr
+	})
+	switch {
+	case applyErr != nil:
+		return nil, applyErr
+	case errors.Is(err, domain.ErrClientNotFound):
 		return nil, errClientNotFound
+	case err != nil:
+		return nil, err
 	}
 	if prior != nil {
-		*prior = *client
+		*prior = *before
+	}
+	return client, nil
+}
+
+// applyClientUpdate applies opts to the locked client. It runs inside the
+// save's transaction and reads nothing else. bindChecked says the service
+// account in opts was checked against organization boundOrg before the lock.
+func (s *ClientService) applyClientUpdate(client *domain.Client, opts UpdateClientOptions, bindChecked bool, boundOrg *uuid.UUID) error {
+	if opts.ExpectScope != nil && client.Scope != *opts.ExpectScope {
+		return ErrClientChangedDuringSave
+	}
+	if opts.ExpectSkipConsent != nil && client.SkipConsent != *opts.ExpectSkipConsent {
+		return ErrClientChangedDuringSave
 	}
 	// THE-UNVALIDATED-REST: a SUPPLIED value must pass the same rule create
 	// applies. THE-SILENT-DROP: Name is now a POINTER, because `!= ""` could
@@ -404,7 +459,7 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	// never happened. nil is absent; a supplied value is validated.
 	if opts.Name != nil {
 		if err := validateClientName(*opts.Name); err != nil {
-			return nil, err
+			return err
 		}
 		client.Name = *opts.Name
 	}
@@ -416,7 +471,7 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	}
 	if opts.RedirectURIs != nil {
 		if err := validateClientRedirectURIs(opts.RedirectURIs); err != nil {
-			return nil, err
+			return err
 		}
 		client.RedirectURIs = opts.RedirectURIs
 	}
@@ -438,7 +493,7 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	// the handler flattened.
 	if opts.TokenEndpointAuthMethod != nil {
 		if err := domain.ValidateClientAuthMethod(*opts.TokenEndpointAuthMethod); err != nil {
-			return nil, err
+			return err
 		}
 		client.TokenEndpointAuthMethod = *opts.TokenEndpointAuthMethod
 		// P0-7b — CLEAR THE SECRET ON A METHOD SWITCH. Moving a client to
@@ -455,7 +510,7 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	// member, and a blank silently becomes EdDSA in the repository.
 	if opts.TokenEndpointAuthSigningAlg != nil {
 		if err := domain.ValidateClientSigningAlg(*opts.TokenEndpointAuthSigningAlg); err != nil {
-			return nil, err
+			return err
 		}
 		client.TokenEndpointAuthSigningAlg = *opts.TokenEndpointAuthSigningAlg
 	}
@@ -464,7 +519,7 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	// never the issuer default).
 	if opts.IDTokenSignedResponseAlg != nil {
 		if err := domain.ValidateClientIDTokenAlg(*opts.IDTokenSignedResponseAlg); err != nil {
-			return nil, err
+			return err
 		}
 		client.IDTokenSignedResponseAlg = *opts.IDTokenSignedResponseAlg
 	}
@@ -480,7 +535,7 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	}
 	if opts.FrontchannelLogoutURI != nil {
 		if err := domain.ValidateLogoutURI(*opts.FrontchannelLogoutURI); err != nil {
-			return nil, err
+			return err
 		}
 		client.FrontchannelLogoutURI = *opts.FrontchannelLogoutURI
 	}
@@ -489,7 +544,7 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	}
 	if opts.BackchannelLogoutURI != nil {
 		if err := s.validateBackchannelLogoutURI(*opts.BackchannelLogoutURI); err != nil {
-			return nil, err
+			return err
 		}
 		client.BackchannelLogoutURI = *opts.BackchannelLogoutURI
 	}
@@ -508,13 +563,13 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 			// uuid.Nil to mean "remove the binding".
 			client.ServiceAccountID = nil
 		} else {
+			// Checked before the lock (updateClient); the locked row must still
+			// be the confidential client of the organization that was checked.
 			if client.IsPublic {
-				return nil, fmt.Errorf("public client may not bind a service account")
+				return fmt.Errorf("public client may not bind a service account")
 			}
-			if s.saBinding != nil {
-				if err := s.saBinding.ValidateBindingForClient(ctx, *opts.ServiceAccountID, client.OrganizationID); err != nil {
-					return nil, err
-				}
+			if !bindChecked || !sameOrg(client.OrganizationID, boundOrg) {
+				return ErrClientChangedDuringSave
 			}
 			bound := *opts.ServiceAccountID
 			client.ServiceAccountID = &bound
@@ -532,34 +587,43 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	// Client.Validate the create path runs. Wired after a read-only sweep of
 	// every stored row measured ZERO that would newly fail (0 rows exist in
 	// this environment's disposable DB — caveat recorded in the wiki pin).
-	if err := client.Validate(); err != nil {
-		return nil, err
+	return client.Validate()
+}
+
+// sameOrg reports whether two optional organization ids name the same one.
+func sameOrg(a, b *uuid.UUID) bool {
+	if a == nil || b == nil {
+		return a == b
 	}
-	if err := s.repo.Update(ctx, client); err != nil {
-		return nil, err
-	}
-	return client, nil
+	return *a == *b
 }
 
 // RegenerateClientSecret rotates the client's secret. Returns the
-// new plaintext secret EXACTLY ONCE. Public clients are rejected.
+// new plaintext secret EXACTLY ONCE, and only after the new hash is
+// committed. Public clients are rejected. C1 (OSS v0.9.12): the rotation is
+// the same locked step as a save, so a save running at the same time cannot
+// write the old hash back; a store that cannot lock, write or commit answers
+// AuthStoreUnavailable (503) instead of "not found" or a 500 (owner answer
+// Q-C1-2).
 func (s *ClientService) RegenerateClientSecret(ctx context.Context, id uuid.UUID) (*domain.Client, string, error) {
-	client, err := s.repo.GetClientByID(ctx, id)
-	if err != nil || client == nil {
-		return nil, "", errClientNotFound
-	}
-	// A client is "public" when it has no secret hash on file. The
-	// monolith carries the same invariant.
-	if client.ClientSecretHash == "" {
-		return nil, "", ErrClientSecretPublicClient
-	}
 	plaintext, err := crypto.GenerateRandomString(32)
 	if err != nil {
 		return nil, "", fmt.Errorf("client_secret generation failed: %w", err)
 	}
-	client.ClientSecretHash = crypto.HashSecret(plaintext)
-	client.UpdatedAt = time.Now().UTC()
-	if err := s.repo.Update(ctx, client); err != nil {
+	_, client, err := s.repo.MutateClient(ctx, id, nil, func(client *domain.Client) error {
+		// A client is "public" when it has no secret hash on file. The
+		// monolith carries the same invariant.
+		if client.ClientSecretHash == "" {
+			return ErrClientSecretPublicClient
+		}
+		client.ClientSecretHash = crypto.HashSecret(plaintext)
+		client.UpdatedAt = time.Now().UTC()
+		return nil
+	})
+	switch {
+	case errors.Is(err, domain.ErrClientNotFound):
+		return nil, "", errClientNotFound
+	case err != nil:
 		return nil, "", err
 	}
 	return client, plaintext, nil

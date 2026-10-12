@@ -35,6 +35,10 @@ func (r regenerateRepo) GetClientByID(context.Context, uuid.UUID) (*domain.Clien
 
 func (r regenerateRepo) Update(context.Context, *domain.Client) error { return r.updateErr }
 
+func (r regenerateRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return mutateClientByReadAndWrite(ctx, r, id, fn)
+}
+
 func regenerate(t *testing.T, repo regenerateRepo, org uuid.UUID) *httptest.ResponseRecorder {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -48,9 +52,10 @@ func regenerate(t *testing.T, repo regenerateRepo, org uuid.UUID) *httptest.Resp
 	return rec
 }
 
-// The regenerate route answers with fixed messages: a storage failure is a
-// 500 that carries no driver text, a public client is a 400, and nothing in
-// the body comes from an internal error.
+// The regenerate route answers with fixed messages: a storage failure is the
+// store-unavailable 503 (C1, owner answer Q-C1-2: one meaning for "the database
+// could not save it" across the client routes) that carries no driver text, a
+// public client is a 400, and nothing in the body comes from an internal error.
 func TestRegenerateClientSecret_ErrorsCarryNoInternalText(t *testing.T) {
 	org := uuid.New()
 	internal := errors.New("failed to update client: SQLSTATE 08006 host db-internal user identuum_idp")
@@ -59,8 +64,8 @@ func TestRegenerateClientSecret_ErrorsCarryNoInternalText(t *testing.T) {
 		client:    &domain.Client{ID: uuid.New(), OrganizationID: &org, ClientSecretHash: "h"},
 		updateErr: internal,
 	}, org)
-	if rec.Code != http.StatusInternalServerError {
-		t.Errorf("a storage failure must be 500, got %d", rec.Code)
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "temporarily_unavailable") {
+		t.Errorf("a storage failure must be the 503 temporarily_unavailable, got %d %s", rec.Code, rec.Body.String())
 	}
 	for _, leak := range []string{"SQLSTATE", "db-internal", "identuum_idp", "failed to update"} {
 		if strings.Contains(rec.Body.String(), leak) {

@@ -66,6 +66,11 @@ func (r *minimalClientRepo) GetClientByClientID(_ context.Context, clientID stri
 	return r.rows[clientID], nil
 }
 func (r *minimalClientRepo) Update(_ context.Context, _ *domain.Client) error { return nil }
+
+// MutateClient finds no client by UUID, as GetClientByID above.
+func (r *minimalClientRepo) MutateClient(_ context.Context, _ uuid.UUID, _ *uuid.UUID, _ func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return nil, nil, domain.ErrClientNotFound
+}
 func (r *minimalClientRepo) Delete(_ context.Context, _ uuid.UUID, _ *uuid.UUID) error {
 	return nil
 }

@@ -52,6 +52,9 @@ func (r *memClientRepo) Update(_ context.Context, c *domain.Client) error {
 	r.rows[c.ID] = c
 	return nil
 }
+func (r *memClientRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return mutateClientByReadAndWrite(ctx, r, id, fn)
+}
 func (r *memClientRepo) Delete(_ context.Context, id uuid.UUID, _ *uuid.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

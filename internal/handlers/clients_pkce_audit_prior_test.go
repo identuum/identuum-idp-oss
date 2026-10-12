@@ -56,6 +56,12 @@ func (r *pkceAuditFaultRepo) Update(ctx context.Context, c *domain.Client) error
 	return r.memClientRepo.Update(ctx, c)
 }
 
+// MutateClient (C1) reads and writes through the counting, failing methods
+// above, so the injected read fault still reaches the update's own read.
+func (r *pkceAuditFaultRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return mutateClientByReadAndWrite(ctx, r, id, fn)
+}
+
 func TestUpdateClient_PKCEAuditNeverInventsTheOldValueWhenAReadFails(t *testing.T) {
 	for _, fault := range []struct {
 		name     string

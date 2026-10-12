@@ -35,6 +35,10 @@ func (r *updateRecordingClientRepo) Update(_ context.Context, c *domain.Client) 
 	return nil
 }
 
+func (r *updateRecordingClientRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return mutateClientByReadAndWrite(ctx, r, id, fn)
+}
+
 func TestClientService_PlainHTTPBackchannelReceiverOnlyWithTheTestSwitch(t *testing.T) {
 	const httpReceiver = "http://localhost:9500/backchannel-logout"
 	base := func() RegisterClientOptions {

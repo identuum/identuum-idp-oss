@@ -13,6 +13,23 @@ type ClientRepository interface {
 	GetClientByID(ctx context.Context, id uuid.UUID) (*domain.Client, error)
 	GetClientByClientID(ctx context.Context, clientID string) (*domain.Client, error)
 	Update(ctx context.Context, client *domain.Client) error
+	// MutateClient is the one way an existing client is changed (C1, OSS
+	// v0.9.12): in ONE transaction it locks the live row, hands fn a copy of
+	// it, writes fn's result back to exactly that row and commits, so two
+	// saves of the same client run one after the other and neither loses the
+	// other's change. prior is the row as locked, result the row as written;
+	// both are returned only after the commit.
+	//
+	// lockServiceAccount, when not nil, is key-share locked BEFORE the client
+	// (the order the organization delete cascade takes), so a binding being
+	// written cannot lose its service account mid-save.
+	//
+	// Errors: fn's own error unchanged (nothing is written); a missing or
+	// deleted client domain.ErrClientNotFound; a value the database refuses
+	// the database's error; anything else (lock wait cancelled or timed out,
+	// deadlock, a failed begin, write or commit) domain.AuthStoreUnavailable.
+	// It never retries.
+	MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *uuid.UUID, fn func(c *domain.Client) error) (prior, result *domain.Client, err error)
 	Delete(ctx context.Context, id uuid.UUID, orgID *uuid.UUID) error
 	List(ctx context.Context, pagination Pagination, orgID *uuid.UUID) ([]*domain.Client, int, error)
 	// ListByServiceAccountID returns the OAuth clients linked to a given

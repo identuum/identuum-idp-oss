@@ -113,6 +113,18 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "OSS-PUBLIC-CLIENT-PKCE-OPTION: RFC 7592 management mirrors the 7591 posture: the registration access token must not turn PKCE off for its client.",
 	},
+	// C1 (OSS v0.9.12): ExpectScope / ExpectSkipConsent carry what the admin PUT
+	// decided on its own unlocked read (scope cap, skip_consent without a code)
+	// into the locked save. They are server-side, never wire fields: the admin
+	// handler sets them from its read, not from the body.
+	"internal/handlers/dcr_management.go:HandleDCRManagementPut.UpdateClientOptions.ExpectScope": {
+		State: "absent",
+		Why:   "C1: DCR management takes no decision from a read of the stored scope (it sets no scope cap from the client's prior scope), so there is nothing to re-check under the lock.",
+	},
+	"internal/handlers/dcr_management.go:HandleDCRManagementPut.UpdateClientOptions.ExpectSkipConsent": {
+		State: "absent",
+		Why:   "C1: DCR management never sets skip_consent (D-018(b) above), so no decision rests on its stored value.",
+	},
 	// D-026: the marker records that dynamic client registration created the
 	// app. Only HandleDCRRegister feeds it (true); no console request sets or
 	// clears it, so an org_admin can never make a registered app look

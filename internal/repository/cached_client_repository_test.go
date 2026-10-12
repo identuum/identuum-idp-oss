@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -46,6 +47,18 @@ func (m *mockClientRepository) GetClientByClientID(ctx context.Context, clientID
 func (m *mockClientRepository) Update(ctx context.Context, client *domain.Client) error {
 	args := m.Called(ctx, client)
 	return args.Error(0)
+}
+
+func (m *mockClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	args := m.Called(ctx, id, lockServiceAccount, fn)
+	var prior, result *domain.Client
+	if a := args.Get(0); a != nil {
+		prior = a.(*domain.Client)
+	}
+	if a := args.Get(1); a != nil {
+		result = a.(*domain.Client)
+	}
+	return prior, result, args.Error(2)
 }
 
 func (m *mockClientRepository) Delete(ctx context.Context, id uuid.UUID, orgID *uuid.UUID) error {
@@ -172,6 +185,39 @@ func TestCachedClientRepository_Mutations(t *testing.T) {
 	mockRepo.On("Delete", ctx, client.ID, &orgID).Return(nil).Once()
 	err = cachedRepo.Delete(ctx, client.ID, &orgID)
 	assert.NoError(t, err)
+
+	mockRepo.AssertExpectations(t)
+}
+
+// C1 (OSS v0.9.12): the locked change is delegated, and the cache is cleared
+// only after it committed; a refused or failed change leaves the cache alone.
+func TestCachedClientRepository_MutateClientInvalidatesOnlyAfterCommit(t *testing.T) {
+	mr, rdb := setupTestRedis(t)
+	defer mr.Close()
+
+	mockRepo := new(mockClientRepository)
+	cachedRepo := NewCachedClientRepository(mockRepo, rdb, 5*time.Minute)
+	ctx := context.Background()
+	client := &domain.Client{ID: uuid.New(), ClientID: "pub-id"}
+
+	mockRepo.On("GetClientByID", ctx, client.ID).Return(client, nil).Once()
+	_, err := cachedRepo.GetClientByID(ctx, client.ID)
+	assert.NoError(t, err)
+	assert.True(t, mr.Exists(cachedRepo.idKey(client.ID)), "the read fills the cache")
+
+	failed := errors.New("store failure")
+	mockRepo.On("MutateClient", ctx, client.ID, (*uuid.UUID)(nil), mock.Anything).Return(nil, nil, failed).Once()
+	_, _, err = cachedRepo.MutateClient(ctx, client.ID, nil, func(*domain.Client) error { return nil })
+	assert.ErrorIs(t, err, failed)
+	assert.True(t, mr.Exists(cachedRepo.idKey(client.ID)), "a failed change must not clear the cache")
+
+	changed := *client
+	changed.Name = "renamed"
+	mockRepo.On("MutateClient", ctx, client.ID, (*uuid.UUID)(nil), mock.Anything).Return(client, &changed, nil).Once()
+	_, result, err := cachedRepo.MutateClient(ctx, client.ID, nil, func(*domain.Client) error { return nil })
+	assert.NoError(t, err)
+	assert.Equal(t, "renamed", result.Name)
+	assert.False(t, mr.Exists(cachedRepo.idKey(client.ID)), "a committed change clears the cache")
 
 	mockRepo.AssertExpectations(t)
 }

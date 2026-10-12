@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
@@ -11,6 +12,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/utils/uuidgen"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -125,6 +127,9 @@ func (r *PgxClientRepository) RegisterClient(ctx context.Context, client *domain
 	return nil
 }
 
+// clientColumns is the column list scanClient reads, in its order.
+const clientColumns = `id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, dynamically_registered, grant_types, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, pkce_required, created_at, updated_at`
+
 // scanClient maps a row to a Client struct
 func (r *PgxClientRepository) scanClient(row pgx.Row) (*domain.Client, error) {
 	var client domain.Client
@@ -194,10 +199,7 @@ func (r *PgxClientRepository) GetClientByID(ctx context.Context, id uuid.UUID) (
 	// admin API. Org Undelete restores rows via its own SQL and needs no
 	// tombstone read. (Org-LIVENESS is the separate AUTH boundary and is
 	// enforced on the auth-time lookup GetClientByClientID below.)
-	query := `
-		SELECT id, client_id, client_secret_hash, name, organization_id, redirect_uris, post_logout_redirect_uris, scope, service_account_id, is_public, skip_consent, dynamically_registered, grant_types, allowed_audiences, token_ttl_secs, token_endpoint_auth_method, jwks_uri, jwks, token_endpoint_auth_signing_alg, frontchannel_logout_uri, frontchannel_logout_session_required, backchannel_logout_uri, backchannel_logout_session_required, id_token_signed_response_alg, pkce_required, created_at, updated_at
-		FROM oauth_clients
-		WHERE id = $1 AND deleted_at IS NULL`
+	query := `SELECT ` + clientColumns + ` FROM oauth_clients WHERE id = $1 AND deleted_at IS NULL`
 
 	client, err := r.scanClient(r.db.QueryRow(ctx, query, id))
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -328,7 +330,7 @@ func (r *PgxClientRepository) Update(ctx context.Context, client *domain.Client)
 		SET name = $1, organization_id = $2, redirect_uris = $3, post_logout_redirect_uris = $4, scope = $5, is_public = $6, skip_consent = $7, client_secret_hash = $8, service_account_id = $9, allowed_audiences = $10, token_ttl_secs = $11, token_endpoint_auth_method = $12, jwks_uri = $13, jwks = $14, token_endpoint_auth_signing_alg = $15, frontchannel_logout_uri = $16, frontchannel_logout_session_required = $17, backchannel_logout_uri = $18, backchannel_logout_session_required = $19, id_token_signed_response_alg = $20, updated_at = $21, grant_types = $22, pkce_required = $24
 		WHERE id = $23 AND deleted_at IS NULL
 	`
-	_, err := r.db.Exec(ctx, query,
+	tag, err := r.db.Exec(ctx, query,
 		client.Name,
 		client.OrganizationID,
 		client.RedirectURIs,
@@ -357,7 +359,75 @@ func (r *PgxClientRepository) Update(ctx context.Context, client *domain.Client)
 	if err != nil {
 		return fmt.Errorf("failed to update client: %w", err)
 	}
+	// C1 (rule CLIENT-UPDATE-AFFECTED-ROW-1): a client deleted or tombstoned
+	// since it was read matches no row, and that is not a successful save.
+	if tag.RowsAffected() != 1 {
+		return domain.ErrClientNotFound
+	}
 	return nil
+}
+
+// MutateClient implements repository.ClientRepository.MutateClient (C1, OSS
+// v0.9.12). Lock order: the service account (only when one is being bound),
+// then this one client row; never anything after the client, never a second
+// client. The lock wait is bounded by ctx only.
+func (r *PgxClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *uuid.UUID, fn func(c *domain.Client) error) (*domain.Client, *domain.Client, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, clientStoreError(err)
+	}
+	// After a commit this is a no-op; on every other path it drops the locks
+	// and any write. Not tied to ctx, so a cancelled request still rolls back.
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	locked := &PgxClientRepository{db: tx}
+
+	if lockServiceAccount != nil {
+		// FOR KEY SHARE: the account cannot be deleted while this save runs
+		// (its delete cascades to this client: account, then client).
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM service_accounts WHERE id = $1 FOR KEY SHARE`, *lockServiceAccount); err != nil {
+			return nil, nil, clientStoreError(err)
+		}
+	}
+	// FOR NO KEY UPDATE (owner answer Q-C1-3): saves, deletes and tombstones
+	// of this client wait for each other; inserts that reference the client
+	// (tokens, codes, consents) take FOR KEY SHARE and do not wait. A save
+	// that waited reads the newer committed row, or no row after a delete.
+	prior, err := locked.scanClient(tx.QueryRow(ctx, `SELECT `+clientColumns+` FROM oauth_clients WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE`, id))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, domain.ErrClientNotFound
+	}
+	if err != nil {
+		return nil, nil, clientStoreError(err)
+	}
+	result := *prior
+	if err := fn(&result); err != nil {
+		return nil, nil, err
+	}
+	if err := locked.Update(ctx, &result); err != nil {
+		if errors.Is(err, domain.ErrClientNotFound) {
+			return nil, nil, err
+		}
+		return nil, nil, clientStoreError(err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, nil, clientStoreError(err)
+	}
+	return prior, &result, nil
+}
+
+// clientStoreError sorts a failed client change. A value the database refuses
+// (SQLSTATE class 22 data exception, class 23 integrity constraint) is the
+// request's fault and stays a plain error. Everything else — a lock wait
+// cancelled or timed out (55P03), a deadlock (40P01), a serialization failure
+// (40001), a lost connection, a failed begin, write or commit — means the
+// change could not be saved right now: domain.AuthStoreUnavailable, which the
+// API answers with 503 "try again". Nothing was changed in either case.
+func clientStoreError(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")) {
+		return err
+	}
+	return domain.AuthStoreUnavailable("client", err)
 }
 
 func (r *PgxClientRepository) Delete(ctx context.Context, id uuid.UUID, orgID *uuid.UUID) error {

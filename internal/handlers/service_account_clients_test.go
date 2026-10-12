@@ -60,6 +60,9 @@ func (r *inMemoryClientRepoForBundleHandlers) Update(_ context.Context, c *domai
 	r.byID[c.ID] = &cp
 	return nil
 }
+func (r *inMemoryClientRepoForBundleHandlers) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return mutateClientByReadAndWrite(ctx, r, id, fn)
+}
 func (r *inMemoryClientRepoForBundleHandlers) Delete(_ context.Context, id uuid.UUID, _ *uuid.UUID) error {
 	delete(r.byID, id)
 	return nil

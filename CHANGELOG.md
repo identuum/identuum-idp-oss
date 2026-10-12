@@ -5,6 +5,34 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **Two administrators saving the same OAuth client no longer undo each
+  other's change** (OSS v0.9.12 item C1). Before, a save read the client,
+  changed it and wrote the whole client back, so a save that started
+  earlier could put back values another save had just changed (for example
+  "PKCE required", the scope or a rotated secret). Now a save locks that
+  one client while it is applied, so saves of the same client happen one
+  after the other. Saves of different clients do not wait for each other,
+  and sign-ins and token requests for the client are not held up.
+  This covers `PUT /api/v1/clients/:id` and
+  `POST /api/v1/clients/:id/secret/regenerate`. No database migration.
+- **A save that cannot be completed now answers 503 and changes nothing.**
+  When the database cannot save the change (the wait for the lock ends, or
+  a write or commit fails), both routes answer `503 temporarily_unavailable`
+  with `Retry-After`. Before, the update route answered `400 invalid
+  request` for a failed write, and the secret rotation answered `404` or
+  `500`. Try again.
+- **A save on a client that was deleted meanwhile is refused** instead of
+  reporting success.
+- **A save checked against an older view of the client is refused with a
+  plain reason.** If another administrator changed the client's scope, or
+  turned "skip consent" off, after this save was checked and before it was
+  applied, the update answers `400 invalid_request` with "this client was
+  changed by someone else while you were saving; nothing was saved, reload
+  it and try again". Removing a service account from a client now records
+  the account that was really removed.
+
 ## `v0.9.11`
 
 Security, sign-in and logout fixes, with a sign-in provider page in the

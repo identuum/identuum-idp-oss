@@ -239,7 +239,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:summary=Update OAuth client metadata (does not rotate the client_secret).
 		// docgen:tier=oss
 		// docgen:auth=org_admin
-		// docgen:notes=skip_consent marks or unmarks a first-party client, audited with its before and after values in client.updated (D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6). pkce_required turns PKCE on or off for a public client, audited with its before and after values in client.updated; false on a confidential or dynamically registered client answers 400 invalid_request. WARNING: with pkce_required false an intercepted code can be exchanged without a verifier; use it only for a test client. A frontchannel_logout_uri on the issuer's own origin runs its script without its origin's storage, and so does every receiver framed beside it, or beside one whose origin cannot be compared, on the same end-session page; serve a storage-clearing receiver from a different origin with every receiver of that page off the issuer's origin, or use back-channel logout.
+		// docgen:notes=skip_consent marks or unmarks a first-party client, audited with its before and after values in client.updated (D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6). pkce_required turns PKCE on or off for a public client, audited with its before and after values in client.updated; false on a confidential or dynamically registered client answers 400 invalid_request. WARNING: with pkce_required false an intercepted code can be exchanged without a verifier; use it only for a test client. A frontchannel_logout_uri on the issuer's own origin runs its script without its origin's storage, and so does every receiver framed beside it, or beside one whose origin cannot be compared, on the same end-session page; serve a storage-clearing receiver from a different origin with every receiver of that page off the issuer's origin, or use back-channel logout. Saves of the same client run one after the other (the client is locked while a save is applied), so two administrators saving at once no longer undo each other's change. If another save changed the scope or skip_consent this request was checked against, it answers 400 invalid_request with a plain reason and saves nothing: reload and try again. If the database cannot save the change now, it answers 503 temporarily_unavailable with Retry-After and nothing is changed.
 		// docgen:response=oss.handlers.safeClient
 		updateG.PUT("/:id", HandleUpdateClient(deps))
 
@@ -261,7 +261,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=org_admin
 		// docgen:response=oss.handlers.safeClient
-		// docgen:notes=The new cleartext secret appears in the response body exactly once.
+		// docgen:notes=The new cleartext secret appears in the response body exactly once, after it is saved. A save of the same client running at the same time waits for the rotation and cannot put the old secret back. If the database cannot save the new secret now, it answers 503 temporarily_unavailable with Retry-After and the old secret keeps working.
 		updateG.POST("/:id/secret/regenerate", HandleRegenerateClientSecret(deps))
 	} else {
 		g.POST("", clientsServiceMissing("create"))
@@ -670,12 +670,15 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 		// every scope, never fewer. The audited before values are NOT taken from
 		// here: they come from the row the update itself read and changed
 		// (OSS-REVIEW-FIXES-3, review OSS-PKCE-REVIEW-2026-10-10 R4).
-		var priorSA *uuid.UUID
-		var priorSkip, priorDynamic, priorPublic bool
+		// C1 (OSS v0.9.12): this read is not locked. What was decided on it is
+		// handed to the update (ExpectScope / ExpectSkipConsent), which refuses
+		// if the locked row no longer matches; the service account an unbind
+		// releases is named from the locked row.
+		var priorRead, priorSkip, priorDynamic, priorPublic bool
 		var priorScope string
 		if req.Scope != nil || req.ServiceAccountID != nil || req.SkipConsent != nil {
 			if prior, perr := deps.ClientService.GetClient(c.Request.Context(), id); perr == nil && prior != nil {
-				priorSA = prior.ServiceAccountID
+				priorRead = true
 				priorSkip = prior.SkipConsent
 				priorDynamic = prior.DynamicallyRegistered
 				priorPublic = prior.IsPublic
@@ -704,6 +707,16 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 				return
 			}
 		}
+		// The scope cap counted the scopes the app held at the read; keeping
+		// skip_consent on without a code relied on it being on at the read.
+		var expectScope *string
+		var expectSkip *bool
+		if req.Scope != nil && priorRead {
+			expectScope = &priorScope
+		}
+		if req.SkipConsent != nil && *req.SkipConsent && !turningSkipOn {
+			expectSkip = &priorSkip
+		}
 		before, client, err := deps.ClientService.UpdateClientReportingPrior(c.Request.Context(), id, service.UpdateClientOptions{
 			Name:                              req.Name,
 			Scope:                             req.Scope,
@@ -722,9 +735,13 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			IDTokenSignedResponseAlg:          req.IDTokenSignedResponseAlg,
 			SkipConsent:                       req.SkipConsent,
 			PKCERequired:                      req.PKCERequired,
+			ExpectScope:                       expectScope,
+			ExpectSkipConsent:                 expectSkip,
 		})
 		if err != nil {
-			// AUTH-503 (THE-SILENT-EXPIRY): same distinction as create.
+			// AUTH-503 (THE-SILENT-EXPIRY): same distinction as create. C1: a
+			// lock wait that ends, or a write or commit that fails, is this 503
+			// too; the save changed nothing.
 			if domain.IsAuthStoreUnavailable(err) {
 				mw.RespondAuthStoreUnavailable(c, "clients", err)
 				return
@@ -775,11 +792,11 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 						"oauth_client_name": client.Name,
 					},
 				}))
-			} else if priorSA != nil && *priorSA != uuid.Nil {
+			} else if before.ServiceAccountID != nil && *before.ServiceAccountID != uuid.Nil {
 				_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
 					Action:         "service_account.unlinked_oauth_client",
 					Outcome:        "success",
-					SubjectID:      *priorSA,
+					SubjectID:      *before.ServiceAccountID,
 					SubjectType:    "service_account",
 					OrganizationID: orgOf(client.OrganizationID),
 					IPAddress:      c.ClientIP(),
@@ -879,6 +896,11 @@ func HandleRegenerateClientSecret(deps ClientsHandlerDeps) gin.HandlerFunc {
 		case errors.Is(err, service.ErrClientSecretPublicClient):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "cannot regenerate secret for a public client"})
 			return
+		case domain.IsAuthStoreUnavailable(err):
+			// C1 (owner answer Q-C1-2): the database could not lock, write or
+			// commit the new secret. Nothing changed; the old secret still works.
+			mw.RespondAuthStoreUnavailable(c, "clients", err)
+			return
 		default:
 			// Never echo the underlying error: it can carry storage detail.
 			_ = c.Error(err)
@@ -908,11 +930,13 @@ func HandleRegenerateClientSecret(deps ClientsHandlerDeps) gin.HandlerFunc {
 }
 
 // respondClientInvalid answers a refused create or update with 400. The
-// skip_consent refusal (D-018(b)) names its rule; every other refusal keeps
-// the flattened answer.
+// skip_consent refusal (D-018(b)) names its rule, and so does a save refused
+// because another save changed the client meanwhile (C1); every other refusal
+// keeps the flattened answer.
 func respondClientInvalid(c *gin.Context, err error) {
 	if errors.Is(err, domain.ErrSkipConsentPublicClient) || errors.Is(err, domain.ErrSkipConsentDynamicClient) ||
-		errors.Is(err, domain.ErrPKCEOptOutConfidentialClient) || errors.Is(err, domain.ErrPKCEOptOutDynamicClient) {
+		errors.Is(err, domain.ErrPKCEOptOutConfidentialClient) || errors.Is(err, domain.ErrPKCEOptOutDynamicClient) ||
+		errors.Is(err, service.ErrClientChangedDuringSave) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request", "error_description": err.Error()})
 		return
 	}

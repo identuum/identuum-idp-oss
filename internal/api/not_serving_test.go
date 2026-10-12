@@ -29,6 +29,9 @@ func (stubClientRepo) GetClientByClientID(context.Context, string) (*domain.Clie
 }
 func (stubClientRepo) Update(context.Context, *domain.Client) error        { return nil }
 func (stubClientRepo) Delete(context.Context, uuid.UUID, *uuid.UUID) error { return nil }
+func (stubClientRepo) MutateClient(context.Context, uuid.UUID, *uuid.UUID, func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+	return nil, nil, domain.ErrClientNotFound
+}
 func (stubClientRepo) List(context.Context, repository.Pagination, *uuid.UUID) ([]*domain.Client, int, error) {
 	return nil, 0, nil
 }
