@@ -5,7 +5,20 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.12`
+
+The "email verified" status now tells the truth, client saves no longer
+overwrite each other, and the embedded console gets a complete member area
+and sign-in providers in Settings. identuum-ui `a932627` embedded
+(`v0.9.11` embedded `43bc5a4`; `a932627`'s `package.json` says `0.9.12`).
+The delta since `v0.9.11` (`git rev-list --count v0.9.11..cf1a22a` and
+`git diff --shortstat v0.9.11..cf1a22a`, measured at `cf1a22a`, before the
+notes commit) is 13 commits, 94 files, +4809/−297. The endpoint count goes
+from 159 to 160 (`grep -c . tools/api-docgen/testdata/endpoints.manifest.txt`).
+This release adds two SQL migrations, `0053_users_email_verified_via.sql`
+and `0054_email_verifications_address.sql`; the tracked `migrations/`
+directory contains 54 SQL files, with head `0054` (tracked root
+`migrations/[0-9]{4}*.sql`, one file per migration).
 
 - **Two saves of the same OAuth client no longer undo each other's change
   to a field only one of them sends** (OSS v0.9.12 item C1). Before, a save read the client,
@@ -122,6 +135,29 @@ follows [Semantic Versioning](https://semver.org/).
   second upgrade are not neutral: they can make `email_verified` true for
   users whose mailbox was never proven. Use the backup and restore steps in
   `docs/OPERATOR-GUIDE.md` instead.
+
+### Console (identuum-ui `a932627`)
+
+- The member Overview has no "Coming soon" cards. Profile, Security and
+  Sessions show real facts and open their pages; the member menu adds
+  Profile, Security and Sessions.
+- The member Overview says how the address was verified and offers "Send
+  verification email". When the server cannot send email, it says so and
+  asks the member to contact the administrator. An administrator's user
+  page shows how the address was checked, or why it is not verified.
+- Sign-in providers are managed in Settings: a list with the sign-in policy
+  in words, Add, Edit and Remove that return to the page, "Provider saved",
+  "Provider updated" and "Provider removed", and a Copy button for the
+  redirect URI. The old provider page address opens Settings. This edition
+  allows one provider; "Add provider" then says why it is disabled.
+- A save after a server restart or an expired sign-in no longer fails with
+  "Your organization could not be read": the console renews the sign-in,
+  and says what happened when the server does not answer. Typed values are
+  kept, except the client secret.
+- A visitor who never signed in no longer sees "Your session has expired".
+- The password tab says this device stays signed in and other devices are
+  signed out; the two-step tab explains recovery codes; the application
+  forms point to "Rotate client secret".
 
 ## `v0.9.11`
 

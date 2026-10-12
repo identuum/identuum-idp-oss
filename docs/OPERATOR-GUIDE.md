@@ -649,9 +649,11 @@ password policy); `POST` the same path `{email, name, password}` signs up.
   a verification email with `POST /api/v1/me/email/verification`; without
   SMTP it answers `503 email_delivery_not_configured`, and for the
   site_admin `409 not_available_for_this_account`. A verification link
-  proves only the address it was sent to: after an address change the
-  user's open links are cancelled, and a link for an earlier address
-  answers `400 email_changed`. Migration 0054 cancels the unused links
+  proves only the address it was sent to: an address change cancels the
+  user's open links, and a cancelled link answers `400 invalid_token`.
+  A link that was not cancelled but was sent to another address than the
+  user's current one answers `400 email_changed` and proves nothing; the
+  user can ask for a new one. Migration 0054 cancels the unused links
   created before the upgrade; users ask for a new email.
   Do not roll back past migration 0053 after users were created on
   v0.9.12: running 0053 again marks every activated user `legacy`, which

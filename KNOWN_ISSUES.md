@@ -14,16 +14,18 @@ Newest release first. Each entry says which versions are affected and where the 
   "Email verified: Verified".
 - **Why it matters:** the flag is also used when identuum counts an organization's verified administrators (for
   example in account-recovery checks), so it is more than a label.
-- **Until it is fixed:** no setting makes the status mean "this person controls the mailbox", because the
-  administrator always also receives the link, even when it is emailed. Treat "Email verified" as "account
-  activated". Relying parties that need a proven address should not rely on `email_verified` from v0.9.11 or
-  earlier.
-- **Fixed in v0.9.12 for tokens and userinfo:** the `email_verified` claim is true only when the user opened a
-  verification email or the sign-in provider confirmed the address. The console screens, including the member
-  Overview, show the new status with the console update that reads it (tracked as UI-0912-A4); until then they
-  still show the activation. Accounts verified before v0.9.12 keep their status.
+- **Until you upgrade:** no setting makes the status mean "this person controls the mailbox", because the
+  administrator always also receives the link, even when it is emailed. Treat "Email verified" in v0.9.11 and
+  earlier as "account activated". Relying parties that need a proven address should not rely on
+  `email_verified` from these versions.
+- **Fixed in v0.9.12:** an address counts as verified only when the user opened a verification email from
+  identuum, or their sign-in provider confirmed it. This holds for the `email_verified` claim in tokens and
+  userinfo and for the console screens, including the member Overview (identuum-ui `a932627`, embedded in
+  v0.9.12). Accounts verified before the upgrade keep their status. See the v0.9.12 release notes,
+  "Upgrading from v0.9.11".
 
   _Corrected on 2026-10-12: this entry first said that configuring SMTP was a workaround and that the fix would
   trust a link "delivered by email". Neither holds: the administrator receives the same link either way.
   Corrected again on 2026-10-12: the fix line said the screens were fixed too and that accounts "created"
-  before v0.9.12 keep their status; only accounts verified before it do._
+  before v0.9.12 keep their status; only accounts verified before it do. Updated for the v0.9.12 release on
+  2026-10-12: the console update (identuum-ui `a932627`) is now embedded, so the screens are fixed too._
