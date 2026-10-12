@@ -172,7 +172,7 @@ func (r *CachedClientRepository) Update(ctx context.Context, client *domain.Clie
 
 // MutateClient delegates the locked change and clears the cache only after it
 // committed; a refused or failed change leaves the cache as it was.
-func (r *CachedClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *uuid.UUID, fn func(c *domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r *CachedClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *ServiceAccountLock, fn func(c *domain.Client) error) (*domain.Client, *domain.Client, error) {
 	prior, result, err := r.delegate.MutateClient(ctx, id, lockServiceAccount, fn)
 	if err != nil {
 		return nil, nil, err

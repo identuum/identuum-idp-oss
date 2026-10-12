@@ -31,7 +31,7 @@ func (r *recordingClientRepo) Update(_ context.Context, c *domain.Client) error 
 	return nil
 }
 
-func (r *recordingClientRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r *recordingClientRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *repository.ServiceAccountLock, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	return mutateClientByReadAndWrite(ctx, r, id, fn)
 }
 

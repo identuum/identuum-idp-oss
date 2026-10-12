@@ -12,6 +12,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -55,7 +56,7 @@ func (r *basisRaceRepo) Update(ctx context.Context, c *domain.Client) error {
 
 // MutateClient reads through the racing GetClientByID above, so the update's
 // own (locked) read is read 3 and sees the competing save.
-func (r *basisRaceRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r *basisRaceRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *repository.ServiceAccountLock, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	return mutateClientByReadAndWrite(ctx, r, id, fn)
 }
 

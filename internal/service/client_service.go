@@ -68,8 +68,13 @@ func (s *ClientService) validateBackchannelLogoutURI(raw string) error {
 //
 // Returns nil on success; the OSS ServiceAccount* sentinels on
 // failure (unbound, not-found, inactive, expired, org-mismatch).
+//
+// RecheckLockedBinding re-checks, inside an update's save, the account as
+// read under the save's lock (nil when it is gone); its refusal wraps
+// ErrServiceAccountChangedDuringSave (OSS-0912-C1-FIX).
 type ServiceAccountBindingValidator interface {
 	ValidateBindingForClient(ctx context.Context, saID uuid.UUID, clientOrgID *uuid.UUID) error
+	RecheckLockedBinding(sa *domain.ServiceAccount, clientOrgID *uuid.UUID) error
 }
 
 // WithServiceAccountBindingValidator wires the SA binding gate so
@@ -212,6 +217,12 @@ var ErrClientSecretPublicClient = errors.New("service: cannot regenerate secret 
 // ErrClientChangedDuringSave: another save changed what this one was decided
 // on (UpdateClientOptions.ExpectScope / ExpectSkipConsent). Nothing was saved.
 var ErrClientChangedDuringSave = errors.New("this client was changed by someone else while you were saving; nothing was saved, reload it and try again")
+
+// ErrServiceAccountChangedDuringSave: the service account an update binds was
+// deleted, deactivated or expired after the update checked it and before the
+// save locked it (OSS-0912-C1-FIX). Nothing was saved. The refusal names the
+// reason in front of this text.
+var ErrServiceAccountChangedDuringSave = errors.New("nothing was saved, reload the client and try again")
 
 // RegisterClient creates a new OAuth client.
 //
@@ -403,9 +414,11 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 	// A service account being bound is checked BEFORE the client is locked: the
 	// check reads through its own connection, and holding the client's
 	// transaction while waiting for a second connection could stall a busy
-	// pool. The account is then key-share locked first inside the save, so it
-	// cannot be deleted before the save commits.
-	var lockSA *uuid.UUID
+	// pool. The save then share-locks the account first and re-checks it as
+	// read under that lock, so a soft delete, a deactivation or an expiry that
+	// landed in between refuses the save, and one that comes later waits for
+	// the save to commit.
+	var lockSA *repository.ServiceAccountLock
 	var boundOrg *uuid.UUID
 	if opts.ServiceAccountID != nil && *opts.ServiceAccountID != uuid.Nil {
 		current, err := s.GetClient(ctx, id)
@@ -415,12 +428,14 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 		if current.IsPublic {
 			return nil, fmt.Errorf("public client may not bind a service account")
 		}
+		lockSA = &repository.ServiceAccountLock{ID: *opts.ServiceAccountID}
 		if s.saBinding != nil {
 			if err := s.saBinding.ValidateBindingForClient(ctx, *opts.ServiceAccountID, current.OrganizationID); err != nil {
 				return nil, err
 			}
+			org := current.OrganizationID
+			lockSA.Recheck = func(sa *domain.ServiceAccount) error { return s.saBinding.RecheckLockedBinding(sa, org) }
 		}
-		lockSA = opts.ServiceAccountID
 		boundOrg = current.OrganizationID
 	}
 	var applyErr error

@@ -7,6 +7,14 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
+// ServiceAccountLock is the service account a client save binds (OSS-0912-C1-FIX).
+// Recheck, when not nil, receives the account as read under the save's lock,
+// nil when no live row is left; its error refuses the save.
+type ServiceAccountLock struct {
+	ID      uuid.UUID
+	Recheck func(sa *domain.ServiceAccount) error
+}
+
 // ClientRepository defines storage operations for OAuth2 Clients
 type ClientRepository interface {
 	RegisterClient(ctx context.Context, client *domain.Client) error
@@ -20,16 +28,17 @@ type ClientRepository interface {
 	// other's change. prior is the row as locked, result the row as written;
 	// both are returned only after the commit.
 	//
-	// lockServiceAccount, when not nil, is key-share locked BEFORE the client
-	// (the order the organization delete cascade takes), so a binding being
-	// written cannot lose its service account mid-save.
+	// lockServiceAccount, when not nil, is share-locked (FOR SHARE) BEFORE the
+	// client (the order the organization delete takes), and its Recheck runs on
+	// the account as read under that lock: the account's soft delete,
+	// deactivation and every other change of it wait until this save ends.
 	//
-	// Errors: fn's own error unchanged (nothing is written); a missing or
+	// Errors: fn's or Recheck's own error unchanged (nothing is written); a missing or
 	// deleted client domain.ErrClientNotFound; a value the database refuses
 	// the database's error; anything else (lock wait cancelled or timed out,
 	// deadlock, a failed begin, write or commit) domain.AuthStoreUnavailable.
 	// It never retries.
-	MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *uuid.UUID, fn func(c *domain.Client) error) (prior, result *domain.Client, err error)
+	MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *ServiceAccountLock, fn func(c *domain.Client) error) (prior, result *domain.Client, err error)
 	Delete(ctx context.Context, id uuid.UUID, orgID *uuid.UUID) error
 	List(ctx context.Context, pagination Pagination, orgID *uuid.UUID) ([]*domain.Client, int, error)
 	// ListByServiceAccountID returns the OAuth clients linked to a given

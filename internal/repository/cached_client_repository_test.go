@@ -49,7 +49,7 @@ func (m *mockClientRepository) Update(ctx context.Context, client *domain.Client
 	return args.Error(0)
 }
 
-func (m *mockClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (m *mockClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *ServiceAccountLock, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	args := m.Called(ctx, id, lockServiceAccount, fn)
 	var prior, result *domain.Client
 	if a := args.Get(0); a != nil {
@@ -206,14 +206,14 @@ func TestCachedClientRepository_MutateClientInvalidatesOnlyAfterCommit(t *testin
 	assert.True(t, mr.Exists(cachedRepo.idKey(client.ID)), "the read fills the cache")
 
 	failed := errors.New("store failure")
-	mockRepo.On("MutateClient", ctx, client.ID, (*uuid.UUID)(nil), mock.Anything).Return(nil, nil, failed).Once()
+	mockRepo.On("MutateClient", ctx, client.ID, (*ServiceAccountLock)(nil), mock.Anything).Return(nil, nil, failed).Once()
 	_, _, err = cachedRepo.MutateClient(ctx, client.ID, nil, func(*domain.Client) error { return nil })
 	assert.ErrorIs(t, err, failed)
 	assert.True(t, mr.Exists(cachedRepo.idKey(client.ID)), "a failed change must not clear the cache")
 
 	changed := *client
 	changed.Name = "renamed"
-	mockRepo.On("MutateClient", ctx, client.ID, (*uuid.UUID)(nil), mock.Anything).Return(client, &changed, nil).Once()
+	mockRepo.On("MutateClient", ctx, client.ID, (*ServiceAccountLock)(nil), mock.Anything).Return(client, &changed, nil).Once()
 	_, result, err := cachedRepo.MutateClient(ctx, client.ID, nil, func(*domain.Client) error { return nil })
 	assert.NoError(t, err)
 	assert.Equal(t, "renamed", result.Name)

@@ -39,7 +39,7 @@ func (f *fakeClientRepo) GetClientByClientID(_ context.Context, _ string) (*doma
 	panic("not used")
 }
 func (f *fakeClientRepo) Update(_ context.Context, _ *domain.Client) error { panic("not used") }
-func (f *fakeClientRepo) MutateClient(_ context.Context, _ uuid.UUID, _ *uuid.UUID, _ func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (f *fakeClientRepo) MutateClient(_ context.Context, _ uuid.UUID, _ *repository.ServiceAccountLock, _ func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	panic("not used")
 }
 func (f *fakeClientRepo) Delete(_ context.Context, _ uuid.UUID, _ *uuid.UUID) error {

@@ -7,8 +7,8 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
-- **Two administrators saving the same OAuth client no longer undo each
-  other's change** (OSS v0.9.12 item C1). Before, a save read the client,
+- **Two saves of the same OAuth client no longer undo each other's change
+  to a field only one of them sends** (OSS v0.9.12 item C1). Before, a save read the client,
   changed it and wrote the whole client back, so a save that started
   earlier could put back values another save had just changed (for example
   "PKCE required", the scope or a rotated secret). Now a save locks that
@@ -17,12 +17,33 @@ follows [Semantic Versioning](https://semver.org/).
   and sign-ins and token requests for the client are not held up.
   This covers `PUT /api/v1/clients/:id` and
   `POST /api/v1/clients/:id/secret/regenerate`. No database migration.
-- **A save that cannot be completed now answers 503 and changes nothing.**
-  When the database cannot save the change (the wait for the lock ends, or
-  a write or commit fails), both routes answer `503 temporarily_unavailable`
-  with `Retry-After`. Before, the update route answered `400 invalid
-  request` for a failed write, and the secret rotation answered `404` or
-  `500`. Try again.
+  Known limitation: the admin console's application form sends the name,
+  the redirect URIs, the post-logout redirect URIs, the allowed audiences,
+  the scope and "skip consent" on every save. For those six fields, the
+  save that arrives last still wins, even from a form opened earlier. The
+  lock protects the fields a save does not send: PKCE, the secret, the
+  service account, the logout and token settings, and changes made
+  through the API.
+- **A service account that is deleted or deactivated during a save is no
+  longer bound to the client.** A save that binds a service account now
+  locks that account while it is applied and checks it again under the
+  lock. If the account was deleted, deactivated or expired after the save
+  checked it, the update answers `400 invalid_request` with a plain reason
+  (for example "the service account was deactivated; nothing was saved,
+  reload the client and try again"); an account of another organization
+  is answered as not found. A delete or deactivation that comes while the
+  save runs waits until the save ends. Before, the client could end up
+  bound to a deleted or inactive account.
+- **A save that cannot be completed now answers 503.** When the database
+  cannot save the change (the wait for the lock ends, or a write or commit
+  fails), both routes answer `503 temporarily_unavailable` with
+  `Retry-After`; the body says "authentication store unavailable; retry",
+  which here means the client could not be saved. Nothing was saved in
+  almost every case: if the connection was lost just as the change was
+  committed, it may have been saved, and a rotated secret may then be
+  stored but never shown. Reload the client to check, and try again.
+  Before, the update route answered `400 invalid request` for a failed
+  write, and the secret rotation answered `404` or `500`.
 - **A save on a client that was deleted meanwhile is refused** instead of
   reporting success.
 - **A save checked against an older view of the client is refused with a

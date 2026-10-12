@@ -35,7 +35,7 @@ func (r *bundleClientRepoStub) GetClientByClientID(context.Context, string) (*do
 	return nil, nil
 }
 func (r *bundleClientRepoStub) Update(context.Context, *domain.Client) error { return nil }
-func (r *bundleClientRepoStub) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r *bundleClientRepoStub) MutateClient(ctx context.Context, id uuid.UUID, _ *repository.ServiceAccountLock, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	return mutateClientByReadAndWrite(ctx, r, id, fn)
 }
 func (r *bundleClientRepoStub) Delete(context.Context, uuid.UUID, *uuid.UUID) error {

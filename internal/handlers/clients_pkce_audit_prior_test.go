@@ -12,6 +12,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -58,7 +59,7 @@ func (r *pkceAuditFaultRepo) Update(ctx context.Context, c *domain.Client) error
 
 // MutateClient (C1) reads and writes through the counting, failing methods
 // above, so the injected read fault still reaches the update's own read.
-func (r *pkceAuditFaultRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r *pkceAuditFaultRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *repository.ServiceAccountLock, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	return mutateClientByReadAndWrite(ctx, r, id, fn)
 }
 

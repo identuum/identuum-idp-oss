@@ -371,7 +371,7 @@ func (r *PgxClientRepository) Update(ctx context.Context, client *domain.Client)
 // v0.9.12). Lock order: the service account (only when one is being bound),
 // then this one client row; never anything after the client, never a second
 // client. The lock wait is bounded by ctx only.
-func (r *PgxClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *uuid.UUID, fn func(c *domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r *PgxClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lockServiceAccount *repository.ServiceAccountLock, fn func(c *domain.Client) error) (*domain.Client, *domain.Client, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return nil, nil, clientStoreError(err)
@@ -382,10 +382,24 @@ func (r *PgxClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lo
 	locked := &PgxClientRepository{db: tx}
 
 	if lockServiceAccount != nil {
-		// FOR KEY SHARE: the account cannot be deleted while this save runs
-		// (its delete cascades to this client: account, then client).
-		if _, err := tx.Exec(ctx, `SELECT 1 FROM service_accounts WHERE id = $1 FOR KEY SHARE`, *lockServiceAccount); err != nil {
+		// FOR SHARE (OSS-0912-C1-FIX): OSS deletes and deactivates an account
+		// by UPDATE, and every UPDATE of it waits until this save ends. A save
+		// that waited reads the committed row, or none after a soft delete.
+		// Account, then client: the order the organization delete takes.
+		var sa *domain.ServiceAccount
+		var row domain.ServiceAccount
+		err := tx.QueryRow(ctx, `SELECT id, organization_id, active, expires_at FROM service_accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE`,
+			lockServiceAccount.ID).Scan(&row.ID, &row.OrganizationID, &row.Active, &row.ExpiresAt)
+		switch {
+		case err == nil:
+			sa = &row
+		case !errors.Is(err, pgx.ErrNoRows):
 			return nil, nil, clientStoreError(err)
+		}
+		if lockServiceAccount.Recheck != nil {
+			if err := lockServiceAccount.Recheck(sa); err != nil {
+				return nil, nil, err
+			}
 		}
 	}
 	// FOR NO KEY UPDATE (owner answer Q-C1-3): saves, deletes and tombstones

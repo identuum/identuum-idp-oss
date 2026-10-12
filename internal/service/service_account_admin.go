@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -469,6 +470,23 @@ func (s *ServiceAccountService) ValidateBindingForClient(ctx context.Context, sa
 	}
 	if clientOrgID != nil && *clientOrgID != sa.OrganizationID {
 		return ErrServiceAccountOrgMismatch
+	}
+	return nil
+}
+
+// RecheckLockedBinding runs ValidateBindingForClient's gates again on the
+// account as read under a client update's lock (OSS-0912-C1-FIX); sa is nil
+// when no live row is left. Visibility first: a gone account and one of
+// another organization get the same answer, so the refusal says no more about
+// an account than the caller may see.
+func (s *ServiceAccountService) RecheckLockedBinding(sa *domain.ServiceAccount, clientOrgID *uuid.UUID) error {
+	switch {
+	case sa == nil || (clientOrgID != nil && *clientOrgID != sa.OrganizationID):
+		return fmt.Errorf("the service account was not found; %w", ErrServiceAccountChangedDuringSave)
+	case !sa.Active:
+		return fmt.Errorf("the service account was deactivated; %w", ErrServiceAccountChangedDuringSave)
+	case sa.ExpiresAt != nil && !sa.ExpiresAt.After(s.now()):
+		return fmt.Errorf("the service account has expired; %w", ErrServiceAccountChangedDuringSave)
 	}
 	return nil
 }

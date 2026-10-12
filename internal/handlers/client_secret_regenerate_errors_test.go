@@ -35,7 +35,7 @@ func (r regenerateRepo) GetClientByID(context.Context, uuid.UUID) (*domain.Clien
 
 func (r regenerateRepo) Update(context.Context, *domain.Client) error { return r.updateErr }
 
-func (r regenerateRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r regenerateRepo) MutateClient(ctx context.Context, id uuid.UUID, _ *repository.ServiceAccountLock, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	return mutateClientByReadAndWrite(ctx, r, id, fn)
 }
 

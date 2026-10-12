@@ -52,7 +52,7 @@ func (r *publicClientStore) GetClientByClientID(_ context.Context, clientID stri
 }
 func (r *publicClientStore) Update(context.Context, *domain.Client) error        { return nil }
 func (r *publicClientStore) Delete(context.Context, uuid.UUID, *uuid.UUID) error { return nil }
-func (r *publicClientStore) MutateClient(ctx context.Context, id uuid.UUID, _ *uuid.UUID, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
+func (r *publicClientStore) MutateClient(ctx context.Context, id uuid.UUID, _ *repository.ServiceAccountLock, fn func(*domain.Client) error) (*domain.Client, *domain.Client, error) {
 	return mutateClientByReadAndWrite(ctx, r, id, fn)
 }
 func (r *publicClientStore) List(context.Context, repository.Pagination, *uuid.UUID) ([]*domain.Client, int, error) {

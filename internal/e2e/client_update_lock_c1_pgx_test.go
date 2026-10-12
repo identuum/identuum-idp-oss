@@ -5,6 +5,7 @@ package e2e
 import (
 	"context"
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -59,6 +60,11 @@ func TestClientUpdateLock_Scope(t *testing.T) {
 	t.Run("different_clients_do_not_block", c1DifferentClientsDoNotBlock)
 	t.Run("referencing_insert_not_blocked", c1ReferencingInsertNotBlocked)
 	t.Run("binding_holds_the_service_account", c1BindingHoldsTheServiceAccount)
+	t.Run("account_soft_deleted_before_the_lock", func(t *testing.T) { c1fixAccountChangedBeforeTheLock(t, c1fixSoftDelete) })
+	t.Run("account_deactivated_before_the_lock", func(t *testing.T) { c1fixAccountChangedBeforeTheLock(t, c1fixDeactivate) })
+	t.Run("soft_delete_waits_for_a_binding_save", func(t *testing.T) { c1fixAccountChangeWaits(t, c1fixSoftDelete) })
+	t.Run("deactivate_waits_for_a_binding_save", func(t *testing.T) { c1fixAccountChangeWaits(t, c1fixDeactivate) })
+	t.Run("org_delete_during_a_binding_save", c1fixOrgDeleteDuringBindingSave)
 }
 
 // Writer coverage: a competing secret rotation. A rename that read the row
@@ -222,9 +228,10 @@ func (tx *c1LockedReadTx) QueryRow(ctx context.Context, sql string, args ...any)
 }
 
 // Lock order. A save that binds a service account holds that account before
-// it locks the client: while the save runs, the account cannot be deleted (its
-// delete would cascade to the client, account then client, the order the
-// organization delete uses).
+// it locks the client: while the save runs, a hard DELETE of the account
+// waits (account then client, the order the organization delete uses). OSS
+// itself deletes and deactivates accounts by UPDATE; the account_* subtests
+// below cover those.
 func c1BindingHoldsTheServiceAccount(t *testing.T) {
 	pool := f2ScratchPool(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -435,5 +442,286 @@ func c1WriteOrCommitFailureIsStoreUnavailable(t *testing.T) {
 				t.Error("a failed write or commit changed the client")
 			}
 		})
+	}
+}
+
+// OSS-0912-C1-FIX (owner answer Q1 (b)). OSS deletes and deactivates a service
+// account by UPDATE, never by DELETE, so a key-share lock did not hold either
+// off. A binding save share-locks the account and re-checks it under the lock.
+
+// c1fixChange is a production change of a service account: soft delete or
+// deactivation.
+type c1fixChange func(ctx context.Context, pool *pgxpool.Pool, saID, orgID uuid.UUID) error
+
+func c1fixSoftDelete(ctx context.Context, pool *pgxpool.Pool, saID, orgID uuid.UUID) error {
+	return postgres.NewPgxServiceAccountRepository(pool).Delete(ctx, saID, orgID)
+}
+
+func c1fixDeactivate(ctx context.Context, pool *pgxpool.Pool, saID, orgID uuid.UUID) error {
+	return postgres.NewPgxServiceAccountRepository(pool).UpdateActive(ctx, saID, orgID, false)
+}
+
+// c1fixSeedAccount seeds a live service account in the client's organization.
+func c1fixSeedAccount(t *testing.T, pool *pgxpool.Pool, clientID uuid.UUID) (saID, orgID uuid.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	got, err := postgres.NewPgxClientRepository(pool).GetClientByID(ctx, clientID)
+	if err != nil || got == nil || got.OrganizationID == nil {
+		t.Fatal("fixture read failed")
+	}
+	saID, orgID = uuid.New(), *got.OrganizationID
+	// A description, as the production create writes one: the account read
+	// that validates a binding refuses a NULL there.
+	if _, err := pool.Exec(ctx, `INSERT INTO service_accounts (id, organization_id, name, description) VALUES ($1, $2, 'C1 fix scratch', '')`, saID, orgID); err != nil {
+		t.Fatal("seed scratch service account failed")
+	}
+	t.Cleanup(func() {
+		cleanup, cc := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cc()
+		_, _ = pool.Exec(cleanup, `UPDATE oauth_clients SET service_account_id = NULL WHERE id = $1`, clientID)
+		_, _ = pool.Exec(cleanup, `DELETE FROM service_accounts WHERE id = $1`, saID)
+	})
+	return saID, orgID
+}
+
+// c1fixBindingService is the client service as production wires it: a binding
+// is validated against the live account before the save.
+func c1fixBindingService(db postgres.DBTX, pool *pgxpool.Pool) *service.ClientService {
+	return service.NewClientService(nil, postgres.NewPgxClientRepository(db)).
+		WithServiceAccountBindingValidator(service.NewServiceAccountService(nil, postgres.NewPgxServiceAccountRepository(pool)))
+}
+
+// c1fixAccountGateTx holds the save just before its first statement on the
+// service account, after the binding was validated: the window the re-check
+// under the lock closes.
+type c1fixAccountGate struct {
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+type c1fixAccountGateTx struct {
+	pgx.Tx
+	gate *c1fixAccountGate
+}
+
+func (tx *c1fixAccountGateTx) Begin(ctx context.Context) (pgx.Tx, error) {
+	nested, err := tx.Tx.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &c1fixAccountGateTx{Tx: nested, gate: tx.gate}, nil
+}
+
+func (tx *c1fixAccountGateTx) hold(ctx context.Context, sql string) {
+	if !strings.Contains(strings.ToLower(sql), "from service_accounts") {
+		return
+	}
+	first := false
+	tx.gate.once.Do(func() { first = true; close(tx.gate.entered) })
+	if !first {
+		return
+	}
+	select {
+	case <-tx.gate.release:
+	case <-ctx.Done():
+	}
+}
+
+func (tx *c1fixAccountGateTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	tx.hold(ctx, sql)
+	return tx.Tx.Exec(ctx, sql, args...)
+}
+
+func (tx *c1fixAccountGateTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	tx.hold(ctx, sql)
+	return tx.Tx.QueryRow(ctx, sql, args...)
+}
+
+// c1fixObserveWait reports true once a backend is seen waiting on backend a's
+// locks, false if done delivered first (its value is put back). A deadline
+// fails the harness; it is never taken as evidence.
+func c1fixObserveWait(t *testing.T, ctx context.Context, pool *pgxpool.Pool, a uint32, done chan error) bool {
+	t.Helper()
+	for {
+		select {
+		case err := <-done:
+			done <- err
+			return false
+		default:
+		}
+		var blocked bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1::int = ANY(pg_blocking_pids(pid)))`, int64(a)).Scan(&blocked); err != nil {
+			t.Fatal("lock observer failed; no behavioral verdict")
+		}
+		if blocked {
+			return true
+		}
+		if ctx.Err() != nil {
+			t.Fatal("lock observation stalled; no behavioral verdict")
+		}
+		runtime.Gosched()
+	}
+}
+
+// The account is soft-deleted or deactivated after the save validated it and
+// before the save locks it. The save refuses with a plain reason and the client
+// stays unbound. Before the fix the client was bound to the changed account.
+func c1fixAccountChangedBeforeTheLock(t *testing.T, change c1fixChange) {
+	pool := f2ScratchPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	id := c1SeedConfidential(t, pool)
+	saID, orgID := c1fixSeedAccount(t, pool, id)
+	a := f2Begin(t, ctx, pool)
+	gate := &c1fixAccountGate{entered: make(chan struct{}), release: make(chan struct{})}
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	svc := c1fixBindingService(&c1fixAccountGateTx{Tx: a, gate: gate}, pool)
+	ra := make(chan f2UpdateResult, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		c, err := svc.UpdateClient(ctx, id, service.UpdateClientOptions{ServiceAccountID: &saID})
+		ra <- f2UpdateResult{client: c, err: err}
+	}()
+	f2Await(t, ctx, gate.entered)
+	cctx, ccancel := context.WithTimeout(ctx, 3*time.Second)
+	defer ccancel()
+	if err := change(cctx, pool, saID, orgID); err != nil {
+		t.Fatal("the account change failed while no save held the account")
+	}
+	close(gate.release)
+	var r f2UpdateResult
+	select {
+	case r = <-ra:
+	case <-ctx.Done():
+		t.Fatal("binding save stalled; no behavioral verdict")
+	}
+	if err := a.Commit(ctx); err != nil {
+		t.Fatal("scratch A commit failed")
+	}
+	if r.err == nil {
+		t.Error("the save bound the client to a service account that changed before the save locked it")
+	} else if domain.IsAuthStoreUnavailable(r.err) || !strings.Contains(r.err.Error(), "nothing was saved") {
+		t.Error("the refusal must be a plain reason, not a store failure")
+	}
+	got, err := postgres.NewPgxClientRepository(pool).GetClientByID(ctx, id)
+	if err != nil || got == nil {
+		t.Fatal("final scratch client read failed")
+	}
+	if got.ServiceAccountID != nil {
+		t.Error("the client is bound to the changed service account")
+	}
+}
+
+// While a binding save holds the account, its soft delete or deactivation
+// waits until the save commits: the save binds a live account and the change
+// lands after it. Before the fix the change did not wait (FOR KEY SHARE does
+// not conflict with an UPDATE that changes no key).
+func c1fixAccountChangeWaits(t *testing.T, change c1fixChange) {
+	pool := f2ScratchPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	id := c1SeedConfidential(t, pool)
+	saID, orgID := c1fixSeedAccount(t, pool, id)
+	a := f2Begin(t, ctx, pool)
+	ga := newF2ReadGate()
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	svc := c1fixBindingService(&c1LockedReadTx{Tx: a, gate: ga}, pool)
+	ra := make(chan f2UpdateResult, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		c, err := svc.UpdateClient(ctx, id, service.UpdateClientOptions{ServiceAccountID: &saID})
+		ra <- f2UpdateResult{client: c, err: err}
+	}()
+	f2Await(t, ctx, ga.scanned)
+
+	changed := make(chan error, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		changed <- change(ctx, pool, saID, orgID)
+	}()
+	waited := c1fixObserveWait(t, ctx, pool, a.Conn().PgConn().PID(), changed)
+	close(ga.release)
+	r := f2Result(t, ctx, ra)
+	if err := a.Commit(ctx); err != nil {
+		t.Fatal("scratch A commit failed")
+	}
+	var cerr error
+	select {
+	case cerr = <-changed:
+	case <-ctx.Done():
+		t.Fatal("account change stalled; no behavioral verdict")
+	}
+	if !waited {
+		t.Error("the account change did not wait for the save that binds the account")
+	}
+	if cerr != nil {
+		t.Error("the account change failed after the save committed")
+	}
+	if r.client.ServiceAccountID == nil || *r.client.ServiceAccountID != saID {
+		t.Error("the save did not bind the service account")
+	}
+}
+
+// Lock order. The organization delete takes accounts, then clients: the order
+// a binding save takes. Deleting the organization while such a save is held
+// waits, then completes with no deadlock, and the client ends tombstoned.
+func c1fixOrgDeleteDuringBindingSave(t *testing.T) {
+	pool := f2ScratchPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	id := c1SeedConfidential(t, pool)
+	saID, orgID := c1fixSeedAccount(t, pool, id)
+	a := f2Begin(t, ctx, pool)
+	ga := newF2ReadGate()
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	svc := c1fixBindingService(&c1LockedReadTx{Tx: a, gate: ga}, pool)
+	ra := make(chan f2UpdateResult, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		c, err := svc.UpdateClient(ctx, id, service.UpdateClientOptions{ServiceAccountID: &saID})
+		ra <- f2UpdateResult{client: c, err: err}
+	}()
+	f2Await(t, ctx, ga.scanned)
+
+	deleted := make(chan error, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		deleted <- postgres.NewPgxOrganizationRepository(pool).Delete(ctx, orgID)
+	}()
+	waited := c1fixObserveWait(t, ctx, pool, a.Conn().PgConn().PID(), deleted)
+	close(ga.release)
+	r := f2Result(t, ctx, ra)
+	if err := a.Commit(ctx); err != nil {
+		t.Fatal("scratch A commit failed")
+	}
+	var derr error
+	select {
+	case derr = <-deleted:
+	case <-ctx.Done():
+		t.Fatal("organization delete stalled; no behavioral verdict")
+	}
+	if !waited {
+		t.Error("the organization delete did not wait for the held save")
+	}
+	if derr != nil {
+		t.Error("the organization delete failed beside a binding save")
+	}
+	if r.client.ServiceAccountID == nil || *r.client.ServiceAccountID != saID {
+		t.Error("the save did not bind the service account")
+	}
+	var tombstoned bool
+	if err := pool.QueryRow(ctx, `SELECT deleted_at IS NOT NULL FROM oauth_clients WHERE id = $1`, id).Scan(&tombstoned); err != nil {
+		t.Fatal("final scratch client read failed")
+	}
+	if !tombstoned {
+		t.Error("the organization delete did not tombstone the client")
 	}
 }

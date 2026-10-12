@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
 // stubSABindingValidator satisfies ServiceAccountBindingValidator
@@ -19,6 +22,44 @@ type stubSABindingValidator struct {
 func (s *stubSABindingValidator) ValidateBindingForClient(_ context.Context, saID uuid.UUID, _ *uuid.UUID) error {
 	s.saw = append(s.saw, saID)
 	return s.want
+}
+
+func (s *stubSABindingValidator) RecheckLockedBinding(*domain.ServiceAccount, *uuid.UUID) error {
+	return nil
+}
+
+// OSS-0912-C1-FIX: the re-check under the save's lock refuses a gone,
+// foreign, inactive or expired account with a plain reason, and answers a
+// foreign account exactly as a gone one, whatever its state.
+func TestRecheckLockedBinding_VisibilityFirst(t *testing.T) {
+	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
+	svc := &ServiceAccountService{now: func() time.Time { return now }}
+	org, other := uuid.New(), uuid.New()
+	past := now.Add(-time.Minute)
+	for _, tc := range []struct {
+		name string
+		sa   *domain.ServiceAccount
+		want string
+	}{
+		{"gone", nil, "the service account was not found; nothing was saved, reload the client and try again"},
+		{"foreign_inactive", &domain.ServiceAccount{OrganizationID: other}, "the service account was not found; nothing was saved, reload the client and try again"},
+		{"inactive", &domain.ServiceAccount{OrganizationID: org}, "the service account was deactivated; nothing was saved, reload the client and try again"},
+		{"expired", &domain.ServiceAccount{OrganizationID: org, Active: true, ExpiresAt: &past}, "the service account has expired; nothing was saved, reload the client and try again"},
+		{"live", &domain.ServiceAccount{OrganizationID: org, Active: true}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := svc.RecheckLockedBinding(tc.sa, &org)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("a live account of the client's organization was refused: %v", err)
+				}
+				return
+			}
+			if err == nil || err.Error() != tc.want || !errors.Is(err, ErrServiceAccountChangedDuringSave) {
+				t.Fatalf("got %v, want %q wrapping ErrServiceAccountChangedDuringSave", err, tc.want)
+			}
+		})
+	}
 }
 
 // ---------- RegisterClient binding gates ----------
