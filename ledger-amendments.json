@@ -1,5 +1,41 @@
 {
   "schema_version": "ledger-amendments.v1",
-  "base_commit": "6c0d9dffa68ab454efe187c8e06ead2e00905569",
-  "changes": []
+  "base_commit": "16e01c50e16c686d13cedd4ed0b6a87b2831bba7",
+  "changes": [
+    {
+      "rule_id": "CLIENT-MUTATION-COMMIT-1",
+      "change_class": "rule_added",
+      "reason": "OSS-0912-C1-CLIENT-LOCK: new rule CLIENT-MUTATION-COMMIT-1, armed on internal/e2e/client_update_lock_c1_pgx_test.go @ integration. A client save or secret rotation that cannot complete (lock wait cancelled, deadlock, failed begin, write or commit) answers store unavailable (503) and changes nothing; owner answer Q-C1-2 moves secret rotation's store failure from 404/500 to 503. Red on 16e01c5 and by a mutation that returns every store error raw."
+    },
+    {
+      "rule_id": "CLIENT-UPDATE-AFFECTED-ROW-1",
+      "change_class": "rule_added",
+      "reason": "OSS-0912-C1-CLIENT-LOCK: new rule CLIENT-UPDATE-AFFECTED-ROW-1, armed on internal/e2e/client_update_lock_pgx_test.go @ integration. A client UPDATE that matches no live row is refused as not found instead of reported as a save. Red on 16e01c5 (command tag discarded) and by a mutation that ignores RowsAffected."
+    },
+    {
+      "rule_id": "CLIENT-UPDATE-AUTH-BASIS-1",
+      "change_class": "rule_added",
+      "reason": "OSS-0912-C1-CLIENT-LOCK: new rule CLIENT-UPDATE-AUTH-BASIS-1, armed on internal/handlers/client_update_basis_test.go @ unit. PUT /api/v1/clients/:id refuses with a plain reason when the stored scope or skip_consent it decided on changed before the locked save, and an unbind's audit names the account the locked save released. Red on 16e01c5 and by a mutation that removes the re-check."
+    },
+    {
+      "rule_id": "CLIENT-UPDATE-LOCK-1",
+      "change_class": "rule_added",
+      "reason": "OSS-0912-C1-CLIENT-LOCK (OSS v0.9.12 item C1, owner answers Q-C1-1..3 2026-10-12): new rule CLIENT-UPDATE-LOCK-1, armed on internal/e2e/client_update_lock_pgx_test.go @ integration. Two saves of the same OAuth client no longer lose each other's change: the save reads the client under FOR NO KEY UPDATE inside the transaction that writes it. Red on 16e01c5 (three lost-update scenarios) and by a mutation that drops the lock clause."
+    },
+    {
+      "rule_id": "CLIENT-UPDATE-LOCK-SCOPE-1",
+      "change_class": "rule_added",
+      "reason": "OSS-0912-C1-CLIENT-LOCK: new rule CLIENT-UPDATE-LOCK-SCOPE-1, armed on internal/e2e/client_update_lock_c1_pgx_test.go @ integration. The save lock covers one client row in the right order and mode: a secret rotation and a rename both survive, a bound service account is key-share locked before the client, inserts that reference the client are not blocked (owner answer Q-C1-3, FOR NO KEY UPDATE), other clients never wait. Red on 16e01c5 and by three mutations (FOR UPDATE, no service-account lock, no lock clause)."
+    },
+    {
+      "rule_id": "USER-UPDATE-VALIDATION-1",
+      "change_class": "proof_changed",
+      "reason": "OSS-0912-C2-FIX-2 (review OSS-0912-C2-FIX-REVIEW F3): the rule's test TestUserServiceUpdate_RefusesMalformedBeforeReachingTheRepository gained a case for an address with surrounding spaces, which domain.ValidateUserEmail now refuses (400, not the database's 500). The test span was rehashed a1bf2ea4a1fc -\u003e cb3731ffae64 after review, and the extended test was re-watched red with the new refusal disabled; that proof supersedes the 2026-08-31 one. No case was removed or weakened."
+    },
+    {
+      "rule_id": "USER-UPDATE-VALIDATION-1",
+      "change_class": "test_fingerprint_changed",
+      "reason": "OSS-0912-C2-FIX-2 (review OSS-0912-C2-FIX-REVIEW F3): the rule's test TestUserServiceUpdate_RefusesMalformedBeforeReachingTheRepository gained a case for an address with surrounding spaces, which domain.ValidateUserEmail now refuses (400, not the database's 500). The test span was rehashed a1bf2ea4a1fc -\u003e cb3731ffae64 after review, and the extended test was re-watched red with the new refusal disabled; that proof supersedes the 2026-08-31 one. No case was removed or weakened."
+    }
+  ]
 }
