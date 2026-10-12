@@ -44,7 +44,8 @@ directory contains 54 SQL files, with head `0054` (tracked root
   checked it, the update answers `400 invalid_request` with a plain reason
   (for example "the service account was deactivated; nothing was saved,
   reload the client and try again"); an account of another organization
-  is answered as not found. A delete or deactivation that comes while the
+  gets the same answer as a deleted one ("the service account was not
+  found; ..."). A delete or deactivation that comes while the
   save runs waits until the save ends. Before, the client could end up
   bound to a deleted or inactive account.
 - **A save that cannot be completed now answers 503.** When the database
@@ -99,18 +100,19 @@ directory contains 54 SQL files, with head `0054` (tracked root
   of item C2). Before this fix, a link mailed to a user's old address
   still proved the new address after the address changed. Now each
   verification link records the address it was sent to (as a SHA-256), and
-  a link for another address than the user's current one proves nothing.
-  A change of address cancels the user's open verification links in the
-  same database write, and a cancelled link answers `400 invalid_token`. A
-  link that was not cancelled but was sent to another address answers
-  `400 {"error":"email_changed","message":"..."}`.
+  a change of address cancels the user's open verification links in the
+  same database write, so a link mailed to an earlier address answers
+  `400 invalid_token` and proves nothing.
+  `400 {"error":"email_changed","message":"..."}` answers a link that is
+  still open but does not match the user's current address, which happens
+  only when the address changes while a link is being sent or opened.
 - **An address change made while a link is being opened no longer proves
   the new address** (second review of item C2). Before this fix, a change
   that was saved between the check of the address and the write of the
   proof made the new address proven. Now the link is used and the proof is
   written in one database transaction that holds the user's row, and the
   proof is written only while the address is still the one the link was
-  sent to. A link refused because the address changed is not used up; the
+  sent to. A link opened while the address changes proves nothing; the
   user can ask for a new one.
 - **`POST /api/v1/auth/resend-verification` sends nothing for the
   site_admin's address.** The answer is the same `200` as for any other
@@ -147,18 +149,23 @@ directory contains 54 SQL files, with head `0054` (tracked root
   asks the member to contact the administrator. An administrator's user
   page shows how the address was checked, or why it is not verified.
 - Sign-in providers are managed in Settings: a list with the sign-in policy
-  in words, Add, Edit and Remove that return to the page, "Provider saved",
-  "Provider updated" and "Provider removed", and a Copy button for the
-  redirect URI. The old provider page address opens Settings. This edition
-  allows one provider; "Add provider" then says why it is disabled.
-- A save after a server restart or an expired sign-in no longer fails with
-  "Your organization could not be read": the console renews the sign-in,
-  and says what happened when the server does not answer. Typed values are
-  kept, except the client secret.
+  in words; Add and Edit open their own pages and return to Settings with
+  "Provider saved." or "Provider updated."; Remove asks first, works in
+  place and shows "Provider removed."; and a Copy button for the redirect
+  URI. The old provider page address opens Settings. This edition allows
+  one provider; "Add provider" is then disabled with "This edition
+  supports one sign-in provider."
+- Saving or removing a sign-in provider after a server restart or an
+  expired sign-in no longer fails with "Your organization could not be
+  read": the console retries the read once, renews an expired sign-in,
+  sends a sign-in that cannot be renewed to the sign-in page, and says
+  "The server did not answer." when the server does not answer. Typed
+  values are kept, except the client secret.
 - A visitor who never signed in no longer sees "Your session has expired".
 - The password tab says this device stays signed in and other devices are
-  signed out; the two-step tab explains recovery codes; the application
-  forms point to "Rotate client secret".
+  signed out; the two-step tab explains recovery codes; the
+  new-application form's one-time secret notice points to "Rotate client
+  secret".
 
 ## `v0.9.11`
 
