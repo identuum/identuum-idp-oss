@@ -39,6 +39,10 @@ skipped by design: public clients receive no refresh token, so the suite
 skips `oidcc-refresh-token` in the public-client plan. A reviewer accepted
 the 27 pages the suite leaves to a human. This is not a certification claim.
 
+Known issue: an address can show "Email verified" after a user redeems an
+invite link that an administrator handed over directly; see
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md). The fix is planned for the next release.
+
 ### Security
 
 - **Public clients require PKCE by default.** Existing and new public
