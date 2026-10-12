@@ -34,7 +34,7 @@ func c2Link(t *testing.T, verifs *fakeEmailVerificationRepo, user *domain.User) 
 	raw, err := crypto.GenerateRandomString(32)
 	require.NoError(t, err)
 	hash := crypto.HashToken(raw)
-	verifs.rows[hash] = &domain.EmailVerification{UserID: user.ID, TokenHash: hash, ExpiresAt: c2Now.Add(time.Hour)}
+	verifs.rows[hash] = &domain.EmailVerification{UserID: user.ID, TokenHash: hash, AddressHash: domain.EmailAddressHash(user.Email), ExpiresAt: c2Now.Add(time.Hour)}
 	return raw
 }
 

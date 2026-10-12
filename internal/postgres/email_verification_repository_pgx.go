@@ -28,13 +28,13 @@ var _ repository.EmailVerificationRepository = (*PgxEmailVerificationRepository)
 // Create stores a new verification token row.
 func (r *PgxEmailVerificationRepository) Create(ctx context.Context, ev *domain.EmailVerification) error {
 	const query = `
-		INSERT INTO email_verifications (token_hash, user_id, expires_at, used_at, created_at)
-		VALUES ($1, $2, $3, $4, $5)
+		INSERT INTO email_verifications (token_hash, user_id, email_hash, expires_at, used_at, created_at)
+		VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6)
 	`
 	if ev.CreatedAt.IsZero() {
 		ev.CreatedAt = time.Now().UTC()
 	}
-	_, err := r.db.Exec(ctx, query, ev.TokenHash, ev.UserID, ev.ExpiresAt, ev.UsedAt, ev.CreatedAt)
+	_, err := r.db.Exec(ctx, query, ev.TokenHash, ev.UserID, ev.AddressHash, ev.ExpiresAt, ev.UsedAt, ev.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("email_verifications: insert: %w", err)
 	}
@@ -45,13 +45,13 @@ func (r *PgxEmailVerificationRepository) Create(ctx context.Context, ev *domain.
 // (nil, nil) when no row exists.
 func (r *PgxEmailVerificationRepository) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.EmailVerification, error) {
 	const query = `
-		SELECT token_hash, user_id, expires_at, used_at, created_at
+		SELECT token_hash, user_id, COALESCE(email_hash, ''), expires_at, used_at, created_at
 		FROM email_verifications
 		WHERE token_hash = $1
 	`
 	row := r.db.QueryRow(ctx, query, tokenHash)
 	ev := &domain.EmailVerification{}
-	err := row.Scan(&ev.TokenHash, &ev.UserID, &ev.ExpiresAt, &ev.UsedAt, &ev.CreatedAt)
+	err := row.Scan(&ev.TokenHash, &ev.UserID, &ev.AddressHash, &ev.ExpiresAt, &ev.UsedAt, &ev.CreatedAt)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil

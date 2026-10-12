@@ -177,10 +177,10 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:surface=auth-lifecycle
 		// docgen:method=GET
 		// docgen:path=/api/v1/auth/verify-email
-		// docgen:summary=Verify an email address via a one-time token. Single use — a second use of the same link answers 400 invalid_token, as every other failure does.
+		// docgen:summary=Verify an email address via a one-time token. Single use — a second use of the same link answers 400 invalid_token, as every other failure does except a live link mailed to an earlier address, which answers 400 email_changed.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=No Set-Cookie. 400 invalid_token collapses every failure mode (bad / expired / consumed / unknown user). Raw token never logged. Rate-limited per IP (429 past the window). Audited as email_verified.
+		// docgen:notes=No Set-Cookie. 400 invalid_token collapses every failure mode (bad / expired / consumed / unknown user). A live link mailed to another address than the user's current one is spent and answers 400 email_changed with a plain message; it proves nothing. Raw token never logged. Rate-limited per IP (429 past the window). Audited as email_verified.
 		verifyGroup.GET("/api/v1/auth/verify-email", HandleVerifyEmail(deps))
 		// docgen:endpoint
 		// docgen:surface=auth-lifecycle
@@ -207,7 +207,7 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:summary=Send a verification email to the signed-in user's own address, so the user can prove the mailbox. email_verified in tokens and userinfo is true only after a verification email was opened or the sign-in provider confirmed the address.
 		// docgen:tier=oss
 		// docgen:auth=authenticated
-		// docgen:notes=No body. 200 {status:"sent"}; 200 {status:"already_verified"} when the mailbox is proven (nothing sent); 503 email_delivery_not_configured when this server has no SMTP; 502 email_delivery_failed when the mail server refused it; 404 when the user is gone; 401 without a principal. Rate-limited per signed-in subject (the per-address resend class), 429 past the window. Cache-Control no-store. The raw token travels only in the mail; audited as email_verification_resent.
+		// docgen:notes=No body. 200 {status:"sent"}; 200 {status:"already_verified"} when the mailbox is proven (nothing sent); 503 email_delivery_not_configured when this server has no SMTP; 502 email_delivery_failed when the mail server refused it; 409 not_available_for_this_account for the site_admin; 404 when the user is gone; 401 without a principal. Rate-limited per signed-in subject (the per-address resend class), 429 past the window. Cache-Control no-store. The raw token travels only in the mail; audited as email_verification_resent.
 		ownGroup.POST("/verification", HandleSendOwnVerification(deps))
 	}
 	if deps.UserInvite.InviteEnabled() {
@@ -373,10 +373,14 @@ type verifyEmailResponse struct {
 	Message string `json:"message"`
 }
 
+const verifyEmailChangedMessage = "This link was sent to an earlier email address of this account. Request a new verification email."
+
 // HandleVerifyEmail consumes a verification token from the query
 // string. Returns 200 on success / 400 invalid_token otherwise. The token
 // is single use: a repeated link answers 400 invalid_token too, the one
-// answer for every failure (V6-037, judge ruling 2026-10-08).
+// answer for every failure (V6-037, judge ruling 2026-10-08). A live link
+// mailed to an earlier address answers 400 email_changed with a plain
+// message (OSS-0912-C2-FIX).
 func HandleVerifyEmail(deps AccountLifecycleHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := c.Query("token")
@@ -390,6 +394,9 @@ func HandleVerifyEmail(deps AccountLifecycleHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusOK, verifyEmailResponse{Success: true, Message: "Email verified successfully"})
 		case errors.Is(err, service.ErrEmailVerificationInvalidToken):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_token"})
+		case errors.Is(err, service.ErrEmailVerificationAddressChanged):
+			// OSS-0912-C2-FIX: the link was mailed to an earlier address.
+			c.JSON(http.StatusBadRequest, gin.H{"error": "email_changed", "message": verifyEmailChangedMessage})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 		}
@@ -444,6 +451,9 @@ func HandleSendOwnVerification(deps AccountLifecycleHandlerDeps) gin.HandlerFunc
 			c.JSON(http.StatusOK, gin.H{"status": "sent"})
 		case errors.Is(err, service.ErrEmailAlreadyProven):
 			c.JSON(http.StatusOK, gin.H{"status": "already_verified"})
+		case errors.Is(err, service.ErrEmailVerificationNotAvailable):
+			// OSS-0912-C2-FIX: the site_admin's address is not a mailbox.
+			c.JSON(http.StatusConflict, gin.H{"error": "not_available_for_this_account"})
 		case errors.Is(err, service.ErrEmailDeliveryNotConfigured):
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "email_delivery_not_configured"})
 		case errors.Is(err, service.ErrEmailDeliveryFailed):

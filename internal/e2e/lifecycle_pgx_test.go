@@ -173,10 +173,11 @@ func TestE2E_OSS_EmailVerificationService_RoundTrip(t *testing.T) {
 	}
 	hash := crypto.HashToken(raw)
 	if err := repos.EmailVerification.Create(ctx, &domain.EmailVerification{
-		UserID:    created.ID,
-		TokenHash: hash,
-		ExpiresAt: time.Now().Add(time.Hour),
-		CreatedAt: time.Now(),
+		UserID:      created.ID,
+		TokenHash:   hash,
+		AddressHash: domain.EmailAddressHash(created.Email),
+		ExpiresAt:   time.Now().Add(time.Hour),
+		CreatedAt:   time.Now(),
 	}); err != nil {
 		t.Fatalf("seed verification row: %v", err)
 	}

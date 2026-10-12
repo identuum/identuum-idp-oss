@@ -647,7 +647,15 @@ password policy); `POST` the same path `{email, name, password}` signs up.
   `legacy` (verified before v0.9.12; still counts as proven), `admin_link`,
   `admin_set`, `setup`, or NULL (never proven). A signed-in user can ask for
   a verification email with `POST /api/v1/me/email/verification`; without
-  SMTP it answers `503 email_delivery_not_configured`.
+  SMTP it answers `503 email_delivery_not_configured`, and for the
+  site_admin `409 not_available_for_this_account`. A verification link
+  proves only the address it was sent to: after an address change the
+  user's open links are cancelled, and a link for an earlier address
+  answers `400 email_changed`. Migration 0054 cancels the unused links
+  created before the upgrade; users ask for a new email.
+  Do not roll back past migration 0053 after users were created on
+  v0.9.12: running 0053 again marks every activated user `legacy`, which
+  counts as proven. Roll back with the backup and restore steps above.
 - **Approval.** With `require_registration_approval` on, a new account
   cannot sign in (`403 registration_pending`) until its organization admin
   approves it: `GET /api/v1/organizations/<org-id>/registrations` lists them,

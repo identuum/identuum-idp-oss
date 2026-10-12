@@ -15,6 +15,8 @@
 //   GET  /api/v1/auth/verify-email?token=<raw>
 //       response: 200 { success: true, message: "..." } on accept
 //                 400 { error: "invalid_token" }         on bad / expired / consumed token
+//                 400 { error: "email_changed", message } when the link was
+//                     mailed to another address than the user's current one
 //
 //   POST /api/v1/auth/resend-verification
 //       request:  { email }
@@ -26,6 +28,9 @@
 //
 //   - Generated via crypto.GenerateRandomString(32) → 64 hex chars.
 //   - SHA-256(raw_token) persisted; raw token NEVER stored.
+//   - The row names the address it was mailed to (email_hash, migration
+//     0054); a link proves only that address (OSS-0912-C2-FIX). An address
+//     change spends the user's open links in the same write.
 //   - TTL: 24 hours (matches the monolith's verification JWT exp).
 //   - Single-use: MarkAsUsed flips used_at on consume BEFORE the
 //     user row is written.
@@ -77,6 +82,15 @@ const DefaultEmailVerificationTTL = 24 * time.Hour
 // used, or its user row no longer exists / is deleted. Mapped to
 // 400 invalid_token at the HTTP boundary.
 var ErrEmailVerificationInvalidToken = errors.New("email verification: invalid token")
+
+// ErrEmailVerificationAddressChanged answers a link mailed to another address
+// than the user's current one (OSS-0912-C2-FIX). The link is spent and proves
+// nothing. Mapped to 400 email_changed.
+var ErrEmailVerificationAddressChanged = errors.New("email verification: the link was sent to another address")
+
+// ErrEmailVerificationNotAvailable answers SendOwnVerification for the
+// site_admin, whose address is the reserved sign-in name, not a mailbox.
+var ErrEmailVerificationNotAvailable = errors.New("email verification: not available for this account")
 
 // ErrEmailAlreadyProven answers SendOwnVerification for a user whose mailbox
 // is already proven: nothing is sent.
@@ -205,6 +219,10 @@ func (s *EmailVerificationService) VerifyEmail(ctx context.Context, rawToken, ip
 	if user.DeletedAt != nil || user.Banned {
 		return ErrEmailVerificationInvalidToken
 	}
+	// OSS-0912-C2-FIX: the link proves only the address it was mailed to.
+	if !row.ProvesAddress(user.Email) {
+		return ErrEmailVerificationAddressChanged
+	}
 	// Idempotency guard — an already proven mailbox is a no-op. We still
 	// return nil so the operator sees the standard 200 even on a stale
 	// link click. An activated but unproven account (an administrator's
@@ -274,9 +292,10 @@ func (s *EmailVerificationService) issueResends(ctx context.Context, users []*do
 	}
 }
 
-// issue persists one token for user, mails it and audits the send. It returns
-// the notifier's error; a token or persistence failure is logged and returned
-// as errEmailVerificationNotIssued, and nothing is mailed or audited.
+// issue persists one token for user, mails it and audits the send: Outcome
+// success, or failure when the notifier refused it. It returns the notifier's
+// error; a token or persistence failure is logged and returned as
+// errEmailVerificationNotIssued, and nothing is mailed or audited.
 func (s *EmailVerificationService) issue(ctx context.Context, user *domain.User) error {
 	raw, hash, err := s.generateToken()
 	if err != nil {
@@ -286,14 +305,7 @@ func (s *EmailVerificationService) issue(ctx context.Context, user *domain.User)
 		)
 		return errEmailVerificationNotIssued
 	}
-	now := s.now().UTC()
-	row := &domain.EmailVerification{
-		UserID:    user.ID,
-		TokenHash: hash,
-		ExpiresAt: now.Add(s.ttl),
-		CreatedAt: now,
-	}
-	if err := s.verifs.Create(ctx, row); err != nil {
+	if err := s.verifs.Create(ctx, s.newRow(user, hash)); err != nil {
 		s.logger.Error("email_verification: persist failed",
 			zap.String("user_id", user.ID.String()),
 			zap.Error(err),
@@ -304,9 +316,13 @@ func (s *EmailVerificationService) issue(ctx context.Context, user *domain.User)
 	if s.notifier != nil {
 		sendErr = s.notifier.SendVerificationEmail(ctx, user, raw)
 	}
+	outcome := "success"
+	if sendErr != nil {
+		outcome = "failure"
+	}
 	_ = s.audit.Record(ctx, audit.Event{
 		Action:         string(domain.AuditEmailVerificationResent),
-		Outcome:        "success",
+		Outcome:        outcome,
 		SubjectID:      user.ID,
 		SubjectType:    "user",
 		OrganizationID: user.OrganizationID,
@@ -316,8 +332,21 @@ func (s *EmailVerificationService) issue(ctx context.Context, user *domain.User)
 
 var errEmailVerificationNotIssued = errors.New("email verification: token not issued")
 
+// newRow is the verification row for a link mailed to user's current address.
+func (s *EmailVerificationService) newRow(user *domain.User, tokenHash string) *domain.EmailVerification {
+	now := s.now().UTC()
+	return &domain.EmailVerification{
+		UserID:      user.ID,
+		TokenHash:   tokenHash,
+		AddressHash: domain.EmailAddressHash(user.Email),
+		ExpiresAt:   now.Add(s.ttl),
+		CreatedAt:   now,
+	}
+}
+
 // SendOwnVerification mails a verification link to the signed-in user's own
 // address (POST /api/v1/me/email/verification, OSS-0912-C2). It answers
+// ErrEmailVerificationNotAvailable for the site_admin (OSS-0912-C2-FIX),
 // ErrEmailAlreadyProven for a proven mailbox, domain.ErrUserNotFound for a
 // user that is gone, ErrEmailDeliveryNotConfigured when this server cannot
 // send email, ErrEmailDeliveryFailed for any other send error. The raw token
@@ -329,6 +358,9 @@ func (s *EmailVerificationService) SendOwnVerification(ctx context.Context, user
 	}
 	if user == nil || user.DeletedAt != nil || user.Banned {
 		return domain.ErrUserNotFound
+	}
+	if user.IsSiteAdmin() {
+		return ErrEmailVerificationNotAvailable
 	}
 	if user.MailboxProven() {
 		return ErrEmailAlreadyProven
@@ -368,14 +400,7 @@ func (s *EmailVerificationService) IssueInitialVerification(ctx context.Context,
 	if err != nil {
 		return "", err
 	}
-	now := s.now().UTC()
-	row := &domain.EmailVerification{
-		UserID:    user.ID,
-		TokenHash: hash,
-		ExpiresAt: now.Add(s.ttl),
-		CreatedAt: now,
-	}
-	if err := s.verifs.Create(ctx, row); err != nil {
+	if err := s.verifs.Create(ctx, s.newRow(user, hash)); err != nil {
 		return "", err
 	}
 	if s.notifier != nil {

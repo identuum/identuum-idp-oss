@@ -624,6 +624,7 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 	setParts = append(setParts, "updated_at = NOW()")
 	args = append(args, id)
 
+	idArg := argIndex
 	whereClause := fmt.Sprintf("WHERE id = $%d", argIndex)
 	argIndex++
 
@@ -643,12 +644,26 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 		whereClause += " AND requires_password_change = true AND deleted_at IS NULL AND banned = false"
 	}
 
-	query := fmt.Sprintf(`
+	// OSS-0912-C2-FIX: an address change spends the user's open verification
+	// links in the same statement, so no link mailed to the old address
+	// outlives the change. The CTE reads the row before the update: it
+	// matches only when this update matches and the address differs.
+	retireLinks := ""
+	if opts.Email != nil {
+		args = append(args, *opts.Email)
+		retireLinks = fmt.Sprintf(`WITH retired_links AS (
+			UPDATE email_verifications SET used_at = NOW()
+			WHERE user_id = $%d AND used_at IS NULL
+			  AND EXISTS (SELECT 1 FROM users %s AND email IS DISTINCT FROM $%d::text)
+		)`, idArg, whereClause, len(args))
+	}
+
+	query := fmt.Sprintf(`%s
 		UPDATE users
 		SET %s
 		%s
 		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via`,
-		strings.Join(setParts, ", "), whereClause)
+		retireLinks, strings.Join(setParts, ", "), whereClause)
 
 	updated, err := r.scanUser(r.db.QueryRow(ctx, query, args...))
 	if err != nil {

@@ -1,6 +1,10 @@
 package domain
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -25,12 +29,33 @@ import (
 //     PRIMARY KEY on token_hash gives each its own row; the latest
 //     wins because the consume-side lookup is by token_hash, not by
 //     user_id. Stale rows expire naturally via the 24-hour TTL.
+//
+// Address binding (OSS-0912-C2-FIX): AddressHash is EmailAddressHash of the
+// address the link was mailed to. A link proves only that address: a row
+// whose AddressHash differs from the user's current address, or is empty (a
+// row written before migration 0054), proves nothing.
 type EmailVerification struct {
-	ExpiresAt time.Time
-	CreatedAt time.Time
-	UsedAt    *time.Time
-	TokenHash string
-	UserID    uuid.UUID
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
+	UsedAt      *time.Time
+	TokenHash   string
+	AddressHash string
+	UserID      uuid.UUID
+}
+
+// EmailAddressHash is the hex SHA-256 of the address, lower-cased and
+// trimmed, as a verification row stores it.
+func EmailAddressHash(email string) string {
+	sum := sha256.Sum256([]byte(strings.ToLower(strings.TrimSpace(email))))
+	return hex.EncodeToString(sum[:])
+}
+
+// ProvesAddress reports whether the row was mailed to email.
+func (e *EmailVerification) ProvesAddress(email string) bool {
+	if e.AddressHash == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(e.AddressHash), []byte(EmailAddressHash(email))) == 1
 }
 
 // IsValid reports whether the row may be consumed at `now`.

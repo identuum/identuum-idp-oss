@@ -82,6 +82,33 @@ follows [Semantic Versioning](https://semver.org/).
   spent the invite link. Now it records the proof only, and the invite
   still sets the password. An administrator's change of a user's address
   drops the proof of the old address.
+- **A verification link proves only the address it was sent to** (review
+  of item C2). Before this fix, a link mailed to a user's old address
+  still proved the new address after the address changed. Now each
+  verification link records the address it was sent to (as a SHA-256), and
+  a link for another address than the user's current one answers
+  `400 {"error":"email_changed","message":"..."}` and proves nothing. A
+  change of address also cancels the user's open verification links in the
+  same database write.
+- **Migration `0054_email_verifications_address.sql`** adds the nullable
+  column `email_verifications.email_hash` and cancels every unused
+  verification link created before the upgrade, because those links do not
+  record an address. Users who still need to verify ask for a new email.
+  Down drops the column.
+- **`POST /api/v1/me/email/verification` refuses the site_admin** with
+  `409 {"error":"not_available_for_this_account"}`: the site_admin's
+  address is a reserved sign-in name, not a mailbox.
+- **A verification email that could not be sent is audited as a failure.**
+  The `email_verification_resent` audit event now has the outcome `failure`
+  when the mail server refused the send or none is configured. Before, it
+  was always recorded as `success`.
+- **Upgrade note for operators (migrations 0053 and 0054):** do not roll
+  back past 0053 after users were created on this version. Migration 0053's
+  Down drops `users.email_verified_via`, and running Up again marks every
+  activated user `legacy`, which counts as proven. So a rollback and a
+  second upgrade are not neutral: they can make `email_verified` true for
+  users whose mailbox was never proven. Use the backup and restore steps in
+  `docs/OPERATOR-GUIDE.md` instead.
 
 ## `v0.9.11`
 

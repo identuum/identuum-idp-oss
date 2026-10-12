@@ -85,8 +85,8 @@ func TestBuildDeps_EmailVerificationResendAndVerifyAreAudited(t *testing.T) {
 
 	raw := "verify-" + uuid.NewString()
 	sum := sha256.Sum256([]byte(raw))
-	if _, err := pool.Exec(ctx, `INSERT INTO email_verifications (token_hash, user_id, expires_at, created_at) VALUES ($1, $2, NOW() + interval '1 hour', NOW())`,
-		hex.EncodeToString(sum[:]), userID); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO email_verifications (token_hash, user_id, email_hash, expires_at, created_at) VALUES ($1, $2, $3, NOW() + interval '1 hour', NOW())`,
+		hex.EncodeToString(sum[:]), userID, domain.EmailAddressHash(email)); err != nil {
 		t.Fatalf("seed verification row: %v", err)
 	}
 	if err := deps.EmailVerificationService.VerifyEmail(ctx, raw, "203.0.113.40", "test-agent"); err != nil {

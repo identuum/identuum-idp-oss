@@ -18,8 +18,12 @@ Newest release first. Each entry says which versions are affected and where the 
   administrator always also receives the link, even when it is emailed. Treat "Email verified" as "account
   activated". Relying parties that need a proven address should not rely on `email_verified` from v0.9.11 or
   earlier.
-- **Fixed in v0.9.12:** an address counts as verified only when the user opened a verification email or the
-  sign-in provider confirmed it. Accounts created before v0.9.12 keep their status.
+- **Fixed in v0.9.12 for tokens and userinfo:** the `email_verified` claim is true only when the user opened a
+  verification email or the sign-in provider confirmed the address. The console screens, including the member
+  Overview, show the new status with the console update that reads it (tracked as UI-0912-A4); until then they
+  still show the activation. Accounts verified before v0.9.12 keep their status.
 
   _Corrected on 2026-10-12: this entry first said that configuring SMTP was a workaround and that the fix would
-  trust a link "delivered by email". Neither holds: the administrator receives the same link either way._
+  trust a link "delivered by email". Neither holds: the administrator receives the same link either way.
+  Corrected again on 2026-10-12: the fix line said the screens were fixed too and that accounts "created"
+  before v0.9.12 keep their status; only accounts verified before it do._

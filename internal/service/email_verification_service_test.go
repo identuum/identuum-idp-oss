@@ -230,9 +230,10 @@ func TestVerifyEmail_HappyPathFlipsFlag(t *testing.T) {
 	require.NoError(t, err)
 	hash := crypto.HashToken(raw)
 	verifs.rows[hash] = &domain.EmailVerification{
-		UserID:    user.ID,
-		TokenHash: hash,
-		ExpiresAt: time.Now().Add(time.Hour),
+		UserID:      user.ID,
+		TokenHash:   hash,
+		AddressHash: domain.EmailAddressHash(user.Email),
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	svc := NewEmailVerificationService(users, verifs, nil, rec, EmailVerificationServiceOptions{})
 
@@ -263,9 +264,10 @@ func TestVerifyEmail_IdempotentOnAlreadyVerified(t *testing.T) {
 	require.NoError(t, err)
 	hash := crypto.HashToken(raw)
 	verifs.rows[hash] = &domain.EmailVerification{
-		UserID:    user.ID,
-		TokenHash: hash,
-		ExpiresAt: time.Now().Add(time.Hour),
+		UserID:      user.ID,
+		TokenHash:   hash,
+		AddressHash: domain.EmailAddressHash(user.Email),
+		ExpiresAt:   time.Now().Add(time.Hour),
 	}
 	svc := NewEmailVerificationService(users, verifs, nil, rec, EmailVerificationServiceOptions{})
 

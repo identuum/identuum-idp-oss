@@ -97,15 +97,16 @@ func (w *inviteWorld) wantRow(what, id string, verified bool, via string) {
 	}
 }
 
-// verificationLink stores a verification row for the user and returns its
-// raw token, as the mailed link would carry it.
+// verificationLink stores a verification row for the user, mailed to the
+// user's current address, and returns its raw token, as the mailed link
+// would carry it.
 func (w *inviteWorld) verificationLink(id string) string {
 	w.t.Helper()
-	raw := sha256Hex(uuid.NewString())
-	if _, err := w.pool.Exec(w.ctx, `INSERT INTO email_verifications (token_hash, user_id, expires_at) VALUES ($1, $2, NOW() + INTERVAL '1 hour')`, sha256Hex(raw), id); err != nil {
-		w.t.Fatalf("seed verification: %v", err)
+	var email string
+	if err := w.pool.QueryRow(w.ctx, `SELECT email FROM users WHERE id = $1`, id).Scan(&email); err != nil {
+		w.t.Fatalf("read address: %v", err)
 	}
-	return raw
+	return w.verificationLinkFor(id, email)
 }
 
 func (w *inviteWorld) redeem(tok string) int {
