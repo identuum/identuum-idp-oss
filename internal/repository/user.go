@@ -61,6 +61,11 @@ type UpdateUserOptions struct {
 	// nothing.
 	RequirePasswordChangePending bool
 
+	// RequireEmail (OSS-0912-C2-FIX-2), when set, appends `AND email = $n` so
+	// the write lands only while the stored address is still the one the
+	// caller checked; otherwise it updates nothing (domain.ErrUserNotFound).
+	RequireEmail *string
+
 	// KeepActiveOrgAdmin (OSS-GUARDS), when true, runs the update in one
 	// transaction that locks the organization row and refuses with
 	// domain.ErrLastOrgAdmin a change (ban, demotion) that would leave the

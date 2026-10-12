@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 
+	"github.com/google/uuid"
+
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
@@ -34,4 +36,19 @@ type EmailVerificationRepository interface {
 	// Returns the affected-row count; only rows past their expiry are
 	// deleted, on the DB clock. A live row is never removed.
 	DeleteExpired(ctx context.Context) (int64, error)
+}
+
+// EmailVerificationProofTx is one opened link's view of the database: the burn
+// of the link and the proof written to the user (OSS-0912-C2-FIX-2).
+type EmailVerificationProofTx interface {
+	MarkAsUsed(ctx context.Context, tokenHash string) error
+	Update(ctx context.Context, id, orgID uuid.UUID, opts UpdateUserOptions) (*domain.User, error)
+}
+
+// EmailVerificationProver runs fn in one transaction that first locks the
+// user's row FOR UPDATE: committed when fn returns nil, rolled back (the link
+// stays unused) when it returns an error. An address change of that user
+// waits for the commit. PgxEmailVerificationRepository implements it.
+type EmailVerificationProver interface {
+	ProveInTx(ctx context.Context, userID uuid.UUID, fn func(EmailVerificationProofTx) error) error
 }

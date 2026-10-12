@@ -51,6 +51,8 @@ func TestUserServiceUpdate_RefusesMalformedBeforeReachingTheRepository(t *testin
 		{"email that is empty", UpdateUserOptions{Email: strPtr("")}},
 		{"email with no local part", UpdateUserOptions{Email: strPtr("@example.com")}},
 		{"email with no domain", UpdateUserOptions{Email: strPtr("someone@")}},
+		// OSS-0912-C2-FIX-2 (review F3): the table refuses spaces too.
+		{"email with surrounding spaces", UpdateUserOptions{Email: strPtr(" someone@example.com ")}},
 		{"role outside the user_role enum", UpdateUserOptions{Role: rolePtr(domain.UserRole("wizard"))}},
 		{"role that is empty", UpdateUserOptions{Role: rolePtr(domain.UserRole(""))}},
 	} {

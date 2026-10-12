@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
@@ -86,6 +87,42 @@ func (r *PgxEmailVerificationRepository) MarkAsUsed(ctx context.Context, tokenHa
 		return domain.ErrEmailVerificationAlreadyUsed
 	}
 	return nil
+}
+
+var _ repository.EmailVerificationProver = (*PgxEmailVerificationRepository)(nil)
+
+// pgEmailProofTx binds the burn and the proof write to one transaction.
+type pgEmailProofTx struct {
+	verifs *PgxEmailVerificationRepository
+	users  *PgxUserRepository
+}
+
+func (t pgEmailProofTx) MarkAsUsed(ctx context.Context, tokenHash string) error {
+	return t.verifs.MarkAsUsed(ctx, tokenHash)
+}
+
+func (t pgEmailProofTx) Update(ctx context.Context, id, orgID uuid.UUID, opts repository.UpdateUserOptions) (*domain.User, error) {
+	return t.users.Update(ctx, id, orgID, opts)
+}
+
+// ProveInTx (OSS-0912-C2-FIX-2, review F1) locks the user's row, then runs fn
+// in the same transaction. An address change updates that row, so it waits
+// until this commits; one that committed before the lock has already retired
+// the user's open links. The user's row is taken first, as the address change
+// takes it before its unreferenced link-retiring CTE runs.
+func (r *PgxEmailVerificationRepository) ProveInTx(ctx context.Context, userID uuid.UUID, fn func(repository.EmailVerificationProofTx) error) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("email_verifications: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, userID); err != nil {
+		return fmt.Errorf("email_verifications: lock user: %w", err)
+	}
+	if err := fn(pgEmailProofTx{verifs: &PgxEmailVerificationRepository{db: tx}, users: NewPgxUserRepository(tx)}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // DeleteExpired sweeps rows past their TTL.

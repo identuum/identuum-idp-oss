@@ -90,6 +90,19 @@ follows [Semantic Versioning](https://semver.org/).
   `400 {"error":"email_changed","message":"..."}` and proves nothing. A
   change of address also cancels the user's open verification links in the
   same database write.
+- **An address change made while a link is being opened no longer proves
+  the new address** (second review of item C2). Before this fix, a change
+  that was saved between the check of the address and the write of the
+  proof made the new address proven. Now the link is used and the proof is
+  written in one database transaction that holds the user's row, and the
+  proof is written only while the address is still the one the link was
+  sent to. A link refused because the address changed is not used up; the
+  user can ask for a new one.
+- **`POST /api/v1/auth/resend-verification` sends nothing for the
+  site_admin's address.** The answer is the same `200` as for any other
+  address, so it does not show whether an account exists.
+- **`PUT /api/v1/users/:id` with an address that starts or ends with a space
+  answers `400`**, not `500 internal_error`.
 - **Migration `0054_email_verifications_address.sql`** adds the nullable
   column `email_verifications.email_hash` and cancels every unused
   verification link created before the upgrade, because those links do not

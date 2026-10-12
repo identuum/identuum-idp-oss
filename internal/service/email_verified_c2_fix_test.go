@@ -43,7 +43,8 @@ func TestVerifyEmail_LinkForAnotherAddressIsRefused(t *testing.T) {
 		assert.Equal(t, 0, users.updates, "%s: nothing may be recorded", name)
 		assert.False(t, user.MailboxProven(), name)
 		assert.Empty(t, rec.snapshot(), name)
-		assert.NotNil(t, row.UsedAt, "%s: the refused link is spent", name)
+		// OSS-0912-C2-FIX-2: a link refused for the address is not spent.
+		assert.Nil(t, row.UsedAt, "%s: the refused link stays unused", name)
 	}
 }
 
@@ -100,6 +101,24 @@ func TestSendOwnVerification_SiteAdminIsRefused(t *testing.T) {
 	svc := NewEmailVerificationService(newFakeUserRepo(user), verifs, notifier, rec, c2Opts())
 
 	assert.ErrorIs(t, svc.SendOwnVerification(context.Background(), user.ID), ErrEmailVerificationNotAvailable)
+	assert.Equal(t, 0, notifier.sends)
+	assert.Empty(t, verifs.rows)
+	assert.Empty(t, rec.snapshot())
+}
+
+// OSS-0912-C2-FIX-2 (review F2): the public resend skips the site_admin
+// even when its mailbox is not proven, with the same nil answer.
+func TestResendVerification_SiteAdminIsSkipped(t *testing.T) {
+	user := newPasswordResetUser(t, domain.SiteAdminEmail)
+	user.Role = domain.RoleSiteAdmin
+	user.EmailVerifiedVia = nil
+	require.False(t, user.MailboxProven())
+	verifs := newFakeEmailVerificationRepo()
+	notifier := &fakeVerificationNotifier{}
+	rec := &fakeAuditRecorder{}
+	svc := NewEmailVerificationService(newFakeUserRepo(user), verifs, notifier, rec, c2Opts())
+
+	assert.NoError(t, svc.ResendVerification(context.Background(), domain.SiteAdminEmail))
 	assert.Equal(t, 0, notifier.sends)
 	assert.Empty(t, verifs.rows)
 	assert.Empty(t, rec.snapshot())

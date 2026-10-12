@@ -84,8 +84,9 @@ const DefaultEmailVerificationTTL = 24 * time.Hour
 var ErrEmailVerificationInvalidToken = errors.New("email verification: invalid token")
 
 // ErrEmailVerificationAddressChanged answers a link mailed to another address
-// than the user's current one (OSS-0912-C2-FIX). The link is spent and proves
-// nothing. Mapped to 400 email_changed.
+// than the user's current one (OSS-0912-C2-FIX), also when the address changes
+// while the link is opened (OSS-0912-C2-FIX-2). The link proves nothing and is
+// not spent. Mapped to 400 email_changed.
 var ErrEmailVerificationAddressChanged = errors.New("email verification: the link was sent to another address")
 
 // ErrEmailVerificationNotAvailable answers SendOwnVerification for the
@@ -119,6 +120,7 @@ type emailVerificationUserSurface interface {
 type EmailVerificationService struct {
 	users     emailVerificationUserSurface
 	verifs    repository.EmailVerificationRepository
+	prover    repository.EmailVerificationProver
 	notifier  EmailVerificationNotifier
 	audit     audit.Service
 	logger    *zap.Logger
@@ -172,7 +174,7 @@ func NewEmailVerificationService(
 	if ttl <= 0 {
 		ttl = DefaultEmailVerificationTTL
 	}
-	return &EmailVerificationService{
+	s := &EmailVerificationService{
 		users:     users,
 		verifs:    verifs,
 		notifier:  notifier,
@@ -182,6 +184,31 @@ func NewEmailVerificationService(
 		tokenSize: 32,
 		ttl:       ttl,
 	}
+	// The burn and the proof run in one transaction whenever the repository
+	// can open one (PgxEmailVerificationRepository, the production wiring).
+	// The in-memory fakes of the unit tests run the same steps without one.
+	if p, ok := verifs.(repository.EmailVerificationProver); ok {
+		s.prover = p
+	} else {
+		s.prover = emailProofWithoutTx{s: s}
+	}
+	return s
+}
+
+// emailProofWithoutTx is repository.EmailVerificationProver over the
+// service's own repositories, for repositories that cannot open a transaction.
+type emailProofWithoutTx struct{ s *EmailVerificationService }
+
+func (p emailProofWithoutTx) ProveInTx(_ context.Context, _ uuid.UUID, fn func(repository.EmailVerificationProofTx) error) error {
+	return fn(p)
+}
+
+func (p emailProofWithoutTx) MarkAsUsed(ctx context.Context, tokenHash string) error {
+	return p.s.verifs.MarkAsUsed(ctx, tokenHash)
+}
+
+func (p emailProofWithoutTx) Update(ctx context.Context, id, orgID uuid.UUID, opts repository.UpdateUserOptions) (*domain.User, error) {
+	return p.s.users.Update(ctx, id, orgID, opts)
 }
 
 // VerifyEmail consumes the supplied raw token.
@@ -207,11 +234,6 @@ func (s *EmailVerificationService) VerifyEmail(ctx context.Context, rawToken, ip
 	if !row.IsValid(s.now()) {
 		return ErrEmailVerificationInvalidToken
 	}
-	// Burn-before-write: mark the row used BEFORE the email_verified
-	// flag is flipped so a parallel attempt cannot win the race.
-	if err := s.verifs.MarkAsUsed(ctx, row.TokenHash); err != nil {
-		return ErrEmailVerificationInvalidToken
-	}
 	user, err := s.users.GetByID(ctx, row.UserID)
 	if err != nil || user == nil {
 		return ErrEmailVerificationInvalidToken
@@ -220,18 +242,14 @@ func (s *EmailVerificationService) VerifyEmail(ctx context.Context, rawToken, ip
 		return ErrEmailVerificationInvalidToken
 	}
 	// OSS-0912-C2-FIX: the link proves only the address it was mailed to.
+	// A refused link stays unused; the user can ask for a new one.
 	if !row.ProvesAddress(user.Email) {
 		return ErrEmailVerificationAddressChanged
 	}
-	// Idempotency guard — an already proven mailbox is a no-op. We still
-	// return nil so the operator sees the standard 200 even on a stale
-	// link click. An activated but unproven account (an administrator's
-	// link or setting) goes on to record the proof.
-	if user.MailboxProven() {
-		return nil
-	}
 	via := domain.EmailVerifiedViaEmailLink
-	opts := repository.UpdateUserOptions{EmailVerifiedVia: &via}
+	// OSS-0912-C2-FIX-2 (review F1): the write lands only while the address
+	// is the one checked above.
+	opts := repository.UpdateUserOptions{EmailVerifiedVia: &via, RequireEmail: &user.Email}
 	// Q-C2-2 (a): a pending invite or activation is activated by its own
 	// link; activating here would spend that link and leave the account
 	// with no password anyone knows.
@@ -239,8 +257,41 @@ func (s *EmailVerificationService) VerifyEmail(ctx context.Context, rawToken, ip
 		verified := true
 		opts.EmailVerified = &verified
 	}
-	if _, err := s.users.Update(ctx, user.ID, user.OrganizationID, opts); err != nil {
+	// OSS-0912-C2-FIX-2 (review F1): the burn and the write run in one
+	// transaction that holds the user's row. An address change that
+	// committed after the read above has retired this link (the burn fails)
+	// or changed the address (the write matches no row, and the transaction
+	// rolls back); one that comes later waits for the commit.
+	recorded := false
+	err = s.prover.ProveInTx(ctx, user.ID, func(tx repository.EmailVerificationProofTx) error {
+		// Burn-before-write: mark the row used BEFORE the email_verified
+		// flag is flipped so a parallel attempt cannot win the race.
+		if err := tx.MarkAsUsed(ctx, row.TokenHash); err != nil {
+			return ErrEmailVerificationInvalidToken
+		}
+		// Idempotency guard — an already proven mailbox is a no-op. We
+		// still return nil so the operator sees the standard 200 even on a
+		// stale link click. An activated but unproven account (an
+		// administrator's link or setting) goes on to record the proof.
+		if user.MailboxProven() {
+			return nil
+		}
+		if _, err := tx.Update(ctx, user.ID, user.OrganizationID, opts); err != nil {
+			if errors.Is(err, domain.ErrUserNotFound) {
+				return ErrEmailVerificationAddressChanged
+			}
+			return ErrEmailVerificationInvalidToken
+		}
+		recorded = true
+		return nil
+	})
+	switch {
+	case errors.Is(err, ErrEmailVerificationAddressChanged):
+		return err
+	case err != nil:
 		return ErrEmailVerificationInvalidToken
+	case !recorded:
+		return nil
 	}
 	_ = s.audit.Record(ctx, audit.Event{
 		Action:         string(domain.AuditEmailVerified),
@@ -280,7 +331,9 @@ func (s *EmailVerificationService) ResendVerification(ctx context.Context, email
 // account whose mailbox is not proven.
 func (s *EmailVerificationService) issueResends(ctx context.Context, users []*domain.User) {
 	for _, user := range users {
-		if user == nil || user.DeletedAt != nil || user.Banned || user.MailboxProven() {
+		// OSS-0912-C2-FIX-2 (review F2): the site_admin's address is the
+		// reserved sign-in name, not a mailbox; the answer stays the same.
+		if user == nil || user.DeletedAt != nil || user.Banned || user.MailboxProven() || user.IsSiteAdmin() {
 			continue
 		}
 		if sendErr := s.issue(ctx, user); sendErr != nil && !errors.Is(sendErr, errEmailVerificationNotIssued) {

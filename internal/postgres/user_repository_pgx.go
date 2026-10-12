@@ -643,6 +643,11 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 	if opts.RequirePasswordChangePending {
 		whereClause += " AND requires_password_change = true AND deleted_at IS NULL AND banned = false"
 	}
+	// OSS-0912-C2-FIX-2: only while the address is still the one checked.
+	if opts.RequireEmail != nil {
+		args = append(args, *opts.RequireEmail)
+		whereClause += fmt.Sprintf(" AND email = $%d", len(args))
+	}
 
 	// OSS-0912-C2-FIX: an address change spends the user's open verification
 	// links in the same statement, so no link mailed to the old address

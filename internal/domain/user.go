@@ -3,6 +3,7 @@ package domain
 import (
 	"errors"
 	"net/mail"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -205,6 +206,12 @@ func (u *User) MailboxProven() bool {
 func ValidateUserEmail(email string) error {
 	if email == "" {
 		return errors.New("email is required")
+	}
+	// OSS-0912-C2-FIX-2 (review F3): mail.ParseAddress accepts surrounding
+	// spaces, the users table does not; refuse here so the caller gets a
+	// plain 400, not the database's 500.
+	if strings.TrimSpace(email) != email {
+		return errors.New("email must not start or end with a space")
 	}
 	if _, err := mail.ParseAddress(email); err != nil {
 		return errors.New("email is invalid")
