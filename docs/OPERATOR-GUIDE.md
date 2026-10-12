@@ -638,6 +638,16 @@ password policy); `POST` the same path `{email, name, password}` signs up.
   `POST /api/v1/auth/resend-verification`). With it off, the account signs
   in at once with `email_verified=false`. Accounts that were not
   self-registered keep the sign-in rule they always had.
+- **What `email_verified` means (v0.9.12).** In tokens and userinfo it is
+  true only when the mailbox was proven: the user opened a verification
+  email, or the sign-in provider confirmed the address. An administrator's
+  invite, activation or claim link, an administrator's setting, and the
+  setup site_admin activate the account without proving the mailbox.
+  `users.email_verified_via` records how: `email_link`, `upstream_idp`,
+  `legacy` (verified before v0.9.12; still counts as proven), `admin_link`,
+  `admin_set`, `setup`, or NULL (never proven). A signed-in user can ask for
+  a verification email with `POST /api/v1/me/email/verification`; without
+  SMTP it answers `503 email_delivery_not_configured`.
 - **Approval.** With `require_registration_approval` on, a new account
   cannot sign in (`403 registration_pending`) until its organization admin
   approves it: `GET /api/v1/organizations/<org-id>/registrations` lists them,

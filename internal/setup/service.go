@@ -515,15 +515,18 @@ func (s *Service) ensureSiteAdmin(ctx context.Context, orgID uuid.UUID, in Compl
 		}
 	}
 
+	// OSS-0912-C2: activated, but the login was set at setup, not proven.
+	setupVia := domain.EmailVerifiedViaSetup
 	user := &domain.User{
-		ID:             siteAdminID,
-		OrganizationID: systemOrgID,
-		Email:          login,
-		ContactEmail:   contact,
-		PasswordHash:   in.AdminPassword, // user repo argon2id-hashes plaintext
-		Role:           domain.RoleSiteAdmin,
-		AuthSource:     domain.AuthSourceLocal,
-		EmailVerified:  true,
+		ID:               siteAdminID,
+		OrganizationID:   systemOrgID,
+		Email:            login,
+		ContactEmail:     contact,
+		PasswordHash:     in.AdminPassword, // user repo argon2id-hashes plaintext
+		Role:             domain.RoleSiteAdmin,
+		AuthSource:       domain.AuthSourceLocal,
+		EmailVerified:    true,
+		EmailVerifiedVia: &setupVia,
 	}
 	if _, err := s.deps.UserRepo.Create(ctx, user); err != nil {
 		if errors.Is(err, domain.ErrUserAlreadyExists) {

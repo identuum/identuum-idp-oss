@@ -981,6 +981,19 @@ paths:
                 $ref: "#/components/schemas/oss_handlers_safeKey"
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/me/email/verification":
+    post:
+      operationId: "identuum-idp-oss.auth-lifecycle.send_own_verification"
+      summary: "Send a verification email to the signed-in user's own address, so the user can prove the mailbox. email_verified in tokens and userinfo is true only after a verification email was opened or the sign-in provider confirmed the address."
+      tags:
+        - "auth-lifecycle"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Send a verification email to the signed-in user's own address, so the user can prove the mailbox. email_verified in tokens and userinfo is true only after a verification email was opened or the sign-in provider confirmed the address."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/me/mfa/disable":
     post:
       operationId: "identuum-idp-oss.auth.mfa_disable_self"

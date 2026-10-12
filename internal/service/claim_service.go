@@ -628,6 +628,7 @@ func (s *ClaimService) consumeLocked(ctx context.Context, st repository.ClaimCon
 		return nil, nil, uuid.Nil, errClaimUserCreate
 	}
 	now := s.now().UTC()
+	claimVia := domain.EmailVerifiedViaAdminLink
 	user := &domain.User{
 		ID:             id,
 		OrganizationID: org.ID,
@@ -635,9 +636,12 @@ func (s *ClaimService) consumeLocked(ctx context.Context, st repository.ClaimCon
 		PasswordHash:   in.Password, // pgx Create auto-hashes plaintext via argon2id
 		Role:           domain.RoleOrgAdmin,
 		AuthSource:     domain.AuthSourceLocal,
-		EmailVerified:  true, // claim consume is the email-verification ceremony
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		// Claim consume activates the org_admin. The site_admin also holds the
+		// claim link, so it proves no mailbox (OSS-0912-C2).
+		EmailVerified:    true,
+		EmailVerifiedVia: &claimVia,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 	if strings.TrimSpace(in.Name) != "" {
 		n := strings.TrimSpace(in.Name)

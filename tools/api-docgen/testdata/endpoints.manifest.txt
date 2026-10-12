@@ -104,6 +104,7 @@ POST /api/v1/keys/deprecate
 POST /api/v1/keys/generate
 POST /api/v1/keys/reload
 POST /api/v1/keys/rotate
+POST /api/v1/me/email/verification
 POST /api/v1/me/mfa/disable
 POST /api/v1/me/mfa/recovery-codes/regenerate
 POST /api/v1/me/sessions/revoke-all

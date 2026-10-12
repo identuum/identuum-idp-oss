@@ -38,6 +38,16 @@ type UpdateUserOptions struct {
 	// Set to a non-nil pointer to write the hash; set to pointer-to-empty-string to clear it.
 	VerificationTokenHash *string
 
+	// EmailVerifiedVia (OSS-0912-C2) records how the mailbox was proven, one
+	// of the domain.EmailVerifiedVia* values; pointer-to-empty-string clears
+	// it (NULL, never proven). KeepProvenEmailVerifiedVia keeps a stored
+	// value that already proves the mailbox. Independently of both, an Email
+	// that differs from the stored address drops any stored proof: the new
+	// address is admin_set on an activated account and NULL otherwise,
+	// unless EmailVerifiedVia names the new address's own value.
+	EmailVerifiedVia           *string
+	KeepProvenEmailVerifiedVia bool
+
 	// RequireEmailVerifiedFalse, when true, appends `AND email_verified = false`
 	// to the UPDATE's WHERE clause so concurrent callers race at the SQL layer —
 	// only one writer wins. Used by ConsumeInvitationToken (§1.15) to make

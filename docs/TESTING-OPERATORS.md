@@ -595,6 +595,9 @@ restricts."** Rule `TOKEN-SCOPE-INTERSECTION-1`.
 - **userinfo releases claims under the carried scope** (OIDC Core §5.4):
   `email` + `email_verified` under `email`, `name` under `profile`, humans
   only. A token carrying neither gets `sub` and the org/role projection.
+  `email_verified` is true only for a proven mailbox (a verification email
+  or the sign-in provider; rows verified before v0.9.12 count), never for an
+  account an administrator activated or created (OSS-0912-C2).
 - **The id_token carries no email.** In the code flow scope-requested claims
   belong to userinfo; only a `claims` request parameter (unsupported) would
   put them in the id_token.

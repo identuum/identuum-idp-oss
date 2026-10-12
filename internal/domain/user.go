@@ -160,8 +160,39 @@ type User struct {
 	OrgPasswordComplexityEnabled *bool
 	OIDCLinked                   bool
 	RequiresPasswordChange       bool
-	EmailVerified                bool
-	Banned                       bool
+	// EmailVerified is the ACTIVATION flag: the account may sign in. It does
+	// not say the person controls the mailbox — see EmailVerifiedVia and
+	// MailboxProven (OSS-0912-C2).
+	EmailVerified bool
+	// EmailVerifiedVia records how the address was verified (one of the
+	// EmailVerifiedVia* values); nil means never proven (migration 0053).
+	EmailVerifiedVia *string
+	Banned           bool
+}
+
+// How the mailbox at a user's address was verified — users.email_verified_via
+// (OSS-0912-C2, owner Q1 (a), Q2 (b), Q3 (a)).
+const (
+	EmailVerifiedViaEmailLink   = "email_link"   // the user opened a verification email
+	EmailVerifiedViaUpstreamIDP = "upstream_idp" // the sign-in provider confirmed the address
+	EmailVerifiedViaLegacy      = "legacy"       // verified before migration 0053 (owner Q2)
+	EmailVerifiedViaAdminLink   = "admin_link"   // activated through a link an administrator also holds
+	EmailVerifiedViaAdminSet    = "admin_set"    // an administrator set the address or the flag
+	EmailVerifiedViaSetup       = "setup"        // the bootstrap or setup-wizard site_admin
+)
+
+// MailboxProven reports whether the user's mailbox was proven: by a
+// verification email, by the sign-in provider, or before the upgrade. It is
+// the source of the email_verified claim; the activation flag plays no part.
+func (u *User) MailboxProven() bool {
+	if u == nil || u.EmailVerifiedVia == nil {
+		return false
+	}
+	switch *u.EmailVerifiedVia {
+	case EmailVerifiedViaEmailLink, EmailVerifiedViaUpstreamIDP, EmailVerifiedViaLegacy:
+		return true
+	}
+	return false
 }
 
 // ValidateUserEmail is THE email grammar for a user record. Extracted from

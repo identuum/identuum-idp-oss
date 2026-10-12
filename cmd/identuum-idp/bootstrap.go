@@ -343,14 +343,17 @@ func bootstrapCore(ctx context.Context, deps bootstrapDeps, opts bootstrapOption
 		return 1
 	}
 
+	// OSS-0912-C2: activated, but the address was set at setup, not proven.
+	setupVia := domain.EmailVerifiedViaSetup
 	user := &domain.User{
-		ID:             siteAdminID,
-		OrganizationID: systemOrgID,
-		Email:          opts.Email,
-		PasswordHash:   opts.Password, // PgxUserRepository.Create argon2id-hashes non-PHC strings
-		Role:           domain.RoleSiteAdmin,
-		AuthSource:     domain.AuthSourceLocal,
-		EmailVerified:  true,
+		ID:               siteAdminID,
+		OrganizationID:   systemOrgID,
+		Email:            opts.Email,
+		PasswordHash:     opts.Password, // PgxUserRepository.Create argon2id-hashes non-PHC strings
+		Role:             domain.RoleSiteAdmin,
+		AuthSource:       domain.AuthSourceLocal,
+		EmailVerified:    true,
+		EmailVerifiedVia: &setupVia,
 	}
 	created, err := deps.Users.Create(ctx, user)
 	if err != nil {

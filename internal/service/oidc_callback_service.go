@@ -413,11 +413,16 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 		iss := eu.Issuer
 		linked := true
 		src := domain.AuthSourceIDJag
+		// OSS-0912-C2 (Q-C2-1 (a)): the provider verified this exact address
+		// (gate above), so the link records the proof; it never activates.
+		via := domain.EmailVerifiedViaUpstreamIDP
 		updated, uerr := s.users.Update(ctx, u.ID, orgID, repository.UpdateUserOptions{
-			ExternalID: &extID,
-			OIDCIssuer: &iss,
-			OIDCLinked: &linked,
-			AuthSource: &src,
+			ExternalID:                 &extID,
+			OIDCIssuer:                 &iss,
+			OIDCLinked:                 &linked,
+			AuthSource:                 &src,
+			EmailVerifiedVia:           &via,
+			KeepProvenEmailVerifiedVia: true,
 		})
 		if uerr != nil {
 			return nil, ErrCallbackProvisionFailed
@@ -434,17 +439,19 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 	}
 	extID := eu.ExternalID
 	iss := eu.Issuer
+	via := domain.EmailVerifiedViaUpstreamIDP
 	newUser := &domain.User{
-		ID:             id,
-		OrganizationID: orgID,
-		Email:          eu.Email,
-		PasswordHash:   domain.NoPasswordSentinel, // no local password — federated
-		Role:           domain.RoleOrgUser,
-		AuthSource:     domain.AuthSourceIDJag,
-		EmailVerified:  true, // provider-verified (gate enforced above)
-		ExternalID:     &extID,
-		OIDCIssuer:     &iss,
-		OIDCLinked:     true,
+		ID:               id,
+		OrganizationID:   orgID,
+		Email:            eu.Email,
+		PasswordHash:     domain.NoPasswordSentinel, // no local password — federated
+		Role:             domain.RoleOrgUser,
+		AuthSource:       domain.AuthSourceIDJag,
+		EmailVerified:    true, // provider-verified (gate enforced above)
+		EmailVerifiedVia: &via,
+		ExternalID:       &extID,
+		OIDCIssuer:       &iss,
+		OIDCLinked:       true,
 	}
 	if eu.Name != "" {
 		n := eu.Name

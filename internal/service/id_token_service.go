@@ -170,7 +170,7 @@ var (
 //	acr            = session.EffectiveACR() (when non-empty)
 //	amr            = session.Amr (when non-empty)
 //	email          = user.Email (when scope contains "email")
-//	email_verified = user.EmailVerified (when scope contains "email")
+//	email_verified = user.MailboxProven() (when scope contains "email"; OSS-0912-C2)
 //
 // `name`, `picture`, and other OIDC profile claims are NOT emitted
 // in this slice — the OSS user domain model already exposes Email
@@ -251,12 +251,12 @@ func (s *IDTokenService) Issue(ctx context.Context, in IDTokenInput) (*IDTokenRe
 		case "email":
 			if in.User.Email != "" {
 				extra["email"] = in.User.Email
-				extra["email_verified"] = in.User.EmailVerified
+				extra["email_verified"] = in.User.MailboxProven()
 			}
 		case "email_verified":
 			if in.User.Email != "" {
 				extra["email"] = in.User.Email
-				extra["email_verified"] = in.User.EmailVerified
+				extra["email_verified"] = in.User.MailboxProven()
 			}
 		}
 	}

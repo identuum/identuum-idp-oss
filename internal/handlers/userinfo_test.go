@@ -316,7 +316,8 @@ func TestUserinfo_ClaimsGatedByCarriedScope(t *testing.T) {
 		RegisterUserinfoRoutes(r, UserinfoHandlerDeps{
 			IntrospectionService: service.NewIntrospectionService(nil, v, nil),
 			UserLookup: &fakeUserinfoUserLookup{user: &domain.User{
-				ID: uid, Name: userinfoStrPtr("Alice Example"), EmailVerified: true,
+				// OSS-0912-C2: a proven mailbox, so the claim is true.
+				ID: uid, Name: userinfoStrPtr("Alice Example"), EmailVerified: true, EmailVerifiedVia: userinfoStrPtr(domain.EmailVerifiedViaEmailLink),
 			}},
 		})
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/userinfo", nil)

@@ -1355,6 +1355,10 @@ func mountAccountLifecycle(router gin.IRouter, resolved OSSRouterDeps) {
 			mw.NewRateLimitMiddlewareWithKeyFn(resolved.RateLimitConfig.EmailVerificationAddressLimit, "email-verification-address", handlers.ResendAddressKey),
 		},
 		VerifyEmailLimiter: mw.NewRateLimitMiddleware(resolved.RateLimitConfig.EmailVerifyLimit, "email-verify"),
+		// OSS-0912-C2: the signed-in send holds the per-address resend
+		// budget, keyed per subject (a subject has one address), behind the
+		// auth guard.
+		SendOwnVerificationLimiter: mw.NewRateLimitMiddlewareWithKeyFn(resolved.RateLimitConfig.EmailVerificationAddressLimit, "email-verification-own", authenticatedSubjectRateLimitKey),
 		// OSS-ONBOARD-A: the public invite validate + redeem hold the
 		// login-class limit, per IP.
 		UserInvite:        resolved.UserService,

@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"testing"
+
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
 // THE-CLAIMS-PARAMETER: a consented `claims.id_token` member puts the named
@@ -12,6 +14,9 @@ func TestIDToken_ClaimsParameterEmitsRequestedIdentityClaims(t *testing.T) {
 	user := newIDTokenUser()
 	name := "Alice Example"
 	user.Name = &name
+	// OSS-0912-C2: the claim is true only for a proven mailbox.
+	proven := domain.EmailVerifiedViaEmailLink
+	user.EmailVerifiedVia = &proven
 	session := newIDTokenSession()
 
 	resp, err := svc.Issue(context.Background(), IDTokenInput{

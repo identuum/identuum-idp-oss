@@ -216,7 +216,9 @@ func HandleUserinfo(deps UserinfoHandlerDeps) gin.HandlerFunc {
 		if !isServiceAccount && releaseEmail {
 			out.Email = claims.Email
 			if user != nil {
-				verified := user.EmailVerified
+				// OSS-0912-C2: true only for a proven mailbox, never for an
+				// account an administrator activated or vouched for.
+				verified := user.MailboxProven()
 				out.EmailVerified = &verified
 			}
 		}

@@ -153,6 +153,9 @@ func TestResendVerification_MatchingUnverifiedPersists(t *testing.T) {
 func TestResendVerification_AlreadyVerifiedSkipped(t *testing.T) {
 	user := newPasswordResetUser(t, "verified@example.test")
 	user.EmailVerified = true
+	// OSS-0912-C2: skipped because the mailbox is proven, not because the
+	// account is activated.
+	user.EmailVerifiedVia = c2Via(domain.EmailVerifiedViaEmailLink)
 	users := newFakeUserRepo(user)
 	verifs := newFakeEmailVerificationRepo()
 	rec := &fakeAuditRecorder{}
@@ -239,6 +242,8 @@ func TestVerifyEmail_HappyPathFlipsFlag(t *testing.T) {
 	require.Equal(t, 1, users.updates)
 	require.NotNil(t, users.lastOpts.EmailVerified)
 	assert.True(t, *users.lastOpts.EmailVerified)
+	require.NotNil(t, users.lastOpts.EmailVerifiedVia)
+	assert.Equal(t, domain.EmailVerifiedViaEmailLink, *users.lastOpts.EmailVerifiedVia)
 
 	events := rec.snapshot()
 	require.Len(t, events, 1)
@@ -248,6 +253,9 @@ func TestVerifyEmail_HappyPathFlipsFlag(t *testing.T) {
 func TestVerifyEmail_IdempotentOnAlreadyVerified(t *testing.T) {
 	user := newPasswordResetUser(t, "already@example.test")
 	user.EmailVerified = true
+	// OSS-0912-C2: already PROVEN is the no-op; an activated, unproven user
+	// records the proof (TestVerifyEmail_AdminActivatedUserRecordsTheProof).
+	user.EmailVerifiedVia = c2Via(domain.EmailVerifiedViaEmailLink)
 	users := newFakeUserRepo(user)
 	verifs := newFakeEmailVerificationRepo()
 	rec := &fakeAuditRecorder{}
@@ -304,6 +312,8 @@ func TestIssueInitialVerification_PersistsAndReturnsRawToken(t *testing.T) {
 func TestIssueInitialVerification_AlreadyVerifiedReturnsEmpty(t *testing.T) {
 	user := newPasswordResetUser(t, "skip@example.test")
 	user.EmailVerified = true
+	// OSS-0912-C2: the skip reads the proof, not the activation flag.
+	user.EmailVerifiedVia = c2Via(domain.EmailVerifiedViaLegacy)
 	svc := NewEmailVerificationService(newFakeUserRepo(user), newFakeEmailVerificationRepo(), nil, audit.NoopService{}, EmailVerificationServiceOptions{})
 	raw, err := svc.IssueInitialVerification(context.Background(), user)
 	require.NoError(t, err)

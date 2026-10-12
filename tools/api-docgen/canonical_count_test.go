@@ -102,7 +102,9 @@ import (
 // /api/v1/organizations/:id/registrations, POST /api/v1/users/:id/reject.
 // 157 → 159: POST /api/v1/mfa/setup/initiate + /complete, a signed-in user
 // adds an authenticator from account settings (FUNC-M1, OSS-V0.9.7).
-const CanonicalEndpointCount = 159
+// 159 → 160: POST /api/v1/me/email/verification, a signed-in user asks for
+// a verification email to prove the mailbox (OSS-0912-C2).
+const CanonicalEndpointCount = 160
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

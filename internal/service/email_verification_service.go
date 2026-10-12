@@ -28,18 +28,25 @@
 //   - SHA-256(raw_token) persisted; raw token NEVER stored.
 //   - TTL: 24 hours (matches the monolith's verification JWT exp).
 //   - Single-use: MarkAsUsed flips used_at on consume BEFORE the
-//     EmailVerified flag is flipped on the user row.
-//   - On consume: only EmailVerified=true is written. The OSS port
-//     deliberately does NOT clear `users.verification_token_hash`
-//     because the dedicated email_verifications table is the source
-//     of truth here.
+//     user row is written.
+//   - On consume (OSS-0912-C2): email_verified_via=email_link is
+//     written — the mailbox is proven — and EmailVerified=true (the
+//     activation) unless an invite or activation link is still pending:
+//     that link activates the account, and activating here would spend
+//     it. The OSS port deliberately does NOT clear
+//     `users.verification_token_hash` because the dedicated
+//     email_verifications table is the source of truth here.
 //
 // Anti-enumeration:
 //
 //   - ResendVerification always returns nil. The handler always
 //     returns 200 regardless of whether any user matched.
-//   - The per-user branch silently skips already-verified / banned /
+//   - The per-user branch silently skips mailbox-proven / banned /
 //     deleted users; the wire response is unchanged.
+//
+// POST /api/v1/me/email/verification (OSS-0912-C2) is the signed-in
+// form: SendOwnVerification mails the caller's own address and answers
+// plainly, since the caller already knows the account exists.
 
 package service
 
@@ -47,6 +54,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -69,6 +77,14 @@ const DefaultEmailVerificationTTL = 24 * time.Hour
 // used, or its user row no longer exists / is deleted. Mapped to
 // 400 invalid_token at the HTTP boundary.
 var ErrEmailVerificationInvalidToken = errors.New("email verification: invalid token")
+
+// ErrEmailAlreadyProven answers SendOwnVerification for a user whose mailbox
+// is already proven: nothing is sent.
+var ErrEmailAlreadyProven = errors.New("email verification: mailbox already proven")
+
+// ErrEmailDeliveryFailed wraps a send error SendOwnVerification met other
+// than ErrEmailDeliveryNotConfigured.
+var ErrEmailDeliveryFailed = errors.New("email verification: delivery failed")
 
 // EmailVerificationNotifier is the minimum surface this service
 // needs from the notification layer, provided by any implementation
@@ -156,8 +172,9 @@ func NewEmailVerificationService(
 
 // VerifyEmail consumes the supplied raw token.
 //
-// On success the user's email_verified flag is flipped to true and
-// the verification row is marked used. The same caller submitting
+// On success the mailbox is recorded as proven (email_link), the
+// account is activated unless an invite or activation link is pending,
+// and the verification row is marked used. The same caller submitting
 // the same raw token again finds used_at != nil and is rejected.
 //
 // Wire mapping: nil → 200; ErrEmailVerificationInvalidToken → 400.
@@ -188,16 +205,23 @@ func (s *EmailVerificationService) VerifyEmail(ctx context.Context, rawToken, ip
 	if user.DeletedAt != nil || user.Banned {
 		return ErrEmailVerificationInvalidToken
 	}
-	// Idempotency guard — already verified is a no-op. We still
-	// return nil so the operator sees the standard 200 even on a
-	// stale link click.
-	if user.EmailVerified {
+	// Idempotency guard — an already proven mailbox is a no-op. We still
+	// return nil so the operator sees the standard 200 even on a stale
+	// link click. An activated but unproven account (an administrator's
+	// link or setting) goes on to record the proof.
+	if user.MailboxProven() {
 		return nil
 	}
-	verified := true
-	if _, err := s.users.Update(ctx, user.ID, user.OrganizationID, repository.UpdateUserOptions{
-		EmailVerified: &verified,
-	}); err != nil {
+	via := domain.EmailVerifiedViaEmailLink
+	opts := repository.UpdateUserOptions{EmailVerifiedVia: &via}
+	// Q-C2-2 (a): a pending invite or activation is activated by its own
+	// link; activating here would spend that link and leave the account
+	// with no password anyone knows.
+	if user.ActivationTokenHash == nil {
+		verified := true
+		opts.EmailVerified = &verified
+	}
+	if _, err := s.users.Update(ctx, user.ID, user.OrganizationID, opts); err != nil {
 		return ErrEmailVerificationInvalidToken
 	}
 	_ = s.audit.Record(ctx, audit.Event{
@@ -216,7 +240,7 @@ func (s *EmailVerificationService) VerifyEmail(ctx context.Context, rawToken, ip
 // matching unverified user(s). Anti-enumeration: the wire response is
 // 200 regardless of whether any user matched.
 //
-// Banned / deleted / already-verified users are silently skipped.
+// Banned / deleted / mailbox-proven users are silently skipped.
 func (s *EmailVerificationService) ResendVerification(ctx context.Context, email string) error {
 	email = strings.ToLower(strings.TrimSpace(email))
 	if email == "" {
@@ -234,51 +258,94 @@ func (s *EmailVerificationService) ResendVerification(ctx context.Context, email
 	return nil
 }
 
-// issueResends issues one token, one email and one audit event per unverified
-// live account.
+// issueResends issues one token, one email and one audit event per live
+// account whose mailbox is not proven.
 func (s *EmailVerificationService) issueResends(ctx context.Context, users []*domain.User) {
 	for _, user := range users {
-		if user == nil || user.DeletedAt != nil || user.Banned || user.EmailVerified {
+		if user == nil || user.DeletedAt != nil || user.Banned || user.MailboxProven() {
 			continue
 		}
-		raw, hash, err := s.generateToken()
-		if err != nil {
-			s.logger.Error("email_verification: token generation failed",
+		if sendErr := s.issue(ctx, user); sendErr != nil && !errors.Is(sendErr, errEmailVerificationNotIssued) {
+			s.logger.Warn("email_verification: send email failed",
 				zap.String("user_id", user.ID.String()),
-				zap.Error(err),
+				zap.Error(sendErr),
 			)
-			continue
 		}
-		now := s.now().UTC()
-		row := &domain.EmailVerification{
-			UserID:    user.ID,
-			TokenHash: hash,
-			ExpiresAt: now.Add(s.ttl),
-			CreatedAt: now,
-		}
-		if err := s.verifs.Create(ctx, row); err != nil {
-			s.logger.Error("email_verification: persist failed",
-				zap.String("user_id", user.ID.String()),
-				zap.Error(err),
-			)
-			continue
-		}
-		if s.notifier != nil {
-			if sendErr := s.notifier.SendVerificationEmail(ctx, user, raw); sendErr != nil {
-				s.logger.Warn("email_verification: send email failed",
-					zap.String("user_id", user.ID.String()),
-					zap.Error(sendErr),
-				)
-			}
-		}
-		_ = s.audit.Record(ctx, audit.Event{
-			Action:         string(domain.AuditEmailVerificationResent),
-			Outcome:        "success",
-			SubjectID:      user.ID,
-			SubjectType:    "user",
-			OrganizationID: user.OrganizationID,
-		})
 	}
+}
+
+// issue persists one token for user, mails it and audits the send. It returns
+// the notifier's error; a token or persistence failure is logged and returned
+// as errEmailVerificationNotIssued, and nothing is mailed or audited.
+func (s *EmailVerificationService) issue(ctx context.Context, user *domain.User) error {
+	raw, hash, err := s.generateToken()
+	if err != nil {
+		s.logger.Error("email_verification: token generation failed",
+			zap.String("user_id", user.ID.String()),
+			zap.Error(err),
+		)
+		return errEmailVerificationNotIssued
+	}
+	now := s.now().UTC()
+	row := &domain.EmailVerification{
+		UserID:    user.ID,
+		TokenHash: hash,
+		ExpiresAt: now.Add(s.ttl),
+		CreatedAt: now,
+	}
+	if err := s.verifs.Create(ctx, row); err != nil {
+		s.logger.Error("email_verification: persist failed",
+			zap.String("user_id", user.ID.String()),
+			zap.Error(err),
+		)
+		return errEmailVerificationNotIssued
+	}
+	var sendErr error
+	if s.notifier != nil {
+		sendErr = s.notifier.SendVerificationEmail(ctx, user, raw)
+	}
+	_ = s.audit.Record(ctx, audit.Event{
+		Action:         string(domain.AuditEmailVerificationResent),
+		Outcome:        "success",
+		SubjectID:      user.ID,
+		SubjectType:    "user",
+		OrganizationID: user.OrganizationID,
+	})
+	return sendErr
+}
+
+var errEmailVerificationNotIssued = errors.New("email verification: token not issued")
+
+// SendOwnVerification mails a verification link to the signed-in user's own
+// address (POST /api/v1/me/email/verification, OSS-0912-C2). It answers
+// ErrEmailAlreadyProven for a proven mailbox, domain.ErrUserNotFound for a
+// user that is gone, ErrEmailDeliveryNotConfigured when this server cannot
+// send email, ErrEmailDeliveryFailed for any other send error. The raw token
+// only ever travels in the mail.
+func (s *EmailVerificationService) SendOwnVerification(ctx context.Context, userID uuid.UUID) error {
+	user, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if user == nil || user.DeletedAt != nil || user.Banned {
+		return domain.ErrUserNotFound
+	}
+	if user.MailboxProven() {
+		return ErrEmailAlreadyProven
+	}
+	if s.notifier == nil {
+		return ErrEmailDeliveryNotConfigured
+	}
+	if err := s.issue(ctx, user); err != nil {
+		if errors.Is(err, ErrEmailDeliveryNotConfigured) {
+			return ErrEmailDeliveryNotConfigured
+		}
+		if errors.Is(err, errEmailVerificationNotIssued) {
+			return err
+		}
+		return fmt.Errorf("%w: %w", ErrEmailDeliveryFailed, err)
+	}
+	return nil
 }
 
 // IssueInitialVerification is a sibling helper for first-time email
@@ -294,7 +361,7 @@ func (s *EmailVerificationService) IssueInitialVerification(ctx context.Context,
 	if user == nil {
 		return "", errors.New("email_verification: nil user")
 	}
-	if user.EmailVerified {
+	if user.MailboxProven() {
 		return "", nil
 	}
 	raw, hash, err := s.generateToken()

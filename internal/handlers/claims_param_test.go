@@ -209,7 +209,7 @@ func TestUserinfo_ReleasesConsentedRequestedClaim(t *testing.T) {
 		r := gin.New()
 		RegisterUserinfoRoutes(r, UserinfoHandlerDeps{
 			IntrospectionService: service.NewIntrospectionService(nil, v, nil),
-			UserLookup:           &fakeUserinfoUserLookup{user: &domain.User{ID: uid, Name: userinfoStrPtr("Alice Example"), EmailVerified: true}},
+			UserLookup:           &fakeUserinfoUserLookup{user: &domain.User{ID: uid, Name: userinfoStrPtr("Alice Example"), EmailVerified: true, EmailVerifiedVia: userinfoStrPtr(domain.EmailVerifiedViaLegacy)}},
 		})
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/oidc/userinfo", nil)
 		req.Header.Set("Authorization", "Bearer ANY")

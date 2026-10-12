@@ -7,6 +7,7 @@ package handlers
 //   POST /api/v1/auth/password/reset
 //   GET  /api/v1/auth/verify-email
 //   POST /api/v1/auth/resend-verification
+//   POST /api/v1/me/email/verification   (signed in; OSS-0912-C2)
 //   GET  /api/v1/auth/organizations/activate/:token
 //   POST /api/v1/auth/organizations/activate
 //   GET  /api/v1/auth/claim/validate
@@ -56,6 +57,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
+	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/mw"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -84,6 +87,10 @@ type AccountLifecycleHandlerDeps struct {
 	// (EmailVerifyLimit, per IP). Nil entries are skipped (OSS-SEC).
 	ResendVerificationLimiters []gin.HandlerFunc
 	VerifyEmailLimiter         gin.HandlerFunc
+	// SendOwnVerificationLimiter runs before POST
+	// /api/v1/me/email/verification, behind mw.RequireAuthenticated, so it
+	// is keyed by the signed-in subject (OSS-0912-C2). Nil is skipped.
+	SendOwnVerificationLimiter gin.HandlerFunc
 
 	// UserInvite validates and redeems user invites (OSS-ONBOARD-A); nil or
 	// without WithInvite leaves the two public invite routes unmounted.
@@ -182,8 +189,26 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:summary=Resend a verification email. Anti-enumeration — always 200 regardless of whether the email matches an unverified user.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=No Set-Cookie. Banned / deleted / already-verified users are silently skipped. Raw token never echoed. Rate-limited per IP and per target address (hashed; known and unknown addresses alike), 429 past either window. Each sent mail is audited as email_verification_resent, without the address.
+		// docgen:notes=No Set-Cookie. Banned / deleted / mailbox-proven users are silently skipped. Raw token never echoed. Rate-limited per IP and per target address (hashed; known and unknown addresses alike), 429 past either window. Each sent mail is audited as email_verification_resent, without the address.
 		resendGroup.POST("/api/v1/auth/resend-verification", HandleResendVerification(deps))
+
+		// OSS-0912-C2: the signed-in user asks for a link to their own
+		// address. mw.RequireAuthenticated gates entry and the principal
+		// supplies the user; no address or user id is on the wire.
+		ownGroup := router.Group("/api/v1/me/email")
+		ownGroup.Use(mw.RequireAuthenticated())
+		if deps.SendOwnVerificationLimiter != nil {
+			ownGroup.Use(deps.SendOwnVerificationLimiter)
+		}
+		// docgen:endpoint
+		// docgen:surface=auth-lifecycle
+		// docgen:method=POST
+		// docgen:path=/api/v1/me/email/verification
+		// docgen:summary=Send a verification email to the signed-in user's own address, so the user can prove the mailbox. email_verified in tokens and userinfo is true only after a verification email was opened or the sign-in provider confirmed the address.
+		// docgen:tier=oss
+		// docgen:auth=authenticated
+		// docgen:notes=No body. 200 {status:"sent"}; 200 {status:"already_verified"} when the mailbox is proven (nothing sent); 503 email_delivery_not_configured when this server has no SMTP; 502 email_delivery_failed when the mail server refused it; 404 when the user is gone; 401 without a principal. Rate-limited per signed-in subject (the per-address resend class), 429 past the window. Cache-Control no-store. The raw token travels only in the mail; audited as email_verification_resent.
+		ownGroup.POST("/verification", HandleSendOwnVerification(deps))
 	}
 	if deps.UserInvite.InviteEnabled() {
 		inviteGroup := router.Group("")
@@ -396,6 +421,38 @@ func HandleResendVerification(deps AccountLifecycleHandlerDeps) gin.HandlerFunc 
 		}
 		_ = deps.EmailVerify.ResendVerification(c.Request.Context(), req.Email)
 		c.JSON(http.StatusOK, resendVerificationResponse{Success: true, Message: resendVerificationMessage})
+	}
+}
+
+// ---------- POST /api/v1/me/email/verification ----------
+
+// HandleSendOwnVerification mails a verification link to the signed-in
+// user's own address (OSS-0912-C2). Unlike the public resend it answers
+// plainly: the caller already knows its own account, and the UI must say
+// when this server cannot send email.
+func HandleSendOwnVerification(deps AccountLifecycleHandlerDeps) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		p, ok := mw.PrincipalFromContext(c)
+		if !ok || p == nil || p.UserID == uuid.Nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		err := deps.EmailVerify.SendOwnVerification(c.Request.Context(), p.UserID)
+		switch {
+		case err == nil:
+			c.JSON(http.StatusOK, gin.H{"status": "sent"})
+		case errors.Is(err, service.ErrEmailAlreadyProven):
+			c.JSON(http.StatusOK, gin.H{"status": "already_verified"})
+		case errors.Is(err, service.ErrEmailDeliveryNotConfigured):
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "email_delivery_not_configured"})
+		case errors.Is(err, service.ErrEmailDeliveryFailed):
+			c.JSON(http.StatusBadGateway, gin.H{"error": "email_delivery_failed"})
+		case errors.Is(err, domain.ErrUserNotFound):
+			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
+		}
 	}
 }
 

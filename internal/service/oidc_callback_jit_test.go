@@ -90,6 +90,13 @@ func (r *fakeUserRepoForCallback) Update(_ context.Context, id, orgID uuid.UUID,
 		v := *opts.Name
 		u.Name = &v
 	}
+	if opts.EmailVerifiedVia != nil && !(opts.KeepProvenEmailVerifiedVia && u.MailboxProven()) {
+		if v := *opts.EmailVerifiedVia; v == "" {
+			u.EmailVerifiedVia = nil
+		} else {
+			u.EmailVerifiedVia = &v
+		}
+	}
 	cp := *u
 	return &cp, nil
 }

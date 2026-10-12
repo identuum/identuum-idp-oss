@@ -244,15 +244,15 @@ func (r *PgxOrganizationRepository) CreateWithAdmin(ctx context.Context, org *do
 	}
 
 	createdUser, err := (&PgxUserRepository{db: tx}).scanUser(tx.QueryRow(ctx, `
-		INSERT INTO users (id, email, name, password_hash, role, organization_id, banned, email_verified, deleted_at, created_at, updated_at, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, mfa_enabled, mfa_secret)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13, $14, $15, $16, $17, $18)
-		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`,
+		INSERT INTO users (id, email, name, password_hash, role, organization_id, banned, email_verified, deleted_at, created_at, updated_at, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, mfa_enabled, mfa_secret, email_verified_via)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via`,
 		adminUser.ID, adminUser.Email, adminUser.Name, adminUser.PasswordHash,
 		string(adminUser.Role), orgIDArg, adminUser.Banned, adminUser.EmailVerified, adminUser.DeletedAt,
 		adminUser.AuthSource, adminUser.ExternalID, adminUser.RequiresPasswordChange,
 		adminUser.OIDCLinked, adminUser.OIDCIssuer, adminUser.ActivationTokenExpiresAt,
 		adminUser.ActivationTokenHash,
-		adminUser.MFAEnabled, adminUser.MFASecret,
+		adminUser.MFAEnabled, adminUser.MFASecret, adminUser.EmailVerifiedVia,
 	))
 	if err != nil {
 		var pgErr *pgconn.PgError

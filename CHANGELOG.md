@@ -32,6 +32,35 @@ follows [Semantic Versioning](https://semver.org/).
   changed by someone else while you were saving; nothing was saved, reload
   it and try again". Removing a service account from a client now records
   the account that was really removed.
+- **`email_verified` in tokens now means the mailbox was proven** (OSS
+  v0.9.12 item C2; fixes the v0.9.11 entry in `KNOWN_ISSUES.md`). The
+  `email_verified` claim in the id_token and in userinfo is true only when
+  the user opened a verification email or the sign-in provider confirmed
+  the address. An administrator's invite, activation or claim link, an
+  administrator creating the user with a password or setting the flag, and
+  the setup site_admin activate the account but no longer make the claim
+  true. **Upgrade note for relying parties:** users created after the
+  upgrade through those paths have `email_verified: false` until they
+  verify by email. Users who were verified before the upgrade keep `true`.
+  Sign-in and account activation are unchanged.
+- **Migration `0053_users_email_verified_via.sql`** adds the nullable column
+  `users.email_verified_via` (`email_link`, `upstream_idp`, `admin_link`,
+  `admin_set`, `setup` or `legacy`; NULL means never proven) and sets
+  `legacy` on every row that was verified before. Down drops the column.
+- **New signed-in route `POST /api/v1/me/email/verification`** sends a
+  verification email to the user's own address. It answers
+  `200 {"status":"sent"}`, `200 {"status":"already_verified"}`,
+  `503 email_delivery_not_configured` when the server has no SMTP, or
+  `502 email_delivery_failed`. It is rate-limited per user. The endpoint
+  count goes from 159 to 160 (`go run ./tools/api-docgen --dry-run`).
+- **The user objects of `GET /api/v1/profile` and the admin user routes gain
+  `email_verified_via` (string or null) and `email_proven` (boolean).**
+  `email_verified` keeps its meaning there: the account is activated.
+- **A pending invitee who opens a verification email keeps a working
+  invite.** Before, the verification email activated the account and so
+  spent the invite link. Now it records the proof only, and the invite
+  still sets the password. An administrator's change of a user's address
+  drops the proof of the old address.
 
 ## `v0.9.11`
 

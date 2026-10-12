@@ -86,6 +86,13 @@ func (r *fakeUserRepo) Update(_ context.Context, id, _ uuid.UUID, opts repositor
 	if opts.EmailVerified != nil {
 		u.EmailVerified = *opts.EmailVerified
 	}
+	if opts.EmailVerifiedVia != nil {
+		if v := *opts.EmailVerifiedVia; v == "" {
+			u.EmailVerifiedVia = nil
+		} else {
+			u.EmailVerifiedVia = &v
+		}
+	}
 	if opts.ActivationTokenHash != nil {
 		s := *opts.ActivationTokenHash
 		if s == "" {

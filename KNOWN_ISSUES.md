@@ -14,7 +14,12 @@ Newest release first. Each entry says which versions are affected and where the 
   "Email verified: Verified".
 - **Why it matters:** the flag is also used when identuum counts an organization's verified administrators (for
   example in account-recovery checks), so it is more than a label.
-- **Until it is fixed:** when you need the verified status to mean "this person controls the mailbox", configure
-  SMTP and let users activate from the email they receive instead of handing out the link directly.
-- **Planned fix:** a later release marks an address verified only when the link was delivered by email, shows
-  "Not verified" with a way for the user to verify otherwise, and re-checks every use of the flag.
+- **Until it is fixed:** no setting makes the status mean "this person controls the mailbox", because the
+  administrator always also receives the link, even when it is emailed. Treat "Email verified" as "account
+  activated". Relying parties that need a proven address should not rely on `email_verified` from v0.9.11 or
+  earlier.
+- **Fixed in v0.9.12:** an address counts as verified only when the user opened a verification email or the
+  sign-in provider confirmed it. Accounts created before v0.9.12 keep their status.
+
+  _Corrected on 2026-10-12: this entry first said that configuring SMTP was a workaround and that the fix would
+  trust a link "delivered by email". Neither holds: the administrator receives the same link either way._

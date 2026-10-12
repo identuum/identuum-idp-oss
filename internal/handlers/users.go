@@ -550,7 +550,13 @@ type safeUser struct {
 	Name           *string         `json:"name,omitempty"`
 	Role           domain.UserRole `json:"role"`
 	AuthSource     string          `json:"auth_source"`
-	EmailVerified  bool            `json:"email_verified"`
+	// EmailVerified is the activation flag. EmailVerifiedVia says how the
+	// address was verified (null: never proven) and EmailProven whether the
+	// mailbox was proven, as the email_verified token claim reports it
+	// (OSS-0912-C2).
+	EmailVerified    bool    `json:"email_verified"`
+	EmailVerifiedVia *string `json:"email_verified_via"`
+	EmailProven      bool    `json:"email_proven"`
 	// InvitationPending: the user was invited and has not redeemed the
 	// link yet (OSS-ONBOARD-A). The token itself is never projected.
 	InvitationPending      bool       `json:"invitation_pending"`
@@ -625,6 +631,8 @@ func toSafeUser(u *domain.User) safeUser {
 		Role:                   u.Role,
 		AuthSource:             u.AuthSource,
 		EmailVerified:          u.EmailVerified,
+		EmailVerifiedVia:       u.EmailVerifiedVia,
+		EmailProven:            u.MailboxProven(),
 		InvitationPending:      service.IsInvitePending(u),
 		MFAEnabled:             u.MFAEnabled,
 		MFAPolicy:              u.MFAPolicy,

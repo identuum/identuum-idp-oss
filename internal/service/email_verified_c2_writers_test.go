@@ -1,0 +1,123 @@
+package service
+
+// OSS-0912-C2: every writer of a user row says how the mailbox was proven,
+// or that it was not (owner Q1 (a), Q3 (a), Q-C2-1 (a)).
+
+import (
+	"context"
+	"testing"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
+)
+
+func viaOf(u *domain.User) string {
+	if u == nil || u.EmailVerifiedVia == nil {
+		return ""
+	}
+	return *u.EmailVerifiedVia
+}
+
+func TestUserServiceCreate_RecordsHowTheAddressWasVouched(t *testing.T) {
+	svc := NewUserService(nil, newUserRepo())
+	admin, err := svc.Create(context.Background(), CreateUserOptions{
+		OrganizationID: uuid.New(), Email: "admin-set@example.com", Password: "Strong-Password-1!", Role: domain.RoleOrgUser,
+	})
+	require.NoError(t, err)
+	assert.True(t, admin.EmailVerified, "D-017: an admin-created user is activated")
+	assert.Equal(t, domain.EmailVerifiedViaAdminSet, viaOf(admin), "an administrator's word proves no mailbox")
+
+	self, err := svc.Create(context.Background(), CreateUserOptions{
+		OrganizationID: uuid.New(), Email: "self@example.com", Password: "Strong-Password-1!", Role: domain.RoleOrgUser, Unverified: true,
+	})
+	require.NoError(t, err)
+	assert.False(t, self.EmailVerified)
+	assert.Equal(t, "", viaOf(self), "a self-registrant is never proven at creation")
+}
+
+// c2RecordingUserRepo records the last update's options.
+type c2RecordingUserRepo struct {
+	*inMemoryUserRepo
+	last repository.UpdateUserOptions
+}
+
+func (r *c2RecordingUserRepo) Update(ctx context.Context, id, orgID uuid.UUID, opts repository.UpdateUserOptions) (*domain.User, error) {
+	r.last = opts
+	return r.inMemoryUserRepo.Update(ctx, id, orgID, opts)
+}
+
+func TestUserServiceUpdate_AdminSettingIsLabelledNotProven(t *testing.T) {
+	repo := &c2RecordingUserRepo{inMemoryUserRepo: newUserRepo()}
+	svc := NewUserService(nil, repo)
+	u, err := svc.Create(context.Background(), CreateUserOptions{
+		OrganizationID: uuid.New(), Email: "edit@example.com", Password: "Strong-Password-1!", Role: domain.RoleOrgUser,
+	})
+	require.NoError(t, err)
+	yes, no := true, false
+
+	_, err = svc.Update(context.Background(), u.ID, u.OrganizationID, UpdateUserOptions{EmailVerified: &yes})
+	require.NoError(t, err)
+	require.NotNil(t, repo.last.EmailVerifiedVia)
+	assert.Equal(t, domain.EmailVerifiedViaAdminSet, *repo.last.EmailVerifiedVia)
+	assert.True(t, repo.last.KeepProvenEmailVerifiedVia, "setting true keeps a mailbox already proven")
+
+	_, err = svc.Update(context.Background(), u.ID, u.OrganizationID, UpdateUserOptions{EmailVerified: &no})
+	require.NoError(t, err)
+	require.NotNil(t, repo.last.EmailVerifiedVia)
+	assert.Equal(t, "", *repo.last.EmailVerifiedVia, "setting false clears the proof")
+	assert.False(t, repo.last.KeepProvenEmailVerifiedVia)
+
+	name := "Renamed"
+	_, err = svc.Update(context.Background(), u.ID, u.OrganizationID, UpdateUserOptions{Name: &name})
+	require.NoError(t, err)
+	assert.Nil(t, repo.last.EmailVerifiedVia, "an unrelated edit leaves the proof alone")
+}
+
+func TestConsumeClaim_OrgAdminIsActivatedByAnAdministratorsLink(t *testing.T) {
+	svc, _, _, users, _, org := newClaimFixture(t)
+	raw, _, err := svc.GenerateClaimToken(context.Background(), org.ID, "")
+	require.NoError(t, err)
+	_, err = svc.ConsumeClaim(context.Background(), ConsumeClaimInput{Token: raw, Email: "claimer@example.test", Name: "C", Password: "longenoughpassword"})
+	require.NoError(t, err)
+	require.Len(t, users.byEmail["claimer@example.test"], 1)
+	created := users.byEmail["claimer@example.test"][0]
+	assert.True(t, created.EmailVerified)
+	assert.Equal(t, domain.EmailVerifiedViaAdminLink, viaOf(created), "the site_admin also holds the claim link")
+}
+
+func TestOIDCCallback_JIT_RecordsTheProvidersProof(t *testing.T) {
+	h := newCallbackHarness(t)
+	u, err := h.callWithClaims(t, nil)
+	require.NoError(t, err)
+	assert.True(t, u.EmailVerified)
+	assert.Equal(t, domain.EmailVerifiedViaUpstreamIDP, viaOf(u))
+}
+
+func TestOIDCCallback_LinkRecordsTheProofOnly(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		activated bool
+		via       *string
+		wantVia   string
+	}{
+		{"unactivated local user", false, nil, domain.EmailVerifiedViaUpstreamIDP},
+		{"admin-activated local user", true, c2Via(domain.EmailVerifiedViaAdminLink), domain.EmailVerifiedViaUpstreamIDP},
+		{"already proven by email", true, c2Via(domain.EmailVerifiedViaEmailLink), domain.EmailVerifiedViaEmailLink},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newCallbackHarness(t)
+			id := uuid.New()
+			h.users.byID[id] = &domain.User{ID: id, OrganizationID: h.orgID, Email: "alice@example.com", Role: domain.RoleOrgUser,
+				AuthSource: domain.AuthSourceLocal, EmailVerified: c.activated, EmailVerifiedVia: c.via}
+			u, err := h.callWithClaims(t, nil)
+			require.NoError(t, err)
+			assert.Equal(t, id, u.ID)
+			assert.Equal(t, c.wantVia, viaOf(h.users.byID[id]))
+			assert.Equal(t, c.activated, h.users.byID[id].EmailVerified, "Q-C2-1: a link never changes activation")
+		})
+	}
+}

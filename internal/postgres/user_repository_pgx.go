@@ -67,6 +67,7 @@ func (r *PgxUserRepository) scanUser(row pgx.Row) (*domain.User, error) {
 		&user.ActivationTokenExpiresAt,
 		&user.ActivationTokenHash,
 		&user.VerificationTokenHash,
+		&user.EmailVerifiedVia,
 	)
 
 	if err != nil {
@@ -126,6 +127,7 @@ func (r *PgxUserRepository) scanUserWithPassword(row pgx.Row) (*domain.User, err
 		&user.ActivationTokenExpiresAt,
 		&user.ActivationTokenHash,
 		&user.VerificationTokenHash,
+		&user.EmailVerifiedVia,
 	)
 
 	if err != nil {
@@ -188,6 +190,7 @@ func (r *PgxUserRepository) scanUserWithOrg(row pgx.Row) (*domain.User, error) {
 		&user.ActivationTokenExpiresAt,
 		&user.ActivationTokenHash,
 		&user.VerificationTokenHash,
+		&user.EmailVerifiedVia,
 		&orgDomain,
 		&orgName,
 		&orgMfaPolicy,
@@ -281,9 +284,9 @@ func (r *PgxUserRepository) Create(ctx context.Context, user *domain.User) (*dom
 	}
 
 	query := `
-		INSERT INTO users (id, email, name, password_hash, role, organization_id, banned, email_verified, deleted_at, created_at, updated_at, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, mfa_enabled, mfa_secret, contact_email)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`
+		INSERT INTO users (id, email, name, password_hash, role, organization_id, banned, email_verified, deleted_at, created_at, updated_at, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, mfa_enabled, mfa_secret, contact_email, email_verified_via)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW(), $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via`
 
 	timer := prometheus.NewTimer(metrics.DBQueryDuration.WithLabelValues("user_repo", "create", "all"))
 	defer timer.ObserveDuration()
@@ -308,6 +311,7 @@ func (r *PgxUserRepository) Create(ctx context.Context, user *domain.User) (*dom
 		user.MFAEnabled,
 		user.MFASecret,
 		contactArg,
+		user.EmailVerifiedVia,
 	))
 
 	if err != nil {
@@ -349,7 +353,7 @@ func (r *PgxUserRepository) Create(ctx context.Context, user *domain.User) (*dom
 // GetByID retrieves a user by ID
 func (r *PgxUserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	query := `
-		SELECT id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE id = $1 AND banned = false AND deleted_at IS NULL`
 
@@ -371,7 +375,7 @@ func (r *PgxUserRepository) FindUsersByEmail(ctx context.Context, email string) 
 	query := `
 		SELECT
 			u.id, u.email, u.name, u.organization_id, u.role, u.password_hash, u.banned, u.email_verified, u.deleted_at, u.created_at, u.updated_at, u.last_login_at, u.mfa_enabled, u.mfa_secret, u.mfa_recovery_codes,
-			u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash,
+			u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash, u.email_verified_via,
 			o.domain, o.name AS organization_name, o.mfa_policy, o.auth_policy, o.max_sessions_per_user, o.password_complexity_enabled
 		FROM users u
 		LEFT JOIN organizations o ON u.organization_id = o.id
@@ -403,14 +407,14 @@ func (r *PgxUserRepository) FindUsersByEmail(ctx context.Context, email string) 
 func (r *PgxUserRepository) GetByEmailAndOrgID(ctx context.Context, orgID uuid.UUID, email string) (*domain.User, error) {
 	if orgID == uuid.Nil {
 		query := `
-		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE organization_id IS NULL AND email = $1 AND banned = false AND deleted_at IS NULL`
 		return r.scanUserWithPassword(r.db.QueryRow(ctx, query, email))
 	}
 
 	query := `
-		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE organization_id = $1 AND email = $2 AND banned = false AND deleted_at IS NULL`
 
@@ -429,7 +433,7 @@ func (r *PgxUserRepository) GetByEmailAndOrgID(ctx context.Context, orgID uuid.U
 // collapses both onto the opaque "invalid token" sentinel.
 func (r *PgxUserRepository) FindByActivationTokenHash(ctx context.Context, hash string) (*domain.User, error) {
 	const query = `
-		SELECT id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE activation_token_hash = $1 AND deleted_at IS NULL AND banned = false`
 	user, err := r.scanUser(r.db.QueryRow(ctx, query, hash))
@@ -446,14 +450,14 @@ func (r *PgxUserRepository) FindByActivationTokenHash(ctx context.Context, hash 
 func (r *PgxUserRepository) GetByExternalID(ctx context.Context, orgID uuid.UUID, externalID string) (*domain.User, error) {
 	if orgID == uuid.Nil {
 		query := `
-		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE organization_id IS NULL AND external_id = $1 AND banned = false AND deleted_at IS NULL`
 		return r.scanUserWithPassword(r.db.QueryRow(ctx, query, externalID))
 	}
 
 	query := `
-		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE organization_id = $1 AND external_id = $2 AND banned = false AND deleted_at IS NULL`
 
@@ -485,6 +489,13 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 		setParts = append(setParts, fmt.Sprintf("email = $%d", argIndex))
 		args = append(args, *opts.Email)
 		argIndex++
+	}
+
+	// OSS-0912-C2: how the mailbox was proven.
+	if viaPart, viaArgs := emailVerifiedViaSet(opts, argIndex); viaPart != "" {
+		setParts = append(setParts, viaPart)
+		args = append(args, viaArgs...)
+		argIndex += len(viaArgs)
 	}
 
 	if opts.Password != nil {
@@ -636,7 +647,7 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 		UPDATE users
 		SET %s
 		%s
-		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`,
+		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via`,
 		strings.Join(setParts, ", "), whereClause)
 
 	updated, err := r.scanUser(r.db.QueryRow(ctx, query, args...))
@@ -652,6 +663,49 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 		return nil, err
 	}
 	return updated, nil
+}
+
+// sqlMailboxProven is domain.User.MailboxProven in SQL.
+const sqlMailboxProven = "email_verified_via IN ('" + domain.EmailVerifiedViaEmailLink + "', '" +
+	domain.EmailVerifiedViaUpstreamIDP + "', '" + domain.EmailVerifiedViaLegacy + "')"
+
+// emailVerifiedViaSet is Update's email_verified_via assignment (OSS-0912-C2)
+// and the arguments it binds from argIndex on; "" when nothing changes it.
+// A changed Email is not the address that was proven: it takes the
+// requested value, else admin_set on an activated account and NULL
+// otherwise. In SET, column references read the row as it was, so
+// `email = $n` asks whether the address changes.
+func emailVerifiedViaSet(opts repository.UpdateUserOptions, argIndex int) (string, []any) {
+	var args []any
+	value := "" // the requested value as SQL
+	if opts.EmailVerifiedVia != nil {
+		if *opts.EmailVerifiedVia == "" {
+			value = "NULL"
+		} else {
+			value = fmt.Sprintf("$%d::text", argIndex)
+			args = append(args, *opts.EmailVerifiedVia)
+		}
+	}
+	same := value
+	if value != "" && opts.KeepProvenEmailVerifiedVia {
+		same = "CASE WHEN " + sqlMailboxProven + " THEN email_verified_via ELSE " + value + " END"
+	}
+	if opts.Email == nil {
+		if same == "" {
+			return "", nil
+		}
+		return "email_verified_via = " + same, args
+	}
+	changed := value
+	if changed == "" {
+		changed = "CASE WHEN email_verified THEN '" + domain.EmailVerifiedViaAdminSet + "' END"
+	}
+	if same == "" {
+		same = "email_verified_via"
+	}
+	emailParam := fmt.Sprintf("$%d::text", argIndex+len(args))
+	args = append(args, *opts.Email)
+	return "email_verified_via = CASE WHEN email = " + emailParam + " THEN " + same + " ELSE " + changed + " END", args
 }
 
 // ConsumeRecoveryCode atomically removes a SINGLE MFA recovery code (identified
@@ -672,7 +726,7 @@ func (r *PgxUserRepository) ConsumeRecoveryCode(ctx context.Context, id uuid.UUI
 		WHERE id = $1
 		  AND deleted_at IS NULL
 		  AND EXISTS (SELECT 1 FROM jsonb_array_elements_text(mfa_recovery_codes) AS e WHERE e = $2)
-		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`
+		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via`
 	user, err := r.scanUser(r.db.QueryRow(ctx, q, id, codeHash))
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
@@ -696,7 +750,10 @@ func (r *PgxUserRepository) ConsumeRecoveryCode(ctx context.Context, id uuid.UUI
 // ConsumeInviteToken redeems a user invite (OSS-ONBOARD-A) in ONE
 // statement: the pending row whose activation_token_hash matches, not yet
 // expired at `now`, unbanned, unverified, in an ACTIVE organization, gets
-// its password, becomes verified, and loses the token. Zero rows — unknown,
+// its password, becomes verified, and loses the token. Verified is the
+// activation; the mailbox is not proven by a link the administrator also
+// holds, so email_verified_via becomes admin_link unless a proof is already
+// recorded (OSS-0912-C2; ConsumeActivationToken alike). Zero rows — unknown,
 // spent, expired, or an organization activation's token (its organization
 // is not active) — answers claimed=false, so a concurrent redeem cannot
 // win twice. Unlike ConsumeActivationToken it never touches the
@@ -708,6 +765,7 @@ func (r *PgxUserRepository) ConsumeInviteToken(ctx context.Context, tokenHash, n
 		    activation_token_expires_at = NULL,
 		    password_hash = $2,
 		    email_verified = true,
+		    email_verified_via = CASE WHEN ` + sqlMailboxProven + ` THEN email_verified_via ELSE '` + domain.EmailVerifiedViaAdminLink + `' END,
 		    updated_at = NOW()
 		WHERE u.activation_token_hash = $1
 		  AND u.deleted_at IS NULL
@@ -715,7 +773,7 @@ func (r *PgxUserRepository) ConsumeInviteToken(ctx context.Context, tokenHash, n
 		  AND u.email_verified = false
 		  AND (u.activation_token_expires_at IS NULL OR u.activation_token_expires_at > $3)
 		  AND EXISTS (SELECT 1 FROM organizations o WHERE o.id = u.organization_id AND o.active AND o.deleted_at IS NULL)
-		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`
+		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via`
 	user, err := r.scanUser(r.db.QueryRow(ctx, claim, tokenHash, newPasswordHash, now))
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
@@ -738,6 +796,7 @@ func (r *PgxUserRepository) ConsumeActivationToken(ctx context.Context, activati
 		SET activation_token_hash = NULL,
 		    password_hash = $2,
 		    email_verified = true,
+		    email_verified_via = CASE WHEN ` + sqlMailboxProven + ` THEN email_verified_via ELSE '` + domain.EmailVerifiedViaAdminLink + `' END,
 		    updated_at = NOW()
 		WHERE activation_token_hash = $1
 		  AND deleted_at IS NULL
@@ -746,7 +805,7 @@ func (r *PgxUserRepository) ConsumeActivationToken(ctx context.Context, activati
 		  AND email_verified = false
 		  AND EXISTS (SELECT 1 FROM organizations o
 		              WHERE o.id = users.organization_id AND NOT o.active AND o.deleted_at IS NULL)
-		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash`
+		RETURNING id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via`
 	// Only an activation token claims here: the pending, unbanned, not yet
 	// verified org_admin of an inactive organization. A user-invite token
 	// (org_user) or the token of an admin who already activated claims
@@ -819,7 +878,7 @@ func (r *PgxUserRepository) GetByIDWithOrg(ctx context.Context, id uuid.UUID) (*
 	query := `
 		SELECT
 			u.id, u.email, u.name, u.organization_id, u.role, u.password_hash, u.banned, u.email_verified, u.deleted_at, u.created_at, u.updated_at, u.last_login_at, u.mfa_enabled, u.mfa_secret, u.mfa_recovery_codes,
-			u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash,
+			u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash, u.email_verified_via,
 			o.domain, o.name AS organization_name, o.mfa_policy, o.auth_policy, o.max_sessions_per_user, o.password_complexity_enabled
 		FROM users u
 		LEFT JOIN organizations o ON u.organization_id = o.id
@@ -836,7 +895,7 @@ func (r *PgxUserRepository) List(ctx context.Context, opts repository.ListUserOp
 
 	query := `
 		SELECT u.id, u.email, u.name, u.organization_id, u.role, u.banned, u.email_verified, u.deleted_at, u.created_at, u.updated_at, u.last_login_at, u.mfa_enabled, u.mfa_secret, u.mfa_recovery_codes,
-		       u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash,
+		       u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash, u.email_verified_via,
 		       o.domain, o.name AS organization_name,
 		       COUNT(*) OVER() AS total_count
 		FROM users u
@@ -960,6 +1019,7 @@ func (r *PgxUserRepository) List(ctx context.Context, opts repository.ListUserOp
 			&user.ActivationTokenExpiresAt,
 			&user.ActivationTokenHash,
 			&user.VerificationTokenHash,
+			&user.EmailVerifiedVia,
 			&orgDomain,
 			&orgName,
 			&totalCount,
@@ -1008,7 +1068,7 @@ func (r *PgxUserRepository) ListByOrganization(ctx context.Context, orgID uuid.U
 
 	query := `
 		SELECT u.id, u.email, u.name, u.organization_id, u.role, u.banned, u.email_verified, u.deleted_at, u.created_at, u.updated_at, u.last_login_at, u.mfa_enabled, u.mfa_secret, u.mfa_recovery_codes,
-		       u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash,
+		       u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash, u.email_verified_via,
 		       o.domain, o.name AS organization_name,
 		       COUNT(*) OVER() AS total_count
 		FROM users u
@@ -1120,6 +1180,7 @@ func (r *PgxUserRepository) ListByOrganization(ctx context.Context, orgID uuid.U
 			&user.ActivationTokenExpiresAt,
 			&user.ActivationTokenHash,
 			&user.VerificationTokenHash,
+			&user.EmailVerifiedVia,
 			&orgDomain,
 			&orgName,
 			&totalCount,
@@ -1356,7 +1417,7 @@ func (r *PgxUserRepository) CountOrgAdminsByOrganizations(ctx context.Context, o
 
 func (r *PgxUserRepository) GetByIDAdmin(ctx context.Context, id uuid.UUID) (*domain.User, error) {
 	query := `
-		SELECT id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE id = $1`
 
@@ -1365,7 +1426,7 @@ func (r *PgxUserRepository) GetByIDAdmin(ctx context.Context, id uuid.UUID) (*do
 
 func (r *PgxUserRepository) GetByEmailAdmin(ctx context.Context, email string) (*domain.User, error) {
 	query := `
-		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash
+		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via
 		FROM users
 		WHERE email = $1`
 
@@ -1380,7 +1441,7 @@ func (r *PgxUserRepository) ListAll(ctx context.Context, opts repository.ListUse
 func (r *PgxUserRepository) ListDeleted(ctx context.Context, pagination repository.Pagination) ([]*domain.User, int, error) {
 	query := `
 		SELECT u.id, u.email, u.name, u.organization_id, u.role, u.banned, u.email_verified, u.deleted_at, u.created_at, u.updated_at, u.last_login_at, u.mfa_enabled, u.mfa_secret, u.mfa_recovery_codes,
-		       u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash,
+		       u.auth_source, u.external_id, u.requires_password_change, u.oidc_linked, u.oidc_issuer, u.activation_token_expires_at, u.activation_token_hash, u.verification_token_hash, u.email_verified_via,
 		       o.domain, o.name AS organization_name,
 		       COUNT(*) OVER() AS total_count
 		FROM users u
@@ -1438,6 +1499,7 @@ func (r *PgxUserRepository) ListDeleted(ctx context.Context, pagination reposito
 			&user.ActivationTokenExpiresAt,
 			&user.ActivationTokenHash,
 			&user.VerificationTokenHash,
+			&user.EmailVerifiedVia,
 			&orgDomain,
 			&orgName,
 			&totalCount,

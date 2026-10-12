@@ -113,7 +113,10 @@ must(await api("PUT", `/api/v1/organizations/${orgId}`, { mfa_policy: "optional"
 // the same email_verified flag the admin update API exposes. D-017: a user
 // created with a password must change it at first sign-in unless the creator
 // says otherwise; the suite's browser automation signs in with exactly this
-// password, so the org_admin says otherwise.
+// password, so the org_admin says otherwise. OSS-0912-C2: the admin's
+// setting activates the account but proves no mailbox (admin_set), so this
+// user's tokens carry email_verified=false; the suite checks the claim's
+// presence and boolean type, not its value.
 const created = must(await api("POST", "/api/v1/users", {
   email: "conformance-user@conformance.test", password: USER_PW,
   name: "Conformance User", role: "org_user", must_change_password: false,

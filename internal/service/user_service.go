@@ -203,6 +203,12 @@ func (s *UserService) Create(ctx context.Context, opts CreateUserOptions) (*doma
 		CreatedAt:              now,
 		UpdatedAt:              now,
 	}
+	if !opts.Unverified {
+		// OSS-0912-C2: the administrator's word activates the account but
+		// proves no mailbox.
+		via := domain.EmailVerifiedViaAdminSet
+		user.EmailVerifiedVia = &via
+	}
 	if opts.Name != "" {
 		n := opts.Name
 		user.Name = &n
@@ -368,6 +374,17 @@ func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts Upda
 		Banned:             opts.Banned,
 		EmailVerified:      opts.EmailVerified,
 		KeepActiveOrgAdmin: keepActiveOrgAdmin,
+	}
+	if opts.EmailVerified != nil {
+		// OSS-0912-C2 (owner Q3 (a)): an administrator may still set the
+		// flag; true is labelled admin_set and keeps a mailbox already
+		// proven, false clears the proof.
+		via := ""
+		if *opts.EmailVerified {
+			via = domain.EmailVerifiedViaAdminSet
+			repoOpts.KeepProvenEmailVerifiedVia = true
+		}
+		repoOpts.EmailVerifiedVia = &via
 	}
 	if opts.Password != nil && *opts.Password != "" {
 		// Per-org PasswordComplexityEnabled enforcement (Decision D-015
