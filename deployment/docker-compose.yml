@@ -102,15 +102,12 @@
 # follow-up hardening item; until that lands, deployment/README.md
 # ("Changing the database password") says how to replace this default.
 #
-# Production hardening that is intentionally out of scope for this
-# foundation slice (each is its own future slice per
-# wiki/platform/idp-appliance-install-ux.md §3):
+# Production hardening that is intentionally out of scope for this file:
 #
 #   - generated-on-first-boot DB credentials
 #   - external Postgres (HA / customer-managed)
 #   - reverse proxy with TLS in front of identuum-idp
-#   - backup automation (Phase 10)
-#   - OSS-to-CE upgrade overlay (Phase 6 / 8 / 9)
+#   - backup automation
 #
 # Compose project name. The developer stack
 # (deployment/docker-compose.dev.yml) defaults to this same project name and
@@ -158,7 +155,7 @@ services:
     # to rebuild from local source use deployment/docker-compose.build.yml
     # as an overlay. (v0.3.4 was tagged but its image never published —
     # stopped by the publish workflow's Trivy gate.)
-    image: ghcr.io/identuum/identuum-idp-oss:v0.9.10@sha256:f3226eb940420ef7d029b46e01ad17cbba0cbfbfc859ca5c2d97bace3b9600e0
+    image: ghcr.io/identuum/identuum-idp-oss:v0.9.11@sha256:3002e0a3f77e06a3659013fbeaf60f9f53b1107c2d4e254995b4576dbedd05f5
     container_name: identuum-idp-oss
     restart: unless-stopped
     depends_on:
@@ -189,7 +186,7 @@ services:
       IDENTUUM_IDP_OSS_DB: "postgres://identuum_idp:dev-identuum_idp-not-a-secret@postgres:5432/identuum_idp?sslmode=disable"
       IDENTUUM_IDP_OSS_LISTEN: "0.0.0.0:7113"
       IDENTUUM_IDP_OSS_ISSUER: "http://localhost:7113"
-      # ── Appliance contract (internal/pkg/runtime, formerly pkg/runtime, + show-setup-code subcommand) ──
+      # ── Appliance contract (pkg/runtime + show-setup-code subcommand) ──
       # IDENTUUM_IDP_DATA_DIR is the persistent data directory the
       # appliance setup foundation writes to (setup-token.txt at mode
       # 0600). Mounted as a named volume below so the token survives
