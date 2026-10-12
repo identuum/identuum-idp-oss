@@ -99,10 +99,11 @@ directory contains 54 SQL files, with head `0054` (tracked root
   of item C2). Before this fix, a link mailed to a user's old address
   still proved the new address after the address changed. Now each
   verification link records the address it was sent to (as a SHA-256), and
-  a link for another address than the user's current one answers
-  `400 {"error":"email_changed","message":"..."}` and proves nothing. A
-  change of address also cancels the user's open verification links in the
-  same database write.
+  a link for another address than the user's current one proves nothing.
+  A change of address cancels the user's open verification links in the
+  same database write, and a cancelled link answers `400 invalid_token`. A
+  link that was not cancelled but was sent to another address answers
+  `400 {"error":"email_changed","message":"..."}`.
 - **An address change made while a link is being opened no longer proves
   the new address** (second review of item C2). Before this fix, a change
   that was saved between the check of the address and the write of the
