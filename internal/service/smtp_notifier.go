@@ -29,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"net/url"
 	"strings"
@@ -107,8 +108,10 @@ type SMTPNotifierConfig struct {
 	// non-empty. Password is never logged.
 	Username string
 	Password string
-	// From is the envelope/header sender. Required by the runtime
-	// resolver (falls back to Username there).
+	// From is the sender: "address" or "Name <address>". MAIL FROM
+	// carries the bare address and the From header keeps the name. The
+	// runtime resolver requires it to parse as one address (falls back
+	// to Username there); a value that does not parse is used as given.
 	From string
 	// LinkBaseURL is the browser-facing origin (no trailing slash)
 	// used to build the verify-email / activation links. The
@@ -148,7 +151,8 @@ type SMTPNotifier struct {
 	port          int
 	username      string
 	password      string
-	from          string
+	envelopeFrom  string // MAIL FROM: the bare address
+	headerFrom    string // From header: the address with its display name
 	linkBaseURL   string
 	allowInsecure bool
 	timeout       time.Duration
@@ -188,12 +192,22 @@ func NewSMTPNotifier(cfg SMTPNotifierConfig) *SMTPNotifier {
 	if timeout <= 0 {
 		timeout = defaultSMTPTimeout
 	}
+	envelopeFrom, headerFrom := cfg.From, cfg.From
+	if addr, err := mail.ParseAddress(cfg.From); err == nil {
+		envelopeFrom = addr.Address
+		if addr.Name != "" {
+			headerFrom = addr.String()
+		} else {
+			headerFrom = addr.Address
+		}
+	}
 	return &SMTPNotifier{
 		host:          cfg.Host,
 		port:          port,
 		username:      cfg.Username,
 		password:      cfg.Password,
-		from:          cfg.From,
+		envelopeFrom:  envelopeFrom,
+		headerFrom:    headerFrom,
 		linkBaseURL:   strings.TrimRight(cfg.LinkBaseURL, "/"),
 		allowInsecure: cfg.AllowInsecure,
 		timeout:       timeout,
@@ -312,7 +326,7 @@ func (s *SMTPNotifier) sendEmail(ctx context.Context, kind, to, subject, body st
 	}
 
 	msg := []byte(fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: %s\r\n\r\n%s\r\n",
-		s.from, to, subject, body))
+		s.headerFrom, to, subject, body))
 
 	start := time.Now()
 	var deliveryErr error
@@ -373,7 +387,7 @@ func (s *SMTPNotifier) sendViaImplicitTLS(ctx context.Context, addr, to string, 
 	}
 	defer client.Close()
 
-	return smtpTransact(client, s.from, to, auth, msg)
+	return smtpTransact(client, s.envelopeFrom, to, auth, msg)
 }
 
 // sendViaSTARTTLS connects with a context-aware plain TCP dial, then
@@ -419,7 +433,7 @@ func (s *SMTPNotifier) sendViaSTARTTLS(ctx context.Context, addr, to string, aut
 		}
 	}
 
-	return smtpTransact(client, s.from, to, auth, msg)
+	return smtpTransact(client, s.envelopeFrom, to, auth, msg)
 }
 
 // smtpTransact runs AUTH (when configured) + MAIL/RCPT/DATA/QUIT on an

@@ -3,6 +3,7 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -29,7 +30,9 @@ const defaultSMTPTimeout = 10 * time.Second
 //	IDENTUUM_IDP_SMTP_USERNAME  Optional; enables PlainAuth.
 //	IDENTUUM_IDP_SMTP_PASSWORD  Optional; read via secrets.EnvProvider.
 //	                            NEVER logged.
-//	IDENTUUM_IDP_SMTP_FROM      Sender address. Falls back to _USERNAME.
+//	IDENTUUM_IDP_SMTP_FROM      Sender: "address" or "Name <address>".
+//	                            Falls back to _USERNAME. A value that is
+//	                            not one email address is MISCONFIGURED.
 //	IDENTUUM_IDP_SMTP_ALLOW_INSECURE  Opt-in to plaintext on the non-465
 //	                            path when the server does not advertise
 //	                            STARTTLS. Default false = fail closed.
@@ -61,6 +64,16 @@ func resolveEmailNotifier(ctx context.Context, getenv func(string) string, linkB
 		// Host set but no usable sender — misconfigured. Stay honest:
 		// no notifier, explicit reason.
 		return nil, "MISCONFIGURED — IDENTUUM_IDP_SMTP_HOST is set but IDENTUUM_IDP_SMTP_FROM (and _USERNAME) are empty; emails will NOT be sent until a sender address is configured"
+	}
+	// The sender must be one email address, "address" or "Name <address>":
+	// MAIL FROM carries the bare address, so anything else is refused by
+	// every relay. Refuse it here, in plain words, instead of at every send.
+	if _, err := mail.ParseAddress(from); err != nil {
+		source := "IDENTUUM_IDP_SMTP_FROM"
+		if strings.TrimSpace(getenv("IDENTUUM_IDP_SMTP_FROM")) == "" {
+			source = "IDENTUUM_IDP_SMTP_FROM is empty and IDENTUUM_IDP_SMTP_USERNAME"
+		}
+		return nil, "MISCONFIGURED — " + source + " is not one email address (use \"address\" or \"Name <address>\"); emails will NOT be sent until IDENTUUM_IDP_SMTP_FROM is fixed"
 	}
 
 	port := 587
