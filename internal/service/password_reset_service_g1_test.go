@@ -28,6 +28,10 @@ import (
 
 func g1Policy(p string) *string { return &p }
 
+// g1Now is the service's clock; the links these tests store expire an hour
+// after the real time, so they are live on it.
+var g1Now = time.Date(2026, 10, 13, 9, 0, 0, 0, time.UTC)
+
 func g1Service(users *fakeUserRepo, resets *fakePasswordResetRepo, n *fakePasswordResetNotifier, rec *fakeAuditRecorder) *PasswordResetService {
 	return NewPasswordResetService(PasswordResetServiceConfig{
 		Users:              users,
@@ -35,6 +39,7 @@ func g1Service(users *fakeUserRepo, resets *fakePasswordResetRepo, n *fakePasswo
 		Notifier:           n,
 		Audit:              rec,
 		HumanFacingBaseURL: "https://ui.example.test",
+		Now:                func() time.Time { return g1Now },
 	})
 }
 

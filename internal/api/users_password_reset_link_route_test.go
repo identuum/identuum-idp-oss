@@ -47,8 +47,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
@@ -279,7 +277,6 @@ type d9World struct {
 	resets *d9Resets
 	svc    *service.PasswordResetService
 	audit  *audit.Recorder
-	logs   *observer.ObservedLogs
 	clock  *time.Time
 	ids    map[string]uuid.UUID
 	order  *[]string // revoke and update calls, in order
@@ -331,8 +328,6 @@ func newD9World(t *testing.T, uiBase string) *d9World {
 	}
 	w.resets = &d9Resets{rows: map[string]*domain.PasswordReset{}, users: w.users, now: clock}
 	w.audit = &audit.Recorder{}
-	core, logs := observer.New(zap.DebugLevel)
-	w.logs = logs
 
 	report := lifecycle.NewStartupReport()
 	users := service.NewUserService(report, w.users)
@@ -341,7 +336,6 @@ func newD9World(t *testing.T, uiBase string) *d9World {
 		Resets:             w.resets,
 		Audit:              w.audit,
 		HumanFacingBaseURL: uiBase,
-		Logger:             zap.New(core),
 		Now:                clock,
 	})
 	w.svc = resets
@@ -600,8 +594,9 @@ func TestD9_NoUIBaseURLIsRefused(t *testing.T) {
 	}
 }
 
-// The link never reaches a log line or an audit row; the issue is audited with
-// actor, target and organization.
+// The link never reaches an audit row; the issue is audited with actor, target
+// and organization. (internal/api may not import zap: the log half is
+// TestIssueLink_LogsNeitherTokenNorLink in internal/service.)
 // RULE: D9-LINK-NO-LEAK-1
 func TestD9_AuditedWithoutTheLink(t *testing.T) {
 	w := newD9World(t, d9UIBase)
@@ -621,12 +616,6 @@ func TestD9_AuditedWithoutTheLink(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no user.password_reset_link_issued event with actor, subject and organization")
-	}
-	for _, e := range w.logs.All() {
-		dump := e.Message + fmt.Sprintf("%v", e.ContextMap())
-		if strings.Contains(dump, tok) {
-			t.Fatalf("log line %q carries the token", e.Message)
-		}
 	}
 }
 
