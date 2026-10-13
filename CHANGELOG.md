@@ -42,7 +42,7 @@ follows [Semantic Versioning](https://semver.org/).
   no_active_identity_provider`; deleting the provider while the policy is
   `idp_only` answers `409 last_active_identity_provider`. Both explain the
   fix in plain words and change nothing.
-- **A provider save no longer drops `active` or `priority` silently.**
+- **Editing a provider no longer drops `active` or `priority` silently.**
   `PUT /api/v1/organizations/{id}/identity-provider` used to accept both
   fields, ignore them and answer `200`. This server cannot switch a provider
   off and has only one provider, so now a value different from the stored one

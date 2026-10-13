@@ -78,6 +78,7 @@ func TestIDPConfig_PutActiveIsNeverSilent(t *testing.T) {
 		{"switch off an active provider", true, &off, nil, wantErrActiveNotSupported, wantMsgActiveNotSupported},
 		{"switch on an inactive provider", false, &on, nil, wantErrActiveNotSupported, wantMsgActiveNotSupported},
 		{"change the priority", true, nil, &five, wantErrPriorityNotSupported, wantMsgPriorityNotSupported},
+		{"both differ: active is reported first", true, &off, &five, wantErrActiveNotSupported, wantMsgActiveNotSupported},
 	}
 	for _, tc := range refused {
 		t.Run(tc.name, func(t *testing.T) {
