@@ -80,7 +80,7 @@ func RegisterOrganizationIdentityProviderRoutes(router gin.IRouter, deps Organiz
 	// docgen:tier=oss
 	// docgen:auth=org_admin
 	// docgen:response=oss.types.IdentityProviderResponse
-	// docgen:notes=org_admin OWN-ORG only with the idps:create scope; site_admin is refused 403 (site_admin does not manage tenant IdPs); cross-org 403 via the shared scope middleware. client_secret is accepted in the request config but is WRITE-ONLY — no response ever returns it (stored encrypted at rest via the CryptoService). Emits org.identity_provider_created audit with target_organization_id + provider_id + type; never secrets.
+	// docgen:notes=org_admin OWN-ORG only with the idps:create scope; site_admin is refused 403 (site_admin does not manage tenant IdPs); cross-org 403 via the shared scope middleware. client_secret is accepted in the request config but is WRITE-ONLY — no response ever returns it (stored encrypted at rest via the CryptoService). A priority other than 0 answers 400 priority_not_supported with a plain message and stores nothing (v0.9.14; before, 201 and the value was dropped); no priority or 0 creates as before. Emits org.identity_provider_created audit with target_organization_id + provider_id + type; never secrets.
 	// docgen:status=201
 	createGroup.POST("", HandleCreateOrganizationIdentityProvider(deps))
 
@@ -171,6 +171,7 @@ func HandleCreateOrganizationIdentityProvider(deps OrganizationIdentityProviderH
 		// the wire has already refused an absent or empty slug here; passing
 		// a pointer keeps the service contract identical on both paths.
 		in := oidcInputFromConfig(orgID, req.Type, req.Name, &req.Slug, req.Config)
+		in.Priority = &req.Priority
 		provider, err := deps.OIDCProviderConfigService.CreateOIDCProvider(c.Request.Context(), in)
 		if err != nil {
 			respondOIDCConfigError(c, err)

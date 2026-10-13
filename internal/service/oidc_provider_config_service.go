@@ -163,9 +163,11 @@ type OIDCProviderInput struct {
 	AttributeMapping     map[string]string
 	PKCERequired         bool
 	AllowExternalDomains bool
-	// Active and Priority are update-only POINTERS (OSS-IDP-ACTIVE-FIELD): nil
+	// Active and Priority are POINTERS (OSS-IDP-ACTIVE-FIELD): on update nil
 	// or the stored value keeps the stored one; any other value is refused,
 	// because OSS has no disabled provider and no second provider to order.
+	// Create reads only Priority: nil or 0 creates, any other value is
+	// refused (O2, v0.9.14).
 	Active   *bool
 	Priority *int
 }
@@ -177,6 +179,11 @@ type OIDCProviderInput struct {
 func (s *OIDCProviderConfigService) CreateOIDCProvider(ctx context.Context, in OIDCProviderInput) (*domain.IdentityProvider, error) {
 	if err := s.validateInput(in); err != nil {
 		return nil, err
+	}
+	// O2 (v0.9.14): the create stores priority 0; any other value was
+	// dropped silently and is now refused, as the update refuses a change.
+	if in.Priority != nil && *in.Priority != 0 {
+		return nil, errOIDCProviderPriorityNotSupported
 	}
 
 	// One-per-org tripwire: refuse a second oidc provider for this org.

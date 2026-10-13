@@ -18,6 +18,11 @@ follows [Semantic Versioning](https://semver.org/).
   answer a create a moment later gets, and nothing is saved. An owner
   transfer that runs beside a create also waits, so a transfer and a create
   never both succeed. No answer changed.
+- **Creating a sign-in provider with a priority says it is not supported.**
+  `POST /api/v1/organizations/:id/identity-provider` took a `priority`,
+  answered `201` and stored `0`. A priority other than `0` now answers `400
+  priority_not_supported` with the same plain message as the update, and
+  nothing is created. No priority, or `0`, creates as before.
 
 ## `v0.9.13`
 
