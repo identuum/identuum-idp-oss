@@ -1,4 +1,3 @@
-// target: internal/handlers/organization_create_conflict_test.go (OSS-0913-C item 3, red first)
 package handlers
 
 import (
@@ -34,8 +33,9 @@ func (r *conflictOrgRepo) CreateWithAdmin(_ context.Context, _ *domain.Organizat
 
 // The create with an initial admin answers the same 409s, plus email_exists
 // when admin_email already has an account; the store refused the pair, so
-// nothing was created and no activation token is issued.
-func TestCreateOrganization_WithAdmin_DuplicateAnswers409WithCode(t *testing.T) {
+// nothing was created and no activation token is issued. Run as a subtest of
+// TestCreateOrganization_DuplicateAnswers409WithCode.
+func createWithAdminDuplicateAnswers409WithCode(t *testing.T) {
 	for _, c := range []struct {
 		name     string
 		err      error
@@ -86,6 +86,8 @@ func (i *countingActivationIssuer) IssueActivationToken(context.Context, *domain
 // answers 400 {"error":"invalid request"} for every Create error, so the
 // console's existing 409 line ("An organization with this domain already
 // exists.") never shows.
+//
+// RULE: ORG-CREATE-CONFLICT-1
 func TestCreateOrganization_DuplicateAnswers409WithCode(t *testing.T) {
 	for _, c := range []struct {
 		name     string
@@ -118,4 +120,5 @@ func TestCreateOrganization_DuplicateAnswers409WithCode(t *testing.T) {
 			}
 		}
 	}
+	t.Run("with_initial_admin", createWithAdminDuplicateAnswers409WithCode)
 }

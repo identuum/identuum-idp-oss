@@ -1,4 +1,3 @@
-// target: internal/service/smtp_notifier_display_name_test.go (OSS-0913-C item 1, red first)
 package service
 
 import (
@@ -13,6 +12,8 @@ import (
 // (MAIL FROM) takes the bare address only (RFC 5321 reverse-path); the
 // From header keeps the display name. At 3e1fa09 the whole string goes into
 // MAIL FROM:<...>, which a real relay refuses with 501, so no mail leaves.
+//
+// RULE: SMTP-FROM-ENVELOPE-1
 func TestSMTPNotifier_DisplayNameFrom_EnvelopeIsBareAddress(t *testing.T) {
 	addr, sessions := startFakeSMTPServer(t)
 	host, portStr, _ := net.SplitHostPort(addr)

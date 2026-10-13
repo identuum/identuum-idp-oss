@@ -1,4 +1,3 @@
-// target: internal/runtime/smtp_config_from_test.go (OSS-0913-C item 1, red first)
 package runtime
 
 import (
@@ -11,6 +10,9 @@ import (
 // words: no notifier (the runtime injects the honest unconfigured notifier)
 // and a MISCONFIGURED reason naming the variable. At 3e1fa09 any non-empty
 // string is accepted and every later send fails at MAIL FROM.
+//
+// RULE: SMTP-FROM-ENVELOPE-1 — the startup half: a sender that is not one
+// address is refused in plain words and no mail is attempted.
 func TestResolveEmailNotifier_InvalidFromRefused(t *testing.T) {
 	for _, from := range []string{"not an address", "a@b.test, c@d.test", "Name <>"} {
 		env := map[string]string{"IDENTUUM_IDP_SMTP_HOST": "smtp.example.com", "IDENTUUM_IDP_SMTP_FROM": from}

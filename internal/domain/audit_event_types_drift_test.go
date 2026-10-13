@@ -1,4 +1,3 @@
-// target: internal/domain/audit_event_types_drift_test.go (OSS-0913-C item 2, red first)
 package domain
 
 import (
@@ -28,6 +27,10 @@ import (
 // computed Action cannot slip past the catalog.
 // At 3e1fa09 the catalog is the pre-split underscore list: it misses most
 // recorded dot names and lists names nothing records.
+//
+// The catalog half of the rule: exactly the recorded names.
+//
+// RULE: AUDIT-EVENT-CATALOG-1
 func TestAuditEventTypeCatalog_MatchesRecordedNames(t *testing.T) {
 	recorded, unresolved := collectRecordedAuditActions(t, filepath.Join("..", ".."))
 	for _, u := range unresolved {

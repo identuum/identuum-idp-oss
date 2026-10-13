@@ -23,6 +23,8 @@ func getAuditEventTypes(t *testing.T, principal *domain.Principal) *httptest.Res
 // GET /api/v1/audit/event-types answers the console's contract
 // {"groups":[{"label","types":[{"value","label"}]}]} with exactly the catalog
 // (AUDIT-EVENT-CATALOG-1), for site_admin and for an org_admin with audit:read.
+//
+// RULE: AUDIT-EVENT-CATALOG-1
 func TestAuditEventTypes_ServesCatalog(t *testing.T) {
 	want := map[string]bool{}
 	for _, g := range domain.AllAuditEventTypeGroups {
@@ -75,7 +77,7 @@ func TestAuditEventTypes_ServesCatalog(t *testing.T) {
 
 // The catalog has the log's guard: org_user is refused even holding
 // audit:read, an org_admin without the scope is refused, and an anonymous
-// caller is refused before the handler.
+// caller is refused before the handler (AUDIT-EVENT-CATALOG-1, route half).
 func TestAuditEventTypes_Guard(t *testing.T) {
 	cases := []struct {
 		name string
