@@ -7,6 +7,35 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **A sender with a display name now delivers mail.** With
+  `IDENTUUM_IDP_SMTP_FROM` set to `Name <address>`, v0.9.12 sent the whole
+  value as the envelope sender, every relay answered `501` and no mail left.
+  Now the envelope carries the bare address and the `From` header shows the
+  name. A sender that is not one email address, also an
+  `IDENTUUM_IDP_SMTP_USERNAME` used in its place, is refused at startup: the
+  IdP keeps serving, mails nothing, and the startup line says `email
+  delivery: MISCONFIGURED` and names `IDENTUUM_IDP_SMTP_FROM`. The operator
+  guide has a new table of the `IDENTUUM_IDP_SMTP_*` variables.
+- **The audit log's event-type filter offers the event types the server
+  records** (new `GET /api/v1/audit/event-types`; endpoint count 165 to
+  166). The list held the old underscore names: of the 141 event types this
+  server can record, 17 could be picked, and 122 listed names were never
+  recorded. The new route answers `{"groups":[{"label","types":[{"value",
+  "label"}]}]}` with exactly the recorded names in plain-word groups, to a
+  site admin or an organization admin with `audit:read` (an organization
+  user gets `403`). No recorded name changed.
+- **Creating an organization that already exists says so.** `POST
+  /api/v1/organizations` answered `400 invalid request` for a duplicate. Now
+  a duplicate domain answers `409 domain_exists`, a duplicate name (slug)
+  `409 slug_exists`, and an initial administrator whose email already has an
+  account `409 email_exists`, each with a plain message; nothing is created.
+  Other refusals are unchanged.
+- **A reset-link redeem that could not end the other sign-ins has its own
+  code.** When the new password is set but the user's other sessions could
+  not be ended, `POST /api/v1/auth/reset-link` now answers `500
+  sessions_not_ended` (it said `internal_error`, the same as a password that
+  was not set), with the same message, so the console can say the password
+  is set.
 - **The integration check no longer hides a failing test as "no database".**
   Before, `make verify-integration` reported "cannot evaluate, no database"
   (exit 2) for a run with a real test failure whenever any line of the run

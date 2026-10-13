@@ -427,7 +427,10 @@ the wizard, a bootstrap that creates the `site_admin` is audited
 
 The console's **Audit** page (site admin: every organization; organization
 admin: its own) reads `GET /api/v1/audit/events`, newest first, with the
-filters event type, outcome, actor, subject and a date range. Each row says:
+filters event type, outcome, actor, subject and a date range. The event-type
+list comes from `GET /api/v1/audit/event-types` (same access as the log): it
+holds every event type this server can record, in plain-word groups, and no
+other. Each row says:
 
 - **who** — `actor_type` (`user`, `service_account`, `client`, `setup_token`,
   `system`, or `anonymous` when no one was signed in, such as a failed
@@ -450,6 +453,35 @@ carry `organization_id` only where their metadata named the organization;
 the others stay visible to the organization they were filed under. The OSS
 log is plain and retention-pruned (30 days by default); it carries no hash
 chain.
+
+## Email delivery (SMTP)
+
+Email delivery is optional. Without it nothing is mailed, and every link the
+IdP would mail is also returned to the administrator who asked for it. Set
+these variables to turn it on:
+
+| Variable | Meaning |
+| --- | --- |
+| `IDENTUUM_IDP_SMTP_HOST` | The SMTP server. Required to turn email on. |
+| `IDENTUUM_IDP_SMTP_PORT` | Port, default `587` (STARTTLS). `465` uses implicit TLS. |
+| `IDENTUUM_IDP_SMTP_USERNAME` | Optional login. With it, the IdP signs in to the server. |
+| `IDENTUUM_IDP_SMTP_PASSWORD` | Optional password for that login. Never logged. |
+| `IDENTUUM_IDP_SMTP_FROM` | The sender: `no-reply@example.com` or `Identuum <no-reply@example.com>`. Empty means `IDENTUUM_IDP_SMTP_USERNAME`. |
+| `IDENTUUM_IDP_SMTP_ALLOW_INSECURE` | `true` allows mail without TLS when the server does not offer STARTTLS. Default `false`. A login is never sent without TLS. |
+| `IDENTUUM_IDP_SMTP_TIMEOUT` | How long one step with the server may take, for example `10s` (the default). |
+
+The sender must be one email address, with or without a display name. The
+envelope (`MAIL FROM`) carries the bare address and the `From` header shows
+the name. A sender that is not one email address (also a
+`IDENTUUM_IDP_SMTP_USERNAME` used in its place, such as an API-key login
+name) is refused at startup; the IdP keeps serving, mails nothing and prints:
+
+```
+identuum-idp: serve: email delivery: MISCONFIGURED — IDENTUUM_IDP_SMTP_FROM is not one email address (use "address" or "Name <address>"); emails will NOT be sent until IDENTUUM_IDP_SMTP_FROM is fixed
+```
+
+Set `IDENTUUM_IDP_SMTP_FROM` to an address and restart. The startup line of a
+working setup reads `email delivery: smtp <host>:<port> (...)`.
 
 ## Apply database migrations
 
