@@ -368,19 +368,19 @@ func (r *PgxClientRepository) Update(ctx context.Context, client *domain.Client)
 }
 
 // lockBoundServiceAccount share-locks the account a client save or create
-// binds, inside that save's or create's transaction, and runs l.Recheck on the
-// account as read under the lock (nil when it is missing or soft-deleted).
-// Recheck's error is returned unchanged; a failed read is
-// domain.AuthStoreUnavailable.
+// binds, or an agent communication authorization names, inside that write's
+// transaction, and runs l.Recheck on the account as read under the lock (nil
+// when it is missing or soft-deleted). Recheck's error is returned unchanged;
+// a failed read is domain.AuthStoreUnavailable.
 func lockBoundServiceAccount(ctx context.Context, tx pgx.Tx, l *repository.ServiceAccountLock) error {
-	// FOR SHARE (OSS-0912-C1-FIX): OSS deletes and deactivates an account
-	// by UPDATE, and every UPDATE of it waits until this save or create ends.
+	// FOR SHARE (OSS-0912-C1-FIX): OSS deletes, deactivates and re-owns an
+	// account by UPDATE, and every UPDATE of it waits until this write ends.
 	// One that waited reads the committed row, or none after a soft delete.
 	// Account, then client: the order the organization delete takes.
 	var sa *domain.ServiceAccount
 	var row domain.ServiceAccount
-	err := tx.QueryRow(ctx, `SELECT id, organization_id, active, expires_at FROM service_accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE`,
-		l.ID).Scan(&row.ID, &row.OrganizationID, &row.Active, &row.ExpiresAt)
+	err := tx.QueryRow(ctx, `SELECT id, organization_id, active, expires_at, owner_user_id FROM service_accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE`,
+		l.ID).Scan(&row.ID, &row.OrganizationID, &row.Active, &row.ExpiresAt, &row.OwnerUserID)
 	switch {
 	case err == nil:
 		sa = &row

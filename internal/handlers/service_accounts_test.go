@@ -117,6 +117,12 @@ func (r *inMemorySARepoForHandlers) UpdateOwner(_ context.Context, id, orgID, ow
 	return nil
 }
 
+// TransferOwner has no authorizations to judge; the service's pre-check
+// against its live-participant lookup is what these tests drive.
+func (r *inMemorySARepoForHandlers) TransferOwner(ctx context.Context, id, orgID, ownerUserID uuid.UUID, _ time.Time) (bool, error) {
+	return false, r.UpdateOwner(ctx, id, orgID, ownerUserID)
+}
+
 // saOrgNoDefaultForHandlers answers service_account_expiry_days = 0 for every
 // organization (no default expiry), the behaviour these route tests were
 // written against before OSS-SA-EXPIRY.

@@ -208,13 +208,8 @@ func (s *AgentCommunicationAuthorizationService) Create(ctx context.Context, in 
 			}
 			return nil, domain.AuthStoreUnavailable("agent_communication.create.service_account", err)
 		}
-		if sa == nil || sa.OrganizationID != in.OrganizationID {
-			// Another organization's service account is indistinguishable
-			// from an absent one — no cross-org existence oracle.
-			return nil, fmt.Errorf("%w: %s", domain.ErrServiceAccountNotFound, rp.input.ServiceAccountID)
-		}
-		if !sa.Active || (sa.ExpiresAt != nil && !sa.ExpiresAt.After(now)) {
-			return nil, fmt.Errorf("%w: %s", domain.ErrAgentCommunicationParticipantNotUsable, sa.ID)
+		if err := checkAgentCommunicationParticipantAccount(in.OrganizationID, rp.input.ServiceAccountID, sa, now); err != nil {
+			return nil, err
 		}
 		rp.sa = sa
 		sas = append(sas, sa)
@@ -233,10 +228,7 @@ func (s *AgentCommunicationAuthorizationService) Create(ctx context.Context, in 
 			}
 			return nil, domain.AuthStoreUnavailable("agent_communication.create.client", err)
 		}
-		if client == nil {
-			return nil, fmt.Errorf("%w: %s", domain.ErrClientNotFound, rp.input.ClientID)
-		}
-		if err := domain.CheckAgentCommunicationParticipantClient(rp.sa, client); err != nil {
+		if err := checkAgentCommunicationParticipantClient(rp.input.ClientID, rp.sa, client); err != nil {
 			return nil, err
 		}
 		rp.client = client
@@ -293,10 +285,64 @@ func (s *AgentCommunicationAuthorizationService) Create(ctx context.Context, in 
 	if err := a.Validate(now); err != nil {
 		return nil, err
 	}
-	if err := s.repo.Create(ctx, a); err != nil {
+	// ACA-CREATE-LOCK-1: the same checks again, on the rows as read under the
+	// create's locks, so a participant changed after the checks above gets
+	// the verdict a later create would get, and nothing is written.
+	var verdict error
+	recheck := func(lockedSAs []*domain.ServiceAccount, lockedClients []*domain.Client) error {
+		verdict = recheckAgentCommunicationParticipants(in, resolved, lockedSAs, lockedClients, now)
+		return verdict
+	}
+	if err := s.repo.Create(ctx, a, recheck); err != nil {
+		if verdict != nil {
+			return nil, verdict
+		}
 		return nil, domain.AuthStoreUnavailable("agent_communication.create", err)
 	}
 	return a, nil
+}
+
+// recheckAgentCommunicationParticipants runs Create's participant checks, in
+// Create's order, on the rows read under the create's locks (sas[i] and
+// clients[i] belong to resolved[i]; nil when missing or soft-deleted).
+func recheckAgentCommunicationParticipants(in CreateAgentCommunicationAuthorizationInput, resolved []resolvedParticipant, sas []*domain.ServiceAccount, clients []*domain.Client, now time.Time) error {
+	for i := range resolved {
+		if err := checkAgentCommunicationParticipantAccount(in.OrganizationID, resolved[i].input.ServiceAccountID, sas[i], now); err != nil {
+			return err
+		}
+	}
+	if err := domain.CheckAgentCommunicationSameOwner(in.OwnerID, sas...); err != nil {
+		return err
+	}
+	for i := range resolved {
+		if err := checkAgentCommunicationParticipantClient(resolved[i].input.ClientID, sas[i], clients[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkAgentCommunicationParticipantAccount judges one participant account:
+// present in the organization, active and not expired.
+func checkAgentCommunicationParticipantAccount(organizationID, id uuid.UUID, sa *domain.ServiceAccount, now time.Time) error {
+	if sa == nil || sa.OrganizationID != organizationID {
+		// Another organization's service account is indistinguishable
+		// from an absent one — no cross-org existence oracle.
+		return fmt.Errorf("%w: %s", domain.ErrServiceAccountNotFound, id)
+	}
+	if !sa.Active || (sa.ExpiresAt != nil && !sa.ExpiresAt.After(now)) {
+		return fmt.Errorf("%w: %s", domain.ErrAgentCommunicationParticipantNotUsable, sa.ID)
+	}
+	return nil
+}
+
+// checkAgentCommunicationParticipantClient judges one participant client:
+// present, bound to the participant account, private_key_jwt with keys.
+func checkAgentCommunicationParticipantClient(clientID string, sa *domain.ServiceAccount, client *domain.Client) error {
+	if client == nil {
+		return fmt.Errorf("%w: %s", domain.ErrClientNotFound, clientID)
+	}
+	return domain.CheckAgentCommunicationParticipantClient(sa, client)
 }
 
 // Get returns one authorization of the organization; a foreign or absent

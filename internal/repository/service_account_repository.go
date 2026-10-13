@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
@@ -35,4 +36,11 @@ type ServiceAccountRepository interface {
 	// does not exist, belongs to another organization, or is soft-deleted
 	// affects nothing and returns an error the service maps to not-found.
 	UpdateOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID) error
+
+	// TransferOwner is UpdateOwner for an account that already has an owner
+	// (ACA-CREATE-LOCK-1). In one transaction it locks the account row, then
+	// judges whether an agent communication authorization live at now names
+	// the account, and re-owns it only when none does. live is true when it
+	// refused for that reason; nothing was changed then.
+	TransferOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID, now time.Time) (live bool, err error)
 }

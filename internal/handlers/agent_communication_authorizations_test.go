@@ -19,6 +19,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -41,7 +42,7 @@ func cloneACForHandlers(a *domain.AgentCommunicationAuthorization) *domain.Agent
 	return &c
 }
 
-func (f *acTestRepo) Create(_ context.Context, a *domain.AgentCommunicationAuthorization) error {
+func (f *acTestRepo) Create(_ context.Context, a *domain.AgentCommunicationAuthorization, _ repository.AgentCommunicationParticipantRecheck) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {

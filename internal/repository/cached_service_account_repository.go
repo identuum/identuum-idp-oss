@@ -159,3 +159,11 @@ func (r *CachedServiceAccountRepository) UpdateOwner(ctx context.Context, id uui
 	}
 	return err
 }
+
+func (r *CachedServiceAccountRepository) TransferOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID, now time.Time) (bool, error) {
+	live, err := r.delegate.TransferOwner(ctx, id, orgID, ownerUserID, now)
+	if delErr := r.redisClient.Del(ctx, r.idKey(id)); delErr != nil {
+		logger.Warning.Printf("TransferOwner: failed to invalidate cached SA %s: %v", id, delErr)
+	}
+	return live, err
+}

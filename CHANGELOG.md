@@ -7,6 +7,18 @@ follows [Semantic Versioning](https://semver.org/).
 
 ## Unreleased
 
+- **An agent communication authorization cannot name a participant that
+  changes at the same moment.** `POST
+  /api/v1/agent-communication-authorizations` checked both service accounts
+  and both clients, then saved the authorization without holding them. A
+  service account switched off, re-owned or removed, or a client unbound or
+  removed, in that moment was still named by a live authorization (no token
+  could be issued for it). Now the create holds both accounts and both
+  clients while it saves and checks them again: such a create gets the same
+  answer a create a moment later gets, and nothing is saved. An owner
+  transfer that runs beside a create also waits, so a transfer and a create
+  never both succeed. No answer changed.
+
 ## `v0.9.13`
 
 Members see and remove their connected applications, administrators hand

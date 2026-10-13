@@ -20,7 +20,13 @@ type AgentCommunicationAuthorizationRepository interface {
 	// Create persists the authorization and BOTH participant rows in ONE
 	// transaction; a failure on any row leaves nothing behind. The
 	// aggregate must already be validated (domain.Validate).
-	Create(ctx context.Context, a *domain.AgentCommunicationAuthorization) error
+	//
+	// ACA-CREATE-LOCK-1: before the inserts, in the same transaction, it
+	// share-locks every participant service account, then every participant
+	// client, each in id order, and runs recheck on the rows as read under
+	// those locks. recheck's error aborts the create and is returned
+	// unchanged; a failed lock read is a store failure.
+	Create(ctx context.Context, a *domain.AgentCommunicationAuthorization, recheck AgentCommunicationParticipantRecheck) error
 
 	// GetByID returns the authorization with its two participants, scoped
 	// to organizationID. An absent row and a row of another organization
@@ -46,3 +52,8 @@ type AgentCommunicationAuthorizationRepository interface {
 	// re-checks it, so a silent transfer would strand a live session.
 	HasLiveParticipant(ctx context.Context, organizationID, serviceAccountID uuid.UUID, now time.Time) (bool, error)
 }
+
+// AgentCommunicationParticipantRecheck judges the participants of a create
+// as read under the create's locks: sas[i] and clients[i] are the rows of
+// a.Participants[i], nil when the row is missing or soft-deleted.
+type AgentCommunicationParticipantRecheck func(sas []*domain.ServiceAccount, clients []*domain.Client) error

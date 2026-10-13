@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/server"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
@@ -18,7 +19,7 @@ import (
 // the boundary policy — so the assertions below are plain testing.)
 type acDiscoveryAuthRepo struct{}
 
-func (acDiscoveryAuthRepo) Create(context.Context, *domain.AgentCommunicationAuthorization) error {
+func (acDiscoveryAuthRepo) Create(context.Context, *domain.AgentCommunicationAuthorization, repository.AgentCommunicationParticipantRecheck) error {
 	return nil
 }
 func (acDiscoveryAuthRepo) GetByID(context.Context, uuid.UUID, uuid.UUID) (*domain.AgentCommunicationAuthorization, error) {

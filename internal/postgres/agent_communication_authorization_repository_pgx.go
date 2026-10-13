@@ -1,9 +1,11 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -39,7 +41,15 @@ const agentCommunicationParticipantColumns = `
 // Create inserts the authorization and its two participants in one
 // transaction. The deferred constraint trigger of migration 0037 counts the
 // participant rows at COMMIT, so a partial write can never land.
-func (r *PgxAgentCommunicationAuthorizationRepository) Create(ctx context.Context, a *domain.AgentCommunicationAuthorization) error {
+//
+// Lock order (ACA-CREATE-LOCK-1): the participant service accounts, then the
+// participant clients, each in id order; the inserts after. The order the
+// client save (account, client) and the organization delete (accounts,
+// clients) take. Known limit: the organization delete updates every account
+// of the organization in one statement, in scan order, so a create holding
+// one of two accounts can deadlock with it; Postgres aborts one side
+// (40P01), and the create answers a store failure, which is retryable.
+func (r *PgxAgentCommunicationAuthorizationRepository) Create(ctx context.Context, a *domain.AgentCommunicationAuthorization, recheck repository.AgentCommunicationParticipantRecheck) error {
 	if a == nil {
 		return fmt.Errorf("agent communication authorization: nil aggregate")
 	}
@@ -49,6 +59,9 @@ func (r *PgxAgentCommunicationAuthorizationRepository) Create(ctx context.Contex
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback on any non-commit path
 
+	if err := lockAgentCommunicationParticipants(ctx, tx, a, recheck); err != nil {
+		return err
+	}
 	_, err = tx.Exec(ctx, `
 		INSERT INTO agent_communication_authorizations (`+agentCommunicationAuthorizationColumns+`)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
@@ -79,6 +92,56 @@ func (r *PgxAgentCommunicationAuthorizationRepository) Create(ctx context.Contex
 		return fmt.Errorf("failed to commit agent communication authorization: %w", err)
 	}
 	return nil
+}
+
+// lockAgentCommunicationParticipants share-locks the participant accounts,
+// then the participant clients, each in id order, inside the create's
+// transaction, and runs recheck on the rows as read under the locks. FOR
+// SHARE: a soft delete, deactivation, owner change or client save is an
+// UPDATE that waits until the create ends, and one that waited reads the
+// committed authorization.
+func lockAgentCommunicationParticipants(ctx context.Context, tx pgx.Tx, a *domain.AgentCommunicationAuthorization, recheck repository.AgentCommunicationParticipantRecheck) error {
+	n := len(a.Participants)
+	sas := make([]*domain.ServiceAccount, n)
+	byAccount := participantOrder(n, func(i int) uuid.UUID { return a.Participants[i].ServiceAccountID })
+	for _, i := range byAccount {
+		l := repository.ServiceAccountLock{
+			ID:      a.Participants[i].ServiceAccountID,
+			Recheck: func(sa *domain.ServiceAccount) error { sas[i] = sa; return nil },
+		}
+		if err := lockBoundServiceAccount(ctx, tx, &l); err != nil {
+			return err
+		}
+	}
+	clients := make([]*domain.Client, n)
+	locked := &PgxClientRepository{db: tx}
+	for _, i := range participantOrder(n, func(i int) uuid.UUID { return a.Participants[i].OAuthClientID }) {
+		c, err := locked.scanClient(tx.QueryRow(ctx, `SELECT `+clientColumns+` FROM oauth_clients WHERE id = $1 AND deleted_at IS NULL FOR SHARE`, a.Participants[i].OAuthClientID))
+		switch {
+		case err == nil:
+			clients[i] = c
+		case !errors.Is(err, pgx.ErrNoRows):
+			return clientStoreError(err)
+		}
+	}
+	if recheck == nil {
+		return nil
+	}
+	return recheck(sas, clients)
+}
+
+// participantOrder returns the indexes 0..n-1 sorted by id, the order
+// Postgres compares uuids in (bytewise).
+func participantOrder(n int, id func(i int) uuid.UUID) []int {
+	order := make([]int, n)
+	for i := range order {
+		order[i] = i
+	}
+	sort.Slice(order, func(x, y int) bool {
+		ix, iy := id(order[x]), id(order[y])
+		return bytes.Compare(ix[:], iy[:]) < 0
+	})
+	return order
 }
 
 func scanAgentCommunicationAuthorization(row pgx.Row) (*domain.AgentCommunicationAuthorization, error) {

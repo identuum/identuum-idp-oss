@@ -13,6 +13,7 @@ import (
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 )
 
 // acRepoFake is an in-memory AgentCommunicationAuthorizationRepository.
@@ -38,7 +39,7 @@ func cloneAC(a *domain.AgentCommunicationAuthorization) *domain.AgentCommunicati
 	return &c
 }
 
-func (f *acRepoFake) Create(_ context.Context, a *domain.AgentCommunicationAuthorization) error {
+func (f *acRepoFake) Create(_ context.Context, a *domain.AgentCommunicationAuthorization, _ repository.AgentCommunicationParticipantRecheck) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.createCalls++

@@ -372,8 +372,16 @@ func (s *ServiceAccountService) AssignOwnerForActor(ctx context.Context, actor *
 		if live {
 			return nil, ErrSAOwnerTransferBlocked
 		}
-	}
-	if err := s.repo.UpdateOwner(ctx, sa.ID, sa.OrganizationID, target); err != nil {
+		// ACA-CREATE-LOCK-1: judged again under a lock on the account, so a
+		// create that commits beside this transfer is seen, never re-owned.
+		live, err = s.repo.TransferOwner(ctx, sa.ID, sa.OrganizationID, target, s.now().UTC())
+		if err != nil {
+			return nil, domain.AuthStoreUnavailable("service_account.owner_write", err)
+		}
+		if live {
+			return nil, ErrSAOwnerTransferBlocked
+		}
+	} else if err := s.repo.UpdateOwner(ctx, sa.ID, sa.OrganizationID, target); err != nil {
 		return nil, domain.AuthStoreUnavailable("service_account.owner_write", err)
 	}
 	owner := target

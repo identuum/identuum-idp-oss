@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
@@ -266,6 +267,41 @@ func (r *PgxServiceAccountRepository) UpdateOwner(ctx context.Context, id uuid.U
 		return fmt.Errorf("service account not found")
 	}
 	return nil
+}
+
+// TransferOwner implements repository.ServiceAccountRepository.TransferOwner
+// (ACA-CREATE-LOCK-1). FOR NO KEY UPDATE on the account waits for an
+// authorization create's FOR SHARE on it, so the live judgement that follows
+// reads that create's committed authorization; a create that comes later
+// waits for this transfer and re-checks the new owner.
+func (r *PgxServiceAccountRepository) TransferOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID, now time.Time) (bool, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("failed to begin service account owner transfer: %w", err)
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	var one int
+	err = tx.QueryRow(ctx, `SELECT 1 FROM service_accounts WHERE id = $1 AND organization_id = $2 AND deleted_at IS NULL FOR NO KEY UPDATE`, id, orgID).Scan(&one)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, fmt.Errorf("service account not found")
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed to lock service account for owner transfer: %w", err)
+	}
+	live, err := (&PgxAgentCommunicationAuthorizationRepository{db: tx}).HasLiveParticipant(ctx, orgID, id, now)
+	if err != nil {
+		return false, err
+	}
+	if live {
+		return true, nil
+	}
+	if err := (&PgxServiceAccountRepository{db: tx}).UpdateOwner(ctx, id, orgID, ownerUserID); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("failed to commit service account owner transfer: %w", err)
+	}
+	return false, nil
 }
 
 func (r *PgxServiceAccountRepository) UpdateActive(ctx context.Context, id uuid.UUID, orgID uuid.UUID, active bool) error {

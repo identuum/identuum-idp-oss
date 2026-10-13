@@ -158,3 +158,8 @@ func (m *mockServiceAccountRepository) UpdateOwner(ctx context.Context, id uuid.
 	args := m.Called(ctx, id, orgID, ownerUserID)
 	return args.Error(0)
 }
+
+func (m *mockServiceAccountRepository) TransferOwner(ctx context.Context, id uuid.UUID, orgID uuid.UUID, ownerUserID uuid.UUID, now time.Time) (bool, error) {
+	args := m.Called(ctx, id, orgID, ownerUserID, now)
+	return args.Bool(0), args.Error(1)
+}

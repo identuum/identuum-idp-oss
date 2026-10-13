@@ -74,6 +74,12 @@ func (r *inMemoryServiceAccountRepo) UpdateOwner(_ context.Context, id, orgID, o
 	return nil
 }
 
+// TransferOwner has no authorizations to judge; the service's pre-check
+// against its live-participant lookup is what these tests drive.
+func (r *inMemoryServiceAccountRepo) TransferOwner(ctx context.Context, id, orgID, ownerUserID uuid.UUID, _ time.Time) (bool, error) {
+	return false, r.UpdateOwner(ctx, id, orgID, ownerUserID)
+}
+
 // Compile-time check that the fake satisfies the interface.
 var _ repository.ServiceAccountRepository = (*inMemoryServiceAccountRepo)(nil)
 
