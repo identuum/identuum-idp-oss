@@ -601,6 +601,16 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		}
 		auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result)
 		c.JSON(loginStepStatus(c), body)
+	case errors.Is(err, service.ErrLoginPasswordExpired):
+		// G2: the admin-set password is past its 24 hours. No session, no
+		// handle for the change step.
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action:    "user_session.login.password_expired",
+			Outcome:   "denied",
+			IPAddress: c.ClientIP(),
+			UserAgent: c.Request.UserAgent(),
+		})
+		c.JSON(http.StatusUnauthorized, passwordExpiredBody())
 	case errors.Is(err, service.ErrLoginAccountUnverified):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account_unverified"})
 	case errors.Is(err, service.ErrLoginRegistrationPending):

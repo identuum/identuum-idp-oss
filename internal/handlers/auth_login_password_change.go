@@ -21,6 +21,16 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
+// passwordExpiredMessage is what a member reads when an admin-set password is
+// past its 24 hours (G2).
+const passwordExpiredMessage = "This password has expired. Ask your administrator for a new reset link."
+
+// passwordExpiredBody is the 401 answer of a sign-in, or of its change step,
+// with an expired admin-set password (G2).
+func passwordExpiredBody() gin.H {
+	return gin.H{"error": "password_expired", "message": passwordExpiredMessage}
+}
+
 type loginPasswordChangeRequest struct {
 	SessionID   string `json:"session_id"`
 	NewPassword string `json:"new_password"`
@@ -95,6 +105,9 @@ func HandleLoginPasswordChange(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		switch {
 		case errors.As(err, &policy):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "weak_password", "message": policy.Detail})
+			return
+		case errors.Is(err, service.ErrLoginPasswordExpired):
+			c.JSON(http.StatusUnauthorized, passwordExpiredBody())
 			return
 		case err != nil:
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_session"})

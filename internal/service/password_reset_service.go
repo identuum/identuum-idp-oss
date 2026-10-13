@@ -332,6 +332,13 @@ func (s *PasswordResetService) issueResets(ctx context.Context, users []*domain.
 			// in any state.
 			continue
 		}
+		if !localPasswordResettable(user) {
+			// G1 (Q-G1 (a)): no link for a member who cannot sign in
+			// with a local password — an org_user of an idp_only
+			// organization, or a member who signs in only upstream. No
+			// row, no mail, no audit; the answer stays the same.
+			continue
+		}
 		rawToken, tokenHash, err := s.generateToken()
 		if err != nil {
 			s.logger.Error("password_reset: token generation failed",
@@ -434,6 +441,11 @@ func (s *PasswordResetService) ResetPassword(ctx context.Context, in ResetPasswo
 	if user.DeletedAt != nil || user.Banned {
 		return ErrPasswordResetInvalidToken
 	}
+	// G1: the organization may have turned idp_only since the link was
+	// issued; then the link sets nothing and is not spent.
+	if !localCredentialFlowAllowed(user) {
+		return ErrPasswordResetInvalidToken
+	}
 	// Per-org PasswordComplexityEnabled enforcement (Decision D-015 §9). nil ⇒
 	// strict mode (complexity required) — safe backward-compat default.
 	complexityEnabled := true
@@ -511,6 +523,23 @@ func (s *PasswordResetService) generateToken() (string, string, error) {
 		return "", "", err
 	}
 	return raw, hashToken(raw), nil
+}
+
+// localCredentialFlowAllowed applies IsLocalCredentialFlowAllowed to user's
+// organization policy (nil is the permissive default).
+func localCredentialFlowAllowed(user *domain.User) bool {
+	policy := ""
+	if user.OrgAuthPolicy != nil {
+		policy = *user.OrgAuthPolicy
+	}
+	return IsLocalCredentialFlowAllowed(user, policy).Allowed
+}
+
+// localPasswordResettable reports whether a reset link may be issued to
+// user: it has a local password (not the federated-only sentinel) and its
+// organization allows it a local credential (G1).
+func localPasswordResettable(user *domain.User) bool {
+	return user.PasswordHash != domain.NoPasswordSentinel && localCredentialFlowAllowed(user)
 }
 
 // hashToken is a thin wrapper around the internal/crypto SHA-256 hex

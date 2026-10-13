@@ -103,6 +103,15 @@ type UpdateUserOptions struct {
 	PasswordComplexityEnabled *bool
 	// MinPasswordLength is the policy floor; 0 ⇒ safe default of 8.
 	MinPasswordLength int
+	// MustChangePassword (Q-B2 (a)): with Password, the same meaning as on
+	// create (nil ⇒ true, D-017). Without Password it is refused
+	// (errUserInvalid) and nothing is written.
+	MustChangePassword *bool
+}
+
+// MustChange resolves MustChangePassword (nil ⇒ true, D-017's default).
+func (o UpdateUserOptions) MustChange() bool {
+	return o.MustChangePassword == nil || *o.MustChangePassword
 }
 
 var errUserNotFound = errors.New("service: user not found")
@@ -202,6 +211,11 @@ func (s *UserService) Create(ctx context.Context, opts CreateUserOptions) (*doma
 		RequiresPasswordChange: opts.MustChange(),
 		CreatedAt:              now,
 		UpdatedAt:              now,
+	}
+	if opts.MustChange() {
+		// G2 (Q-G2b (a)): the password to be changed expires
+		// AdminSetPasswordTTL after now; a lasting one stores no time.
+		user.AdminPasswordSetAt = &now
 	}
 	if !opts.Unverified {
 		// OSS-0912-C2: the administrator's word activates the account but
@@ -367,6 +381,9 @@ func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts Upda
 	if err := validateUserUpdate(opts); err != nil {
 		return nil, fmt.Errorf("%w: %v", errUserInvalid, err)
 	}
+	if opts.MustChangePassword != nil && (opts.Password == nil || *opts.Password == "") {
+		return nil, fmt.Errorf("%w: must_change_password is accepted only with password", errUserInvalid)
+	}
 	repoOpts := repository.UpdateUserOptions{
 		Email:              opts.Email,
 		Name:               opts.Name,
@@ -405,6 +422,16 @@ func (s *UserService) update(ctx context.Context, id, orgID uuid.UUID, opts Upda
 			return nil, errPasswordHashing
 		}
 		repoOpts.Password = &hash
+		// Q-B2 (a) and G2: as on create, in the same write as the hash. A
+		// password to be changed records when it was set (it expires
+		// AdminSetPasswordTTL later); a lasting one clears that time.
+		mustChange := opts.MustChange()
+		repoOpts.RequiresPasswordChange = &mustChange
+		setAt := time.Time{}
+		if mustChange {
+			setAt = time.Now().UTC()
+		}
+		repoOpts.AdminPasswordSetAt = &setAt
 	}
 	if beforeWrite != nil {
 		if err := beforeWrite(ctx); err != nil {

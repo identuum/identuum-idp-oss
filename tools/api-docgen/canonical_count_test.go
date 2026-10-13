@@ -106,7 +106,11 @@ import (
 // a verification email to prove the mailbox (OSS-0912-C2).
 // 160 → 162: GET + DELETE /api/v1/me/consents, a signed-in user lists the
 // applications holding access and removes one (OSS-0913-A D3).
-const CanonicalEndpointCount = 162
+// 162 → 165: POST /api/v1/users/:id/recovery/reset-link, GET
+// /api/v1/auth/reset-link/validate, POST /api/v1/auth/reset-link, an
+// administrator's one-time reset link and the page that spends it
+// (OSS-0913-B D9).
+const CanonicalEndpointCount = 165
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

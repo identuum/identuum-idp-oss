@@ -30,6 +30,7 @@ GET /api/v1/auth/invite/:token
 GET /api/v1/auth/organization-lookup
 GET /api/v1/auth/organizations/activate/:token
 GET /api/v1/auth/register/:org_slug
+GET /api/v1/auth/reset-link/validate
 GET /api/v1/auth/step-up
 GET /api/v1/auth/step-up/passkey
 GET /api/v1/auth/verify-email
@@ -97,6 +98,7 @@ POST /api/v1/auth/password/reset
 POST /api/v1/auth/password/reset-request
 POST /api/v1/auth/register/:org_slug
 POST /api/v1/auth/resend-verification
+POST /api/v1/auth/reset-link
 POST /api/v1/auth/session/refresh
 POST /api/v1/auth/step-up
 POST /api/v1/auth/step-up/passkey
@@ -141,6 +143,7 @@ POST /api/v1/service-accounts/:id/owner
 POST /api/v1/users
 POST /api/v1/users/:id/approve
 POST /api/v1/users/:id/invite
+POST /api/v1/users/:id/recovery/reset-link
 POST /api/v1/users/:id/recovery/reset-mfa
 POST /api/v1/users/:id/reject
 POST /api/v1/users/:id/restore

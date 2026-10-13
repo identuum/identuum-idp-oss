@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -1103,6 +1104,13 @@ func mountScopeTemplates(router gin.IRouter, resolved OSSRouterDeps) {
 	})
 }
 
+// adminResetLinkMounted reports whether the D9 reset-link routes are served:
+// the issue route needs the user service (its authority) and the reset
+// service (the link), and the public pair is mounted with the reset service.
+func adminResetLinkMounted(d OSSRouterDeps) bool {
+	return d.UserService != nil && d.PasswordResetService != nil
+}
+
 // mountUserSurface mounts the /api/v1/users, /me/profile, and SCIM
 // route groups. UserDeps carries optional session-revoker and
 // refresh-token-revoker seams so admin MFA reset can fan out
@@ -1126,6 +1134,10 @@ func mountUserSurface(router gin.IRouter, resolved OSSRouterDeps) {
 		// OSS-ONBOARD-A (D-016): the invite link's base, the UI origin
 		// verbatim; empty stays empty and the answer names the setting.
 		InviteLinkBaseURL: resolved.UIPublicBaseURL,
+	}
+	// D9: the administrator's one-time reset link (no typed nil).
+	if adminResetLinkMounted(resolved) {
+		userDeps.PasswordResetLinks = resolved.PasswordResetService
 	}
 	// Wire the OSS session revoker only when the runtime has
 	// constructed UserSessionService; absent that, the handler
@@ -1896,9 +1908,11 @@ func componentHandler(deps OSSRouterDeps) gin.HandlerFunc {
 				"anomaly_detection":           false,
 				"observability":               false,
 				// CE-UI-2b: mail is offered only where it can be
-				// delivered; OSS issues no admin reset links.
+				// delivered. D9: an admin reset link is offered only
+				// where its routes are mounted and a link can open the
+				// UI's page (IDENTUUM_IDP_UI_PUBLIC_BASE_URL set).
 				"mail_ceremonies":  deps.EmailDeliveryConfigured,
-				"admin_reset_link": false,
+				"admin_reset_link": adminResetLinkMounted(deps) && strings.TrimSpace(deps.UIPublicBaseURL) != "",
 				// OSS-GUARDS: OSS holds pending registrations (a banned
 				// org_user awaiting approval) and serves
 				// POST /api/v1/users/:id/approve; identuum-idp-ce declares

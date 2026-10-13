@@ -220,6 +220,10 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "policy knob, never wire-fed (PROVENANCE-POLICY-1); no password changes on this path anyway.",
 	},
+	"internal/handlers/users.go:HandleUpdateProfile.UpdateUserOptions.MustChangePassword": {
+		State: "absent",
+		Why:   "Q-B2 (a): the flag rides an admin-set password (PUT /api/v1/users/:id feeds it); the self-service profile sets no password, and a member never asks itself for a change.",
+	},
 
 	// ── Debts PAID by THE-TWO-DEBTS (rows retired, stale teeth fired) ──
 	// keys.go CreatedBy: now derived from the authenticated principal

@@ -180,6 +180,21 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 				c.Redirect(http.StatusSeeOther, loc)
 				return
 			}
+			if errors.Is(err, service.ErrLoginPasswordExpired) {
+				// G2: the admin-set password is past its 24 hours.
+				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+					Action:    "user_session.login.password_expired",
+					Outcome:   "denied",
+					IPAddress: ip,
+					UserAgent: ua,
+				})
+				loc := "/api/v1/auth/browser-login?error=password_expired"
+				if returnTo != "" {
+					loc += "&return_to=" + url.QueryEscape(returnTo)
+				}
+				c.Redirect(http.StatusSeeOther, loc)
+				return
+			}
 			if errors.Is(err, service.ErrLoginPasswordChangeRequired) && deps.changeStepWired() && result != nil && result.User != nil {
 				// D-017: the admin-set password is proven; the user chooses
 				// their own before any cookie exists.
@@ -391,8 +406,11 @@ func renderLoginForm(w http.ResponseWriter, returnTo, errCode, csrfToken string,
 	body := strings.ReplaceAll(loginFormTemplate, "{{RETURN_TO}}", html.EscapeString(returnTo))
 	if errCode != "" {
 		text := "Sign-in failed. Please check your credentials and try again."
-		if errCode == "login_throttled" {
+		switch errCode {
+		case "login_throttled":
 			text = "Too many failed sign-ins for this account. Wait up to a minute, then try again."
+		case "password_expired":
+			text = passwordExpiredMessage
 		}
 		banner := `<p role="alert" data-error="` + html.EscapeString(errCode) + `">` + text + `</p>`
 		body = strings.ReplaceAll(body, "{{ERROR}}", banner)

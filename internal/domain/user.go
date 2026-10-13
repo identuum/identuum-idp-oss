@@ -161,6 +161,12 @@ type User struct {
 	OrgPasswordComplexityEnabled *bool
 	OIDCLinked                   bool
 	RequiresPasswordChange       bool
+	// AdminPasswordSetAt is when an administrator set the password that
+	// RequiresPasswordChange asks the member to replace (G2, migration 0055).
+	// Password sign-in refuses that password AdminSetPasswordTTL after it.
+	// nil means no expiry: a lasting password, a password the member chose,
+	// or a row written before migration 0055.
+	AdminPasswordSetAt *time.Time
 	// EmailVerified is the ACTIVATION flag: the account may sign in. It does
 	// not say the person controls the mailbox — see EmailVerifiedVia and
 	// MailboxProven (OSS-0912-C2).

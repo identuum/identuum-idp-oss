@@ -125,6 +125,9 @@ func handleBrowserPasswordChange(c *gin.Context, deps BrowserLoginHandlerDeps, h
 	case errors.As(err, &policy):
 		renderPasswordChangeForm(c, deps, handle, returnTo, remember, policy.Detail)
 		return
+	case errors.Is(err, service.ErrLoginPasswordExpired):
+		browserLoginRedirect(c, "error=password_expired", returnTo)
+		return
 	case err != nil:
 		browserLoginRedirect(c, "error=invalid_credentials", returnTo)
 		return

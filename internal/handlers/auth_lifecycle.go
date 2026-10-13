@@ -158,6 +158,24 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:auth=public
 		// docgen:notes=Single-use — token row is marked used BEFORE the password rewrite (burn-before-write). 400 invalid_reset_token / weak_password on rejection. No Set-Cookie. Raw token never logged.
 		resetGroup.POST("/api/v1/auth/password/reset", HandleResetPassword(deps))
+		// docgen:endpoint
+		// docgen:surface=auth-lifecycle
+		// docgen:method=GET
+		// docgen:path=/api/v1/auth/reset-link/validate
+		// docgen:summary=Check an administrator's reset link (D9) without spending it. Answers {"valid":bool}.
+		// docgen:tier=oss
+		// docgen:auth=public
+		// docgen:notes=Cache-Control no-store. Rate-limited per IP with the reset routes. The token travels in the ?token= query; the IdP's access log omits the query, a reverse proxy may log it. Raw token never logged.
+		resetGroup.GET("/api/v1/auth/reset-link/validate", HandleValidateResetLink(deps))
+		// docgen:endpoint
+		// docgen:surface=auth-lifecycle
+		// docgen:method=POST
+		// docgen:path=/api/v1/auth/reset-link
+		// docgen:summary=Redeem an administrator's reset link (D9): the member sets their own password under the organization's policy; every session and refresh token of the user is revoked and no change is owed at the next sign-in. Answers {"success":true}.
+		// docgen:tier=oss
+		// docgen:auth=public
+		// docgen:notes=Single use. 400 invalid_token (used, expired, replaced, or the organization no longer allows the member a local password) or weak_password (the link stays usable). Cache-Control no-store. Rate-limited per IP with the reset routes. Raw token never logged.
+		resetGroup.POST("/api/v1/auth/reset-link", HandleRedeemResetLink(deps))
 	}
 	if deps.EmailVerify != nil {
 		// Per-IP and per-address limits on resend, per-IP on verify

@@ -16,7 +16,9 @@ package service
 //   - The NEW password is validated against the per-org password policy
 //     (Decision D-015 §9): org PasswordComplexityEnabled, nil ⇒ strict; the
 //     minimum-length floor mirrors the password-reset default (8).
-//   - On success ONLY the password hash is updated.
+//   - On success the password hash is updated, and a change an
+//     administrator asked for (requires_password_change and its
+//     admin_password_set_at, Q-B2 and G2) is no longer owed.
 //
 // R2 — RULED 2026-08-21: a successful change revokes all the user's OTHER
 // sessions and OAuth refresh tokens; the changing session stays valid. The
@@ -27,6 +29,7 @@ package service
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -61,6 +64,29 @@ func (e *sentinelError) Error() string { return e.msg }
 type ChangePasswordService struct {
 	users             repository.UserRepository
 	minPasswordLength int
+	// now reads the clock for the admin-set password expiry (G2); nil is
+	// time.Now.
+	now func() time.Time
+}
+
+// WithClock sets the clock the admin-set password expiry reads (G2).
+func (s *ChangePasswordService) WithClock(now func() time.Time) *ChangePasswordService {
+	s.now = now
+	return s
+}
+
+func (s *ChangePasswordService) clock() time.Time {
+	if s.now == nil {
+		return time.Now()
+	}
+	return s.now()
+}
+
+// chosenPasswordOptions is the write of a password the member chose (Q-B2,
+// G2): no change is owed any more and no admin-set time remains.
+func chosenPasswordOptions(hash string) repository.UpdateUserOptions {
+	cleared, noTime := false, time.Time{}
+	return repository.UpdateUserOptions{Password: &hash, RequiresPasswordChange: &cleared, AdminPasswordSetAt: &noTime}
 }
 
 // NewChangePasswordService wires the repository. minPasswordLength <= 0
@@ -112,9 +138,9 @@ func (s *ChangePasswordService) ChangeOwnPassword(ctx context.Context, userID uu
 	if err != nil {
 		return domainSentinel("change_password: hash failed")
 	}
-	updated, err := s.users.Update(ctx, user.ID, user.OrganizationID, repository.UpdateUserOptions{
-		Password: &hash,
-	})
+	// Q-B2: the member chose this password, so a change an administrator
+	// asked for is no longer owed.
+	updated, err := s.users.Update(ctx, user.ID, user.OrganizationID, chosenPasswordOptions(hash))
 	if err != nil {
 		return err
 	}
@@ -146,6 +172,11 @@ func (s *ChangePasswordService) ChangeRequiredAtSignIn(ctx context.Context, user
 	if user.AuthSource != "" && user.AuthSource != domain.AuthSourceLocal {
 		return nil, ErrRequiredChangeUnavailable
 	}
+	// G2: a handle minted before the admin-set password expired does not
+	// outlive it.
+	if adminSetPasswordExpired(user, s.clock()) {
+		return nil, ErrLoginPasswordExpired
+	}
 	complexityEnabled := true
 	if user.OrgPasswordComplexityEnabled != nil {
 		complexityEnabled = *user.OrgPasswordComplexityEnabled
@@ -160,12 +191,9 @@ func (s *ChangePasswordService) ChangeRequiredAtSignIn(ctx context.Context, user
 	if err != nil {
 		return nil, domainSentinel("change_password: hash failed")
 	}
-	cleared := false
-	updated, err := s.users.Update(ctx, user.ID, user.OrganizationID, repository.UpdateUserOptions{
-		Password:                     &hash,
-		RequiresPasswordChange:       &cleared,
-		RequirePasswordChangePending: true,
-	})
+	opts := chosenPasswordOptions(hash)
+	opts.RequirePasswordChangePending = true
+	updated, err := s.users.Update(ctx, user.ID, user.OrganizationID, opts)
 	if err != nil || updated == nil {
 		return nil, ErrRequiredChangeUnavailable
 	}

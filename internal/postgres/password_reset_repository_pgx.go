@@ -49,6 +49,39 @@ func (r *PgxPasswordResetRepository) Create(ctx context.Context, reset *domain.P
 	return nil
 }
 
+// CreateRetiringOthers (D9) stores an administrator's reset link and marks
+// every other unused link of the user used, in one transaction, so only the
+// newest link can set the password. The second retire runs under the users
+// row lock and catches a link a concurrent issue committed meanwhile, so two
+// issues never leave two usable links. An issue racing a claim of the same
+// user's link may deadlock with it; PostgreSQL then aborts one of the two,
+// which changes nothing and answers an error.
+func (r *PgxPasswordResetRepository) CreateRetiringOthers(ctx context.Context, reset *domain.PasswordReset) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin password reset link transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	const retire = `UPDATE password_resets SET used_at = NOW() WHERE user_id = $1 AND used_at IS NULL`
+	if _, err := tx.Exec(ctx, retire, reset.UserID); err != nil {
+		return fmt.Errorf("retire earlier password reset links: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, reset.UserID); err != nil {
+		return fmt.Errorf("lock user for password reset link: %w", err)
+	}
+	if _, err := tx.Exec(ctx, retire, reset.UserID); err != nil {
+		return fmt.Errorf("retire earlier password reset links: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO password_resets (user_id, token_hash, expires_at, used_at, created_at) VALUES ($1, $2, $3, NULL, $4)`,
+		reset.UserID, reset.TokenHash, reset.ExpiresAt, reset.CreatedAt); err != nil {
+		return fmt.Errorf("create password reset link: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit password reset link transaction: %w", err)
+	}
+	return nil
+}
+
 // GetByTokenHash retrieves a password reset request by token hash
 func (r *PgxPasswordResetRepository) GetByTokenHash(ctx context.Context, tokenHash string) (*domain.PasswordReset, error) {
 	timer := prometheus.NewTimer(metrics.DBQueryDuration.WithLabelValues("password_reset_repo", "get_by_hash", "all"))
@@ -128,7 +161,9 @@ func (r *PgxPasswordResetRepository) ClaimPasswordReset(ctx context.Context, tok
 		return uuid.Nil, false, fmt.Errorf("claim password reset token: %w", err)
 	}
 
-	ct, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, userID, newPasswordHash)
+	// Q-B2 and G2: the member chose this password, so no change is owed any
+	// more and no admin-set expiry remains.
+	ct, err := tx.Exec(ctx, `UPDATE users SET password_hash = $2, requires_password_change = false, admin_password_set_at = NULL, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, userID, newPasswordHash)
 	if err != nil {
 		return uuid.Nil, false, fmt.Errorf("password reset write: %w", err)
 	}

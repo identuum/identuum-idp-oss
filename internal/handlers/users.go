@@ -74,6 +74,11 @@ type UsersHandlerDeps struct {
 	// answer carries <base>/invite?token=… or, when empty,
 	// invite_url_unavailable naming the setting (OSS-ONBOARD-A, D-016).
 	InviteLinkBaseURL string
+
+	// PasswordResetLinks mints the administrator's one-time reset link (D9);
+	// nil leaves POST /:id/recovery/reset-link unmounted. The link is built
+	// on InviteLinkBaseURL, the same setting as the invite.
+	PasswordResetLinks PasswordResetLinkIssuer
 }
 
 // profileFieldsRequest is the wire shape of the twelve optional OIDC §5.1
@@ -292,7 +297,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeUser
-		// docgen:notes=org_admin actor additionally requires the users:update scope.
+		// docgen:notes=org_admin actor additionally requires the users:update scope. A password set here must be changed at the next password sign-in unless the body also sends "must_change_password":false (Q-B2, as on create); the answer's requires_password_change says which. Such a password expires 24 hours after it was set (sign-in then answers 401 password_expired); with false it does not expire. must_change_password without password is 400 invalid request.
 		update.PUT("/:id", HandleUpdateUser(deps))
 
 		// docgen:endpoint
@@ -316,6 +321,17 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 			// docgen:auth=site_admin|org_admin
 			// docgen:notes=org_admin additionally requires the users:update scope and reaches only its own organization's users (another organization's user is 404). site_admin may re-issue only for an org_admin (the one it may seed); otherwise 403. A local user who is unverified with no invite (created with a password before D-017) is invited the same way, and redeeming sets a new password and verifies it. A verified user (redeemed, or created with a password under D-017) is 409 user_not_pending. The token is never logged or audited (user.invite_reissued).
 			update.POST("/:id/invite", HandleReissueUserInvite(deps))
+		}
+		if deps.PasswordResetLinks != nil {
+			// docgen:endpoint
+			// docgen:surface=users
+			// docgen:method=POST
+			// docgen:path=/api/v1/users/:id/recovery/reset-link
+			// docgen:summary=Issue a one-time password reset link for a member (D9). Returns email, reset_url and expires_at (24 hours) once, with Cache-Control no-store and no mail; the link opens the UI's /reset-link page, where the member chooses a password. A new link voids the earlier unused ones.
+			// docgen:tier=oss
+			// docgen:auth=site_admin|org_admin
+			// docgen:notes=org_admin additionally requires the users:update scope and reaches only its own organization's users (another organization's user, a site_admin and a deleted or unknown user are 404 not_found). site_admin reaches no tenant user (403 forbidden, D-025). Nobody targets itself (403 cannot_reset_self). 409 user_disabled, user_not_activated (use the invite), no_local_password (signs in only through a provider) or local_password_not_allowed (an org_user of an idp_only organization). 409 reset_link_unavailable when IDENTUUM_IDP_UI_PUBLIC_BASE_URL is not set. Every refusal carries a message. The link is never logged or audited (user.password_reset_link_issued).
+			update.POST("/:id/recovery/reset-link", HandleIssuePasswordResetLink(deps))
 		}
 
 		// Delete: site_admin OR org_admin with users:delete (USERS-DELETE-GUARD-1,
@@ -829,11 +845,18 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 			Active        *bool            `json:"active,omitempty"`
 			Banned        *bool            `json:"banned,omitempty"`
 			EmailVerified *bool            `json:"email_verified,omitempty"`
+			// Q-B2 (a): with password, the same meaning as on create
+			// (absent ⇒ true, D-017); without password, 400.
+			MustChangePassword *bool `json:"must_change_password,omitempty"`
 			// THE-PROFILE-CLAIMS: the twelve optional OIDC §5.1 fields.
 			profileFieldsRequest
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		if req.MustChangePassword != nil && (req.Password == nil || *req.Password == "") {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request", "message": "must_change_password is accepted only with password"})
 			return
 		}
 		profilePatch := req.patch()
@@ -884,6 +907,7 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				EmailVerified:             req.EmailVerified,
 				PasswordComplexityEnabled: pce,
 				MinPasswordLength:         minLen,
+				MustChangePassword:        req.MustChangePassword,
 			}, revoke)
 		} else {
 			// Profile-only update: the SAME actor authority as an update
@@ -965,12 +989,18 @@ func HandleUpdateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		// active/banned records user_deactivated or user_activated; any
 		// other change records user.updated as well.
 		record := func(action string) {
+			meta := map[string]any{"user_id": updated.ID}
+			if action == "user.updated" && req.Password != nil {
+				// Q-B2: as on create, the row says whether the admin-set
+				// password must be changed.
+				meta["must_change_password"] = updated.RequiresPasswordChange
+			}
 			_ = deps.Audit.Record(c.Request.Context(), enrichActor(c, audit.Event{
 				Action:    action,
 				Outcome:   "success",
 				IPAddress: c.ClientIP(),
 				UserAgent: c.Request.UserAgent(),
-				Metadata:  map[string]any{"user_id": updated.ID},
+				Metadata:  meta,
 			}))
 		}
 		otherChange := req.Email != nil || req.Password != nil || req.Name != nil ||

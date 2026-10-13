@@ -148,8 +148,10 @@ func TestNewOSSEngine_ComponentDiscoveryCapabilityFacts(t *testing.T) {
 // option B): the UI offers the mail ceremonies (forgot password, reset,
 // verify email, activation mail) only where the binary can send mail, and the
 // admin-issued reset link only where the binary serves it. OSS sends mail only
-// when SMTP is configured (internal/runtime/smtp_config.go); it has no admin
-// reset link.
+// when SMTP is configured (internal/runtime/smtp_config.go). Its admin reset
+// link (D9) needs the user and reset services and the UI public base URL;
+// these engines wire none, so it is false here (the wired cases are
+// TestD9_CapabilityFollowsTheUIBase).
 func TestNewOSSEngine_ComponentDiscoveryMailCapabilities(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -173,7 +175,7 @@ func TestNewOSSEngine_ComponentDiscoveryMailCapabilities(t *testing.T) {
 				t.Errorf("capabilities.mail_ceremonies = %v (%T), want %v", body.Capabilities["mail_ceremonies"], body.Capabilities["mail_ceremonies"], tc.configured)
 			}
 			if got, ok := body.Capabilities["admin_reset_link"].(bool); !ok || got {
-				t.Errorf("capabilities.admin_reset_link = %v (%T), want false: OSS serves no admin reset link", body.Capabilities["admin_reset_link"], body.Capabilities["admin_reset_link"])
+				t.Errorf("capabilities.admin_reset_link = %v (%T), want false: no reset service and no UI base are wired", body.Capabilities["admin_reset_link"], body.Capabilities["admin_reset_link"])
 			}
 		})
 	}

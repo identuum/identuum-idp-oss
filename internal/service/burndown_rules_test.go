@@ -60,6 +60,10 @@ func TestUpdateUserOptions_CarriesNoOrganizationField(t *testing.T) {
 		"EmailVerified":             true,
 		"PasswordComplexityEnabled": true,
 		"MinPasswordLength":         true,
+		// Owner answer Q-B2 (a), 2026-10-12: an admin-set password asks
+		// for a change unless the admin says otherwise. A flag on the
+		// password, not an organization mover.
+		"MustChangePassword": true,
 	}
 	typ := reflect.TypeOf(UpdateUserOptions{})
 	if typ.NumField() != len(want) {

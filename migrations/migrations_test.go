@@ -68,6 +68,7 @@ var expectedOSSFiles = []string{
 	"0052_oauth_clients_pkce_required.sql",
 	"0053_users_email_verified_via.sql",
 	"0054_email_verifications_address.sql",
+	"0055_users_admin_password_set_at.sql",
 }
 
 // excludedCommercialTables is the set of commercial-only table names that
@@ -188,7 +189,7 @@ func TestExactFileSetMatches(t *testing.T) {
 // one was removed without updating it.
 func TestCurrentReturnsLatestMigration(t *testing.T) {
 	got := migrations.Current()
-	want := "0054"
+	want := "0055"
 	if got != want {
 		t.Errorf("Current() = %q, want %q", got, want)
 	}

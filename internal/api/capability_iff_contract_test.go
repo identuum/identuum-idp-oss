@@ -348,22 +348,34 @@ func TestCapabilityIff_FalseCapabilitiesDocumentedPolicy(t *testing.T) {
 //   - mail_ceremonies is RUNTIME-DERIVED from deps.EmailDeliveryConfigured
 //     (set from resolveEmailNotifier in internal/runtime); its routes are
 //     registered either way, the flag says whether their mail can arrive.
-//   - admin_reset_link is absent-by-design on OSS (an identuum-idp-ce
-//     surface, owner decision 2026-09-26): no handler registers a
-//     reset-link route.
+//   - admin_reset_link (D9, owner answer Q-D9 (a), 2026-10-12; until then
+//     absent-by-design, owner decision 2026-09-26) is true iff the three
+//     reset-link routes are mounted AND IDENTUUM_IDP_UI_PUBLIC_BASE_URL is
+//     set, so the UI never offers a button its route refuses with 409
+//     reset_link_unavailable. Each route is registered exactly once, in the
+//     file and under the guard the router's adminResetLinkMounted mirrors.
 func TestCapabilityIff_MailCapabilities(t *testing.T) {
 	router := readIffSource(t, "internal/api/router.go")
 	if !strings.Contains(router, `"mail_ceremonies":  deps.EmailDeliveryConfigured,`) {
 		t.Error("mail_ceremonies must be derived from deps.EmailDeliveryConfigured, never a constant")
 	}
-	if !strings.Contains(router, `"admin_reset_link": false,`) {
-		t.Error("admin_reset_link must stay false on OSS")
+	if !strings.Contains(router, `"admin_reset_link": adminResetLinkMounted(deps) && strings.TrimSpace(deps.UIPublicBaseURL) != "",`) {
+		t.Error("admin_reset_link must be derived from the mounted reset-link routes and the UI public base URL, never a constant")
+	}
+	if !strings.Contains(router, "if adminResetLinkMounted(resolved) {\n\t\tuserDeps.PasswordResetLinks = resolved.PasswordResetService") {
+		t.Error("the issue route's dependency must be wired exactly when adminResetLinkMounted holds")
+	}
+	routes := []struct{ file, guard, registration string }{
+		{"users.go", "if deps.PasswordResetLinks != nil {", `update.POST("/:id/recovery/reset-link", HandleIssuePasswordResetLink(deps))`},
+		{"auth_lifecycle.go", "if deps.PasswordReset != nil {", `resetGroup.GET("/api/v1/auth/reset-link/validate", HandleValidateResetLink(deps))`},
+		{"auth_lifecycle.go", "if deps.PasswordReset != nil {", `resetGroup.POST("/api/v1/auth/reset-link", HandleRedeemResetLink(deps))`},
 	}
 	handlerDir := filepath.Join(repoRootIff(t), "internal", "handlers")
 	entries, err := os.ReadDir(handlerDir)
 	if err != nil {
 		t.Fatalf("read handler dir: %v", err)
 	}
+	seen := map[string]int{}
 	for _, e := range entries {
 		if e.IsDir() || strings.HasSuffix(e.Name(), "_test.go") || !strings.HasSuffix(e.Name(), ".go") {
 			continue
@@ -372,10 +384,26 @@ func TestCapabilityIff_MailCapabilities(t *testing.T) {
 		if rerr != nil {
 			continue
 		}
-		if strings.Contains(string(body), "reset-link") {
-			t.Errorf("admin_reset_link is false but a reset-link route appears in %s", e.Name())
+		for _, r := range routes {
+			if n := strings.Count(string(body), r.registration); n > 0 {
+				seen[r.registration] += n
+				if e.Name() != r.file {
+					t.Errorf("%s registers a reset-link route that belongs in %s", e.Name(), r.file)
+				}
+				guarded := strings.LastIndex(string(body)[:strings.Index(string(body), r.registration)], r.guard)
+				if guarded < 0 {
+					t.Errorf("%s registers %q outside %q", e.Name(), r.registration, r.guard)
+				}
+			}
 		}
 	}
+	for _, r := range routes {
+		if seen[r.registration] != 1 {
+			t.Errorf("reset-link route %q registered %d times; want exactly 1", r.registration, seen[r.registration])
+		}
+	}
+	// The behaviour half (true with the UI base, false without it, false and
+	// unmounted without a reset service) is TestD9_CapabilityFollowsTheUIBase.
 }
 
 // TestCapabilityIff_UserApproval (OSS-GUARDS): OSS has a pending-registration

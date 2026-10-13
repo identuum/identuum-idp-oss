@@ -30,6 +30,11 @@ type UpdateUserOptions struct {
 	OIDCIssuer               *string
 	ActivationTokenExpiresAt *time.Time
 
+	// AdminPasswordSetAt (G2) writes users.admin_password_set_at: nil leaves
+	// it, a pointer to the zero time writes NULL (no expiry), any other value
+	// is written as the time the administrator set the password.
+	AdminPasswordSetAt *time.Time
+
 	// Security: single-use activation token burn.
 	// Set to a non-nil pointer to write the hash; set to pointer-to-empty-string to clear it.
 	ActivationTokenHash *string

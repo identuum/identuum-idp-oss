@@ -25,6 +25,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -64,6 +65,22 @@ type LocalLoginService struct {
 	// the user store itself when that store can (the user repository can);
 	// nil leaves the code step TOTP only.
 	recovery RecoveryCodeConsumer
+	// now reads the clock for the admin-set password expiry (G2); nil is
+	// time.Now.
+	now func() time.Time
+}
+
+// WithClock sets the clock the admin-set password expiry reads (G2).
+func (s *LocalLoginService) WithClock(now func() time.Time) *LocalLoginService {
+	s.now = now
+	return s
+}
+
+func (s *LocalLoginService) clock() time.Time {
+	if s.now == nil {
+		return time.Now()
+	}
+	return s.now()
 }
 
 // loginRegistrationStates is the narrow seam of the self-registration gate:
@@ -348,6 +365,11 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	// then MFA enrolment or verification when the policy asks (the change
 	// step re-runs that gate), then the session. Partial-result contract
 	// as for the MFA steps: User populated, no session, no token.
+	if adminSetPasswordExpired(user, s.clock()) {
+		// G2: past its 24 hours the admin-set password opens nothing, not
+		// even the change step; the member asks for a reset link.
+		return nil, ErrLoginPasswordExpired
+	}
 	if user.RequiresPasswordChange {
 		return &LoginResult{User: user}, ErrLoginPasswordChangeRequired
 	}
