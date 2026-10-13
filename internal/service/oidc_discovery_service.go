@@ -61,6 +61,9 @@ type OIDCDiscoveryDocument struct {
 	AuthorizationEndpoint            string
 	TokenEndpoint                    string
 	JWKSURI                          string
+	// UserinfoEndpoint is optional; when the provider names one it passed the
+	// same https/host check as every other endpoint (D7).
+	UserinfoEndpoint                 string
 	ResponseTypesSupported           []string
 	GrantTypesSupported              []string
 	IDTokenSigningAlgValuesSupported []string
@@ -295,6 +298,7 @@ func (s *OIDCDiscoveryService) parseAndValidate(body []byte, requestedIssuer str
 		AuthorizationEndpoint            string   `json:"authorization_endpoint"`
 		TokenEndpoint                    string   `json:"token_endpoint"`
 		JWKSURI                          string   `json:"jwks_uri"`
+		UserinfoEndpoint                 string   `json:"userinfo_endpoint"`
 		ResponseTypesSupported           []string `json:"response_types_supported"`
 		GrantTypesSupported              []string `json:"grant_types_supported"`
 		IDTokenSigningAlgValuesSupported []string `json:"id_token_signing_alg_values_supported"`
@@ -316,11 +320,16 @@ func (s *OIDCDiscoveryService) parseAndValidate(body []byte, requestedIssuer str
 			return nil, ErrDiscoveryFailed
 		}
 	}
+	// The optional userinfo endpoint (D7) is held to the same rule.
+	if raw.UserinfoEndpoint != "" && !s.isAllowedURL(raw.UserinfoEndpoint) {
+		return nil, ErrDiscoveryFailed
+	}
 	return &OIDCDiscoveryDocument{
 		Issuer:                           raw.Issuer,
 		AuthorizationEndpoint:            raw.AuthorizationEndpoint,
 		TokenEndpoint:                    raw.TokenEndpoint,
 		JWKSURI:                          raw.JWKSURI,
+		UserinfoEndpoint:                 raw.UserinfoEndpoint,
 		ResponseTypesSupported:           raw.ResponseTypesSupported,
 		GrantTypesSupported:              raw.GrantTypesSupported,
 		IDTokenSigningAlgValuesSupported: raw.IDTokenSigningAlgValuesSupported,

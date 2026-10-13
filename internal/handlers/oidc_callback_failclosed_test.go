@@ -16,7 +16,8 @@ import (
 
 // OSS-HARDENING-2 item 2: when BrowserTokens is wired and Issue fails, the
 // upstream callback fails closed exactly as the browser login does (P2-8):
-// no cookie of any kind, no redirect, 503 "temporarily unavailable", a
+// no cookie of any kind, the sign-in page with reason sign_in_unavailable
+// (until v0.9.13 a 503 "temporarily unavailable"), a
 // failure audited and never a success — and, beyond the browser login, the
 // session the callback service created is revoked, so nothing live is left.
 // Since OSS-REVIEW-FIXES-1 (F5) the browser-session token is minted only for
@@ -71,14 +72,13 @@ func TestOIDCCallbackRoute_TokenIssueError_FailsClosed(t *testing.T) {
 	if sc := w.Header().Values("Set-Cookie"); len(sc) != 0 {
 		t.Fatalf("fail-closed VIOLATED: %d cookie(s) written on a refused sign-in", len(sc))
 	}
-	if w.Code == http.StatusFound || w.Header().Get("Location") != "" {
-		t.Fatalf("fail-closed VIOLATED: success redirect (code=%d, location=%q)", w.Code, w.Header().Get("Location"))
+	// Q-A1 (a), v0.9.13: the refusal is the console sign-in page with a
+	// reason (until then 503 text), never the stored return URL.
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/login?reason=sign_in_unavailable" {
+		t.Fatalf("fail-closed VIOLATED: = %d to %q, want 302 to /login?reason=sign_in_unavailable", w.Code, w.Header().Get("Location"))
 	}
-	if w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503; body=%q", w.Code, w.Body.String())
-	}
-	if body := w.Body.String(); !strings.Contains(body, "temporarily unavailable") || strings.Contains(body, res.RefreshToken) {
-		t.Fatalf("body = %q; want the browser login's temporarily-unavailable text and no token", body)
+	if body := w.Body.String(); strings.Contains(body, res.RefreshToken) {
+		t.Fatalf("body = %q; want no token", body)
 	}
 	// The session the callback service created is revoked, not left live.
 	stored := repo.byID[res.Session.ID]

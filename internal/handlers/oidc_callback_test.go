@@ -180,20 +180,24 @@ func TestOIDCCallbackRoute_EmptyReturnURLDefaultsToRoot(t *testing.T) {
 	}
 }
 
-// Error sentinels map to their statuses; NO cookie is set and NO redirect
-// happens on any failure.
+// Error sentinels map to their reason codes on the console sign-in page
+// (Q-A1 (a), v0.9.13; until then a JSON status); NO cookie is set and the
+// stored return URL is never the target on any failure.
 func TestOIDCCallbackRoute_ErrorStatusMapping(t *testing.T) {
 	cases := []struct {
 		err  error
-		want int
+		want string
 	}{
-		{service.ErrCallbackValidationFailed, http.StatusUnauthorized},
-		{service.ErrCallbackForbidden, http.StatusForbidden},
-		{service.ErrCallbackProvisionFailed, http.StatusInternalServerError},
-		{service.ErrCallbackSessionFailed, http.StatusInternalServerError},
-		{service.ErrCallbackDiscoveryFailed, http.StatusBadGateway},
-		{service.ErrCallbackExchangeFailed, http.StatusBadGateway},
-		{service.ErrCallbackStateInvalid, http.StatusBadRequest},
+		{service.ErrCallbackValidationFailed, "/login?reason=sign_in_failed"},
+		{service.ErrCallbackForbidden, "/login?reason=sign_in_not_permitted"},
+		{service.ErrCallbackEmailNotShared, "/login?reason=email_not_shared"},
+		{service.ErrCallbackInvitePending, "/login?reason=invitation_pending"},
+		{service.ErrCallbackRegistrationPending, "/login?reason=registration_pending"},
+		{service.ErrCallbackProvisionFailed, "/login?reason=sign_in_unavailable"},
+		{service.ErrCallbackSessionFailed, "/login?reason=sign_in_unavailable"},
+		{service.ErrCallbackDiscoveryFailed, "/login?reason=provider_unavailable"},
+		{service.ErrCallbackExchangeFailed, "/login?reason=provider_unavailable"},
+		{service.ErrCallbackStateInvalid, "/login?reason=sign_in_expired"},
 	}
 	// With and without the console's minter: a refused sign-in writes neither
 	// the browser-session cookie nor the console's two.
@@ -202,14 +206,11 @@ func TestOIDCCallbackRoute_ErrorStatusMapping(t *testing.T) {
 			cb := &fakeCallbackHandler{err: tc.err}
 			r := newOIDCCallbackEngineWith(t, cb, minter)
 			rec := oidcCbGET(r, cbPath(uuid.New())+"?state=s&code=c")
-			if rec.Code != tc.want {
-				t.Errorf("err %v: status = %d, want %d", tc.err, rec.Code, tc.want)
+			if rec.Code != http.StatusFound || rec.Header().Get("Location") != tc.want {
+				t.Errorf("err %v: = %d to %q, want 302 to %s", tc.err, rec.Code, rec.Header().Get("Location"), tc.want)
 			}
 			if sc := rec.Header().Get("Set-Cookie"); sc != "" {
 				t.Errorf("err %v (minter %v): a cookie was set on a failed login: %q", tc.err, minter != nil, sc)
-			}
-			if loc := rec.Header().Get("Location"); loc != "" {
-				t.Errorf("err %v: a redirect was issued on a failed login: %q", tc.err, loc)
 			}
 		}
 	}
@@ -272,27 +273,29 @@ func TestOIDCCallbackRoute_WithoutMinterPlantsOnlyTheBrowserSessionCookie(t *tes
 	}
 }
 
-// A provider-reported ?error= → 400 login-failed, service NOT called.
+// A provider-reported ?error= → sign_in_failed on the sign-in page, service
+// NOT called.
 func TestOIDCCallbackRoute_ProviderError(t *testing.T) {
 	cb := &fakeCallbackHandler{}
 	r := newOIDCCallbackEngine(t, cb)
 	rec := oidcCbGET(r, cbPath(uuid.New())+"?error=access_denied&state=s")
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/login?reason=sign_in_failed" {
+		t.Errorf("= %d to %q, want 302 to /login?reason=sign_in_failed", rec.Code, rec.Header().Get("Location"))
 	}
 	if cb.calls != 0 {
 		t.Errorf("service called %d times on provider error; want 0", cb.calls)
 	}
 }
 
-// Missing state or code → 400, service NOT called.
+// Missing state or code → sign_in_expired on the sign-in page, service NOT
+// called.
 func TestOIDCCallbackRoute_MissingParams(t *testing.T) {
 	for _, q := range []string{"?state=s", "?code=c", ""} {
 		cb := &fakeCallbackHandler{}
 		r := newOIDCCallbackEngine(t, cb)
 		rec := oidcCbGET(r, cbPath(uuid.New())+q)
-		if rec.Code != http.StatusBadRequest {
-			t.Errorf("query %q: status = %d, want 400", q, rec.Code)
+		if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/login?reason=sign_in_expired" {
+			t.Errorf("query %q: = %d to %q, want 302 to /login?reason=sign_in_expired", q, rec.Code, rec.Header().Get("Location"))
 		}
 		if cb.calls != 0 {
 			t.Errorf("query %q: service called %d times; want 0", q, cb.calls)
@@ -300,13 +303,14 @@ func TestOIDCCallbackRoute_MissingParams(t *testing.T) {
 	}
 }
 
-// Malformed provider id → 400 before the service.
+// Malformed provider id → sign_in_failed on the sign-in page, before the
+// service.
 func TestOIDCCallbackRoute_InvalidProviderID(t *testing.T) {
 	cb := &fakeCallbackHandler{}
 	r := newOIDCCallbackEngine(t, cb)
 	rec := oidcCbGET(r, "/api/v1/auth/idp/not-a-uuid/callback?state=s&code=c")
-	if rec.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/login?reason=sign_in_failed" {
+		t.Errorf("= %d to %q, want 302 to /login?reason=sign_in_failed", rec.Code, rec.Header().Get("Location"))
 	}
 	if cb.calls != 0 {
 		t.Errorf("service called %d times for malformed id; want 0", cb.calls)

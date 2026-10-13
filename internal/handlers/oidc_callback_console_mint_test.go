@@ -92,18 +92,16 @@ func TestOIDCCallbackRoute_ConsoleMintFailure_RefusesAndNeverLeavesTheOldUser(t 
 			w := oidcCbGETWithJar(r, cbPath(pid)+"?state=s&code=c", tc.jar...)
 
 			// A refusal, never a half sign-in: no cookie of any kind (so
-			// nothing of B is planted beside A), no redirect, 503.
+			// nothing of B is planted beside A), and the console sign-in page
+			// with reason sign_in_unavailable (Q-A1 (a); until v0.9.13 a 503).
 			if sc := w.Header().Values("Set-Cookie"); len(sc) != 0 {
 				t.Fatalf("fail-closed VIOLATED: %d cookie(s) written when the console mint failed: %q", len(sc), sc)
 			}
-			if w.Code == http.StatusFound || w.Header().Get("Location") != "" {
-				t.Fatalf("fail-closed VIOLATED: success redirect (code=%d, location=%q) over a failed console mint", w.Code, w.Header().Get("Location"))
+			if w.Code != http.StatusFound || w.Header().Get("Location") != "/login?reason=sign_in_unavailable" {
+				t.Fatalf("fail-closed VIOLATED: = %d to %q over a failed console mint, want 302 to /login?reason=sign_in_unavailable", w.Code, w.Header().Get("Location"))
 			}
-			if w.Code != http.StatusServiceUnavailable {
-				t.Fatalf("status = %d, want 503; body=%q", w.Code, w.Body.String())
-			}
-			if body := w.Body.String(); body == "" || containsAny(body, res.RefreshToken, userAConsoleToken) {
-				t.Fatalf("body = %q; want the temporarily-unavailable text and no token", body)
+			if body := w.Body.String(); containsAny(body, res.RefreshToken, userAConsoleToken) {
+				t.Fatalf("body = %q; want no token", body)
 			}
 			// B's session is revoked, not left live behind a refusal.
 			if stored := repo.byID[res.Session.ID]; stored == nil || stored.RevokedAt == nil || stored.IsValid {

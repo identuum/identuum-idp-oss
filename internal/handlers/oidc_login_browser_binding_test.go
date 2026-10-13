@@ -71,22 +71,22 @@ func TestOIDCCallback_RequiresTheBrowserThatStartedTheLogin(t *testing.T) {
 	t.Run("no cookie: refused, the state is not consumed", func(t *testing.T) {
 		cb := &fakeCallbackHandler{result: okResult("/dashboard")}
 		rec := get(cb, "abc123")
-		if rec.Code != http.StatusBadRequest || cb.calls != 0 || rec.Header().Get("Location") != "" {
-			t.Errorf("= %d calls=%d location=%q; want 400, service not called, no redirect", rec.Code, cb.calls, rec.Header().Get("Location"))
+		if rec.Code != http.StatusFound || cb.calls != 0 || rec.Header().Get("Location") != "/login?reason=sign_in_expired" {
+			t.Errorf("= %d calls=%d location=%q; want 302 to /login?reason=sign_in_expired, service not called", rec.Code, cb.calls, rec.Header().Get("Location"))
 		}
 	})
 	t.Run("a cookie for another state: refused", func(t *testing.T) {
 		cb := &fakeCallbackHandler{result: okResult("/dashboard")}
 		rec := get(cb, "abc123", &http.Cookie{Name: upstreamLoginCookieName("someone-elses-state"), Value: "someone-elses-state"})
-		if rec.Code != http.StatusBadRequest || cb.calls != 0 {
-			t.Errorf("= %d calls=%d; want 400 and service not called", rec.Code, cb.calls)
+		if rec.Code != http.StatusFound || cb.calls != 0 || rec.Header().Get("Location") != "/login?reason=sign_in_expired" {
+			t.Errorf("= %d calls=%d to %q; want 302 to /login?reason=sign_in_expired and service not called", rec.Code, cb.calls, rec.Header().Get("Location"))
 		}
 	})
 	t.Run("this state's cookie holding another value: refused", func(t *testing.T) {
 		cb := &fakeCallbackHandler{result: okResult("/dashboard")}
 		rec := get(cb, "abc123", &http.Cookie{Name: upstreamLoginCookieName("abc123"), Value: "forged"})
-		if rec.Code != http.StatusBadRequest || cb.calls != 0 {
-			t.Errorf("= %d calls=%d; want 400 and service not called", rec.Code, cb.calls)
+		if rec.Code != http.StatusFound || cb.calls != 0 || rec.Header().Get("Location") != "/login?reason=sign_in_expired" {
+			t.Errorf("= %d calls=%d to %q; want 302 to /login?reason=sign_in_expired and service not called", rec.Code, cb.calls, rec.Header().Get("Location"))
 		}
 	})
 	t.Run("the matching cookie: signed in, binding cleared", func(t *testing.T) {

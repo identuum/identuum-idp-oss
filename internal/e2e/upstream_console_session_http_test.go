@@ -432,7 +432,9 @@ func TestE2E_OSS_UpstreamSignInEstablishesTheConsoleSession(t *testing.T) {
 	// ── 7. A refused upstream sign-in still sets nothing ───────────────────
 	prov.signIn("outsider-" + uuid.NewString()[:8] + "@other.example.invalid")
 	refused := upstreamSignIn(t, newConsoleClient(t, w.base), pid)
-	if refused.StatusCode != http.StatusForbidden || len(refused.Cookies()) != 0 || refused.Header.Get("Location") != "" {
-		t.Errorf("a sign-in outside email_domains = %d with %d cookies and Location %q; want 403, no cookie, no redirect", refused.StatusCode, len(refused.Cookies()), refused.Header.Get("Location"))
+	// Q-A1 (a), v0.9.13: the refusal is the console sign-in page with its
+	// reason, not a JSON 403 on a page load.
+	if refused.StatusCode != http.StatusFound || len(refused.Cookies()) != 0 || refused.Header.Get("Location") != "/login?reason=sign_in_not_permitted" {
+		t.Errorf("a sign-in outside email_domains = %d with %d cookies and Location %q; want 302 to /login?reason=sign_in_not_permitted, no cookie", refused.StatusCode, len(refused.Cookies()), refused.Header.Get("Location"))
 	}
 }

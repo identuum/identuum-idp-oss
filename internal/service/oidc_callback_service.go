@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -53,6 +54,10 @@ type OIDCCallbackService struct {
 	users     repository.UserRepository
 	sessions  *UserSessionService
 	orgs      OrgLiveLookup
+	// registrations reads a self-registrant's state (D-021), as the password
+	// path does. Nil skips the approval check (a composition without
+	// self-registration).
+	registrations loginRegistrationStates
 
 	httpClient        *http.Client
 	responseBodyLimit int64
@@ -137,6 +142,19 @@ var ErrCallbackValidationFailed = errors.New("service: OIDC callback ID token va
 // A handler maps it to 403. No user is created.
 var ErrCallbackForbidden = errors.New("service: OIDC callback identity not permitted")
 
+// ErrCallbackInvitePending and ErrCallbackRegistrationPending are the
+// ErrCallbackForbidden cases the person can act on (O19): an invitation not
+// yet accepted, a self-registration awaiting an administrator's approval.
+// errors.Is matches ErrCallbackForbidden for both.
+var (
+	ErrCallbackInvitePending       = fmt.Errorf("%w: invitation not accepted", ErrCallbackForbidden)
+	ErrCallbackRegistrationPending = fmt.Errorf("%w: registration awaiting approval", ErrCallbackForbidden)
+)
+
+// ErrCallbackEmailNotShared is the ErrCallbackForbidden case where the provider
+// shared no email address, in the id_token or from userinfo (D7).
+var ErrCallbackEmailNotShared = fmt.Errorf("%w: email not shared", ErrCallbackForbidden)
+
 // ErrCallbackProvisionFailed is returned when the local-user lookup or JIT
 // create fails. A handler maps it to 500. No session is minted.
 var ErrCallbackProvisionFailed = errors.New("service: OIDC callback provisioning failed")
@@ -196,6 +214,13 @@ func NewOIDCCallbackService(report *lifecycle.StartupReport, deps OIDCCallbackSe
 		responseBodyLimit: bodyLimit,
 		now:               time.Now,
 	}
+}
+
+// WithRegistrationStates wires the self-registration state reader (O19,
+// D-021), the same reader the password path consults.
+func (s *OIDCCallbackService) WithRegistrationStates(r loginRegistrationStates) *OIDCCallbackService {
+	s.registrations = r
+	return s
 }
 
 // HandleCallback runs the full callback flow and COMPLETES login: consume
@@ -263,7 +288,7 @@ func (s *OIDCCallbackService) HandleCallback(ctx context.Context, providerID uui
 	}
 
 	// 4. Exchange code → tokens at the discovered token endpoint.
-	idToken, err := s.exchangeCode(ctx, doc.TokenEndpoint, provider.Config.ClientID, clientSecret, st.RedirectURI, code, verifier)
+	idToken, upstreamAccessToken, err := s.exchangeCode(ctx, doc.TokenEndpoint, provider.Config.ClientID, clientSecret, st.RedirectURI, code, verifier)
 	if err != nil {
 		return nil, ErrCallbackExchangeFailed
 	}
@@ -282,6 +307,9 @@ func (s *OIDCCallbackService) HandleCallback(ctx context.Context, providerID uui
 		return nil, err
 	}
 	applyClaimMapping(eu, claims, provider.Config.ClaimMapping)
+	// D7: a provider that keeps email out of the id_token returns it from
+	// userinfo; only the missing claims are filled, then the gate decides.
+	s.fillEmailFromUserinfo(ctx, doc, upstreamAccessToken, claims, provider.Config.ClaimMapping, eu)
 	// F2: an organization that requires MFA admits an upstream sign-in only
 	// when the upstream explicitly reports MFA or more. No acr, a password
 	// acr and an unrecognised (assumed) acr are refused, before any user is
@@ -377,7 +405,10 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 	// Gate: the provider must have asserted a verified email whose domain is
 	// allow-listed (unless AllowExternalDomains). Unverified or off-list ⇒ no
 	// provisioning. This is the JIT-abuse gate.
-	if !eu.EmailVerified || strings.TrimSpace(eu.Email) == "" {
+	if strings.TrimSpace(eu.Email) == "" {
+		return nil, ErrCallbackEmailNotShared
+	}
+	if !eu.EmailVerified {
 		return nil, ErrCallbackForbidden
 	}
 	if !emailDomainAllowed(eu.Email, provider.Config.EmailDomains, provider.Config.AllowExternalDomains) {
@@ -394,6 +425,9 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 		if u.Role == domain.RoleOrgAdmin || u.Role == domain.RoleSiteAdmin {
 			return nil, ErrCallbackForbidden
 		}
+		if err := s.refusePendingAccount(ctx, u); err != nil {
+			return nil, err
+		}
 		return u, nil
 	} else if err != nil && !errors.Is(err, domain.ErrUserNotFound) {
 		return nil, ErrCallbackProvisionFailed
@@ -405,6 +439,9 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 	if u, err := s.users.GetByEmailAndOrgID(ctx, orgID, eu.Email); err == nil && u != nil {
 		if u.Role == domain.RoleOrgAdmin || u.Role == domain.RoleSiteAdmin {
 			return nil, ErrCallbackForbidden
+		}
+		if err := s.refusePendingAccount(ctx, u); err != nil {
+			return nil, err
 		}
 		if u.ExternalID != nil && *u.ExternalID != "" && *u.ExternalID != eu.ExternalID {
 			return nil, ErrCallbackForbidden
@@ -462,6 +499,28 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 		return nil, ErrCallbackProvisionFailed
 	}
 	return created, nil
+}
+
+// refusePendingAccount refuses an account that may not sign in yet (O19), on
+// both match paths and before any link is written: an invitation not yet
+// accepted, or a self-registrant held for approval (the password path's D-021
+// predicate, local_login_service.go). An approved registrant whose address is
+// still unverified signs in, as on the password path (D-021). A state that
+// cannot be read refuses, as the password path does.
+func (s *OIDCCallbackService) refusePendingAccount(ctx context.Context, u *domain.User) error {
+	if IsInvitePending(u) {
+		return ErrCallbackInvitePending
+	}
+	if s.registrations != nil && u.Role == domain.RoleOrgUser {
+		state, _, err := s.registrations.UserState(ctx, u.ID)
+		if err != nil {
+			return ErrCallbackForbidden
+		}
+		if state == domain.RegistrationStatePendingApproval {
+			return ErrCallbackRegistrationPending
+		}
+	}
+	return nil
 }
 
 // emailDomainAllowed reports whether email's domain is permitted: allow-listed
@@ -522,8 +581,10 @@ func applyClaimMapping(eu *domain.ExternalUser, claims jwt.MapClaims, mapping ma
 }
 
 // exchangeCode POSTs the authorization_code grant to the token endpoint over
-// the SSRF-guarded client and returns the id_token. client_secret_post auth.
-func (s *OIDCCallbackService) exchangeCode(ctx context.Context, tokenEndpoint, clientID, clientSecret, redirectURI, code, verifier string) (string, error) {
+// the SSRF-guarded client and returns the id_token and the access token (empty
+// when the provider sent none; it is used only for the userinfo call, D7).
+// client_secret_post auth.
+func (s *OIDCCallbackService) exchangeCode(ctx context.Context, tokenEndpoint, clientID, clientSecret, redirectURI, code, verifier string) (string, string, error) {
 	form := url.Values{}
 	form.Set("grant_type", "authorization_code")
 	form.Set("code", code)
@@ -536,31 +597,95 @@ func (s *OIDCCallbackService) exchangeCode(ctx context.Context, tokenEndpoint, c
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenEndpoint, strings.NewReader(form.Encode()))
 	if err != nil {
-		return "", ErrCallbackExchangeFailed
+		return "", "", ErrCallbackExchangeFailed
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return "", ErrCallbackExchangeFailed
+		return "", "", ErrCallbackExchangeFailed
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", ErrCallbackExchangeFailed
+		return "", "", ErrCallbackExchangeFailed
 	}
 	limited := http.MaxBytesReader(nil, resp.Body, s.responseBodyLimit)
 	body, readErr := io.ReadAll(limited)
 	if readErr != nil {
-		return "", ErrCallbackExchangeFailed
+		return "", "", ErrCallbackExchangeFailed
 	}
 	var tr struct {
-		IDToken string `json:"id_token"`
+		IDToken     string `json:"id_token"`
+		AccessToken string `json:"access_token"`
 	}
 	if err := json.Unmarshal(body, &tr); err != nil || tr.IDToken == "" {
-		return "", ErrCallbackExchangeFailed
+		return "", "", ErrCallbackExchangeFailed
 	}
-	return tr.IDToken, nil
+	return tr.IDToken, tr.AccessToken, nil
+}
+
+// fillEmailFromUserinfo fills ONLY the email claims the id_token did not carry
+// from the provider's userinfo response (D7; OIDC Core §5.3, §5.4 lets a
+// provider return email there instead). The request carries the upstream access
+// token as a Bearer over the callback's own SSRF-guarded client, the body is
+// capped, and the response counts only when its sub equals the id_token's sub
+// (§5.3.2). userinfo's email_verified attests userinfo's email, so it verifies
+// an id_token address only when the two are the same address. Any failure
+// fills nothing, and the email gate in resolveLocalUser decides. It does
+// nothing when the organization remaps email (P1-3: the mapped claim carries
+// its own verification), when both claims are present, or when there is no
+// endpoint or no access token. Neither the token nor the body is ever logged.
+func (s *OIDCCallbackService) fillEmailFromUserinfo(ctx context.Context, doc *OIDCDiscoveryDocument, accessToken string, claims jwt.MapClaims, mapping map[string]string, eu *domain.ExternalUser) {
+	if strings.TrimSpace(mapping["email"]) != "" {
+		return
+	}
+	_, hasEmail := claims["email"]
+	_, hasVerified := claims["email_verified"]
+	if hasEmail && hasVerified {
+		return
+	}
+	if doc == nil || doc.UserinfoEndpoint == "" || accessToken == "" {
+		return
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, doc.UserinfoEndpoint, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(nil, resp.Body, s.responseBodyLimit))
+	if err != nil {
+		return
+	}
+	var info map[string]any
+	if json.Unmarshal(body, &info) != nil {
+		return
+	}
+	sub, _ := claims["sub"].(string)
+	if infoSub, _ := info["sub"].(string); infoSub == "" || infoSub != sub {
+		return
+	}
+	infoEmail, _ := info["email"].(string)
+	infoVerified := claimBool(info["email_verified"])
+	if !hasEmail {
+		eu.Email = infoEmail
+		eu.EmailVerified = infoVerified
+		return
+	}
+	// The id_token carried the address but not its verification: userinfo
+	// verifies it only when it names the same address.
+	if infoEmail != "" && strings.EqualFold(strings.TrimSpace(infoEmail), strings.TrimSpace(eu.Email)) {
+		eu.EmailVerified = infoVerified
+	}
 }
 
 // validateIDToken strictly validates the ID token (signature via the provider

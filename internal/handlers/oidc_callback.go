@@ -79,7 +79,7 @@ func RegisterOIDCCallbackRoutes(router gin.IRouter, deps OIDCCallbackHandlerDeps
 	// docgen:summary=Complete upstream single-provider OIDC login: consume the one-time state, exchange the code for tokens, strictly validate the ID token against the provider JWKS, JIT-provision or match the local user, mint a local session, and 302-redirect to the stored return URL with ONE credential family set: for a sign-in started from the console, the console's access_token and refresh_token cookies as a password sign-in sets them; for a sign-in started for an application's /authorize (a return URL at the authorize endpoint), the IdP's own browser-session cookie.
 	// docgen:tier=oss
 	// docgen:auth=public
-	// docgen:notes=Anonymous. Consumes the OIDCState once (SELECT..FOR UPDATE + delete — replay fails). Strict ID-token validation (signature vs provider JWKS by kid, https-only + SSRF-guarded; rejects alg=none / alg-confusion; iss==provider issuer; aud==client_id; exp/nbf; nonce==stored). On success it applies the email_domains allow-list gate, JIT-provisions or matches the local user, mints a local session (same issuance path as password login; ACR derived from the upstream acr), mints every credential of the ONE family the sign-in's purpose names before writing any cookie (console sign-in never signs in to an application and the two sign-outs never end each other's session), and 302-redirects to the return URL stored at login-initiation (already sanitized — the provider response is never used to derive the target; empty ⇒ a safe default). A provider error, or a missing/expired/mismatched state, returns 4xx; a discovery/exchange failure returns 502; a validation failure returns 401; an off-allow-list / unverified / bound-email identity returns 403; a provisioning or session-mint failure returns 500; a browser-session token or console access token that cannot be minted returns 503 with no cookie and the created session revoked. No token, code, or secret is ever logged or echoed.
+	// docgen:notes=Anonymous. Consumes the OIDCState once (SELECT..FOR UPDATE + delete — replay fails). Strict ID-token validation (signature vs provider JWKS by kid, https-only + SSRF-guarded; rejects alg=none / alg-confusion; iss==provider issuer; aud==client_id; exp/nbf; nonce==stored). On success it applies the email_domains allow-list gate, JIT-provisions or matches the local user, mints a local session (same issuance path as password login; ACR derived from the upstream acr), mints every credential of the ONE family the sign-in's purpose names before writing any cookie (console sign-in never signs in to an application and the two sign-outs never end each other's session), and 302-redirects to the return URL stored at login-initiation (already sanitized — the provider response is never used to derive the target; empty ⇒ a safe default). Every refusal (v0.9.13, Q-A1) is a 302 to the console sign-in page /login?reason=<code> with no cookie and Cache-Control no-store, never a JSON body, and the code is one of a closed list: sign_in_failed (provider error, malformed provider id, ID-token validation failure), sign_in_expired (missing/expired/used state or code, or a browser that did not start the sign-in), sign_in_not_permitted (off-allow-list / unverified / bound-email identity, an administrator, an organization policy), email_not_shared (the provider shared no email in the ID token or userinfo), invitation_pending (an invitation not yet accepted), registration_pending (a self-registration awaiting approval), provider_unavailable (discovery or token exchange failed), sign_in_unavailable (provisioning, session mint, or a browser-session token or console access token that cannot be minted; the created session is revoked). When the ID token lacks email or email_verified and discovery names a userinfo_endpoint, userinfo is read with the upstream access token and fills only the missing claims when its sub equals the ID token's. No token, code, or secret is ever logged or echoed.
 	router.GET("/api/v1/auth/idp/:id/callback", HandleOIDCCallback(deps))
 }
 
@@ -87,27 +87,29 @@ func RegisterOIDCCallbackRoutes(router gin.IRouter, deps OIDCCallbackHandlerDeps
 // clean statuses. Nothing sensitive is ever written to the response or logs.
 func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Every refusal is a redirect to the console sign-in page with a
+		// reason code from a closed list (Q-A1 (a)): this is a page load.
 		providerID, err := uuid.Parse(c.Param("id"))
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid provider id"})
+			redirectUpstreamRefusal(c, refusalSignInFailed)
 			return
 		}
 		// A provider-reported error (e.g. user denied consent) → login failed.
 		if c.Query("error") != "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "login failed"})
+			redirectUpstreamRefusal(c, refusalSignInFailed)
 			return
 		}
 		state := c.Query("state")
 		code := c.Query("code")
 		if state == "" || code == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "missing state or code"})
+			redirectUpstreamRefusal(c, refusalSignInExpired)
 			return
 		}
 		// The sign-in must finish in the browser that started it: a callback
 		// without the cookie planted at initiation (a link handed to someone
 		// else) is refused before the state is consumed.
 		if !upstreamLoginBound(c, state) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired login state"})
+			redirectUpstreamRefusal(c, refusalSignInExpired)
 			return
 		}
 
@@ -115,20 +117,7 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 		ua := c.Request.UserAgent()
 		res, err := deps.OIDCCallback.HandleCallback(c.Request.Context(), providerID, state, code, ip, ua)
 		if err != nil {
-			switch {
-			case errors.Is(err, service.ErrCallbackValidationFailed):
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "authentication failed"})
-			case errors.Is(err, service.ErrCallbackForbidden):
-				c.JSON(http.StatusForbidden, gin.H{"error": "login not permitted"})
-			case errors.Is(err, service.ErrCallbackProvisionFailed), errors.Is(err, service.ErrCallbackSessionFailed):
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
-			case errors.Is(err, service.ErrCallbackDiscoveryFailed):
-				c.JSON(http.StatusBadGateway, gin.H{"error": "upstream discovery failed"})
-			case errors.Is(err, service.ErrCallbackExchangeFailed):
-				c.JSON(http.StatusBadGateway, gin.H{"error": "upstream token exchange failed"})
-			default: // ErrCallbackStateInvalid
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid or expired login state"})
-			}
+			redirectUpstreamRefusal(c, upstreamRefusalReason(err))
 			return
 		}
 
@@ -244,6 +233,87 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 	}
 }
 
+// The reason codes a refused upstream sign-in carries to the console sign-in
+// page, /login?reason=<code> (Q-A1 (a), owner 2026-10-13). The callback is a
+// top-level browser navigation, so a refusal never answers raw JSON; the
+// console shows plain words for each code. The list is CLOSED: the callback
+// sends no other value, and docs/api/upstream-sign-in-refusals.md documents
+// the same set.
+const (
+	// refusalSignInFailed: the provider reported an error, the provider id is
+	// malformed, or the provider's ID token failed validation.
+	refusalSignInFailed = "sign_in_failed"
+	// refusalSignInExpired: the sign-in state is missing, expired, already
+	// used, or the callback reached a browser that did not start the sign-in.
+	refusalSignInExpired = "sign_in_expired"
+	// refusalSignInNotPermitted: the identity may not sign in here (an
+	// unverified or off-list address, an administrator, an address bound to
+	// another identity, an organization policy).
+	refusalSignInNotPermitted = "sign_in_not_permitted"
+	// refusalEmailNotShared: the provider shared no email address (D7).
+	refusalEmailNotShared = "email_not_shared"
+	// refusalInvitationPending: the person has an invitation not yet
+	// accepted (O19).
+	refusalInvitationPending = "invitation_pending"
+	// refusalRegistrationPending: the person's self-registration waits for
+	// an administrator's approval (O19).
+	refusalRegistrationPending = "registration_pending"
+	// refusalProviderUnavailable: the provider's discovery or token
+	// endpoint could not be used.
+	refusalProviderUnavailable = "provider_unavailable"
+	// refusalSignInUnavailable: the sign-in could not be completed on this
+	// side (a store or key failure); trying again may work.
+	refusalSignInUnavailable = "sign_in_unavailable"
+)
+
+// UpstreamSignInRefusalReasons is the closed list of reason codes above.
+var UpstreamSignInRefusalReasons = []string{
+	refusalSignInFailed,
+	refusalSignInExpired,
+	refusalSignInNotPermitted,
+	refusalEmailNotShared,
+	refusalInvitationPending,
+	refusalRegistrationPending,
+	refusalProviderUnavailable,
+	refusalSignInUnavailable,
+}
+
+// consoleSignInPath is the console's sign-in page; its reason banner reads
+// the code (identuum-ui).
+const consoleSignInPath = "/login"
+
+// redirectUpstreamRefusal answers a refused upstream sign-in: 302 to the
+// console sign-in page with the reason code, no cookie, not cached.
+func redirectUpstreamRefusal(c *gin.Context, reason string) {
+	c.Header("Cache-Control", "no-store")
+	c.Header("Pragma", "no-cache")
+	c.Redirect(http.StatusFound, consoleSignInPath+"?reason="+url.QueryEscape(reason))
+}
+
+// upstreamRefusalReason maps a callback service error to its reason code.
+// The specific O19 and D7 cases are tested before the ErrCallbackForbidden
+// they wrap.
+func upstreamRefusalReason(err error) string {
+	switch {
+	case errors.Is(err, service.ErrCallbackValidationFailed):
+		return refusalSignInFailed
+	case errors.Is(err, service.ErrCallbackInvitePending):
+		return refusalInvitationPending
+	case errors.Is(err, service.ErrCallbackRegistrationPending):
+		return refusalRegistrationPending
+	case errors.Is(err, service.ErrCallbackEmailNotShared):
+		return refusalEmailNotShared
+	case errors.Is(err, service.ErrCallbackForbidden):
+		return refusalSignInNotPermitted
+	case errors.Is(err, service.ErrCallbackProvisionFailed), errors.Is(err, service.ErrCallbackSessionFailed):
+		return refusalSignInUnavailable
+	case errors.Is(err, service.ErrCallbackDiscoveryFailed), errors.Is(err, service.ErrCallbackExchangeFailed):
+		return refusalProviderUnavailable
+	default: // ErrCallbackStateInvalid
+		return refusalSignInExpired
+	}
+}
+
 // upstreamSignInPurpose is what an upstream sign-in was started FOR, and so
 // which ONE credential family its callback establishes (D-023: a console
 // sign-in never signs in to an application, and the two sign-outs never end
@@ -276,9 +346,9 @@ func upstreamSignInPurposeOf(returnURL string) upstreamSignInPurpose {
 }
 
 // refuseUpstreamSignIn is the one way a completed upstream sign-in is refused
-// after the callback service minted its session: no cookie of any kind, no
-// redirect, the browser login's 503 text (a non-credential signal; the
-// provider did sign the person in). It attempts to revoke the session the
+// after the callback service minted its session: no cookie of any kind, and
+// the console sign-in page with reason sign_in_unavailable (Q-A1 (a); until
+// v0.9.13 the browser login's 503 text). It attempts to revoke the session the
 // callback service created, so a refused sign-in normally leaves nothing live
 // (OSS-HARDENING-2 item 2); a store outage can make that attempt fail, and
 // the audit names the reason and says whether the revocation happened. The
@@ -300,5 +370,5 @@ func refuseUpstreamSignIn(c *gin.Context, deps OIDCCallbackHandlerDeps, res *ser
 			"session_revoked": revoked,
 		},
 	})
-	c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
+	redirectUpstreamRefusal(c, refusalSignInUnavailable)
 }

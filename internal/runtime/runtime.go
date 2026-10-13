@@ -1338,7 +1338,7 @@ func (r *Runtime) buildDeps(ctx context.Context, report *lifecycle.StartupReport
 		Users:         userRepo,
 		Organizations: repos.Organization,
 		Sessions:      userSessionSvc,
-	}, upstreamCallbackOpts)
+	}, upstreamCallbackOpts).WithRegistrationStates(repos.Registration) // O19, D-021
 
 	csrfSecret := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, csrfSecret); err != nil {

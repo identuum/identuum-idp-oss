@@ -169,8 +169,10 @@ var (
 //	nonce          = input.Nonce (when non-empty)
 //	acr            = session.EffectiveACR() (when non-empty)
 //	amr            = session.Amr (when non-empty)
-//	email          = user.Email (when scope contains "email")
-//	email_verified = user.MailboxProven() (when scope contains "email"; OSS-0912-C2)
+//	email          = user.Email (only when the claims parameter requests it
+//	                 for the id_token; scope "email" alone puts it in the
+//	                 userinfo response, OIDC Core §5.4 — see below)
+//	email_verified = user.MailboxProven() (same condition; OSS-0912-C2)
 //
 // `name`, `picture`, and other OIDC profile claims are NOT emitted
 // in this slice — the OSS user domain model already exposes Email
