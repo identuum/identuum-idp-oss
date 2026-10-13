@@ -249,6 +249,32 @@ func TestOIDCCallback_UnreadableRegistrationStateRefuses(t *testing.T) {
 	assertNoUpstreamLink(t, h.users.byID[id], nil)
 }
 
+// OSS-0913-A-REVIEW F1: a callback service with no registration state reader
+// fails closed: a member is refused on both match paths, as when the state
+// cannot be read, so a composition that forgets the reader cannot let a
+// registrant held for approval in.
+func TestOIDCCallback_UnwiredRegistrationReaderRefuses(t *testing.T) {
+	for _, linked := range []bool{false, true} {
+		h := newCallbackHarness(t)
+		id := uuid.New()
+		u := &domain.User{ID: id, OrganizationID: h.orgID, Email: "alice@example.com", Role: domain.RoleOrgUser,
+			AuthSource: domain.AuthSourceLocal}
+		var wantExt *string
+		if linked {
+			ext := h.defaultExternalID()
+			u.ExternalID, u.OIDCLinked, wantExt = &ext, true, &ext
+		}
+		h.users.byID[id] = u
+		h.svc.WithRegistrationStates(nil)
+
+		_, err := h.callWithClaims(t, nil)
+		assert.ErrorIs(t, err, ErrCallbackForbidden, "linked=%v: no reader wired must refuse, not skip the approval check", linked)
+		assert.NotErrorIs(t, err, ErrCallbackRegistrationPending, "an unread state is not reported as a pending approval")
+		assert.Zero(t, h.sessionsMinted())
+		assertNoUpstreamLink(t, h.users.byID[id], wantExt)
+	}
+}
+
 // D-021 control: an approved self-registrant whose organization does not
 // require a verified email still signs in upstream while unverified.
 func TestOIDCCallback_ApprovedUnverifiedRegistrantSignsInUpstream(t *testing.T) {

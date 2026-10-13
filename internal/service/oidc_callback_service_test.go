@@ -126,7 +126,8 @@ func newCallbackHarness(t *testing.T) *callbackHarness {
 		Users:         users,
 		Organizations: orgs,
 		Sessions:      sessions,
-	}, OIDCCallbackServiceOptions{HTTPClient: srv.Client()})
+	}, OIDCCallbackServiceOptions{HTTPClient: srv.Client()}).
+		WithRegistrationStates(callbackRegStates{}) // no member is held for approval (the reader is required, F1)
 
 	return &callbackHarness{
 		svc: svc, providers: providers, states: states, users: users, sessions: sessions, sessionRepo: sessionRepo,

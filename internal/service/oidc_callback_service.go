@@ -55,8 +55,7 @@ type OIDCCallbackService struct {
 	sessions  *UserSessionService
 	orgs      OrgLiveLookup
 	// registrations reads a self-registrant's state (D-021), as the password
-	// path does. Nil skips the approval check (a composition without
-	// self-registration).
+	// path does. Nil refuses every member on the match paths (fail closed).
 	registrations loginRegistrationStates
 
 	httpClient        *http.Client
@@ -217,7 +216,8 @@ func NewOIDCCallbackService(report *lifecycle.StartupReport, deps OIDCCallbackSe
 }
 
 // WithRegistrationStates wires the self-registration state reader (O19,
-// D-021), the same reader the password path consults.
+// D-021), the same reader the password path consults. It is required: without
+// it a member matched by external id or email is refused.
 func (s *OIDCCallbackService) WithRegistrationStates(r loginRegistrationStates) *OIDCCallbackService {
 	s.registrations = r
 	return s
@@ -506,12 +506,18 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 // accepted, or a self-registrant held for approval (the password path's D-021
 // predicate, local_login_service.go). An approved registrant whose address is
 // still unverified signs in, as on the password path (D-021). A state that
-// cannot be read refuses, as the password path does.
+// cannot be read refuses, as the password path does, and so does a service
+// with no reader wired.
 func (s *OIDCCallbackService) refusePendingAccount(ctx context.Context, u *domain.User) error {
 	if IsInvitePending(u) {
 		return ErrCallbackInvitePending
 	}
-	if s.registrations != nil && u.Role == domain.RoleOrgUser {
+	if u.Role == domain.RoleOrgUser {
+		if s.registrations == nil {
+			// Fail closed (OSS-0913-A-REVIEW F1): a composition without the
+			// reader cannot tell a held registrant from a member.
+			return ErrCallbackForbidden
+		}
 		state, _, err := s.registrations.UserState(ctx, u.ID)
 		if err != nil {
 			return ErrCallbackForbidden
