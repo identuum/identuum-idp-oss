@@ -5,7 +5,21 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.13`
+
+Members see and remove their connected applications, administrators hand
+over one-time reset links, organizations keep a working sign-in policy,
+mail with a display name leaves, and refusals say why in plain words.
+identuum-ui `6643cd0` embedded (`v0.9.12` embedded `a932627`; `6643cd0`'s
+`package.json` says `0.9.13`). The delta since `v0.9.12`
+(`git rev-list --count v0.9.12..c138ed1` and
+`git diff --shortstat v0.9.12..c138ed1`, measured at `c138ed1`, before the
+notes commit) is 42 commits, 139 files, +9187/−413. The endpoint count goes
+from 160 to 166 (`grep -c . tools/api-docgen/testdata/endpoints.manifest.txt`).
+This release adds one SQL migration, `0055_users_admin_password_set_at.sql`;
+the tracked `migrations/` directory contains 55 SQL files, with head `0055`.
+Known limitation: one email address used in two organizations stops email
+sign-in for both accounts (KNOWN_ISSUES.md; fix planned for v0.9.14).
 
 - **A sender with a display name now delivers mail.** With
   `IDENTUUM_IDP_SMTP_FROM` set to `Name <address>`, v0.9.12 sent the whole
@@ -26,10 +40,11 @@ follows [Semantic Versioning](https://semver.org/).
   user gets `403`). No recorded name changed.
 - **Creating an organization that already exists says so.** `POST
   /api/v1/organizations` answered `400 invalid request` for a duplicate. Now
-  a duplicate domain answers `409 domain_exists`, a duplicate name (slug)
-  `409 slug_exists`, and an initial administrator whose email already has an
-  account `409 email_exists`, each with a plain message; nothing is created.
-  Other refusals are unchanged.
+  a duplicate domain answers `409 domain_exists` and a duplicate name (slug)
+  `409 slug_exists`, each with a plain message; nothing is created. Other
+  refusals are unchanged. `409 email_exists` is not enforced across
+  organizations until v0.9.14: an initial administrator whose address has an
+  account in another organization is created (see KNOWN_ISSUES.md).
 - **A reset-link redeem that could not end the other sign-ins has its own
   code.** When the new password is set but the user's other sessions could
   not be ended, `POST /api/v1/auth/reset-link` now answers `500

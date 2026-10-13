@@ -478,7 +478,7 @@ jobs:
     name: Candidate image and binary proof (no push)
     runs-on: ubuntu-24.04
     env:
-      CANDIDATE_VERSION: 0.9.12
+      CANDIDATE_VERSION: 0.9.13
       PROOF_IMAGE: identuum-idp-oss:candidate-proof
       PROOF_LABEL: identuum.candidate-proof
       PROOF_APP_PORT: "7113"
@@ -529,10 +529,10 @@ jobs:
       - name: Upload the candidate binaries
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: candidate-v0.9.12-linux-binaries
+          name: candidate-v0.9.13-linux-binaries
           path: |
-            dist/identuum-idp-oss_0.9.12_linux_amd64
-            dist/identuum-idp-oss_0.9.12_linux_arm64
+            dist/identuum-idp-oss_0.9.13_linux_amd64
+            dist/identuum-idp-oss_0.9.13_linux_arm64
             dist/SHA256SUMS
           if-no-files-found: error
 
@@ -640,7 +640,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: candidate-v0.9.12-image-proof
+          name: candidate-v0.9.13-image-proof
           path: proof/
           if-no-files-found: error
 

@@ -480,6 +480,10 @@ name) is refused at startup; the IdP keeps serving, mails nothing and prints:
 identuum-idp: serve: email delivery: MISCONFIGURED — IDENTUUM_IDP_SMTP_FROM is not one email address (use "address" or "Name <address>"); emails will NOT be sent until IDENTUUM_IDP_SMTP_FROM is fixed
 ```
 
+When `IDENTUUM_IDP_SMTP_FROM` is empty and `IDENTUUM_IDP_SMTP_USERNAME` is
+used in its place, the line names both: `IDENTUUM_IDP_SMTP_FROM is empty and
+IDENTUUM_IDP_SMTP_USERNAME is not one email address`.
+
 Set `IDENTUUM_IDP_SMTP_FROM` to an address and restart. The startup line of a
 working setup reads `email delivery: smtp <host>:<port> (...)`.
 

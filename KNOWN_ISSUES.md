@@ -3,12 +3,26 @@
 Issues we know about in released versions of identuum-idp-oss, with what to do until they are fixed.
 Newest release first. Each entry says which versions are affected and where the fix is tracked.
 
-## Unreleased (v0.9.13)
+## v0.9.13
+
+### One email address in two organizations stops email sign-in for both accounts
+
+- **Affected:** v0.9.13 and v0.9.12 (the same code), and earlier versions with organization-scoped user accounts.
+- **What happens:** an address may belong to a live account in more than one organization: an organization
+  administrator can create or invite a user with any address, the initial administrator of a new organization is
+  not checked against other organizations, and a provider sign-in can create a second account. Sign-in by email
+  looks the address up across all organizations. When it finds two live accounts, password sign-in and passkey
+  sign-in by email fail for both accounts.
+- **Until it is fixed:** keep every email address unique across the organizations of a server. Before you create
+  a user, an invitation or a new organization's administrator, check that no other organization uses the address.
+  `409 email_exists` on `POST /api/v1/organizations` is not enforced across organizations until v0.9.14.
+- **Fix planned for v0.9.14:** one address per server.
+- **Tracked:** the identuum-idp-oss queue (owner decision EMAIL-SCOPE (a), 2026-10-13).
 
 ### A passkey or provider sign-in does not ask for the password change an administrator requested
 
 - **Affected:** every version with administrator-set passwords that must be changed (D-017), including the
-  unreleased v0.9.13 changes (the same rule on `PUT /api/v1/users/{id}`, and the 24-hour expiry).
+  v0.9.13 changes (the same rule on `PUT /api/v1/users/{id}`, and the 24-hour expiry).
 - **What happens:** only password sign-in reads the change request and the 24-hour expiry. A member who also has a
   passkey, or who signs in through the organization's identity provider, gets a session without choosing a new
   password, and the administrator-set password stays as it was.
