@@ -61,9 +61,7 @@ type OIDCDiscoveryDocument struct {
 	AuthorizationEndpoint            string
 	TokenEndpoint                    string
 	JWKSURI                          string
-	// UserinfoEndpoint is optional; when the provider names one it passed the
-	// same https/host check as every other endpoint (D7).
-	UserinfoEndpoint                 string
+	UserinfoEndpoint                 string // optional; https/host-checked like every endpoint (D7)
 	ResponseTypesSupported           []string
 	GrantTypesSupported              []string
 	IDTokenSigningAlgValuesSupported []string

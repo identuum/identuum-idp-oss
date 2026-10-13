@@ -125,6 +125,12 @@ var bindOptionsJustified = map[string]optionsGap{
 		State: "absent",
 		Why:   "C1: DCR management never sets skip_consent (D-018(b) above), so no decision rests on its stored value.",
 	},
+	// D4 (OSS-0913-A): expect_updated_at is the admin console's "changed since
+	// you opened it" check on PUT /api/v1/clients/:id.
+	"internal/handlers/dcr_management.go:HandleDCRManagementPut.UpdateClientOptions.ExpectUpdatedAt": {
+		State: "absent",
+		Why:   "D4: RFC 7592 management has no such field and its route is not mounted in OSS; a management PUT keeps the last save winning, as before.",
+	},
 	// D-026: the marker records that dynamic client registration created the
 	// app. Only HandleDCRRegister feeds it (true); no console request sets or
 	// clears it, so an org_admin can never make a registered app look

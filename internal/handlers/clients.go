@@ -239,7 +239,7 @@ func RegisterClientsRoutes(router gin.IRouter, deps ClientsHandlerDeps) {
 		// docgen:summary=Update OAuth client metadata (does not rotate the client_secret).
 		// docgen:tier=oss
 		// docgen:auth=org_admin
-		// docgen:notes=skip_consent marks or unmarks a first-party client, audited with its before and after values in client.updated (D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6). pkce_required turns PKCE on or off for a public client, audited with its before and after values in client.updated; false on a confidential or dynamically registered client answers 400 invalid_request. WARNING: with pkce_required false an intercepted code can be exchanged without a verifier; use it only for a test client. A frontchannel_logout_uri on the issuer's own origin runs its script without its origin's storage, and so does every receiver framed beside it, or beside one whose origin cannot be compared, on the same end-session page; serve a storage-clearing receiver from a different origin with every receiver of that page off the issuer's origin, or use back-channel logout. Saves of the same client run one after the other (the client is locked while a save is applied), so a save no longer undoes another save's change to a field it does not send. Known limitation: the admin console's form sends name, redirect_uris, post_logout_redirect_uris, allowed_audiences, scope and skip_consent on every save, so for those fields the last save wins. If another save changed the scope or skip_consent this request was checked against, or the service_account_id being bound was deleted, deactivated or expired before the save locked it, it answers 400 invalid_request with a plain reason and saves nothing: reload and try again. If the database cannot save the change now, it answers 503 temporarily_unavailable with Retry-After ("authentication store unavailable; retry"): nothing was saved in almost every case, but a connection lost during the commit may have saved it; reload the client to check, and try again.
+		// docgen:notes=skip_consent marks or unmarks a first-party client, audited with its before and after values in client.updated (D-018); a public client with skip_consent answers 400 invalid_request (RFC 8252 §8.6). pkce_required turns PKCE on or off for a public client, audited with its before and after values in client.updated; false on a confidential or dynamically registered client answers 400 invalid_request. WARNING: with pkce_required false an intercepted code can be exchanged without a verifier; use it only for a test client. A frontchannel_logout_uri on the issuer's own origin runs its script without its origin's storage, and so does every receiver framed beside it, or beside one whose origin cannot be compared, on the same end-session page; serve a storage-clearing receiver from a different origin with every receiver of that page off the issuer's origin, or use back-channel logout. Saves of the same client run one after the other (the client is locked while a save is applied), so a save no longer undoes another save's change to a field it does not send. Optional expect_updated_at (RFC 3339, the updated_at the caller read; compared at microsecond precision on the locked row before anything else): when another save landed since, it answers 409 {"error":"client_changed","message":<plain reason>} and saves nothing; absent, the last save wins for every field the request sends. The answer's updated_at is at microsecond precision and equals the next GET's. If another save changed the scope or skip_consent this request was checked against, or the service_account_id being bound was deleted, deactivated or expired before the save locked it, it answers 400 invalid_request with a plain reason and saves nothing: reload and try again. If the database cannot save the change now, it answers 503 temporarily_unavailable with Retry-After ("authentication store unavailable; retry"): nothing was saved in almost every case, but a connection lost during the commit may have saved it; reload the client to check, and try again.
 		// docgen:response=oss.handlers.safeClient
 		updateG.PUT("/:id", HandleUpdateClient(deps))
 
@@ -654,6 +654,9 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			SkipConsent                       *bool      `json:"skip_consent,omitempty"`
 			MFACode                           string     `json:"mfa_code,omitempty"`
 			PKCERequired                      *bool      `json:"pkce_required,omitempty"`
+			// D4: the updated_at the page showed (RFC 3339); a save that
+			// landed since answers 409 client_changed. Absent: last save wins.
+			ExpectUpdatedAt *time.Time `json:"expect_updated_at,omitempty"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
@@ -737,6 +740,7 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			PKCERequired:                      req.PKCERequired,
 			ExpectScope:                       expectScope,
 			ExpectSkipConsent:                 expectSkip,
+			ExpectUpdatedAt:                   req.ExpectUpdatedAt,
 		})
 		if err != nil {
 			// AUTH-503 (THE-SILENT-EXPIRY): same distinction as create. C1: a
@@ -745,6 +749,12 @@ func HandleUpdateClient(deps ClientsHandlerDeps) gin.HandlerFunc {
 			// during the commit.
 			if domain.IsAuthStoreUnavailable(err) {
 				mw.RespondAuthStoreUnavailable(c, "clients", err)
+				return
+			}
+			// D4 (owner answer Q6 (a)): saved by someone else since the page
+			// read it; nothing was saved.
+			if errors.Is(err, service.ErrClientUpdatedSinceRead) {
+				c.JSON(http.StatusConflict, gin.H{"error": "client_changed", "message": err.Error()})
 				return
 			}
 			respondClientInvalid(c, err)

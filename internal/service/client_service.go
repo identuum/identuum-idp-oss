@@ -40,6 +40,23 @@ type ClientService struct {
 	// IDENTUUM_IDP_TEST_ALLOW_PRIVATE_BACKCHANNEL_RECEIVER (OSS-BACKCHANNEL-TEST-SEAM);
 	// the front-channel URI is never relaxed.
 	plainHTTPBackchannelLogoutURIs bool
+	// now stamps updated_at on a save (D4); nil is time.Now. Tests pin it to
+	// a value with sub-microsecond digits, as a Linux wall clock has.
+	now func() time.Time
+}
+
+// WithClock replaces the clock that stamps updated_at (tests only).
+func (s *ClientService) WithClock(now func() time.Time) *ClientService {
+	s.now = now
+	return s
+}
+
+// clock answers the save's current time.
+func (s *ClientService) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // WithPlainHTTPBackchannelLogoutURIs lets a client register a plain-http
@@ -205,7 +222,17 @@ type UpdateClientOptions struct {
 	// another save changed them in between (C1, CLIENT-UPDATE-AUTH-BASIS-1).
 	ExpectScope       *string
 	ExpectSkipConsent *bool
+	// ExpectUpdatedAt, when set, is the updated_at the caller's page showed
+	// (D4). The save compares it with the locked row, at the microsecond
+	// precision the database stores, before anything else, and refuses with
+	// ErrClientUpdatedSinceRead when another save landed since. Nil keeps the
+	// last save winning, as before.
+	ExpectUpdatedAt *time.Time
 }
+
+// ErrClientUpdatedSinceRead: the client was saved by someone else after the
+// caller read it (UpdateClientOptions.ExpectUpdatedAt, D4). Nothing was saved.
+var ErrClientUpdatedSinceRead = errors.New("this client was changed since you opened it; nothing was saved, reload it to see the changes and try again")
 
 // errClientNotFound is the sentinel for missing rows. Handlers map
 // it to 404; service callers may errors.Is it.
@@ -461,6 +488,12 @@ func (s *ClientService) updateClient(ctx context.Context, id uuid.UUID, opts Upd
 // save's transaction and reads nothing else. bindChecked says the service
 // account in opts was checked against organization boundOrg before the lock.
 func (s *ClientService) applyClientUpdate(client *domain.Client, opts UpdateClientOptions, bindChecked bool, boundOrg *uuid.UUID) error {
+	// D4 (owner answer Q6 (a)): the first check, on the row read under the
+	// lock. Both sides at microseconds: the column holds microseconds and an
+	// answer built in memory may carry nanoseconds.
+	if opts.ExpectUpdatedAt != nil && !client.UpdatedAt.Truncate(time.Microsecond).Equal(opts.ExpectUpdatedAt.Truncate(time.Microsecond)) {
+		return ErrClientUpdatedSinceRead
+	}
 	if opts.ExpectScope != nil && client.Scope != *opts.ExpectScope {
 		return ErrClientChangedDuringSave
 	}
@@ -590,7 +623,9 @@ func (s *ClientService) applyClientUpdate(client *domain.Client, opts UpdateClie
 			client.ServiceAccountID = &bound
 		}
 	}
-	client.UpdatedAt = time.Now().UTC()
+	// D4: microseconds, as the column stores them (pgx truncates), so the
+	// PUT answer equals what the next GET reads.
+	client.UpdatedAt = s.clock().UTC().Truncate(time.Microsecond)
 	// THE-INCONSISTENT-DOCUMENT (2026-09-01): validate the UPDATED document,
 	// not just the supplied fields. Per-field checks cannot see combinations,
 	// so PUT could move a client onto private_key_jwt with no key source,
@@ -632,7 +667,7 @@ func (s *ClientService) RegenerateClientSecret(ctx context.Context, id uuid.UUID
 			return ErrClientSecretPublicClient
 		}
 		client.ClientSecretHash = crypto.HashSecret(plaintext)
-		client.UpdatedAt = time.Now().UTC()
+		client.UpdatedAt = s.clock().UTC().Truncate(time.Microsecond)
 		return nil
 	})
 	switch {
