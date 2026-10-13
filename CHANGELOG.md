@@ -57,6 +57,39 @@ follows [Semantic Versioning](https://semver.org/).
 - **A service-account binding check no longer tells another organization's
   caller whether the account is inactive or expired**: the organization is
   checked first.
+- **An administrator can give a member a one-time password reset link**
+  (new `POST /api/v1/users/{id}/recovery/reset-link`, and the
+  `GET /api/v1/auth/reset-link/validate` and `POST /api/v1/auth/reset-link`
+  routes the console's `/reset-link` page uses; endpoint count 162 to 165).
+  The answer carries `email`, `reset_url` and `expires_at` once; no mail is
+  sent, with or without SMTP. The link works once, for 24 hours, and a new
+  link voids the earlier ones. The member chooses their own password under
+  the organization's policy, and every session and refresh token of the
+  member ends. It needs `IDENTUUM_IDP_UI_PUBLIC_BASE_URL`; without it the
+  route answers `409 reset_link_unavailable` and `admin_reset_link` in
+  `GET /api/v1/component` is false. Nobody gets a link for their own
+  account, a site_admin gets none for a tenant member, and a disabled,
+  not-yet-activated or provider-only member, or an org_user of an
+  `idp_only` organization, is refused with a plain reason. Audited as
+  `user.password_reset_link_issued`, without the link.
+- **A password an administrator sets with `PUT /api/v1/users/{id}` must now
+  be changed at the next sign-in**, as on create, unless the request also
+  sends `"must_change_password": false`. The answer's
+  `requires_password_change` says which. `must_change_password` without a
+  password is `400`.
+- **An administrator-set password that must be changed expires 24 hours
+  after it was set.** Password sign-in then answers `401 password_expired`
+  ("This password has expired. Ask your administrator for a new reset
+  link."), and so does the change step. A password set with
+  `"must_change_password": false` does not expire, and passwords set before
+  this version never expire. A password the member chooses (the change step,
+  their own change, or a reset) clears both the change request and the
+  expiry. New migration `0055_users_admin_password_set_at.sql`.
+- **The self-service password reset sends nothing to a member who cannot
+  use a local password**: a member who signs in only through a provider, or
+  an org_user of an `idp_only` organization. The request still answers the
+  same, so it tells nobody whether the account exists. A link already sent
+  stops working when the organization turns `idp_only`.
 
 ## `v0.9.12`
 

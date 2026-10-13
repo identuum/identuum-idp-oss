@@ -736,6 +736,67 @@ must differ from the one you set. Send `"must_change_password": false` to let
 your password stand; that choice is audited too
 (`must_change_password: false`).
 
+The same rule holds when you set a member's password later with
+`PUT /api/v1/users/<user-id>` and a `password`: the member must change it at
+the next sign-in unless you also send `"must_change_password": false`. The
+answer's `requires_password_change` says which, and the `user.updated` audit
+row records `must_change_password`. Sending `must_change_password` without a
+`password` is `400`.
+
+A password you set that must be changed **expires 24 hours after you set
+it**. After that, sign-in with it answers `401 password_expired` ("This
+password has expired. Ask your administrator for a new reset link."), and the
+change step refuses it too; give the member a reset link (below). A password
+set with `"must_change_password": false` does not expire, and passwords set
+before v0.9.13 never expire. When the member chooses a password (at the
+change step, in their account settings, or through a reset link), the change
+request and the expiry both end.
+
+The change request is read by password sign-in only. A member who signs in
+with a passkey or through the organization's provider is not asked to change
+the password (see KNOWN_ISSUES.md).
+
+### A reset link for a member who lost the password
+
+An administrator can give a member a one-time reset link (the console's
+**Reset link** button, or the API):
+
+```
+POST /api/v1/users/<user-id>/recovery/reset-link
+```
+
+The answer, shown once and never stored by the console, carries `email`,
+`reset_url` and `expires_at`. **Hand the link to the member yourself**: no
+mail is sent, whether or not SMTP is configured. The link opens the UI's
+`/reset-link` page, where the member chooses a password under the
+organization's policy. The link works once and for 24 hours; issuing a new
+one voids the earlier ones. When the member sets the password, every session
+and refresh token of the member ends.
+
+The link needs `IDENTUUM_IDP_UI_PUBLIC_BASE_URL` (the UI's browser-facing
+address). Without it the route answers `409 reset_link_unavailable` naming
+the setting, and the console hides the button (`admin_reset_link` is false in
+`GET /api/v1/component`). An org_admin reaches only its own organization's
+members. Nobody can issue a link for their own account (`403
+cannot_reset_self`), and a site_admin cannot issue one for a tenant member.
+A disabled member (`user_disabled`), a member who has not accepted the
+invitation (`user_not_activated`; send the invite again), a member who signs
+in only through a provider (`no_local_password`) and an org_user of an
+`idp_only` organization (`local_password_not_allowed`) are refused with
+`409` and a plain message. The issue is audited
+(`user.password_reset_link_issued`) without the link.
+
+The page checks the link with `GET /api/v1/auth/reset-link/validate?token=…`
+before the member types a password. The IdP's access log leaves out the
+query, but a reverse proxy in front of it may log the full address with the
+token; keep such logs private or drop the query from them.
+
+The self-service "forgot password" mail is not sent to a member who signs in
+only through a provider, nor to an org_user of an `idp_only` organization;
+the request answers the same either way, so it does not tell whether the
+account exists. A reset link already sent stops working when the
+organization turns `idp_only`.
+
 ### Re-issuing
 
 If the link is lost or expired, re-issue it for the pending user — the

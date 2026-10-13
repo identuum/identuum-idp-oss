@@ -3,6 +3,19 @@
 Issues we know about in released versions of identuum-idp-oss, with what to do until they are fixed.
 Newest release first. Each entry says which versions are affected and where the fix is tracked.
 
+## Unreleased (v0.9.13)
+
+### A passkey or provider sign-in does not ask for the password change an administrator requested
+
+- **Affected:** every version with administrator-set passwords that must be changed (D-017), including the
+  unreleased v0.9.13 changes (the same rule on `PUT /api/v1/users/{id}`, and the 24-hour expiry).
+- **What happens:** only password sign-in reads the change request and the 24-hour expiry. A member who also has a
+  passkey, or who signs in through the organization's identity provider, gets a session without choosing a new
+  password, and the administrator-set password stays as it was.
+- **Until it is fixed:** for a member who has a passkey or a provider login, give a reset link
+  (`POST /api/v1/users/{id}/recovery/reset-link`) instead of setting a password, so the member chooses one.
+- **Tracked:** the identuum-idp-oss queue (OSS-0913-B).
+
 ## v0.9.11
 
 ### "Email verified" can be shown for an address that was never proven by email
