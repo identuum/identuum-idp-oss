@@ -46,6 +46,8 @@ const (
 	// The per-field entities validate only supplied values, so a stored hit
 	// fails only when that field is re-supplied.
 	auditImpactAdvisory = "advisory: fails only when the field is re-supplied"
+	// Migration 0056 refuses while the database holds such a row.
+	auditImpactUpgrade = "CRITICAL: migration 0056 refuses the upgrade until each address has one live account"
 )
 
 // auditPreupgradeQueries is the COMPLETE set of SQL this audit may run.
@@ -53,7 +55,7 @@ const (
 // additionally refuses at runtime to execute anything else.
 var auditPreupgradeQueries = map[string]string{
 	"organizations":    `SELECT domain, org_slug, max_sessions_per_user, m2m_anomaly_limit, m2m_anomaly_window_seconds, auth_policy, api_authorization_policy, coalesce(compliance_contact_email,'') FROM organizations`,
-	"users":            `SELECT email FROM users WHERE deleted_at IS NULL`,
+	"users":            `SELECT id, email, lower(email), organization_id FROM users WHERE deleted_at IS NULL ORDER BY 3, 1`,
 	"oauth_clients":    `SELECT client_id, name, coalesce(redirect_uris,'{}'), coalesce(scope,''), is_public, coalesce(client_secret_hash,''), service_account_id IS NOT NULL, coalesce(token_endpoint_auth_method,''), coalesce(token_endpoint_auth_signing_alg,''), coalesce(jwks_uri,''), coalesce(jwks,'') FROM oauth_clients WHERE deleted_at IS NULL`,
 	"service_accounts": `SELECT name, role FROM service_accounts WHERE deleted_at IS NULL`,
 	"org_roles":        `SELECT name FROM org_roles`,
@@ -135,6 +137,45 @@ func evaluateAuditUsers(emails []string) []auditFinding {
 		}
 	}
 	return nonzero(auditFinding{"users", "email fails RFC 5322 parsing", "USER-UPDATE-VALIDATION-1", auditImpactAdvisory, bad})
+}
+
+// auditUserRow is a live account: Key is the address as 0056 compares it
+// (lower(email), computed by the database); OrgID is nil for none.
+type auditUserRow struct {
+	ID    uuid.UUID
+	Key   string
+	OrgID *uuid.UUID
+}
+
+// evaluateAuditEmailDuplicates finds the addresses migration 0056 refuses:
+// one address in more than one live account. It returns one line per group,
+// naming its user ids and organization ids, never the address.
+func evaluateAuditEmailDuplicates(rows []auditUserRow) ([]auditFinding, []string) {
+	groups := map[string][]auditUserRow{}
+	var keys []string
+	for _, r := range rows {
+		if _, seen := groups[r.Key]; !seen {
+			keys = append(keys, r.Key)
+		}
+		groups[r.Key] = append(groups[r.Key], r)
+	}
+	var details []string
+	for _, k := range keys {
+		if len(groups[k]) < 2 {
+			continue
+		}
+		var users, orgs []string
+		for _, r := range groups[k] {
+			users = append(users, r.ID.String())
+			org := "none"
+			if r.OrgID != nil {
+				org = r.OrgID.String()
+			}
+			orgs = append(orgs, org)
+		}
+		details = append(details, fmt.Sprintf("user ids %s; organization ids %s", strings.Join(users, ", "), strings.Join(orgs, ", ")))
+	}
+	return nonzero(auditFinding{"users", "one address (any case) in more than one live account", "EMAIL-GLOBAL-UNIQUE-MIGRATION-1", auditImpactUpgrade, len(details)}), details
 }
 
 // evaluateAuditClients: full-document entity — every hit is CRITICAL because
@@ -326,6 +367,7 @@ func runAuditPreupgrade(ctx context.Context, databaseURL string, stdout, stderr 
 	findings = append(findings, evaluateAuditOrgs(orgs)...)
 
 	var emails []string
+	var users []auditUserRow
 	rows, err = pool.Query(ctx, auditPreupgradeQueries["users"])
 	if err != nil {
 		fmt.Fprintln(stderr, "identuum-idp: audit-preupgrade: users:", err)
@@ -333,14 +375,18 @@ func runAuditPreupgrade(ctx context.Context, databaseURL string, stdout, stderr 
 	}
 	for rows.Next() {
 		var e string
-		if err := rows.Scan(&e); err != nil {
+		var u auditUserRow
+		if err := rows.Scan(&u.ID, &e, &u.Key, &u.OrgID); err != nil {
 			fmt.Fprintln(stderr, "identuum-idp: audit-preupgrade: users scan:", err)
 			return 2
 		}
 		emails = append(emails, e)
+		users = append(users, u)
 	}
 	rows.Close()
 	findings = append(findings, evaluateAuditUsers(emails)...)
+	duplicates, duplicateGroups := evaluateAuditEmailDuplicates(users)
+	findings = append(findings, duplicates...)
 
 	var clients []auditClientRow
 	rows, err = pool.Query(ctx, auditPreupgradeQueries["oauth_clients"])
@@ -437,6 +483,9 @@ func runAuditPreupgrade(ctx context.Context, databaseURL string, stdout, stderr 
 	fmt.Fprintln(stdout, "audit-preupgrade: FINDINGS — rows the current guards refuse:")
 	for _, f := range findings {
 		fmt.Fprintf(stdout, "  %-16s %-52s count=%-4d rule=%s\n    %s\n", f.Entity, f.Shape, f.Count, f.RuleID, f.Impact)
+	}
+	for _, g := range duplicateGroups {
+		fmt.Fprintf(stdout, "  one address: %s\n", g)
 	}
 	fmt.Fprintln(stdout, "audit-preupgrade: see docs/TESTING-OPERATORS.md (pre-upgrade audit) for what to do about each shape")
 	return 1

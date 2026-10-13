@@ -62,6 +62,10 @@ follows [Semantic Versioning](https://semver.org/).
   `202`). `POST /api/v1/users/:id/restore` of a deleted user whose address
   another live account now holds answered `500`; it now answers `409
   email_exists`, and the user stays deleted.
+- **`audit-preupgrade` reports the addresses that stop migration 0056.**
+  It now counts the addresses held by more than one live account, prints the
+  user ids and organization ids of each (never the address), and exits `1`
+  while any exist. The operator guide points to it beside the SQL query.
 
 ## `v0.9.13`
 

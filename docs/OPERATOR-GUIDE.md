@@ -174,8 +174,12 @@ changes nothing: `migrate` exits `3` and says how many addresses, the
 appliance keeps running NOT-SERVING (`/health` names the schema version), and
 the bare binary refuses to serve as it does on any older schema.
 
-Before you upgrade, list the addresses held by more than one live account
-(read-only; run it with `psql` against the existing database):
+Before you upgrade, run `identuum-idp audit-preupgrade <database-url>` with
+the v0.9.14 binary. It reports how many addresses are held by more than one
+live account (rule `EMAIL-GLOBAL-UNIQUE-MIGRATION-1`) and, for each one, the
+user ids and organization ids, never the address; it exits `1` while any
+exist. To see the addresses too, run this read-only query with `psql`
+against the existing database:
 
 ```sql
 SELECT lower(email) AS address, count(*) AS accounts,
@@ -190,7 +194,8 @@ ORDER BY 1;
 No rows means the upgrade can go ahead. For each row, keep one account and,
 through the current API, give each other account its own address
 (`PUT /api/v1/users/{id}` with `email`) or delete it
-(`DELETE /api/v1/users/{id}`). Run the query again until it returns no rows.
+(`DELETE /api/v1/users/{id}`). Run the audit or the query again until it
+reports none.
 If an upgrade was already refused, do the same and restart the container (or
 run `identuum-idp migrate` again); the migration then applies.
 

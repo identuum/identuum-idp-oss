@@ -381,6 +381,11 @@ identuum-idp audit-preupgrade <database-url>
 - `advisory` (organizations, users, service accounts, org roles): the row
   only fails when that specific field is re-supplied. Fix at leisure, but
   before the next edit of that field.
+- `CRITICAL: migration 0056 refuses the upgrade` (users, from v0.9.14): one
+  address, in any case, belongs to more than one live account
+  (`EMAIL-GLOBAL-UNIQUE-MIGRATION-1`). Each such address is printed as one
+  line of user ids and organization ids, never the address. Fix before
+  upgrading; see the operator guide, "Before upgrading to v0.9.14".
 
 **Which shapes can actually be out there:** the audit sweeps everything, but
 the database always refused some shapes itself (user emails and roles,

@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 // THE-OPERATOR-AUDIT (2026-09-01). Two invariants worth pinning:
@@ -84,6 +86,11 @@ func TestAuditPreupgrade_ReadOnlyAndFlagsEveryRefusedShape(t *testing.T) {
 		{"email fails RFC 5322", "USER-UPDATE-VALIDATION-1"},
 	})
 
+	dupes, _ := evaluateAuditEmailDuplicates([]auditUserRow{{ID: uuid.New(), Key: "a@example.test"}, {ID: uuid.New(), Key: "a@example.test"}})
+	assertFlags(t, dupes, []want{
+		{"more than one live account", "EMAIL-GLOBAL-UNIQUE-MIGRATION-1"},
+	})
+
 	assertFlags(t, evaluateAuditClients([]auditClientRow{
 		{ClientID: "c1", Name: "   ", RedirectURIs: []string{"https://a.test/cb"}},
 		{ClientID: "c2", Name: "ok", RedirectURIs: nil},
@@ -141,6 +148,8 @@ func TestAuditPreupgrade_ReadOnlyAndFlagsEveryRefusedShape(t *testing.T) {
 	clean := 0
 	clean += len(evaluateAuditOrgs([]auditOrgRow{{Domain: "acme.test", Slug: "acme", MaxSessions: 5, AuthPolicy: "mixed", APIAuthzPolicy: "strict"}}))
 	clean += len(evaluateAuditUsers([]string{"someone@example.com"}))
+	cleanDupes, _ := evaluateAuditEmailDuplicates([]auditUserRow{{ID: uuid.New(), Key: "a@example.test"}, {ID: uuid.New(), Key: "b@example.test"}})
+	clean += len(cleanDupes)
 	clean += len(evaluateAuditClients([]auditClientRow{{ClientID: "c", Name: "App", RedirectURIs: []string{"https://a.test/cb"}, Method: "client_secret_basic", SecretHash: "h"}}))
 	clean += len(evaluateAuditServiceAccounts([][2]string{{"ci", "org_user"}}))
 	clean += len(evaluateAuditOrgRoles([]string{"Auditor"}))
