@@ -865,6 +865,54 @@ console it establishes the console's session only; started for an
 application's `/authorize` (its return URL is the authorize request) it
 establishes that application sign-in only.
 
+## Members who sign in only with a provider (`idp_only`)
+
+An organization's sign-in policy `idp_only` lets its members sign in only
+through the organization's upstream provider (administrators still sign in with
+a password). So the organization must always have a working provider:
+
+- Choosing `idp_only` (PUT `/api/v1/organizations/{id}`, or POST
+  `/api/v1/organizations` at creation) while the organization has no active
+  OIDC provider is refused: `400 no_active_identity_provider`, "Members can only
+  sign in with a provider. Add an active provider before you choose this
+  sign-in policy." Nothing changes. A new organization has no provider yet, so
+  it cannot start as `idp_only`: create it, add the provider, then choose the
+  policy.
+- While the policy is `idp_only`, deleting the organization's provider
+  (DELETE `/api/v1/organizations/{id}/identity-provider`) is refused: `409
+  last_active_identity_provider`, "Members can only sign in with a provider.
+  Change the sign-in policy first, or add another active provider." Nothing is
+  deleted. Change the policy to `mixed` or `local_only` first.
+
+The two checks lock the organization first, so a policy change and a provider
+removal sent at the same moment cannot both pass.
+
+A person whose invitation is not accepted yet, or whose self-registration still
+waits for approval, cannot sign in through the provider either: they finish the
+invitation (or wait for the approval) first. See
+[upstream OIDC login](guides/oidc-upstream-login.md), "Accounts that are not
+ready yet", and the sign-in page reasons listed there.
+
+## A user removes an application's access
+
+A signed-in user sees the applications they have given access to (GET
+`/api/v1/me/consents`) and can remove one (DELETE
+`/api/v1/me/consents/{client_id}`). Removing access revokes the consent and
+ends the user's refresh tokens for that application, so the application must
+ask again at its next sign-in. An access token the application already holds
+stays valid until it expires; the list says how long that is
+(`access_token_lifetime_seconds`, one hour). The removal is audited as
+`self_consent_revoked`.
+
+## Two administrators editing the same application
+
+The console sends the time it read the application (`expect_updated_at`) with
+each save of an application. When someone else saved the application after
+that, the save is refused with `409 client_changed` ("this client was changed
+since you opened it; nothing was saved, reload it to see the changes and try
+again"), and nothing is saved. A request without the field keeps the earlier
+behaviour: the last save wins for the fields it sends.
+
 ## Register an application (OpenID Connect)
 
 An organization admin registers a client in the console: **Applications →

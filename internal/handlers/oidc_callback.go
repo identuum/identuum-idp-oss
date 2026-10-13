@@ -237,8 +237,8 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 // page, /login?reason=<code> (Q-A1 (a), owner 2026-10-13). The callback is a
 // top-level browser navigation, so a refusal never answers raw JSON; the
 // console shows plain words for each code. The list is CLOSED: the callback
-// sends no other value, and docs/api/upstream-sign-in-refusals.md documents
-// the same set.
+// sends no other value, and docs/guides/oidc-upstream-login.md ("When the
+// sign-in is refused") documents the same set.
 const (
 	// refusalSignInFailed: the provider reported an error, the provider id is
 	// malformed, or the provider's ID token failed validation.

@@ -19,6 +19,44 @@ follows [Semantic Versioning](https://semver.org/).
   INTEGRATION-GATE-1). A panic or a timeout is always red, a log line from
   a passing test or a background task never explains another failure, and
   a "--- FAIL" quoted inside a test's log is not counted as a failure.
+- **Users can see and remove the applications that hold access to their
+  account** (new `GET /api/v1/me/consents` and `DELETE
+  /api/v1/me/consents/{client_id}`; endpoint count 160 to 162). The list
+  shows each application once, with its name, the scopes granted and when.
+  Removing access revokes the consent and ends the user's refresh tokens for
+  that application, so it asks again at the next sign-in; an access token it
+  already holds stays valid until it expires (`access_token_lifetime_seconds`
+  in the list, one hour). An application the user has not given access to
+  answers `404 not_found`. Audited as `self_consent_revoked`.
+- **A client save made from an outdated page is refused instead of undoing
+  a newer save.** `PUT /api/v1/clients/{id}` takes an optional
+  `expect_updated_at` (the `updated_at` the page read). When someone saved
+  the client after that, the answer is `409 client_changed` with a plain
+  message and nothing is saved. Without the field the last save still wins.
+  `updated_at` is now kept at microseconds, so a save's answer and the next
+  read show the same value.
+- **An organization that lets members sign in only with a provider
+  (`idp_only`) can no longer be left without one.** Choosing `idp_only`
+  without an active provider (on update or at creation) answers `400
+  no_active_identity_provider`; deleting the provider while the policy is
+  `idp_only` answers `409 last_active_identity_provider`. Both explain the
+  fix in plain words and change nothing.
+- **Upstream sign-in reads the email address from the provider's userinfo
+  endpoint when the ID token does not carry it**, as OpenID Connect allows.
+  Only missing values are filled, only from a userinfo answer for the same
+  subject, and userinfo confirms only the address it names.
+- **A person whose invitation is not accepted, or whose self-registration
+  waits for approval, is no longer signed in through the provider**; nothing
+  is linked to the account until they finish.
+- **A refused upstream sign-in now lands on the console sign-in page with a
+  reason** (`/login?reason=<code>`) instead of showing raw JSON. The codes are
+  `sign_in_failed`, `sign_in_expired`, `sign_in_not_permitted`,
+  `email_not_shared`, `invitation_pending`, `registration_pending`,
+  `provider_unavailable` and `sign_in_unavailable` (upstream OIDC login
+  guide).
+- **A service-account binding check no longer tells another organization's
+  caller whether the account is inactive or expired**: the organization is
+  checked first.
 
 ## `v0.9.12`
 

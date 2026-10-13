@@ -126,13 +126,56 @@ callback redirect URI.
    to an application, and `end_session` and the console's sign-out never end each other's
    session. Every credential is minted before any cookie is written: if the IdP's own
    browser-session token cannot be issued, or a console-purpose sign-in's access token cannot
-   be minted, the callback fails closed exactly as the browser sign-in does: `503 temporarily
-   unavailable, try again`, no cookie, no redirect; it attempts to revoke the new session and
+   be minted, the callback fails closed: no cookie, and the console sign-in page with reason
+   `sign_in_unavailable` (below); it attempts to revoke the new session and
    audits whether cleanup succeeded, in `auth.oidc_login.failure` (`reason`
    `browser_session_token_issue_failed` or `console_token_issue_failed`, `session_revoked`
    true or false). A failed cleanup does not change the refusal: no credential is issued. A browser that already held another
    user's console cookies keeps them untouched by the refusal and never receives a half
    sign-in beside them. The person retries the sign-in.
+
+### Email from the provider's userinfo endpoint
+
+Some providers keep the email address out of the ID token and return it from their userinfo
+endpoint (OpenID Connect Core §5.4 allows this). When the ID token has no `email` or no
+`email_verified`, and the provider's discovery document names a `userinfo_endpoint`, the
+callback reads userinfo with the provider's access token and fills in only the missing values.
+It uses the userinfo answer only when its `sub` equals the ID token's `sub`, and userinfo's
+`email_verified` confirms only the address userinfo names. The `email_domains` gate then decides
+as before. The `userinfo_endpoint` must be `https`, like every other provider endpoint. The access
+token and the userinfo answer are never logged. When an organization maps `email` to another
+claim, userinfo is not read. When no address arrives at all, the sign-in is refused with reason
+`email_not_shared`.
+
+### Accounts that are not ready yet
+
+A person whose invitation is not yet accepted, or whose self-registration still waits for an
+administrator's approval, is not signed in through the provider, even when the provider confirms
+the address, and nothing is linked to the account. They see `invitation_pending` or
+`registration_pending` on the sign-in page. They accept the invitation (or wait for the approval)
+first; after that, the provider sign-in works. An approved registrant whose address is not yet
+verified signs in as before.
+
+### When the sign-in is refused
+
+The callback is a page the browser opens, so a refused sign-in never answers with raw JSON.
+It redirects (`302`) to the console sign-in page, `/login?reason=<code>`, with no cookie and
+`Cache-Control: no-store`. The code is one of this closed list; the console shows plain words
+for each:
+
+| Reason code | When |
+| --- | --- |
+| `sign_in_failed` | The provider reported an error (for example the person cancelled), the provider id in the address is malformed, or the provider's ID token failed validation. |
+| `sign_in_expired` | The sign-in state is missing, expired or already used, or the callback opened in a browser that did not start the sign-in. |
+| `sign_in_not_permitted` | The identity may not sign in here: an unverified address or a domain off the `email_domains` list, an administrator (administrators sign in with a password), an address linked to another provider identity, or an organization policy. |
+| `email_not_shared` | The provider shared no email address, in the ID token or from userinfo. |
+| `invitation_pending` | The person's invitation is not accepted yet. |
+| `registration_pending` | The person's self-registration waits for an administrator's approval. |
+| `provider_unavailable` | The provider's discovery document or token endpoint could not be used. |
+| `sign_in_unavailable` | The sign-in could not be completed on this side (a store or key failure); trying again may work. |
+
+Until v0.9.13 the callback answered these refusals with a JSON status (400, 401, 403, 500, 502)
+or `503 temporarily unavailable, try again`.
 
 ### What the audit log records
 
