@@ -726,6 +726,7 @@ func RegisterOSSRoutes(router gin.IRouter, deps OSSRouterDeps) {
 	mountWebAuthn(router, resolved)
 	mountSessions(router, resolved)
 	mountAuthSessions(router, resolved)
+	mountMeConsents(router, resolved)
 	mountIntrospectionAndRevocation(router, resolved)
 	mountToken(router, resolved)
 	mountAuthorize(router, resolved)
@@ -1439,6 +1440,27 @@ func mountSessions(router gin.IRouter, resolved OSSRouterDeps) {
 // session-revoker and refresh-token-revoker seams wire only when the
 // underlying service is present; absent those, the handler keeps its
 // Noop defaults so the rest of the /me surface stays mountable.
+// mountMeConsents mounts the self-service consent list and revoke (D3) when
+// the consent store, the refresh-token service, the client store and the
+// user lookup are all wired. The listed access-token lifetime is the user
+// token service's (one hour when it is not wired).
+func mountMeConsents(router gin.IRouter, resolved OSSRouterDeps) {
+	if resolved.ConsentService == nil || resolved.RefreshTokenService == nil || resolved.ClientRepo == nil || resolved.UserLookup == nil {
+		return
+	}
+	deps := handlers.MeConsentsHandlerDeps{
+		Consents:   resolved.ConsentService,
+		Refresh:    resolved.RefreshTokenService,
+		Clients:    resolved.ClientRepo,
+		UserLookup: resolved.UserLookup,
+		Audit:      resolved.Audit,
+	}
+	if resolved.UserToken != nil {
+		deps.AccessTokenLifetime = resolved.UserToken.AccessTokenTTL()
+	}
+	handlers.RegisterMeConsentRoutes(router, deps)
+}
+
 func mountAuthSessions(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.LocalLogin == nil && resolved.UserSessionService == nil {
 		return

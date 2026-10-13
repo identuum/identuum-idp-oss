@@ -24,4 +24,13 @@ type OAuthConsentRepository interface {
 	// Revoke soft-deletes the (user, client, audience) row by
 	// setting revoked_at = now. No-op when the row is absent.
 	Revoke(ctx context.Context, userID uuid.UUID, clientID, audience string, at time.Time) error
+
+	// ListActiveByUser returns every row of userID with revoked_at IS NULL,
+	// across clients and audiences (D3, GET /api/v1/me/consents).
+	ListActiveByUser(ctx context.Context, userID uuid.UUID) ([]*domain.OAuthConsent, error)
+
+	// RevokeAllForClient soft-deletes every active audience row of
+	// (userID, clientID) and returns how many it revoked (D3, DELETE
+	// /api/v1/me/consents/:client_id).
+	RevokeAllForClient(ctx context.Context, userID uuid.UUID, clientID string, at time.Time) (int64, error)
 }

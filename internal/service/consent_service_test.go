@@ -73,6 +73,33 @@ func (r *inMemoryConsentRepo) Revoke(_ context.Context, userID uuid.UUID, client
 	return nil
 }
 
+func (r *inMemoryConsentRepo) ListActiveByUser(_ context.Context, userID uuid.UUID) ([]*domain.OAuthConsent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*domain.OAuthConsent
+	for _, row := range r.rows {
+		if row.UserID == userID && row.RevokedAt == nil {
+			cp := *row
+			out = append(out, &cp)
+		}
+	}
+	return out, nil
+}
+
+func (r *inMemoryConsentRepo) RevokeAllForClient(_ context.Context, userID uuid.UUID, clientID string, at time.Time) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var n int64
+	for _, row := range r.rows {
+		if row.UserID == userID && row.ClientID == clientID && row.RevokedAt == nil {
+			t := at
+			row.RevokedAt = &t
+			n++
+		}
+	}
+	return n, nil
+}
+
 // ---------- Construction ----------
 
 func TestNewConsentService_NilRepoPanics(t *testing.T) {

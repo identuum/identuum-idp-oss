@@ -122,3 +122,10 @@ type RefreshTokenPendingAccessJTIRepository interface {
 type RefreshTokenClientRevocationRepository interface {
 	RevokeAllByClientReturningAccessJTIs(ctx context.Context, clientID string, at time.Time) (int64, []RevokedRefreshTokenAccessJTI, error)
 }
+
+// RefreshTokenSubjectClientRevocationRepository revokes one subject's live
+// refresh tokens for one OAuth client, returning the linked access jtis (D3:
+// a user removing an app's access). An empty subject or client is a no-op.
+type RefreshTokenSubjectClientRevocationRepository interface {
+	RevokeAllBySubjectAndClientReturningAccessJTIs(ctx context.Context, subject, clientID string, at time.Time) (int64, []RevokedRefreshTokenAccessJTI, error)
+}

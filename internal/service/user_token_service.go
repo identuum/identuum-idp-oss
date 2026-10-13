@@ -102,6 +102,14 @@ func NewUserTokenService(report *lifecycle.StartupReport, keys SigningKeyProvide
 	}
 }
 
+// AccessTokenTTL is the lifetime of the access tokens this service mints,
+// including an application's tokens (IssueForConsentedClient). D3 shows it
+// beside a consent: an access token already issued to an application stays
+// valid up to this long after its access is removed.
+func (s *UserTokenService) AccessTokenTTL() time.Duration {
+	return s.accessTokenTTL
+}
+
 // UserAccessTokenResponse is the projection callers receive on a
 // successful issuance. RefreshToken is deliberately NOT a field —
 // the user-session refresh lifecycle is owned by

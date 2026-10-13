@@ -51,6 +51,7 @@ const (
 	AuditSessionCreated      AuditEventType = "session_created"
 	AuditSessionRevoked      AuditEventType = "session_revoked"
 	AuditSelfSessionsRevoked AuditEventType = "self_sessions_revoked"
+	AuditSelfConsentRevoked  AuditEventType = "self_consent_revoked" // D3: a user removed an application's access
 	AuditLogout              AuditEventType = "logout"
 	AuditSessionExpired      AuditEventType = "session_expired"
 	AuditMFAEnabled          AuditEventType = "mfa_enabled"

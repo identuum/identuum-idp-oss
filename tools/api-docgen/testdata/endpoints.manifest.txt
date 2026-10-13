@@ -1,6 +1,7 @@
 DELETE /api/v1/api-resources/:id
 DELETE /api/v1/clients/:id
 DELETE /api/v1/keys/expired
+DELETE /api/v1/me/consents/:client_id
 DELETE /api/v1/organizations/:id
 DELETE /api/v1/organizations/:id/domains/:domain_id
 DELETE /api/v1/organizations/:id/identity-provider
@@ -37,6 +38,7 @@ GET /api/v1/clients/:id
 GET /api/v1/component
 GET /api/v1/health/details
 GET /api/v1/keys
+GET /api/v1/me/consents
 GET /api/v1/me/mfa/status
 GET /api/v1/me/roles
 GET /api/v1/me/sessions

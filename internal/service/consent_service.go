@@ -22,6 +22,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -141,6 +142,98 @@ func (s *ConsentService) Revoke(ctx context.Context, userID uuid.UUID, clientID,
 		return ErrConsentInvalidInput
 	}
 	return s.repo.Revoke(ctx, userID, clientID, audience, s.now().UTC())
+}
+
+// ClientConsent is one client's ACTIVE consent for a user, its audience rows
+// grouped (D3): the union of their scopes in first-seen order, and the
+// earliest and latest grant.
+type ClientConsent struct {
+	ClientID       string
+	Scopes         []string
+	FirstGrantedAt time.Time
+	LastGrantedAt  time.Time
+}
+
+// ErrConsentNotFound: the user holds no active consent for the client.
+var ErrConsentNotFound = errors.New("service: no active consent for this client")
+
+// ListForUser returns userID's active consents, one entry per client_id
+// across audiences, ordered by client_id (D3, GET /api/v1/me/consents).
+func (s *ConsentService) ListForUser(ctx context.Context, userID uuid.UUID) ([]ClientConsent, error) {
+	if userID == uuid.Nil {
+		return nil, ErrConsentInvalidInput
+	}
+	rows, err := s.repo.ListActiveByUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	byClient := map[string]*ClientConsent{}
+	seen := map[string]map[string]struct{}{}
+	var order []string
+	for _, row := range rows {
+		if row == nil || !row.IsActive() || row.UserID != userID {
+			continue
+		}
+		c, ok := byClient[row.ClientID]
+		if !ok {
+			c = &ClientConsent{ClientID: row.ClientID, FirstGrantedAt: row.GrantedAt, LastGrantedAt: row.GrantedAt}
+			byClient[row.ClientID] = c
+			seen[row.ClientID] = map[string]struct{}{}
+			order = append(order, row.ClientID)
+		}
+		if row.GrantedAt.Before(c.FirstGrantedAt) {
+			c.FirstGrantedAt = row.GrantedAt
+		}
+		if row.GrantedAt.After(c.LastGrantedAt) {
+			c.LastGrantedAt = row.GrantedAt
+		}
+		for _, tok := range splitScope(row.Scope) {
+			if _, dup := seen[row.ClientID][tok]; !dup {
+				seen[row.ClientID][tok] = struct{}{}
+				c.Scopes = append(c.Scopes, tok)
+			}
+		}
+	}
+	sort.Strings(order)
+	out := make([]ClientConsent, 0, len(order))
+	for _, id := range order {
+		out = append(out, *byClient[id])
+	}
+	return out, nil
+}
+
+// HasActiveForClient reports whether userID holds an active consent for
+// clientID on any audience.
+func (s *ConsentService) HasActiveForClient(ctx context.Context, userID uuid.UUID, clientID string) (bool, error) {
+	if userID == uuid.Nil || strings.TrimSpace(clientID) == "" {
+		return false, ErrConsentInvalidInput
+	}
+	rows, err := s.repo.ListActiveByUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, row := range rows {
+		if row != nil && row.ClientID == clientID && row.IsActive() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// RevokeClient revokes every active audience row of (userID, clientID) and
+// returns how many it revoked; none is ErrConsentNotFound (D3).
+func (s *ConsentService) RevokeClient(ctx context.Context, userID uuid.UUID, clientID string) (int64, error) {
+	if userID == uuid.Nil || strings.TrimSpace(clientID) == "" {
+		return 0, ErrConsentInvalidInput
+	}
+	n, err := s.repo.RevokeAllForClient(ctx, userID, clientID, s.now().UTC())
+	if err != nil {
+		return 0, err
+	}
+	if n == 0 {
+		return 0, ErrConsentNotFound
+	}
+	return n, nil
 }
 
 // scopeCovers reports whether every token in `requested` already

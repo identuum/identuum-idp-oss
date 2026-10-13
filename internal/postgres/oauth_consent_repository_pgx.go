@@ -90,6 +90,48 @@ WHERE user_id = $1 AND client_id = $2 AND audience = $3
 	return err
 }
 
+// ListActiveByUser returns every active row of userID (D3). The predicate
+// leads with user_id, which idx_oauth_consents_user_id serves.
+func (r *PgxOAuthConsentRepository) ListActiveByUser(ctx context.Context, userID uuid.UUID) ([]*domain.OAuthConsent, error) {
+	const q = `
+SELECT id, user_id, organization_id, client_id, audience, scope, claims,
+       granted_at, revoked_at, created_at, updated_at
+FROM oauth_consents
+WHERE user_id = $1 AND revoked_at IS NULL
+ORDER BY client_id, audience
+`
+	rows, err := r.db.Query(ctx, q, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*domain.OAuthConsent
+	for rows.Next() {
+		c, err := scanOAuthConsent(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// RevokeAllForClient revokes every active audience row of (userID, clientID)
+// in one statement and returns how many it revoked (D3).
+func (r *PgxOAuthConsentRepository) RevokeAllForClient(ctx context.Context, userID uuid.UUID, clientID string, at time.Time) (int64, error) {
+	const q = `
+UPDATE oauth_consents
+SET revoked_at = $3, updated_at = NOW()
+WHERE user_id = $1 AND client_id = $2
+      AND revoked_at IS NULL
+`
+	tag, err := r.db.Exec(ctx, q, userID, clientID, at)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
 func scanOAuthConsent(row pgx.Row) (*domain.OAuthConsent, error) {
 	var c domain.OAuthConsent
 	if err := row.Scan(

@@ -981,6 +981,38 @@ paths:
                 $ref: "#/components/schemas/oss_handlers_safeKey"
         default:
           description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/me/consents":
+    get:
+      operationId: "identuum-idp-oss.auth.list_own_consents"
+      summary: "Self-service list of the applications the authenticated user has given access to: one entry per application with its name, the scopes granted across its audiences, and when access was first and last granted."
+      tags:
+        - "auth"
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: "Self-service list of the applications the authenticated user has given access to: one entry per application with its name, the scopes granted across its audiences, and when access was first and last granted."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
+  "/api/v1/me/consents/{client_id}":
+    delete:
+      operationId: "identuum-idp-oss.auth.revoke_own_consent"
+      summary: "Self-service removal of an application's access: revokes the authenticated user's consent for the application on every audience and ends the user's refresh tokens for it, so the application asks again at its next sign-in."
+      tags:
+        - "auth"
+      parameters:
+        - name: "client_id"
+          in: path
+          required: true
+          schema:
+            type: string
+      security:
+        - cookieAuth: []
+      responses:
+        "204":
+          description: "Self-service removal of an application's access: revokes the authenticated user's consent for the application on every audience and ends the user's refresh tokens for it, so the application asks again at its next sign-in."
+        default:
+          description: "Error response — see identuum-idp-oss source for exact status/body per failure mode."
   "/api/v1/me/email/verification":
     post:
       operationId: "identuum-idp-oss.auth-lifecycle.send_own_verification"

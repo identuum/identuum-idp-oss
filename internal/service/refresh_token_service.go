@@ -648,6 +648,38 @@ func (s *RefreshTokenService) RevokeAllForClient(ctx context.Context, clientID s
 	return n, s.revokeLinkedAccessJTIs(ctx, accessJTIs)
 }
 
+// RevokeAllForUserClient revokes userID's live refresh tokens for clientID
+// and denylists the access tokens linked to them (D3, owner answer Q5 (a): a
+// user removing an application's access ends its refresh tokens too). Like
+// RevokeAllForUser it also denylists what an earlier revocation of this
+// subject still owes, so a retry after a failed denylist write completes the
+// work. Fails closed when the store cannot revoke by subject and client.
+func (s *RefreshTokenService) RevokeAllForUserClient(ctx context.Context, userID uuid.UUID, clientID string) (int64, error) {
+	if userID == uuid.Nil || clientID == "" {
+		return 0, nil
+	}
+	repo, ok := s.repo.(repository.RefreshTokenSubjectClientRevocationRepository)
+	if !ok {
+		return 0, ErrRefreshClientRevocationUnsupported
+	}
+	now := s.now().UTC()
+	n, accessJTIs, err := repo.RevokeAllBySubjectAndClientReturningAccessJTIs(ctx, userID.String(), clientID, now)
+	if err != nil {
+		return 0, err
+	}
+	if s.tokenRevocations == nil {
+		return n, nil
+	}
+	if pending, ok := s.repo.(repository.RefreshTokenPendingAccessJTIRepository); ok {
+		owed, perr := pending.PendingLinkedAccessJTIsBySubject(ctx, userID.String(), now)
+		if perr != nil {
+			return n, perr
+		}
+		accessJTIs = append(accessJTIs, owed...)
+	}
+	return n, s.revokeLinkedAccessJTIs(ctx, accessJTIs)
+}
+
 func (s *RefreshTokenService) revokeLinkedAccessJTIs(ctx context.Context, accessJTIs []repository.RevokedRefreshTokenAccessJTI) error {
 	seen := make(map[string]struct{}, len(accessJTIs))
 	var firstErr error

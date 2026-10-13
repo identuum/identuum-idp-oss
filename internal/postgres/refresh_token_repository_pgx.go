@@ -388,6 +388,35 @@ func (r *PgxRefreshTokenRepository) RevokeAllByClientReturningAccessJTIs(ctx con
 	if err != nil {
 		return 0, nil, fmt.Errorf("postgres: revoke oauth_refresh_tokens by client returning access_jti: %w", err)
 	}
+	return scanRevokedAccessJTIs(rows)
+}
+
+// RevokeAllBySubjectAndClientReturningAccessJTIs revokes subject's live
+// refresh tokens issued to clientID and returns the access-token jtis they are
+// linked to (D3: a user removes an app's access). Empty input revokes nothing.
+// The predicate leads with client_id (idx_oauth_refresh_tokens_client_id).
+func (r *PgxRefreshTokenRepository) RevokeAllBySubjectAndClientReturningAccessJTIs(ctx context.Context, subject, clientID string, at time.Time) (int64, []repository.RevokedRefreshTokenAccessJTI, error) {
+	if subject == "" || clientID == "" {
+		return 0, nil, nil
+	}
+	const q = `
+		UPDATE oauth_refresh_tokens
+		SET    revoked_at = $3
+		WHERE  client_id  = $1
+		  AND  subject    = $2
+		  AND  revoked_at IS NULL
+		RETURNING access_jti, expires_at`
+	rows, err := r.db.Query(ctx, q, clientID, subject, at)
+	if err != nil {
+		return 0, nil, fmt.Errorf("postgres: revoke oauth_refresh_tokens by subject and client returning access_jti: %w", err)
+	}
+	return scanRevokedAccessJTIs(rows)
+}
+
+// scanRevokedAccessJTIs reads the (access_jti, expires_at) rows a revoking
+// UPDATE ... RETURNING answers: the count of revoked rows and their linked
+// access jtis.
+func scanRevokedAccessJTIs(rows pgx.Rows) (int64, []repository.RevokedRefreshTokenAccessJTI, error) {
 	defer rows.Close()
 	var (
 		count int64

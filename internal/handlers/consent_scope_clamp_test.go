@@ -36,6 +36,14 @@ func (r *captureConsentRepo) Revoke(_ context.Context, _ uuid.UUID, _, _ string,
 	return nil
 }
 
+func (r *captureConsentRepo) ListActiveByUser(context.Context, uuid.UUID) ([]*domain.OAuthConsent, error) {
+	return nil, nil
+}
+
+func (r *captureConsentRepo) RevokeAllForClient(context.Context, uuid.UUID, string, time.Time) (int64, error) {
+	return 0, nil
+}
+
 // (d) R6 — HandleConsentSubmit persists the CLAMPED scope (intersection with
 // the client's registered scopes), not the raw requested superset.
 func TestConsentSubmitR6_PersistsClampedScope(t *testing.T) {
