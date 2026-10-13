@@ -715,6 +715,13 @@ func (s *UserService) UpdateUserForActorRevokingFirst(ctx context.Context, actor
 	if target == nil {
 		return nil, errUserNotFound
 	}
+	// Q-R1 (a), judge 2026-10-13: an administrator setting its own password
+	// chooses it, so it is not an admin-set password: no must-change flag and
+	// no set time (no expiry), whatever must_change_password says.
+	if targetUserID == actor.UserID && opts.Password != nil && *opts.Password != "" {
+		chosen := false
+		opts.MustChangePassword = &chosen
+	}
 	var scopedOrgID uuid.UUID
 	switch {
 	case actor.IsSiteAdmin():

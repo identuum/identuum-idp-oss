@@ -77,7 +77,8 @@ follows [Semantic Versioning](https://semver.org/).
   be changed at the next sign-in**, as on create, unless the request also
   sends `"must_change_password": false`. The answer's
   `requires_password_change` says which. `must_change_password` without a
-  password is `400`.
+  password is `400`. An administrator who sets its own password this way
+  chooses it: no change is asked and it does not expire.
 - **An administrator-set password that must be changed expires 24 hours
   after it was set.** Password sign-in then answers `401 password_expired`
   ("This password has expired. Ask your administrator for a new reset

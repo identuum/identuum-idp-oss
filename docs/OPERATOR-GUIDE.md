@@ -741,7 +741,9 @@ The same rule holds when you set a member's password later with
 the next sign-in unless you also send `"must_change_password": false`. The
 answer's `requires_password_change` says which, and the `user.updated` audit
 row records `must_change_password`. Sending `must_change_password` without a
-`password` is `400`.
+`password` is `400`. When you set **your own** password this way, you choose
+it: it is not an administrator-set password, so no change is asked, it does
+not expire, and `must_change_password` is ignored.
 
 A password you set that must be changed **expires 24 hours after you set
 it**. After that, sign-in with it answers `401 password_expired` ("This

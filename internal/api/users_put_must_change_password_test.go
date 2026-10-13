@@ -76,6 +76,38 @@ func TestQB2_AdminPutPasswordFalseLetsItStand(t *testing.T) {
 	}
 }
 
+// Q-R1 (a), judge 2026-10-13: an administrator who sets its OWN password
+// through PUT chooses it. The write carries no must-change flag and no set
+// time (no 24 h expiry), whatever must_change_password says; only actor !=
+// target is an admin-set password.
+// RULE: QB2-SELF-SET-IS-CHOSEN-1
+func TestQB2_SelfPutPasswordIsChosen(t *testing.T) {
+	for _, tc := range []struct{ bearer, who, body string }{
+		{d9AdminA, "adminA", `{"password":"` + qb2Password + `"}`},
+		{d9AdminA, "adminA", `{"password":"` + qb2Password + `","must_change_password":true}`},
+		{d9SiteAdmin, "siteadmin", `{"password":"` + qb2Password + `"}`},
+	} {
+		w := newD9World(t, d9UIBase)
+		rec, body := w.put(tc.bearer, tc.who, tc.body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s PUT own password %s = %d %v; want 200", tc.who, tc.body, rec.Code, body["error"])
+		}
+		opt := w.users.lastOpt
+		if opt == nil || opt.Password == nil {
+			t.Fatalf("%s: no repository write carried the password", tc.who)
+		}
+		if opt.RequiresPasswordChange == nil || *opt.RequiresPasswordChange {
+			t.Errorf("%s own password %s: write RequiresPasswordChange = %v; want false", tc.who, tc.body, opt.RequiresPasswordChange)
+		}
+		if opt.AdminPasswordSetAt == nil || !opt.AdminPasswordSetAt.IsZero() {
+			t.Errorf("%s own password %s: write AdminPasswordSetAt = %v; want the zero time (NULL, no expiry)", tc.who, tc.body, opt.AdminPasswordSetAt)
+		}
+		if body["requires_password_change"] != false {
+			t.Errorf("%s own password %s: answer requires_password_change = %v; want false", tc.who, tc.body, body["requires_password_change"])
+		}
+	}
+}
+
 // Control (green before and after): without a password the flag is untouched.
 func TestQB2_PutWithoutPasswordLeavesFlag(t *testing.T) {
 	w := newD9World(t, d9UIBase)

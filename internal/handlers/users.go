@@ -297,7 +297,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeUser
-		// docgen:notes=org_admin actor additionally requires the users:update scope. A password set here must be changed at the next password sign-in unless the body also sends "must_change_password":false (Q-B2, as on create); the answer's requires_password_change says which. Such a password expires 24 hours after it was set (sign-in then answers 401 password_expired); with false it does not expire. must_change_password without password is 400 invalid request.
+		// docgen:notes=org_admin actor additionally requires the users:update scope. A password set here must be changed at the next password sign-in unless the body also sends "must_change_password":false (Q-B2, as on create); the answer's requires_password_change says which. Such a password expires 24 hours after it was set (sign-in then answers 401 password_expired); with false it does not expire. An administrator setting its own password chooses it: no change is asked and it does not expire. must_change_password without password is 400 invalid request.
 		update.PUT("/:id", HandleUpdateUser(deps))
 
 		// docgen:endpoint
