@@ -41,10 +41,10 @@ func TestRecheckLockedBinding_VisibilityFirst(t *testing.T) {
 		sa   *domain.ServiceAccount
 		want string
 	}{
-		{"gone", nil, "the service account was not found; nothing was saved, reload the client and try again"},
-		{"foreign_inactive", &domain.ServiceAccount{OrganizationID: other}, "the service account was not found; nothing was saved, reload the client and try again"},
-		{"inactive", &domain.ServiceAccount{OrganizationID: org}, "the service account was deactivated; nothing was saved, reload the client and try again"},
-		{"expired", &domain.ServiceAccount{OrganizationID: org, Active: true, ExpiresAt: &past}, "the service account has expired; nothing was saved, reload the client and try again"},
+		{"gone", nil, "the service account was not found; nothing was saved; check the service account and try again"},
+		{"foreign_inactive", &domain.ServiceAccount{OrganizationID: other}, "the service account was not found; nothing was saved; check the service account and try again"},
+		{"inactive", &domain.ServiceAccount{OrganizationID: org}, "the service account was deactivated; nothing was saved; check the service account and try again"},
+		{"expired", &domain.ServiceAccount{OrganizationID: org, Active: true, ExpiresAt: &past}, "the service account has expired; nothing was saved; check the service account and try again"},
 		{"live", &domain.ServiceAccount{OrganizationID: org, Active: true}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

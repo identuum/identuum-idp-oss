@@ -245,11 +245,11 @@ var ErrClientSecretPublicClient = errors.New("service: cannot regenerate secret 
 // on (UpdateClientOptions.ExpectScope / ExpectSkipConsent). Nothing was saved.
 var ErrClientChangedDuringSave = errors.New("this client was changed by someone else while you were saving; nothing was saved, reload it and try again")
 
-// ErrServiceAccountChangedDuringSave: the service account an update binds was
-// deleted, deactivated or expired after the update checked it and before the
-// save locked it (OSS-0912-C1-FIX). Nothing was saved. The refusal names the
-// reason in front of this text.
-var ErrServiceAccountChangedDuringSave = errors.New("nothing was saved, reload the client and try again")
+// ErrServiceAccountChangedDuringSave: the service account a create or an
+// update binds was deleted, deactivated or expired after it was checked and
+// before the create or save locked it (OSS-0912-C1-FIX, OSS-0913-O9-FIX).
+// Nothing was saved. The refusal names the reason in front of this text.
+var ErrServiceAccountChangedDuringSave = errors.New("nothing was saved; check the service account and try again")
 
 // RegisterClient creates a new OAuth client.
 //

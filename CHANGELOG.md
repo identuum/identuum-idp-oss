@@ -57,6 +57,10 @@ follows [Semantic Versioning](https://semver.org/).
   is held while the application is saved and checked again: such a create
   answers `400 invalid_request` with the plain reason, and nothing is saved.
   A deactivation or delete that comes during the create waits until it ends.
+  The reason now ends "nothing was saved; check the service account and try
+  again", on a create and on a save (it said "reload the client"). When the
+  database cannot save the create now, it answers `503
+  temporarily_unavailable` with `Retry-After`.
 - **Upstream sign-in reads the email address from the provider's userinfo
   endpoint when the ID token does not carry it**, as OpenID Connect allows.
   Only missing values are filled, only from a userinfo answer for the same
