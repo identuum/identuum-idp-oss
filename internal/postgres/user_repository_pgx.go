@@ -907,6 +907,12 @@ func (r *PgxUserRepository) Undelete(ctx context.Context, id uuid.UUID, orgID uu
 
 	result, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
+		// Another live account holds the address now (0056): the restore
+		// would make a second one.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return domain.ErrUserAlreadyExists
+		}
 		return fmt.Errorf("failed to undelete user: %w", err)
 	}
 

@@ -55,6 +55,13 @@ follows [Semantic Versioning](https://semver.org/).
   Every one of these lookups now trims and lowercases the typed address and
   compares it with the stored address in lower case. Stored addresses are
   not changed. The passkey ceremony is unchanged.
+- **An address held by a banned account or an inactive organization gets
+  the same answers as any held address.** Self-registration with such an
+  address was refused as `create_failed` and sent no mail; it now takes the
+  path of an address in use (`existing_email`, the notice mail, the same
+  `202`). `POST /api/v1/users/:id/restore` of a deleted user whose address
+  another live account now holds answered `500`; it now answers `409
+  email_exists`, and the user stays deleted.
 
 ## `v0.9.13`
 

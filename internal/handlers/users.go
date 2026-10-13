@@ -367,7 +367,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:summary=Restore a previously soft-deleted user.
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
-		// docgen:notes=site_admin restores only users of the system organization; a tenant user answers 403 (D-025). org_admin additionally requires the users:delete scope and may only restore users in its own organization; cross-org and site_admin targets get the anti-enumeration 404.
+		// docgen:notes=site_admin restores only users of the system organization; a tenant user answers 403 (D-025). org_admin additionally requires the users:delete scope and may only restore users in its own organization; cross-org and site_admin targets get the anti-enumeration 404. A user whose address a live account in any organization now holds, in any case, answers 409 email_exists and stays deleted.
 		del.POST("/:id/restore", HandleRestoreUser(deps))
 
 		// Reset-MFA: site_admin OR org_admin with users:mfa:revoke.
@@ -1093,6 +1093,8 @@ func HandleRestoreUser(deps UsersHandlerDeps) gin.HandlerFunc {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 			case errors.Is(err, service.ErrUserNotFound()):
 				c.JSON(http.StatusNotFound, gin.H{"error": "not found"})
+			case errors.Is(err, domain.ErrUserAlreadyExists):
+				c.JSON(http.StatusConflict, gin.H{"error": "email_exists"})
 			default:
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 			}

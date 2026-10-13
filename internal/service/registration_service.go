@@ -299,12 +299,9 @@ func (s *RegistrationService) Register(ctx context.Context, slug string, in Regi
 			live++
 		}
 	}
-	if live > 0 {
-		// A taken address answers like a new one: it spends the hashing time a
-		// new account's password does, and its mail goes out after the
-		// response, so the response time does not say which addresses have
-		// accounts.
-		_ = crypto.CompareHashAndPasswordContext(ctx, []byte(crypto.DummyPasswordHash()), []byte(in.Password))
+	// A taken address's mail goes out after the response, so the response
+	// time does not say which addresses have accounts.
+	taken := func() error {
 		runWith(s.background, ctx, func(ctx context.Context) {
 			if s.cfg.Notifier != nil {
 				if err := s.cfg.Notifier.SendRegistrationNoticeEmail(ctx, email, org.Name); err != nil && !errors.Is(err, ErrEmailDeliveryNotConfigured) {
@@ -314,11 +311,23 @@ func (s *RegistrationService) Register(ctx context.Context, slug string, in Regi
 		})
 		return refused("existing_email", org.ID)
 	}
+	if live > 0 {
+		// A taken address answers like a new one: it spends the hashing time a
+		// new account's password does.
+		_ = crypto.CompareHashAndPasswordContext(ctx, []byte(crypto.DummyPasswordHash()), []byte(in.Password))
+		return taken()
+	}
 	complexity := org.PasswordComplexityEnabled
 	mustChange := false
 	user, err := s.cfg.Creator.Create(ctx, CreateUserOptions{OrganizationID: org.ID, Email: email, Password: in.Password,
 		Name: strings.TrimSpace(in.Name), Role: domain.RoleOrgUser, PasswordComplexityEnabled: &complexity,
 		MinPasswordLength: registrationMinPasswordLength, MustChangePassword: &mustChange, Unverified: true})
+	if errors.Is(err, domain.ErrUserAlreadyExists) {
+		// The pre-check does not see a banned account or an account of an
+		// inactive organization; the database refuses its address (0056,
+		// EMAIL-SPECIFIC-ANSWERS-1). The create already spent the hashing time.
+		return taken()
+	}
 	if err != nil {
 		return refused("create_failed", org.ID)
 	}
