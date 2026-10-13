@@ -124,6 +124,20 @@ var errOIDCProviderInvalidInput = errors.New("service: invalid OIDC provider con
 // (organization, name, client_id). A handler maps it to 400.
 func ErrOIDCProviderInvalidInput() error { return errOIDCProviderInvalidInput }
 
+var errOIDCProviderActiveNotSupported = errors.New("service: an OIDC provider cannot be switched on or off; remove it instead")
+
+// ErrOIDCProviderActiveNotSupported is returned by an update whose Active
+// differs from the stored value (OSS-IDP-ACTIVE-FIELD). A handler maps it to
+// 400.
+func ErrOIDCProviderActiveNotSupported() error { return errOIDCProviderActiveNotSupported }
+
+var errOIDCProviderPriorityNotSupported = errors.New("service: an OIDC provider's priority cannot be changed (one provider per organization)")
+
+// ErrOIDCProviderPriorityNotSupported is returned by an update whose Priority
+// differs from the stored value (OSS-IDP-ACTIVE-FIELD). A handler maps it to
+// 400.
+func ErrOIDCProviderPriorityNotSupported() error { return errOIDCProviderPriorityNotSupported }
+
 // OIDCProviderInput is the create shape. Type carries the caller's
 // requested provider type so the OSS boundary can refuse anything but
 // oidc. ClientSecret is PLAINTEXT input; it is encrypted before
@@ -149,6 +163,11 @@ type OIDCProviderInput struct {
 	AttributeMapping     map[string]string
 	PKCERequired         bool
 	AllowExternalDomains bool
+	// Active and Priority are update-only POINTERS (OSS-IDP-ACTIVE-FIELD): nil
+	// or the stored value keeps the stored one; any other value is refused,
+	// because OSS has no disabled provider and no second provider to order.
+	Active   *bool
+	Priority *int
 }
 
 // CreateOIDCProvider validates the input, enforces type=oidc-only and
@@ -238,7 +257,8 @@ func (s *OIDCProviderConfigService) GetOIDCProvider(ctx context.Context, orgID u
 // client_secret is re-encrypted ONLY when a new plaintext is supplied;
 // an empty ClientSecret preserves the stored ciphertext (so callers can
 // edit other fields without resubmitting the secret). The provider ID,
-// organization, priority, and active flag are preserved from the stored row.
+// organization, priority, and active flag are preserved from the stored row;
+// an Active or Priority that differs from it is refused before any write.
 func (s *OIDCProviderConfigService) UpdateOIDCProvider(ctx context.Context, orgID uuid.UUID, in OIDCProviderInput) (*domain.IdentityProvider, error) {
 	if in.Type != domain.IDPTypeOIDC {
 		return nil, errUnsupportedProviderType
@@ -256,6 +276,16 @@ func (s *OIDCProviderConfigService) UpdateOIDCProvider(ctx context.Context, orgI
 	}
 	if existing == nil {
 		return nil, errOIDCProviderNotFound
+	}
+
+	// OSS-IDP-ACTIVE-FIELD: these fields were bound and dropped, so a change
+	// answered 200 and nothing changed. A change is now refused; the stored
+	// value, or none, saves as before.
+	if in.Active != nil && *in.Active != existing.Active {
+		return nil, errOIDCProviderActiveNotSupported
+	}
+	if in.Priority != nil && *in.Priority != existing.Priority {
+		return nil, errOIDCProviderPriorityNotSupported
 	}
 
 	// Preserve the stored ciphertext unless a new plaintext secret is given.

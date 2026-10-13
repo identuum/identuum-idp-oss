@@ -109,7 +109,7 @@ func RegisterOrganizationIdentityProviderRoutes(router gin.IRouter, deps Organiz
 	// docgen:tier=oss
 	// docgen:auth=org_admin
 	// docgen:response=oss.types.IdentityProviderResponse
-	// docgen:notes=org_admin OWN-ORG only with the idps:update scope; site_admin refused 403; cross-org 403. Type stays oidc. An empty client_secret preserves the stored ciphertext; a supplied one re-encrypts. Response omits client_secret. Emits org.identity_provider_updated audit; never secrets.
+	// docgen:notes=org_admin OWN-ORG only with the idps:update scope; site_admin refused 403; cross-org 403. Type stays oidc. An empty client_secret preserves the stored ciphertext; a supplied one re-encrypts. An active or priority different from the stored value answers 400 active_not_supported or priority_not_supported with a plain message and writes nothing (v0.9.13; before, 200 and the value was dropped); the stored value or no value saves as before. Response omits client_secret. Emits org.identity_provider_updated audit; never secrets.
 	updateGroup.PUT("", HandleUpdateOrganizationIdentityProvider(deps))
 
 	deleteGroup := g.Group("")
@@ -246,6 +246,7 @@ func HandleUpdateOrganizationIdentityProvider(deps OrganizationIdentityProviderH
 		// Update always targets the org's single oidc provider; the update
 		// DTO carries no type, so oidc is fixed here (the service re-checks).
 		in := oidcInputFromConfig(orgID, domain.IDPTypeOIDC, req.Name, req.Slug, req.Config)
+		in.Active, in.Priority = req.Active, req.Priority
 		provider, err := deps.OIDCProviderConfigService.UpdateOIDCProvider(c.Request.Context(), orgID, in)
 		if err != nil {
 			respondOIDCConfigError(c, err)
@@ -342,6 +343,9 @@ func oidcInputFromConfig(orgID uuid.UUID, typ domain.IdentityProviderType, name 
 const (
 	msgNoActiveIdentityProvider   = "Members can only sign in with a provider. Add an active provider before you choose this sign-in policy."
 	msgLastActiveIdentityProvider = "Members can only sign in with a provider. Change the sign-in policy first, or add another active provider."
+	// OSS-IDP-ACTIVE-FIELD (Q-A1 (a), Q-PR1 (a)).
+	msgActiveNotSupported   = "This server cannot switch a sign-in provider off. Remove it instead."
+	msgPriorityNotSupported = "This server has only one sign-in provider and cannot change its priority. Leave priority out."
 )
 
 func respondOIDCConfigError(c *gin.Context, err error) {
@@ -354,6 +358,10 @@ func respondOIDCConfigError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid issuer/discovery URL: must be a well-formed https URL"})
 	case errors.Is(err, service.ErrOIDCProviderInvalidInput()):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid OIDC provider configuration"})
+	case errors.Is(err, service.ErrOIDCProviderActiveNotSupported()):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "active_not_supported", "message": msgActiveNotSupported})
+	case errors.Is(err, service.ErrOIDCProviderPriorityNotSupported()):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "priority_not_supported", "message": msgPriorityNotSupported})
 	case errors.Is(err, domain.ErrLastActiveIdentityProvider):
 		// Q-B3 (OSS-0913-A): the sign-in policy is idp_only and this is its
 		// last working provider; nothing was deleted.

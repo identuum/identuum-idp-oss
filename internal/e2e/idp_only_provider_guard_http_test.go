@@ -10,9 +10,10 @@
 //     answers 409 last_active_identity_provider and deletes nothing. Under
 //     mixed DELETE keeps today's answer. An OSS organization has at most one
 //     provider, so "the last active provider" is "the provider".
-//   - Q-P1 (a): the provider PUT is NOT guarded. Its `active` field stays
-//     ignored, so PUT active:false answers 200 and the provider stays active
-//     (the silent drop is a separate item, not this guard).
+//   - Q-P1 (a): the provider PUT is not a disable path. OSS-IDP-ACTIVE-FIELD
+//     (Q-A1 (a)): PUT active:false answers 400 active_not_supported, writes
+//     nothing, and the provider stays active; a PUT without `active` keeps
+//     today's answer.
 //   - A policy change and a provider removal sent at the same time cannot
 //     both pass: the end state is never idp_only with no active provider.
 //
@@ -162,6 +163,9 @@ const (
 	msgNoActiveIDP   = "Members can only sign in with a provider. Add an active provider before you choose this sign-in policy."
 	errLastActiveIDP = "last_active_identity_provider"
 	msgLastActiveIDP = "Members can only sign in with a provider. Change the sign-in policy first, or add another active provider."
+	// OSS-IDP-ACTIVE-FIELD (Q-A1 (a)).
+	errActiveNotSupported = "active_not_supported"
+	msgActiveNotSupported = "This server cannot switch a sign-in provider off. Remove it instead."
 )
 
 // idpOnlyErr returns the "error" and "message" fields of a JSON body.
@@ -254,10 +258,10 @@ func TestE2E_OSS_IDPOnlyNeedsAnActiveProvider(t *testing.T) {
 }
 
 // Q-B3 as narrowed by Q-P1 (a): under idp_only the provider is not deleted;
-// under mixed DELETE keeps today's answer. The provider PUT is not guarded:
-// `active` stays ignored, so PUT active:false answers 200 and the provider
-// stays active. An OSS organization has at most one provider, so there is no
-// "non-last provider" case.
+// under mixed DELETE keeps today's answer. The provider PUT is not a disable
+// path: PUT active:false answers 400 active_not_supported (OSS-IDP-ACTIVE-FIELD)
+// and the provider stays active. An OSS organization has at most one
+// provider, so there is no "non-last provider" case.
 // RULE: IDP-ONLY-LAST-PROVIDER-1
 func TestE2E_OSS_IDPOnlyKeepsItsLastActiveProvider(t *testing.T) {
 	off := false
@@ -276,13 +280,18 @@ func TestE2E_OSS_IDPOnlyKeepsItsLastActiveProvider(t *testing.T) {
 			t.Errorf("provider after the refusal: present=%v active=%v; want present and active (nothing deleted)", ok, active)
 		}
 	})
-	// Q-P1 (a): OSS has no disable path; the PUT keeps today's answer.
-	t.Run("control: PUT active=false under idp_only is not a disable path", func(t *testing.T) {
+	// Q-P1 (a): OSS has no disable path. Q-A1 (a): the PUT says so plainly
+	// and writes nothing.
+	t.Run("PUT active=false under idp_only is refused, not a disable path", func(t *testing.T) {
 		w := idpOnlySetup(t)
 		w.provider(true)
 		w.setPolicy(domain.AuthPolicyIDPOnly)
-		if st, body := w.call(http.MethodPut, w.idpPath(), validUpdateBody(&off)); st != http.StatusOK {
-			t.Fatalf("PUT active=false under idp_only = %d %s; want 200 (Q-P1 (a): active stays ignored)", st, body)
+		st, body := w.call(http.MethodPut, w.idpPath(), validUpdateBody(&off))
+		if st != http.StatusBadRequest {
+			t.Fatalf("PUT active=false under idp_only = %d %s; want 400 %s", st, body, errActiveNotSupported)
+		}
+		if e, msg := idpOnlyErr(body); e != errActiveNotSupported || msg != msgActiveNotSupported {
+			t.Errorf("refusal body error=%q message=%q; want %q with the plain message", e, msg, errActiveNotSupported)
 		}
 		if active, ok := w.providerActive(); !ok || !active {
 			t.Errorf("provider after PUT active=false: present=%v active=%v; want present and active", ok, active)
