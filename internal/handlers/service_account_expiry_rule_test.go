@@ -19,6 +19,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/lifecycle"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -144,6 +145,10 @@ type saBindingClientRepo struct {
 func (f *saBindingClientRepo) RegisterClient(_ context.Context, c *domain.Client) error {
 	f.registered = append(f.registered, c)
 	return nil
+}
+
+func (f *saBindingClientRepo) RegisterClientBound(ctx context.Context, c *domain.Client, _ repository.ServiceAccountLock) error {
+	return f.RegisterClient(ctx, c)
 }
 
 // RULE: SA-BINDING-503-1

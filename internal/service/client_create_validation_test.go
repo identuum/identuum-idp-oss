@@ -23,6 +23,10 @@ func (r *registerRecordingClientRepo) RegisterClient(_ context.Context, c *domai
 	return nil
 }
 
+func (r *registerRecordingClientRepo) RegisterClientBound(ctx context.Context, c *domain.Client, _ repository.ServiceAccountLock) error {
+	return r.RegisterClient(ctx, c)
+}
+
 // THE-MIRROR (2026-09-01): the previous slice validated the auth method and
 // signing alg on UPDATE and left CREATE assigning both raw — the original
 // defect inverted, in the very fields that slice decided. POST with
