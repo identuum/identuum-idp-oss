@@ -213,6 +213,7 @@ func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDe
 		// docgen:tier=oss
 		// docgen:auth=site_admin
 		// docgen:response=oss.handlers.safeOrganization
+		// docgen:notes=A duplicate answers 409 with a code and a plain message, and nothing is created: domain_exists when another organization has the domain, slug_exists when another organization has the slug (it comes from the name unless slug is given), email_exists when admin_email already has an account. Any other refusal answers 400 as before.
 		// docgen:status=201
 		siteOnly.POST("", HandleCreateOrganization(deps))
 
@@ -684,6 +685,23 @@ func HandleGetOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 	}
 }
 
+// respondOrganizationCreateConflict answers 409 with a code and a plain
+// message when a create failed on a duplicate (the store refused it, nothing
+// was created), and reports whether it answered.
+func respondOrganizationCreateConflict(c *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, domain.ErrOrganizationAlreadyExists):
+		c.JSON(http.StatusConflict, gin.H{"error": "domain_exists", "message": "An organization with this domain already exists."})
+	case errors.Is(err, domain.ErrOrganizationSlugAlreadyExists):
+		c.JSON(http.StatusConflict, gin.H{"error": "slug_exists", "message": "An organization with this name already exists."})
+	case errors.Is(err, domain.ErrUserAlreadyExists):
+		c.JSON(http.StatusConflict, gin.H{"error": "email_exists", "message": "This email address already has an account."})
+	default:
+		return false
+	}
+	return true
+}
+
 // HandleCreateOrganization creates an organization.
 func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -763,6 +781,9 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			createdOrg, adminUser, err := deps.OrganizationService.CreateWithInitialAdmin(c.Request.Context(), opts, adminEmail)
 			if err != nil {
 				// Atomic: nothing was created — a retry is clean.
+				if respondOrganizationCreateConflict(c, err) {
+					return
+				}
 				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 				return
 			}
@@ -800,6 +821,9 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 
 		created, err := deps.OrganizationService.Create(c.Request.Context(), opts)
 		if err != nil {
+			if respondOrganizationCreateConflict(c, err) {
+				return
+			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
