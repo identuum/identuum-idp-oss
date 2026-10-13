@@ -42,6 +42,13 @@ follows [Semantic Versioning](https://semver.org/).
   no_active_identity_provider`; deleting the provider while the policy is
   `idp_only` answers `409 last_active_identity_provider`. Both explain the
   fix in plain words and change nothing.
+- **A provider save no longer drops `active` or `priority` silently.**
+  `PUT /api/v1/organizations/{id}/identity-provider` used to accept both
+  fields, ignore them and answer `200`. This server cannot switch a provider
+  off and has only one provider, so now a value different from the stored one
+  answers `400 active_not_supported` or `400 priority_not_supported` with a
+  plain message, and nothing is saved. The stored value, or no value, saves as
+  before. To stop sign-in through a provider, remove it.
 - **Upstream sign-in reads the email address from the provider's userinfo
   endpoint when the ID token does not carry it**, as OpenID Connect allows.
   Only missing values are filled, only from a userinfo answer for the same

@@ -67,7 +67,10 @@ Inside `config`:
 The answer is `201` with the provider, whose `id` is the `{provider_id}` below.
 An organization has one OIDC provider: a second create answers `409`; change it
 with `PUT` on the same path (same body; an omitted `client_secret` keeps the
-stored one).
+stored one). A provider cannot be switched off: a `PUT` with `"active": false`
+answers `400 active_not_supported` and saves nothing, and so does a changed
+`priority` (`400 priority_not_supported`). To stop sign-in through the
+provider, remove it with `DELETE` on the same path.
 
 ### Redirect URI
 
