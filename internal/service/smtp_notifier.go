@@ -276,13 +276,15 @@ func (s *SMTPNotifier) SendUserInviteEmail(ctx context.Context, user *domain.Use
 	inviteURL := s.linkBaseURL + "/invite?" + params.Encode()
 
 	subject := "You have been invited"
+	invited := "An administrator has invited you to sign in."
 	if user.OrganizationName != nil {
 		subject = fmt.Sprintf("You have been invited to %s", *user.OrganizationName)
+		invited = fmt.Sprintf("An administrator of %s has invited you to sign in.", *user.OrganizationName)
 	}
-	body := fmt.Sprintf("An administrator has invited you to sign in.\n\n"+
+	body := fmt.Sprintf("%s\n\n"+
 		"Set your password by opening the link below:\n\n"+
 		"%s\n\n"+
-		"This link can be used once and expires at %s.", inviteURL, expiresAt.Format(time.RFC1123))
+		"This link can be used once and expires at %s.", invited, inviteURL, expiresAt.Format(time.RFC1123))
 	if user.Name != nil {
 		body = fmt.Sprintf("Hello %s,\n\n%s", *user.Name, body)
 	}
@@ -295,13 +297,15 @@ func (s *SMTPNotifier) SendActivationEmail(ctx context.Context, user *domain.Use
 	activationURL := s.linkBaseURL + "/activate?" + params.Encode()
 
 	subject := "Activate your Organization"
+	designated := "You have been designated as the administrator for a new organization."
 	if user.OrganizationName != nil {
 		subject = fmt.Sprintf("Activate your Organization: %s", *user.OrganizationName)
+		designated = fmt.Sprintf("You have been designated as the administrator for the new organization %s.", *user.OrganizationName)
 	}
-	body := fmt.Sprintf("You have been designated as the administrator for a new organization.\n\n"+
+	body := fmt.Sprintf("%s\n\n"+
 		"Please activate your account and set up your credentials by clicking the link below:\n\n"+
 		"%s\n\n"+
-		"This link expires at %s.", activationURL, expiresAt.Format(time.RFC1123))
+		"This link expires at %s.", designated, activationURL, expiresAt.Format(time.RFC1123))
 	if user.Name != nil {
 		body = fmt.Sprintf("Hello %s,\n\n%s", *user.Name, body)
 	}

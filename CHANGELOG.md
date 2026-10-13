@@ -23,6 +23,11 @@ follows [Semantic Versioning](https://semver.org/).
   answered `201` and stored `0`. A priority other than `0` now answers `400
   priority_not_supported` with the same plain message as the update, and
   nothing is created. No priority, or `0`, creates as before.
+- **The re-sent invitation and the organization activation mail name the
+  organization.** A re-sent invitation said only "You have been invited",
+  and the activation mail for a new organization only "Activate your
+  Organization". Both now name the organization in the subject and in the
+  first line of the message, as the first invitation's subject already did.
 
 ## `v0.9.13`
 

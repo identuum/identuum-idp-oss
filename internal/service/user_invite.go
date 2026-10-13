@@ -336,6 +336,15 @@ func (s *UserService) mailInvite(ctx context.Context, user *domain.User, raw str
 	if s.invite.notifier == nil {
 		return
 	}
+	// R6 (v0.9.14): a re-issued invite's user comes from the token write,
+	// which does not read the organization's name back; the mail names it.
+	if user.OrganizationName == nil && s.invite.orgs != nil {
+		if org, err := s.invite.orgs.GetByID(ctx, user.OrganizationID); err == nil && org != nil {
+			named := *user
+			named.OrganizationName = &org.Name
+			user = &named
+		}
+	}
 	if err := s.invite.notifier.SendUserInviteEmail(ctx, user, raw, expiresAt); err != nil {
 		// D-016: no SMTP is the default and the admin hands the link over,
 		// so an unmailed invite is expected, not a warning.

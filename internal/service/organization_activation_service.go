@@ -238,7 +238,17 @@ func (s *OrganizationActivationService) IssueActivationToken(ctx context.Context
 		return "", time.Time{}, err
 	}
 	if s.notifier != nil {
-		if sendErr := s.notifier.SendActivationEmail(ctx, user, raw, expiresAt); sendErr != nil {
+		// R6 (v0.9.14): the org_admin the organization create hands over
+		// does not carry the organization's name; the mail names it.
+		mailUser := user
+		if user.OrganizationName == nil {
+			if org, err := s.loadOrganization(ctx, user.OrganizationID); err == nil {
+				named := *user
+				named.OrganizationName = &org.Name
+				mailUser = &named
+			}
+		}
+		if sendErr := s.notifier.SendActivationEmail(ctx, mailUser, raw, expiresAt); sendErr != nil {
 			// D-016: without SMTP the site_admin hands the activation link
 			// over, so an unmailed activation is expected, not a warning.
 			if errors.Is(sendErr, ErrEmailDeliveryNotConfigured) {
