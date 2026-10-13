@@ -335,6 +335,13 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  --version                          print the build version and exit")
 }
 
+// migrateRefusedExit is migrate's exit status when a migration refused the
+// data it found (postgres.IsMigrationRefused; 0056: one address held by two
+// live accounts). Nothing was changed; the database stays at the version
+// before that migration. The appliance serves NOT-SERVING on it instead of
+// exiting (runAppliance).
+const migrateRefusedExit = 3
+
 // runMigrate opens a stdlib DB, applies pending migrations, then hands
 // off to runDBCheck which opens a pool and runs a sentinel query.
 // Errors are redacted to prevent the URL from appearing in stderr.
@@ -348,6 +355,9 @@ func runMigrate(ctx context.Context, databaseURL string, stdout, stderr io.Write
 	closeErr := db.Close()
 	if err != nil {
 		fmt.Fprintln(stderr, "identuum-idp: migrate: run migrations failed:", redactURL(err, databaseURL))
+		if postgres.IsMigrationRefused(err) {
+			return migrateRefusedExit
+		}
 		return 1
 	}
 	if closeErr != nil {

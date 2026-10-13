@@ -163,6 +163,40 @@ run. Keep database credentials private; do not put a real URL in logs or
 reports. See [the pre-upgrade audit](TESTING-OPERATORS.md#the-pre-upgrade-audit-audit-preupgrade)
 for the findings and remedies.
 
+### Before upgrading to v0.9.14: one email address, one account
+
+From v0.9.14 one email address belongs to at most one live account on the
+whole server, in any case and in any organization. Sign-in asks only for the
+address, so two live accounts with one address could not sign in with a
+password or a passkey-by-email anyway. Migration 0056 adds a database rule for
+this. If the database already holds such a pair, the migration refuses and
+changes nothing: `migrate` exits `3` and says how many addresses, the
+appliance keeps running NOT-SERVING (`/health` names the schema version), and
+the bare binary refuses to serve as it does on any older schema.
+
+Before you upgrade, list the addresses held by more than one live account
+(read-only; run it with `psql` against the existing database):
+
+```sql
+SELECT lower(email) AS address, count(*) AS accounts,
+       string_agg(id::text || ' (org ' || coalesce(organization_id::text, 'none') || ')', ', ') AS users
+FROM users
+WHERE deleted_at IS NULL
+GROUP BY lower(email)
+HAVING count(*) > 1
+ORDER BY 1;
+```
+
+No rows means the upgrade can go ahead. For each row, keep one account and,
+through the current API, give each other account its own address
+(`PUT /api/v1/users/{id}` with `email`) or delete it
+(`DELETE /api/v1/users/{id}`). Run the query again until it returns no rows.
+If an upgrade was already refused, do the same and restart the container (or
+run `identuum-idp migrate` again); the migration then applies.
+
+New addresses are stored trimmed and lowercased. Addresses stored before
+v0.9.14 keep their case.
+
 ### Back up before replacing the image
 
 Pause the IdP so no application writes occur between the backup and the
@@ -499,6 +533,12 @@ needed when operating against an externally-managed database. **The bare
 binary does not migrate on start:** run `./identuum-idp migrate
 "$IDENTUUM_IDP_DATABASE_URL"` before the first `./identuum-idp` and after every
 upgrade.
+
+`migrate` exits `0` when the database is current, `1` when it could not run,
+and `3` when a migration refused the stored data and changed nothing (from
+v0.9.14: [one email address, one account](#before-upgrading-to-v0914-one-email-address-one-account)).
+On exit `3` the appliance does not stop: it serves NOT-SERVING until the data
+is fixed and the container restarts.
 
 ## Hand a new organization admin their activation
 

@@ -596,11 +596,14 @@ func (s *ClaimService) consumeLocked(ctx context.Context, st repository.ClaimCon
 	if err := domain.ValidatePasswordPolicy(in.Password, s.minPasswordLength, org.PasswordComplexityEnabled); err != nil {
 		return weakPassword(ctx, st, claim), nil, uuid.Nil, nil
 	}
-	// Pre-existing org_admin guard. Even with a valid URL, we MUST
-	// NOT mint a second org_admin row.
+	// Pre-existing account guard. Even with a valid URL, we MUST NOT mint a
+	// second account for an address: one live address is one account across
+	// the server (EMAIL-GLOBAL-UNIQUE-1). An account this lookup does not
+	// return (banned, or of an inactive organization) is refused by the
+	// database's index at CreateUser, which rolls the consume back.
 	existing, _ := st.FindUsersByEmail(ctx, email)
 	for _, u := range existing {
-		if u != nil && u.OrganizationID == org.ID {
+		if u != nil {
 			return &ConsumeClaimResult{Success: false, Reason: "email_exists"}, nil, uuid.Nil, nil
 		}
 	}

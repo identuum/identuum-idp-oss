@@ -60,7 +60,14 @@ func runAppliance(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return 0
 	}
 	fmt.Fprintln(stdout, "identuum-idp-oss: applying migrations (URL redacted)...")
-	if code := runMigrate(ctx, cfg.DatabaseURL, stdout, stderr); code != 0 {
+	// A migration that refused the data it found changed nothing, so the
+	// schema is whole at the version before it. Serving goes on and the
+	// runtime's schema check holds the server NOT-SERVING (P-018) with the
+	// fault on /health, instead of a container that exits and restarts
+	// (EMAIL-GLOBAL-UNIQUE-1, migration 0056).
+	if code := runMigrate(ctx, cfg.DatabaseURL, stdout, stderr); code == migrateRefusedExit {
+		fmt.Fprintln(stderr, "identuum-idp-oss: a migration refused the stored data (above); serving NOT-SERVING until it is resolved and migrate runs again")
+	} else if code != 0 {
 		return code
 	}
 

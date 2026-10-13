@@ -28,6 +28,24 @@ follows [Semantic Versioning](https://semver.org/).
   and the activation mail for a new organization only "Activate your
   Organization". Both now name the organization in the subject and in the
   first line of the message, as the first invitation's subject already did.
+- **One email address is one account across the whole server.** Sign-in asks
+  only for the address, but an address could have a live account in each
+  organization: an administrator of one organization could add a user with
+  another organization's address, and then neither account could sign in
+  with a password or a passkey by email. Now every writer refuses an
+  address that a live account anywhere holds, in any case: organization
+  create with `admin_email`, user create, invite, bulk create, email update
+  (`409 email_exists`; bulk reason `email already exists`), a first sign-in
+  through an organization's identity provider (`sign_in_not_permitted`,
+  nothing created) and an organization claim. A duplicate in the same
+  organization on `POST /api/v1/users` now answers `409 email_exists`, not
+  `400 invalid request`. New addresses are stored trimmed and lowercased.
+  Migration 0056 adds the database rule; **if the database already holds
+  such a duplicate, the migration refuses and changes nothing**: `migrate`
+  exits `3`, and the appliance keeps running NOT-SERVING until the
+  duplicates are resolved. Check before upgrading with the query in the
+  operator guide ("Before upgrading to v0.9.14"). Sign-in, password reset and
+  passkey flows are unchanged. No new setting.
 
 ## `v0.9.13`
 

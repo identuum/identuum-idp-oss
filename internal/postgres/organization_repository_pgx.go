@@ -238,6 +238,7 @@ func (r *PgxOrganizationRepository) CreateWithAdmin(ctx context.Context, org *do
 	if adminUser.AuthSource == "" {
 		adminUser.AuthSource = "local"
 	}
+	adminUser.Email = domain.NormalizeEmail(adminUser.Email)
 	var orgIDArg *uuid.UUID
 	if adminUser.OrganizationID != uuid.Nil {
 		orgIDArg = &adminUser.OrganizationID
@@ -271,10 +272,12 @@ func (r *PgxOrganizationRepository) CreateWithAdmin(ctx context.Context, org *do
 		return nil, nil, fmt.Errorf("failed to commit organization provisioning transaction: %w", err)
 	}
 
+	// The admin's id identifies the row; the address is personal data and stays
+	// out of the log (as PgxUserRepository.Create).
 	logger.InfoContext(ctx, "Atomically created organization with admin user",
 		zap.String("org_id", createdOrg.ID.String()),
 		zap.String("org_name", createdOrg.Name),
-		zap.String("admin_email", createdUser.Email),
+		zap.String("admin_user_id", createdUser.ID.String()),
 	)
 	return createdOrg, createdUser, nil
 }

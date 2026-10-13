@@ -39,6 +39,11 @@ func handleInviteUser(c *gin.Context, deps UsersHandlerDeps, actor *domain.Princ
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 		return
 	}
+	// EMAIL-GLOBAL-UNIQUE-1: as the password create, nothing created.
+	if errors.Is(err, domain.ErrUserAlreadyExists) {
+		c.JSON(http.StatusConflict, gin.H{"error": "email_exists"})
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return

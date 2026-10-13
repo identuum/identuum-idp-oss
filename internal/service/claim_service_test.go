@@ -389,6 +389,29 @@ func TestConsumeClaim_PreExistingAdminRejected(t *testing.T) {
 	assert.Equal(t, "email_exists", result.Reason)
 }
 
+// EMAIL-GLOBAL-UNIQUE-1, the claim's own guard. One live address is one account across the server: an account in ANOTHER
+// organization refuses the claim too, before anything is written.
+func TestConsumeClaim_AccountInAnotherOrganizationRejected(t *testing.T) {
+	svc, _, _, users, _, org := newClaimFixture(t)
+	raw, _, err := svc.GenerateClaimToken(context.Background(), org.ID, "")
+	require.NoError(t, err)
+	id, _ := uuid.NewV7()
+	elsewhere := &domain.User{ID: id, Email: "alice@example.test", OrganizationID: uuid.New(), Role: domain.RoleOrgUser}
+	users.byEmail["alice@example.test"] = []*domain.User{elsewhere}
+	users.byID[id] = elsewhere
+
+	result, err := svc.ConsumeClaim(context.Background(), ConsumeClaimInput{
+		Token:    raw,
+		Email:    "Alice@Example.test",
+		Password: "longenoughpassword",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Success)
+	assert.Equal(t, "email_exists", result.Reason)
+	assert.Len(t, users.byID, 1, "nothing created")
+}
+
 func TestConsumeClaim_DiagnosticReasonHiddenOnWire(t *testing.T) {
 	// Sanity pin: the service still emits an internal Reason
 	// diagnostic (used by the handler to render attempts_remaining

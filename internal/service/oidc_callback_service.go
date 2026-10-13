@@ -436,7 +436,8 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 	// 2. Verified-email match within the org. Never hijack a local account
 	// already bound to a DIFFERENT external identity. Otherwise link this
 	// identity so the next login matches by ExternalID.
-	if u, err := s.users.GetByEmailAndOrgID(ctx, orgID, eu.Email); err == nil && u != nil {
+	// Addresses are stored normalized (EMAIL-GLOBAL-UNIQUE-1).
+	if u, err := s.users.GetByEmailAndOrgID(ctx, orgID, domain.NormalizeEmail(eu.Email)); err == nil && u != nil {
 		if u.Role == domain.RoleOrgAdmin || u.Role == domain.RoleSiteAdmin {
 			return nil, ErrCallbackForbidden
 		}
@@ -495,6 +496,11 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 		newUser.Name = &n
 	}
 	created, err := s.users.Create(ctx, newUser)
+	if errors.Is(err, domain.ErrUserAlreadyExists) {
+		// EMAIL-GLOBAL-UNIQUE-1: a live account in another organization holds
+		// the address; the identity may not sign in here, nothing is created.
+		return nil, ErrCallbackForbidden
+	}
 	if err != nil {
 		return nil, ErrCallbackProvisionFailed
 	}

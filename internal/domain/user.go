@@ -225,6 +225,13 @@ func ValidateUserEmail(email string) error {
 	return nil
 }
 
+// NormalizeEmail is the form an address is stored in: trimmed and lowercased
+// (EMAIL-GLOBAL-UNIQUE-1). Sign-in looks an address up lowercased, and one
+// live address is one account across the server (migration 0056).
+func NormalizeEmail(email string) string {
+	return strings.ToLower(strings.TrimSpace(email))
+}
+
 // ValidateUserRole is THE role rule. The users.role column is a Postgres
 // ENUM, so an unlisted role was previously refused by the database with a
 // 500 rather than by the service with a 400.

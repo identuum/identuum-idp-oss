@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	goosev3 "github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 
@@ -19,6 +20,19 @@ const MigrationLockPeriodSeconds uint64 = 5
 // wait budget = MigrationLockPeriodSeconds × MigrationLockMaxRetries
 // seconds (default = 120 s).
 const MigrationLockMaxRetries uint64 = 24
+
+// MigrationRefusedSQLState is the SQLSTATE a migration raises when the data it
+// finds does not allow it to apply (0056: one email address held by two live
+// accounts). The migration's transaction rolls back, so nothing is changed and
+// the database stays at the version before it.
+const MigrationRefusedSQLState = "IDM01"
+
+// IsMigrationRefused reports whether err is a migration's refusal of the data
+// it found (MigrationRefusedSQLState), as opposed to a failure to run.
+func IsMigrationRefused(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == MigrationRefusedSQLState
+}
 
 // MigrationResult is the per-source outcome of a single migration step.
 type MigrationResult struct {

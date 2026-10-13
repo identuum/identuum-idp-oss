@@ -213,7 +213,7 @@ func RegisterOrganizationsRoutes(router gin.IRouter, deps OrganizationsHandlerDe
 		// docgen:tier=oss
 		// docgen:auth=site_admin
 		// docgen:response=oss.handlers.safeOrganization
-		// docgen:notes=A duplicate answers 409 with a code and a plain message, and nothing is created: domain_exists when another organization has the domain, slug_exists when another organization has the slug (it comes from the name unless slug is given). email_exists is not enforced across organizations until v0.9.14: an admin_email that has an account in another organization is created (KNOWN_ISSUES.md). Any other refusal answers 400 as before.
+		// docgen:notes=A duplicate answers 409 with a code and a plain message, and nothing is created: domain_exists when another organization has the domain, slug_exists when another organization has the slug (it comes from the name unless slug is given), email_exists when a live account in any organization already holds admin_email, in any case (one address is one account across the server; the address is stored trimmed and lowercased). Any other refusal answers 400 as before.
 		// docgen:status=201
 		siteOnly.POST("", HandleCreateOrganization(deps))
 

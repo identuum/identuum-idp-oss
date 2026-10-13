@@ -274,6 +274,7 @@ func (r *PgxUserRepository) Create(ctx context.Context, user *domain.User) (*dom
 	if user.AuthSource == "" {
 		user.AuthSource = "local"
 	}
+	user.Email = domain.NormalizeEmail(user.Email)
 
 	// contact_email is NULL, not "", for a user who has none — the column
 	// exists for the site_admin's operator address (G9/G15), and an empty
@@ -487,6 +488,8 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 	}
 
 	if opts.Email != nil {
+		email := domain.NormalizeEmail(*opts.Email)
+		opts.Email = &email
 		setParts = append(setParts, fmt.Sprintf("email = $%d", argIndex))
 		args = append(args, *opts.Email)
 		argIndex++

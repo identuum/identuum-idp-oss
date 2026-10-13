@@ -115,3 +115,41 @@ func TestMigrate_ReportsAppliedEmbeddedAndTheDatabaseVersion(t *testing.T) {
 		}
 	}
 }
+
+// EMAIL-GLOBAL-UNIQUE-1: a migration that refuses the data it finds (0056: one
+// address held by two live accounts) exits migrateRefusedExit, which the
+// appliance serves NOT-SERVING on, and says how many addresses, never one.
+// This layer may not import the migrations package, so the database is put
+// back to "before 0056" by undoing 0056's two effects.
+func TestMigrate_ARefusedMigrationExitsRefused(t *testing.T) {
+	dsn := freshMigrateDatabase(t)
+	ctx := context.Background()
+	var stdout, stderr bytes.Buffer
+	if rc := runMigrate(ctx, dsn, &stdout, &stderr); rc != 0 {
+		t.Fatalf("first migrate exit = %d", rc)
+	}
+	db, err := postgres.OpenStdlibDB(dsn)
+	if err != nil {
+		t.Fatal("open the scratch database")
+	}
+	defer db.Close()
+	for _, q := range []string{
+		`DROP INDEX users_email_lower_key_undeleted`,
+		`DELETE FROM goose_db_version WHERE version_id = 56`,
+		`INSERT INTO organizations (name, domain, org_slug, active) VALUES ('eg-a', 'eg-a.example.invalid', 'eg-a', true), ('eg-b', 'eg-b.example.invalid', 'eg-b', true)`,
+		`INSERT INTO users (email, password_hash, organization_id, role) SELECT 'dup@example.invalid', 'x', id, 'org_user' FROM organizations WHERE org_slug IN ('eg-a', 'eg-b')`,
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatalf("put the database before 0056: %v", err)
+		}
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if rc := runMigrate(ctx, dsn, &stdout, &stderr); rc != migrateRefusedExit {
+		t.Fatalf("migrate exit = %d; want %d (refused)", rc, migrateRefusedExit)
+	}
+	out := stdout.String() + stderr.String()
+	if !strings.Contains(out, "migration 0056 refused: 1 email address") || strings.Contains(out, "dup@") || strings.Contains(out, "postgres://") {
+		t.Errorf("migrate printed %q; want the refusal with the count, no address and no URL", out)
+	}
+}

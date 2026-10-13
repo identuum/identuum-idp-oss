@@ -271,7 +271,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeUser
-		// docgen:notes=org_admin actor additionally requires the users:create scope. With no password the request is an INVITE (OSS-ONBOARD-A, D-016): the user is created pending (unverified, no usable password) and the answer is {user, invite_token, invite_url or invite_url_unavailable, expires_at}, returned once and also mailed when SMTP is configured; the user redeems at POST /api/v1/auth/invite. Audited as user.invited without the token.
+		// docgen:notes=org_admin actor additionally requires the users:create scope. With no password the request is an INVITE (OSS-ONBOARD-A, D-016): the user is created pending (unverified, no usable password) and the answer is {user, invite_token, invite_url or invite_url_unavailable, expires_at}, returned once and also mailed when SMTP is configured; the user redeems at POST /api/v1/auth/invite. Audited as user.invited without the token. One address is one account across the server: an address a live account in any organization holds, in any case, answers 409 email_exists with or without a password, and nothing is created. The address is stored trimmed and lowercased.
 		// docgen:status=201
 		create.POST("", HandleCreateUser(deps))
 
@@ -282,7 +282,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:summary=Bulk-create up to 50 users in one org (synchronous, best-effort; returns per-item created + failed results). Reuses the single-create path per user (same validation, org-scoping, secure defaults, UUIDv7).
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
-		// docgen:notes=org_admin actor additionally requires the users:create scope and may only bulk-create into their own org. A batch that is empty or exceeds 50 returns 400 with nothing created. Per-user failures do not abort the batch and succeeded users are not rolled back.
+		// docgen:notes=org_admin actor additionally requires the users:create scope and may only bulk-create into their own org. A batch that is empty or exceeds 50 returns 400 with nothing created. Per-user failures do not abort the batch and succeeded users are not rolled back. A row whose address a live account in any organization holds, in any case, fails with reason "email already exists".
 		create.POST("/bulk", HandleBulkCreateUsers(deps))
 
 		// Update: site_admin OR org_admin with users:update.
@@ -297,7 +297,7 @@ func RegisterUsersRoutes(router gin.IRouter, deps UsersHandlerDeps) {
 		// docgen:tier=oss
 		// docgen:auth=site_admin|org_admin
 		// docgen:response=oss.handlers.safeUser
-		// docgen:notes=org_admin actor additionally requires the users:update scope. A password set here must be changed at the next password sign-in unless the body also sends "must_change_password":false (Q-B2, as on create); the answer's requires_password_change says which. Such a password expires 24 hours after it was set (sign-in then answers 401 password_expired); with false it does not expire. An administrator setting its own password chooses it: no change is asked and it does not expire. must_change_password without password is 400 invalid request.
+		// docgen:notes=org_admin actor additionally requires the users:update scope. A password set here must be changed at the next password sign-in unless the body also sends "must_change_password":false (Q-B2, as on create); the answer's requires_password_change says which. Such a password expires 24 hours after it was set (sign-in then answers 401 password_expired); with false it does not expire. An administrator setting its own password chooses it: no change is asked and it does not expire. must_change_password without password is 400 invalid request. An email that a live account in any organization holds, in any case, answers 409 email_exists and nothing changes; the address is stored trimmed and lowercased.
 		update.PUT("/:id", HandleUpdateUser(deps))
 
 		// docgen:endpoint
@@ -797,6 +797,12 @@ func HandleCreateUser(deps UsersHandlerDeps) gin.HandlerFunc {
 		})
 		if errors.Is(err, domain.ErrForbidden) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+			return
+		}
+		// EMAIL-GLOBAL-UNIQUE-1: an address a live account anywhere holds is
+		// refused by the database (migration 0056); the update's answer.
+		if errors.Is(err, domain.ErrUserAlreadyExists) {
+			c.JSON(http.StatusConflict, gin.H{"error": "email_exists"})
 			return
 		}
 		if err != nil {
