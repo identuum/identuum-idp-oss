@@ -727,6 +727,12 @@ func HandleCreateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			return
 		}
 
+		// Q1 (OSS-0913-A): a new organization has no sign-in provider yet, so
+		// it cannot start with idp_only; nothing is created.
+		if strings.TrimSpace(req.AuthPolicy) == domain.AuthPolicyIDPOnly {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "no_active_identity_provider", "message": msgNoActiveIdentityProvider})
+			return
+		}
 		adminEmail := strings.TrimSpace(req.AdminEmail)
 		opts := service.CreateOrganizationOptions{
 			Name:               req.Name,
@@ -931,6 +937,12 @@ func HandleUpdateOrganization(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 			// read. A refusal is a 403; only a real miss is a 404.
 			if errors.Is(err, domain.ErrForbidden) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
+				return
+			}
+			// Q1 (OSS-0913-A): idp_only needs a working provider; nothing
+			// was written.
+			if errors.Is(err, domain.ErrNoActiveIdentityProvider) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "no_active_identity_provider", "message": msgNoActiveIdentityProvider})
 				return
 			}
 			c.JSON(http.StatusNotFound, gin.H{"error": "not found"})

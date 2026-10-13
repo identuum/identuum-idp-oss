@@ -209,6 +209,42 @@ func (r *PgxIdentityProviderRepository) Delete(ctx context.Context, id uuid.UUID
 	return nil
 }
 
+var _ repository.IDPOnlyKeepingDeleter = (*PgxIdentityProviderRepository)(nil)
+
+// DeleteKeepingIDPOnly deletes like Delete, but refuses with
+// domain.ErrLastActiveIdentityProvider while the organization's sign-in
+// policy is idp_only and no other working provider would remain (Q-B3 as
+// narrowed by Q-P1 (a)). It locks the organizations row first, counts in SQL,
+// then deletes, in one transaction: the lock order of the guarded policy
+// update, so the two serialize.
+func (r *PgxIdentityProviderRepository) DeleteKeepingIDPOnly(ctx context.Context, id, orgID uuid.UUID) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete identity provider: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	policy, err := lockOrgForSignInPolicy(ctx, tx, orgID)
+	if err != nil {
+		return err
+	}
+	if policy == domain.AuthPolicyIDPOnly {
+		others, err := countWorkingSignInProviders(ctx, tx, orgID, id)
+		if err != nil {
+			return err
+		}
+		if others == 0 {
+			return domain.ErrLastActiveIdentityProvider
+		}
+	}
+	if err := NewPgxIdentityProviderRepository(tx).Delete(ctx, id, orgID); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to delete identity provider: commit: %w", err)
+	}
+	return nil
+}
+
 // scanProvider helper
 // Uses pgx.Row interface (which both QueryRow and Rows satisfy)
 func (r *PgxIdentityProviderRepository) scanProvider(row pgx.Row) (*domain.IdentityProvider, error) {

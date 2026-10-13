@@ -340,8 +340,76 @@ func (r *PgxOrganizationRepository) GetBySlug(ctx context.Context, slug string) 
 	return org, nil
 }
 
-// Update updates an organization
+// Update updates an organization. Q1 (OSS-0913-A): an update that sets
+// auth_policy idp_only runs in one transaction that locks the organization
+// row, counts its working providers in SQL and refuses with
+// domain.ErrNoActiveIdentityProvider when there is none; nothing is written.
+// The provider delete takes the same lock first (DeleteKeepingIDPOnly), so a
+// policy change and a provider removal serialize.
 func (r *PgxOrganizationRepository) Update(ctx context.Context, id uuid.UUID, opts repository.UpdateOrganizationOptions) (*domain.Organization, error) {
+	if opts.AuthPolicy == nil || *opts.AuthPolicy != domain.AuthPolicyIDPOnly {
+		return r.update(ctx, id, opts)
+	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update organization: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := lockOrgForSignInPolicy(ctx, tx, id); err != nil {
+		return nil, err
+	}
+	n, err := countWorkingSignInProviders(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, domain.ErrNoActiveIdentityProvider
+	}
+	org, err := NewPgxOrganizationRepository(tx).update(ctx, id, opts)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to update organization: commit: %w", err)
+	}
+	return org, nil
+}
+
+// lockOrgForSignInPolicy locks id's organizations row (FOR UPDATE) and
+// answers its auth_policy. Both guarded paths take this lock FIRST, then
+// count providers, then write (lock order: organizations, identity_providers;
+// the order lockOrgKeepingActiveAdmin also starts with).
+func lockOrgForSignInPolicy(ctx context.Context, tx pgx.Tx, id uuid.UUID) (string, error) {
+	var policy string
+	err := tx.QueryRow(ctx, `SELECT auth_policy FROM organizations WHERE id = $1 FOR UPDATE`, id).Scan(&policy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", domain.ErrOrganizationNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("lock organization: %w", err)
+	}
+	return policy, nil
+}
+
+// countWorkingSignInProviders counts id's providers that can sign members in,
+// as the upstream sign-in path selects them: type oidc, active, not deleted.
+// excluding, when set, is left out (the provider about to be removed).
+func countWorkingSignInProviders(ctx context.Context, tx pgx.Tx, id uuid.UUID, excluding ...uuid.UUID) (int, error) {
+	q := `SELECT COUNT(*) FROM identity_providers WHERE organization_id = $1 AND type = 'oidc' AND active AND deleted_at IS NULL`
+	args := []any{id}
+	if len(excluding) > 0 {
+		q += ` AND id <> $2`
+		args = append(args, excluding[0])
+	}
+	var n int
+	if err := tx.QueryRow(ctx, q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("count identity providers: %w", err)
+	}
+	return n, nil
+}
+
+// update is the unguarded dynamic UPDATE.
+func (r *PgxOrganizationRepository) update(ctx context.Context, id uuid.UUID, opts repository.UpdateOrganizationOptions) (*domain.Organization, error) {
 
 	// Build dynamic update query
 	setParts := []string{}

@@ -316,7 +316,17 @@ func (s *OIDCProviderConfigService) UpdateOIDCProvider(ctx context.Context, orgI
 // DeleteOIDCProvider removes the org's oidc provider by id, scoped to the
 // organization. Returns ErrOIDCProviderNotFound when nothing was removed.
 func (s *OIDCProviderConfigService) DeleteOIDCProvider(ctx context.Context, orgID, id uuid.UUID) error {
-	if err := s.repo.Delete(ctx, id, orgID); err != nil {
+	// Q-B3 (OSS-0913-A): the guarded delete keeps an idp_only organization's
+	// last working provider; its refusal passes through (409), every other
+	// failure is still not-found.
+	del := s.repo.Delete
+	if g, ok := s.repo.(repository.IDPOnlyKeepingDeleter); ok {
+		del = g.DeleteKeepingIDPOnly
+	}
+	if err := del(ctx, id, orgID); err != nil {
+		if errors.Is(err, domain.ErrLastActiveIdentityProvider) {
+			return err
+		}
 		return errOIDCProviderNotFound
 	}
 	return nil

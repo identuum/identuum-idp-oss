@@ -292,3 +292,11 @@ var (
 	// an org past its tier-defined LimitSPIFFEPeers cap.
 	ErrSPIFFEPeerLimitExceeded = errors.New("spiffe peer limit exceeded for this license tier")
 )
+
+// Q1 / Q-B3 (OSS-0913-A): an organization whose sign-in policy is idp_only
+// keeps a working sign-in provider. Choosing idp_only without one, or
+// removing the provider while it is the policy, is refused.
+var (
+	ErrNoActiveIdentityProvider   = errors.New("no_active_identity_provider")
+	ErrLastActiveIdentityProvider = errors.New("last_active_identity_provider")
+)

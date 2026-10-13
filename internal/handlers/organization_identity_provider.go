@@ -338,6 +338,12 @@ func oidcInputFromConfig(orgID uuid.UUID, typ domain.IdentityProviderType, name 
 // respondOIDCConfigError maps the config service's sentinels to HTTP codes,
 // reusing the project's flat {"error": ...} envelope. No secret is ever
 // echoed in an error.
+// The plain refusals of the idp_only guards (Q1, Q-B3; OSS-0913-A).
+const (
+	msgNoActiveIdentityProvider   = "Members can only sign in with a provider. Add an active provider before you choose this sign-in policy."
+	msgLastActiveIdentityProvider = "Members can only sign in with a provider. Change the sign-in policy first, or add another active provider."
+)
+
 func respondOIDCConfigError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrOIDCProviderExists()):
@@ -348,6 +354,10 @@ func respondOIDCConfigError(c *gin.Context, err error) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid issuer/discovery URL: must be a well-formed https URL"})
 	case errors.Is(err, service.ErrOIDCProviderInvalidInput()):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid OIDC provider configuration"})
+	case errors.Is(err, domain.ErrLastActiveIdentityProvider):
+		// Q-B3 (OSS-0913-A): the sign-in policy is idp_only and this is its
+		// last working provider; nothing was deleted.
+		c.JSON(http.StatusConflict, gin.H{"error": "last_active_identity_provider", "message": msgLastActiveIdentityProvider})
 	case errors.Is(err, service.ErrOIDCProviderNotFound()):
 		c.JSON(http.StatusNotFound, gin.H{"error": "no OIDC provider configured for this organization"})
 	default:

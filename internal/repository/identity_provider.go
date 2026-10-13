@@ -28,3 +28,11 @@ type IdentityProviderRepository interface {
 	// Delete removes a provider
 	Delete(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error
 }
+
+// IDPOnlyKeepingDeleter is the optional guarded delete (Q-B3, OSS-0913-A):
+// while the organization's sign-in policy is idp_only, removing its last
+// working provider is refused with domain.ErrLastActiveIdentityProvider. The
+// service uses it when the repository implements it.
+type IDPOnlyKeepingDeleter interface {
+	DeleteKeepingIDPOnly(ctx context.Context, id uuid.UUID, orgID uuid.UUID) error
+}
