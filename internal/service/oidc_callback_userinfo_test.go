@@ -160,6 +160,7 @@ func (o *userinfoOP) assertUserinfoCalledOnceWithAccessToken(t *testing.T) {
 	}
 }
 
+// RULE: CALLBACK-USERINFO-EMAIL-1
 func TestOIDCCallback_Userinfo_EmailOnlyInUserinfoSignsIn(t *testing.T) {
 	o := newUserinfoHarness(t)
 	*o.h.idToken = o.h.signEdDSA(t, o.h.priv, o.h.kid, o.claimsWithoutEmail())
@@ -219,6 +220,7 @@ func TestOIDCCallback_Userinfo_VerificationBindsToSameEmail(t *testing.T) {
 
 // D7: when no email reaches the gate — userinfo refused, mismatched, or not
 // offered at all — the refusal names it, so the person reads why.
+// RULE: CALLBACK-USERINFO-BINDING-1
 func TestOIDCCallback_Userinfo_NoEmailRefusalNamesIt(t *testing.T) {
 	t.Run("userinfo error", func(t *testing.T) {
 		o := newUserinfoHarness(t)

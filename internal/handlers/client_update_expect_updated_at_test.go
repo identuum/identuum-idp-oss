@@ -39,6 +39,7 @@ func d4Body(name string, expect *time.Time) string {
 	return `{"name":"` + name + `","expect_updated_at":"` + expect.Format(time.RFC3339Nano) + `"}`
 }
 
+// RULE: CLIENT-EXPECT-UPDATED-AT-1
 func TestUpdateClient_ExpectUpdatedAt(t *testing.T) {
 	t.Run("stale value is refused 409 and nothing is written", d4StaleIsRefused)
 	t.Run("a save landing after the check read but before the lock is refused", d4ChangedBeforeTheLockIsRefused)

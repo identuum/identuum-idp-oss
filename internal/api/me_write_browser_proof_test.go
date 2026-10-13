@@ -141,6 +141,7 @@ func meWriteRefusal(rec *httptest.ResponseRecorder) (string, string) {
 	return v.Error, v.Reason
 }
 
+// RULE: ME-WRITE-BROWSER-PROOF-1
 func TestMeWrites_RequireTheBrowserProof(t *testing.T) {
 	sameOrigin := "http://example.com" // httptest.NewRequest's host
 	for _, r := range meWriteRoutes {

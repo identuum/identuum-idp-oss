@@ -204,6 +204,7 @@ func validUpdateBody(active *bool) string {
 
 // Q1: idp_only is refused while the organization has no active provider.
 // The other policies are unchanged.
+// RULE: IDP-ONLY-NEEDS-PROVIDER-1
 func TestE2E_OSS_IDPOnlyNeedsAnActiveProvider(t *testing.T) {
 	t.Run("no provider", func(t *testing.T) {
 		w := idpOnlySetup(t)
@@ -257,6 +258,7 @@ func TestE2E_OSS_IDPOnlyNeedsAnActiveProvider(t *testing.T) {
 // `active` stays ignored, so PUT active:false answers 200 and the provider
 // stays active. An OSS organization has at most one provider, so there is no
 // "non-last provider" case.
+// RULE: IDP-ONLY-LAST-PROVIDER-1
 func TestE2E_OSS_IDPOnlyKeepsItsLastActiveProvider(t *testing.T) {
 	off := false
 	t.Run("delete the last active provider", func(t *testing.T) {
@@ -314,6 +316,7 @@ func TestE2E_OSS_IDPOnlyKeepsItsLastActiveProvider(t *testing.T) {
 // The policy change and the provider removal serialize: whichever lands
 // second sees the first, so the organization never ends idp_only with no
 // active provider.
+// RULE: IDP-ONLY-SERIALIZE-1
 func TestE2E_OSS_IDPOnlyPolicyAndProviderRemovalSerialize(t *testing.T) {
 	w := idpOnlySetup(t)
 	for round := 0; round < 10; round++ {

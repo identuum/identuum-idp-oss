@@ -62,6 +62,7 @@ func d4Put(name string, expect any) string {
 	return `{"name":"` + name + `","expect_updated_at":"` + expect.(string) + `"}`
 }
 
+// RULE: CLIENT-EXPECT-UPDATED-AT-PGX-1
 func TestClientUpdateExpectUpdatedAt_Pgx(t *testing.T) {
 	pool := f2ScratchPool(t)
 	repo := postgres.NewPgxClientRepository(pool)

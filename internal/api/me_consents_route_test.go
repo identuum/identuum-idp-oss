@@ -418,6 +418,7 @@ func TestMeConsents_FixturePremises(t *testing.T) {
 // consent (client-z), a deleted client (client-gone) and another user's
 // consent (client-b) never appear; client-x's two audience rows are one
 // entry whose scopes are their union.
+// RULE: SELF-CONSENT-LIST-1
 func TestMeConsents_ListIgnoresRevokedDeletedAndOtherUsers(t *testing.T) {
 	w := newD3World(t)
 	rec := w.do(http.MethodGet, "/api/v1/me/consents", d3AliceToken)
@@ -470,6 +471,7 @@ func TestMeConsents_ListIgnoresRevokedDeletedAndOtherUsers(t *testing.T) {
 // linked access JTIs denylisted, leaves the caller's other client and other
 // users untouched, makes the next authorize ask for consent again, and
 // records an audit event.
+// RULE: SELF-CONSENT-REVOKE-1
 func TestMeConsents_DeleteRevokesConsentAndRefreshTokens(t *testing.T) {
 	w := newD3World(t)
 	ctx := context.Background()

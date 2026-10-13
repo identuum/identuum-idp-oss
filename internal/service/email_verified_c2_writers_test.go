@@ -149,6 +149,7 @@ func assertNoUpstreamLink(t *testing.T, got *domain.User, wantExt *string) {
 
 // O19: an invitee who has not accepted the invitation is not signed in, or
 // linked, through the upstream provider, on either match path.
+// RULE: OIDC-PENDING-INVITE-1
 func TestOIDCCallback_PendingInviteeIsNotSignedInUpstream(t *testing.T) {
 	for _, c := range []struct {
 		name   string
@@ -193,6 +194,7 @@ func (m callbackRegStates) UserState(_ context.Context, userID uuid.UUID) (strin
 
 // O19: a self-registrant held for approval is not signed in, or linked,
 // through the upstream provider, on either match path.
+// RULE: OIDC-PENDING-APPROVAL-1
 func TestOIDCCallback_PendingApprovalIsNotSignedInUpstream(t *testing.T) {
 	for _, c := range []struct {
 		name   string

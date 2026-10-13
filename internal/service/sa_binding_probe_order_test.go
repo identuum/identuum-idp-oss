@@ -15,6 +15,7 @@ import (
 // like RecheckLockedBinding. A service account of ANOTHER organization answers
 // ErrServiceAccountOrgMismatch whatever its state, so a cross-org caller cannot
 // learn whether that account is inactive or expired.
+// RULE: SA-BINDING-VISIBILITY-FIRST-1
 func TestValidateBindingForClient_CrossOrgProbeLearnsNoState(t *testing.T) {
 	ctx := context.Background()
 	saOrg := uuid.New()

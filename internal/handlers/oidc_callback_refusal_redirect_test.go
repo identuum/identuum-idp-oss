@@ -55,6 +55,7 @@ func oidcCbGETUnbound(r http.Handler, path string) *httptest.ResponseRecorder {
 
 // Every refusal the service can return maps to its reason code, with and
 // without the console's minter wired.
+// RULE: CALLBACK-REFUSAL-REDIRECT-1
 func TestOIDCCallbackRoute_RefusalRedirectsWithReason(t *testing.T) {
 	cases := []struct {
 		err  error
