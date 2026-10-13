@@ -49,6 +49,14 @@ follows [Semantic Versioning](https://semver.org/).
   answers `400 active_not_supported` or `400 priority_not_supported` with a
   plain message, and nothing is saved. The stored value, or no value, saves as
   before. To stop sign-in through a provider, remove it.
+- **A new application can no longer be linked to a service account that is
+  switched off or removed at the same moment.** `POST /api/v1/clients` with
+  `service_account_id` checked the account and then saved the application
+  without holding the account, so a deactivation or delete that came in
+  between left the new application linked to a dead account. Now the account
+  is held while the application is saved and checked again: such a create
+  answers `400 invalid_request` with the plain reason, and nothing is saved.
+  A deactivation or delete that comes during the create waits until it ends.
 - **Upstream sign-in reads the email address from the provider's userinfo
   endpoint when the ID token does not carry it**, as OpenID Connect allows.
   Only missing values are filled, only from a userinfo answer for the same
