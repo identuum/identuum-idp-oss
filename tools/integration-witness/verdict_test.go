@@ -31,7 +31,7 @@ func TestRule_INTEGRATION_GATE_1(t *testing.T) {
 		{
 			name: "a green profile",
 			output: "=== RUN   TestA\n--- PASS: TestA (0.01s)\n" +
-				"=== RUN   TestB\n    --- PASS: TestB/sub (0.00s)\n--- PASS: TestB (0.00s)\n" +
+				"=== RUN   TestB\n=== RUN   TestB/sub\n--- PASS: TestB (0.00s)\n    --- PASS: TestB/sub (0.00s)\n" +
 				"ok  \tgithub.com/identuum/identuum-idp-oss/internal/postgres\t1.119s\n",
 			want:     VerdictGreen,
 			wantExit: 0,
@@ -197,6 +197,64 @@ func TestRule_INTEGRATION_GATE_1(t *testing.T) {
 			want:      VerdictRed,
 			wantExit:  1,
 			wantLine:  "first=github.com/identuum/identuum-idp-oss/internal/b failed_packages=github.com/identuum/identuum-idp-oss/internal/b",
+		},
+		// OSS-INTEGRATION-WITNESS-FIX-REVIEW F1-F4. Trimmed from real
+		// go1.27.2 `go test -v -p 1` output of the reviewer's probes.
+		{
+			name: "F1: a goroutine panic is red even when a PASSING test logged a database error",
+			output: "=== RUN   TestPassLogsDB\n" +
+				"    b_test.go:13: failed to connect to `user=u database=d_test`: 127.0.0.1:5513 (127.0.0.1): dial error: connect: connection refused\n" +
+				"--- PASS: TestPassLogsDB (0.00s)\n=== RUN   TestGoroutinePanic\npanic: nil map write in worker\n\ngoroutine 21 [running]:\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/zzprobe/b\t0.265s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "first=github.com/identuum/identuum-idp-oss/zzprobe/b ",
+		},
+		{
+			name: "F1: a timeout is red even when a PASSING test logged SQLSTATE 3D000",
+			output: "=== RUN   TestWrongDBRefused\n" +
+				"    e_test.go:13: got expected error: FATAL: database \"nope_test\" does not exist (SQLSTATE 3D000)\n" +
+				"--- PASS: TestWrongDBRefused (0.00s)\n=== RUN   TestHang\npanic: test timed out after 2s\n" +
+				"testing.tRunner(0x1953881c8488, 0x1022e3730)\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/zzprobe/e\t2.167s\nFAIL\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "first=github.com/identuum/identuum-idp-oss/zzprobe/e ",
+		},
+		{
+			name: "F2: a parent's panic after a database-failed subtest is red",
+			output: "=== RUN   TestParentPanicAfterDBSub\n=== RUN   TestParentPanicAfterDBSub/db\n" +
+				"    c_test.go:11: failed to connect to `user=u database=d_test`: 127.0.0.1:5513 (127.0.0.1): dial error: connect: connection refused\n" +
+				"--- FAIL: TestParentPanicAfterDBSub (0.00s)\n    --- FAIL: TestParentPanicAfterDBSub/db (0.00s)\n" +
+				"panic: nil map write in parent [recovered, repanicked]\n\ngoroutine 5 [running]:\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/zzprobe/c\t0.230s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "first=github.com/identuum/identuum-idp-oss/zzprobe/c.TestParentPanicAfterDBSub ",
+		},
+		{
+			name: "F3: a background goroutine's untagged database line is not the failing test's",
+			output: "=== RUN   TestBgLogger\n--- PASS: TestBgLogger (0.00s)\n=== RUN   TestRealAfter\n" +
+				"pool: failed to connect to `user=u database=d_test`: 127.0.0.1:5513 (127.0.0.1): dial error: connect: connection refused\n" +
+				"    d_test.go:24: expected 404, got 500\n--- FAIL: TestRealAfter (0.06s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/zzprobe/d\t0.236s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "first=github.com/identuum/identuum-idp-oss/zzprobe/d.TestRealAfter ",
+		},
+		{
+			name: "F4: a --- FAIL inside a multi-line t.Log is not a failure",
+			output: "=== RUN   TestGhost\n    d_test.go:28: child output:\n        --- FAIL: TestGhostChild (0.00s)\n" +
+				"--- PASS: TestGhost (0.00s)\n=== RUN   TestReal\n    d_test.go:40: expected 1, got 2\n--- FAIL: TestReal (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/zzprobe/d\t0.236s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "passed=1 skipped=0 failed=1 first=github.com/identuum/identuum-idp-oss/zzprobe/d.TestReal ",
 		},
 	}
 	for _, tc := range cases {

@@ -16,7 +16,9 @@ follows [Semantic Versioning](https://semver.org/).
   (a connection error to the test database's port, a missing test database,
   or the unset test database URL). Any other failure is red, and the red line
   names the first such test and the failing packages (rule
-  INTEGRATION-GATE-1).
+  INTEGRATION-GATE-1). A panic or a timeout is always red, a log line from
+  a passing test or a background task never explains another failure, and
+  a "--- FAIL" quoted inside a test's log is not counted as a failure.
 
 ## `v0.9.12`
 

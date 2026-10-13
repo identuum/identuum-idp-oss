@@ -85,14 +85,7 @@ var (
 	rePkgEnd   = regexp.MustCompile(`^(ok|FAIL|\?)[ \t]+(\S+)`)
 )
 
-var (
-	rePass    = regexp.MustCompile(`(?m)^\s*--- PASS: `)
-	reFail    = regexp.MustCompile(`(?m)^\s*--- FAIL: `)
-	reSkip    = regexp.MustCompile(`(?m)^\s*--- SKIP: `)
-	rePkgOK   = regexp.MustCompile(`(?m)^ok\s+\S+`)
-	rePkgFail = regexp.MustCompile(`(?m)^FAIL\s+\S+`)
-	reBuild   = regexp.MustCompile(`(?m)^(# |.*\[build failed\]|.*cannot find package)`)
-)
+var reBuild = regexp.MustCompile(`(?m)^(# |.*\[build failed\]|.*cannot find package)`)
 
 // dbSignature names the database-only shape text carries, or "". port is the
 // DSN's port: a pgx connect error counts only when it names that port, so a
@@ -110,11 +103,13 @@ func dbSignature(text, port string) string {
 }
 
 // failure is one failed test, or a package that failed with no failed test
-// (TestMain, init, a build or setup failure); test is "" for the latter.
+// (TestMain, init, a build or setup failure, a goroutine panic, a timeout);
+// test is "" for the latter.
 type failure struct {
 	pkg, test string
 	text      string // the lines go test attributed to it
 	parent    bool   // a failed subtest of it exists
+	panicked  bool   // its package printed a panic: no database explains that
 }
 
 func (f failure) name() string {
@@ -125,21 +120,33 @@ func (f failure) name() string {
 }
 
 // failures reads `go test -v -p 1` output: packages run one after another and
-// end in an ok/FAIL/? line, and a test's lines are those after its
-// === RUN/CONT/NAME header (streamed) or after its --- line (buffered), up to
-// the next header or result line.
-func failures(output string) []failure {
-	var out []failure
-	var failed []string
+// end in an ok/FAIL/? line. A test's lines are the INDENTED lines (its
+// t.Log/t.Error output) after its === RUN/CONT/NAME header (streamed) or its
+// --- line (buffered), up to the next header or result line; an unindented
+// line inside a test is a goroutine's or a logger's and belongs to no test
+// (review F3). An indented --- line is a subtest result only right after
+// another result line, as go test prints them; elsewhere it is t.Log text
+// (review F4). A package that failed with no failed test is judged on its
+// lines before any test and those of the tests that never reported a result,
+// never on a passing test's lines (review F1). The result lines are counted
+// here, so the counts agree with the failures.
+func failures(output string) (out []failure, c Counts) {
+	var failed, ran []string
+	results := map[string]bool{}
 	blocks := map[string]*strings.Builder{}
-	var pkgText strings.Builder
-	cur := ""
+	cur, prevResult, panicked := "", false, false
 	flush := func(pkg string) {
 		if len(failed) == 0 {
-			out = append(out, failure{pkg: pkg, text: pkgText.String()})
+			f := failure{pkg: pkg, panicked: panicked}
+			for _, name := range append([]string{""}, ran...) {
+				if b := blocks[name]; b != nil && !results[name] {
+					f.text += b.String()
+				}
+			}
+			out = append(out, f)
 		}
 		for _, name := range failed {
-			f := failure{pkg: pkg, test: name}
+			f := failure{pkg: pkg, test: name, panicked: panicked}
 			if b := blocks[name]; b != nil {
 				f.text = b.String()
 			}
@@ -150,44 +157,68 @@ func failures(output string) []failure {
 		}
 	}
 	reset := func() {
-		failed, blocks, cur = nil, map[string]*strings.Builder{}, ""
-		pkgText.Reset()
+		failed, ran, results, blocks = nil, nil, map[string]bool{}, map[string]*strings.Builder{}
+		cur, prevResult, panicked = "", false, false
 	}
 	for _, line := range strings.Split(output, "\n") {
+		indented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
 		if m := rePkgEnd.FindStringSubmatch(line); m != nil {
+			if m[1] != "?" {
+				c.Packages++
+			}
 			if m[1] == "FAIL" {
 				flush(m[2])
 			}
 			reset()
 			continue
 		}
-		pkgText.WriteString(line + "\n")
-		if m := reTestHead.FindStringSubmatch(line); m != nil {
-			cur = m[1]
-			continue
-		}
-		if m := reTestEnd.FindStringSubmatch(line); m != nil {
-			cur = m[2]
-			if m[1] == "FAIL" {
+		if m := reTestEnd.FindStringSubmatch(line); m != nil && (!indented || prevResult) {
+			cur, prevResult, results[m[2]] = m[2], true, true
+			switch m[1] {
+			case "PASS":
+				c.Passed++
+			case "SKIP":
+				c.Skipped++
+			default:
+				c.Failed++
 				failed = append(failed, cur)
 			}
+			continue
+		}
+		prevResult = false
+		if strings.HasPrefix(line, "panic: ") {
+			panicked = true
+		}
+		if m := reTestHead.FindStringSubmatch(line); m != nil {
+			cur = m[1]
+			if !slices.Contains(ran, cur) {
+				ran = append(ran, cur)
+			}
+			continue
+		}
+		if cur != "" && !indented {
 			continue
 		}
 		if blocks[cur] == nil {
 			blocks[cur] = &strings.Builder{}
 		}
-		blocks[cur].WriteString(line + "\n")
+		blocks[cur].WriteString(line)
+		blocks[cur].WriteByte('\n')
 	}
 	if len(failed) > 0 { // a run cut off before its package line
 		flush("(unknown package)")
 	}
-	return out
+	return out, c
 }
 
-// explained is the database signature that accounts for f, or "". A parent
-// failed by its subtests is accounted for by them (they are judged on their
-// own), unless it printed a diagnostic of its own.
+// explained is the database signature that accounts for f, or "". A panic in
+// its package is never explained: no missing database makes go test panic
+// (review F1, F2). A parent failed by its subtests is accounted for by them
+// (they are judged on their own), unless it printed a diagnostic of its own.
 func explained(f failure, port string) string {
+	if f.panicked {
+		return ""
+	}
 	if sig := dbSignature(f.text, port); sig != "" {
 		return sig
 	}
@@ -204,18 +235,12 @@ func explained(f failure, port string) string {
 // deliberately not the only input, because a run that exits 0 having executed
 // nothing must still be refused. dbAddr is the DSN's host:port.
 func Classify(output string, runFailed bool, dbAddr string) (Verdict, Counts, string) {
-	c := Counts{
-		Passed:   len(rePass.FindAllString(output, -1)),
-		Failed:   len(reFail.FindAllString(output, -1)),
-		Skipped:  len(reSkip.FindAllString(output, -1)),
-		Packages: len(rePkgOK.FindAllString(output, -1)) + len(rePkgFail.FindAllString(output, -1)),
-	}
 	_, port, _ := net.SplitHostPort(dbAddr)
 
 	// (1) No database is not a verdict about the code: when EVERY failure
 	// shows a database-only shape, the run says nothing about the tree. One
 	// failure without one is red, and the first such failure is named.
-	fs := failures(output)
+	fs, c := failures(output)
 	var unexplained []failure
 	sig := ""
 	for _, f := range fs {
