@@ -66,6 +66,10 @@ func TestE2E_OSS_AdminSetPasswordExpires(t *testing.T) {
 		!strings.Contains(strings.ToLower(g2Str(m["message"])), "expired") {
 		t.Errorf("sign-in past 24h = %d %v; want 401 password_expired with a message", st, m["error"])
 	}
+	// Review F5: the audit row names whose password expired.
+	if w.auditRow("user_session.login.password_expired", id) == nil {
+		t.Errorf("no user_session.login.password_expired audit row names the user")
+	}
 	if st, m, _ := w.call("", http.MethodPost, "/api/v1/auth/login/password-change", `{"session_id":"`+handle+`","new_password":"`+g2Chosen+`"}`); st != http.StatusUnauthorized || m["error"] != "password_expired" {
 		t.Errorf("change step past 24h = %d %v; want 401 password_expired", st, m["error"])
 	}

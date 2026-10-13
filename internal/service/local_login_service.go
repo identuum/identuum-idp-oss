@@ -367,8 +367,10 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 	// as for the MFA steps: User populated, no session, no token.
 	if adminSetPasswordExpired(user, s.clock()) {
 		// G2: past its 24 hours the admin-set password opens nothing, not
-		// even the change step; the member asks for a reset link.
-		return nil, ErrLoginPasswordExpired
+		// even the change step; the member asks for a reset link. The
+		// password is proven, so the refusal names its user for the audit
+		// row (no session, no token).
+		return &LoginResult{User: user}, ErrLoginPasswordExpired
 	}
 	if user.RequiresPasswordChange {
 		return &LoginResult{User: user}, ErrLoginPasswordChangeRequired

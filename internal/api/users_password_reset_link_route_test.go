@@ -719,3 +719,38 @@ func TestD9_CapabilityFollowsTheUIBase(t *testing.T) {
 
 // hashForTest is the service's token hash (crypto.HashToken, SHA-256 hex).
 func hashForTest(raw string) string { return crypto.HashToken(raw) }
+
+type d9FailingRefreshRevoker struct{}
+
+func (d9FailingRefreshRevoker) RevokeAllForUser(context.Context, uuid.UUID) (int64, error) {
+	return 0, errors.New("simulated outage")
+}
+
+// Review F4 (OSS-0913-B-REVIEW): when the other sign-ins cannot be ended, the
+// password is already set and the link spent. The answer stays 500
+// internal_error, and its message says the password was set instead of
+// inviting a retry that would answer invalid_token.
+func TestD9_RedeemSaysThePasswordWasSetWhenRevocationFails(t *testing.T) {
+	w := newD9World(t, d9UIBase)
+	w.svc.WithRefreshTokenRevoker(d9FailingRefreshRevoker{})
+	rec, body := w.issue(d9AdminA, "member")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("issue = %d %v; want 200", rec.Code, body["error"])
+	}
+	b, _ := json.Marshal(map[string]string{"token": tokenOf(t, body), "new_password": d9NewPassword})
+	req := httptest.NewRequest(http.MethodPost, d9Spec().consumePath, strings.NewReader(string(b)))
+	req.Header.Set("Content-Type", "application/json")
+	out := httptest.NewRecorder()
+	w.engine.ServeHTTP(out, req)
+	var got struct{ Error, Message string }
+	_ = json.Unmarshal(out.Body.Bytes(), &got)
+	if out.Code != http.StatusInternalServerError || got.Error != "internal_error" {
+		t.Fatalf("redeem with a failing revocation = %d %s; want 500 internal_error", out.Code, got.Error)
+	}
+	if !strings.Contains(got.Message, "password is set") {
+		t.Errorf("message = %q; want it to say the password is set", got.Message)
+	}
+	if u, _ := w.users.get(w.ids["member"]); u.PasswordHash == "h:Old-Pass-2026!z" {
+		t.Errorf("the member's password did not change")
+	}
+}

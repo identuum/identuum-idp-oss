@@ -81,6 +81,24 @@ func TestG2_Login_AfterTTLIsExpired(t *testing.T) {
 	}
 }
 
+// Review F5 (OSS-0913-B-REVIEW): the password is proven before the expiry
+// check, so the refusal names its user (the partial-result contract of the
+// change step) and the handler's audit row can carry subject and
+// organization. Still no session and no token.
+func TestG2_Login_ExpiredNamesTheUser(t *testing.T) {
+	u := g2LoginUser(t, true, g2At(AdminSetPasswordTTL+time.Second))
+	res, err := g2Login(t, u)
+	if !errors.Is(err, ErrLoginPasswordExpired) {
+		t.Fatalf("err = %v; want ErrLoginPasswordExpired (past 24h)", err)
+	}
+	if res == nil || res.User == nil || res.User.ID != u.ID {
+		t.Fatalf("the expired refusal does not name its user (result %v)", res)
+	}
+	if res.Session != nil || res.RefreshToken != "" {
+		t.Errorf("an expired admin-set password produced a session or token")
+	}
+}
+
 // A row set before this change (NULL time) never expires; it keeps the
 // change step.
 func TestG2_Login_NullTimeNeverExpires(t *testing.T) {

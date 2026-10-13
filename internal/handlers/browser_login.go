@@ -181,13 +181,9 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 				return
 			}
 			if errors.Is(err, service.ErrLoginPasswordExpired) {
-				// G2: the admin-set password is past its 24 hours.
-				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-					Action:    "user_session.login.password_expired",
-					Outcome:   "denied",
-					IPAddress: ip,
-					UserAgent: ua,
-				})
+				// G2: the admin-set password is past its 24 hours. The row
+				// names the user whose password expired.
+				auditLoginStep(c, deps.Audit, "user_session.login.password_expired", result)
 				loc := "/api/v1/auth/browser-login?error=password_expired"
 				if returnTo != "" {
 					loc += "&return_to=" + url.QueryEscape(returnTo)

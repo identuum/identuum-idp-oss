@@ -47,11 +47,12 @@ func g1Service(users *fakeUserRepo, resets *fakePasswordResetRepo, n *fakePasswo
 // ResetPassword checked deleted and banned only.
 // RULE: RESET-LOCAL-ONLY-1
 func TestResetPassword_LocalPasswordsOnly(t *testing.T) {
+	// A real local hash, so only the organization's policy can stop it.
 	t.Run("idp_only org_user gets no link", func(t *testing.T) {
 		user := newPasswordResetUser(t, "idponly@example.test")
 		user.EmailVerified = true
 		user.OrgAuthPolicy = g1Policy(domain.AuthPolicyIDPOnly)
-		user.PasswordHash = domain.NoPasswordSentinel
+		user.PasswordHash = "$argon2id$test$old"
 		users, resets := newFakeUserRepo(user), newFakePasswordResetRepo()
 		n, rec := &fakePasswordResetNotifier{}, &fakeAuditRecorder{}
 
@@ -99,6 +100,39 @@ func TestResetPassword_LocalPasswordsOnly(t *testing.T) {
 		assert.Equal(t, 0, resets.markCalled, "the row must not be claimed when the policy refuses")
 		assert.Nil(t, resets.rows[hash].UsedAt, "the row must stay unused")
 	})
+}
+
+// D2 of OSS-0913-B: ValidToken answers false wherever ResetPassword would
+// refuse the user (deleted, banned, idp_only), so the page never offers a dead
+// link. The active local member is the control.
+func TestValidToken_AgreesWithResetPasswordOnTheUser(t *testing.T) {
+	deletedAt := g1Now.Add(-time.Hour)
+	for _, tc := range []struct {
+		name string
+		mut  func(*domain.User)
+		want bool
+	}{
+		{"active local member", func(*domain.User) {}, true},
+		{"deleted", func(u *domain.User) { u.DeletedAt = &deletedAt }, false},
+		{"banned", func(u *domain.User) { u.Banned = true }, false},
+		{"idp_only org_user", func(u *domain.User) { u.OrgAuthPolicy = g1Policy(domain.AuthPolicyIDPOnly) }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			user := newPasswordResetUser(t, "valid@example.test")
+			user.EmailVerified = true
+			user.PasswordHash = "$argon2id$test$old"
+			tc.mut(user)
+			users, resets := newFakeUserRepo(user), newFakePasswordResetRepo()
+			rawToken, err := crypto.GenerateRandomString(32)
+			require.NoError(t, err)
+			hash := crypto.HashToken(rawToken)
+			resets.rows[hash] = &domain.PasswordReset{UserID: user.ID, TokenHash: hash, ExpiresAt: g1Now.Add(time.Hour), CreatedAt: g1Now}
+
+			got := g1Service(users, resets, &fakePasswordResetNotifier{}, &fakeAuditRecorder{}).ValidToken(context.Background(), rawToken)
+			assert.Equal(t, tc.want, got, "ValidToken for a %s", tc.name)
+			assert.Nil(t, resets.rows[hash].UsedAt, "ValidToken must not spend the link")
+		})
+	}
 }
 
 // Control (green before and after): a local org_user in a permissive org.

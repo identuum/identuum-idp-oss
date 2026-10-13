@@ -48,6 +48,10 @@ func HandleRedeemResetLink(deps AccountLifecycleHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_token", "message": "This link was used, has expired or was replaced by a newer one. Ask your administrator for a new link."})
 		case errors.Is(err, service.ErrPasswordResetWeakPassword):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "weak_password", "message": "The password does not meet the organization's password policy."})
+		case errors.Is(err, service.ErrPasswordResetRevocationFailed):
+			// The password is set and the link spent; a retry would answer
+			// invalid_token, so the words must not invite one.
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "Your new password is set, but your other sign-ins could not be ended. Sign in with the new password and ask your administrator to end your other sessions."})
 		default:
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error", "message": "The password could not be set."})
 		}
