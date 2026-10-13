@@ -28,6 +28,10 @@ func (r *bundleClientRepoStub) RegisterClient(_ context.Context, c *domain.Clien
 	r.registered = &cp
 	return nil
 }
+
+func (r *bundleClientRepoStub) RegisterClientBound(ctx context.Context, c *domain.Client, _ repository.ServiceAccountLock) error {
+	return r.RegisterClient(ctx, c)
+}
 func (r *bundleClientRepoStub) GetClientByID(context.Context, uuid.UUID) (*domain.Client, error) {
 	return nil, nil
 }

@@ -33,6 +33,10 @@ func (r *inMemoryClientRepo) RegisterClient(_ context.Context, c *domain.Client)
 	r.rows[c.ID] = c
 	return nil
 }
+
+func (r *inMemoryClientRepo) RegisterClientBound(ctx context.Context, c *domain.Client, _ repository.ServiceAccountLock) error {
+	return r.RegisterClient(ctx, c)
+}
 func (r *inMemoryClientRepo) GetClientByID(_ context.Context, id uuid.UUID) (*domain.Client, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

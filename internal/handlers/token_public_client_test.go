@@ -39,6 +39,10 @@ func (r *publicClientStore) RegisterClient(_ context.Context, c *domain.Client) 
 	r.rows[c.ClientID] = c
 	return nil
 }
+
+func (r *publicClientStore) RegisterClientBound(ctx context.Context, c *domain.Client, _ repository.ServiceAccountLock) error {
+	return r.RegisterClient(ctx, c)
+}
 func (r *publicClientStore) GetClientByID(context.Context, uuid.UUID) (*domain.Client, error) {
 	return nil, nil
 }

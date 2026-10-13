@@ -7,9 +7,10 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
-// ServiceAccountLock is the service account a client save binds (OSS-0912-C1-FIX).
-// Recheck, when not nil, receives the account as read under the save's lock,
-// nil when no live row is left; its error refuses the save.
+// ServiceAccountLock is the service account a client save or create binds
+// (OSS-0912-C1-FIX, OSS-0913-O9-FIX). Recheck, when not nil, receives the
+// account as read under the lock, nil when no live row is left; its error
+// refuses the save or create.
 type ServiceAccountLock struct {
 	ID      uuid.UUID
 	Recheck func(sa *domain.ServiceAccount) error
@@ -18,6 +19,16 @@ type ServiceAccountLock struct {
 // ClientRepository defines storage operations for OAuth2 Clients
 type ClientRepository interface {
 	RegisterClient(ctx context.Context, client *domain.Client) error
+	// RegisterClientBound creates a client that binds a service account
+	// (OSS-0913-O9-FIX): in ONE transaction it share-locks the account (FOR
+	// SHARE), runs lockServiceAccount.Recheck on the account as read under
+	// that lock, inserts the client and commits. A soft delete or deactivation
+	// of the account that comes later waits until the create ends.
+	//
+	// Errors: Recheck's own error unchanged (nothing is written); an insert
+	// failure as RegisterClient returns it; a failed begin, lock read or
+	// commit domain.AuthStoreUnavailable. It never retries.
+	RegisterClientBound(ctx context.Context, client *domain.Client, lockServiceAccount ServiceAccountLock) error
 	GetClientByID(ctx context.Context, id uuid.UUID) (*domain.Client, error)
 	GetClientByClientID(ctx context.Context, clientID string) (*domain.Client, error)
 	Update(ctx context.Context, client *domain.Client) error

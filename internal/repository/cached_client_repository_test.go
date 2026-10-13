@@ -26,6 +26,11 @@ func (m *mockClientRepository) RegisterClient(ctx context.Context, client *domai
 	return args.Error(0)
 }
 
+func (m *mockClientRepository) RegisterClientBound(ctx context.Context, client *domain.Client, lockServiceAccount ServiceAccountLock) error {
+	args := m.Called(ctx, client, lockServiceAccount)
+	return args.Error(0)
+}
+
 func (m *mockClientRepository) GetClientByID(ctx context.Context, id uuid.UUID) (*domain.Client, error) {
 	args := m.Called(ctx, id)
 	var x *domain.Client

@@ -38,6 +38,10 @@ func (r *inMemoryClientRepoForBundleHandlers) RegisterClient(_ context.Context, 
 	r.byID[c.ID] = &cp
 	return nil
 }
+
+func (r *inMemoryClientRepoForBundleHandlers) RegisterClientBound(ctx context.Context, c *domain.Client, _ repository.ServiceAccountLock) error {
+	return r.RegisterClient(ctx, c)
+}
 func (r *inMemoryClientRepoForBundleHandlers) GetClientByID(_ context.Context, id uuid.UUID) (*domain.Client, error) {
 	c, ok := r.byID[id]
 	if !ok {

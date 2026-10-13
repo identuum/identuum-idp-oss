@@ -21,6 +21,9 @@ import (
 type stubClientRepo struct{}
 
 func (stubClientRepo) RegisterClient(context.Context, *domain.Client) error { return nil }
+func (stubClientRepo) RegisterClientBound(context.Context, *domain.Client, repository.ServiceAccountLock) error {
+	return nil
+}
 func (stubClientRepo) GetClientByID(context.Context, uuid.UUID) (*domain.Client, error) {
 	return nil, nil
 }

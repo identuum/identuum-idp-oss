@@ -29,6 +29,9 @@ type fakeClientRepo struct {
 func (f *fakeClientRepo) RegisterClient(_ context.Context, _ *domain.Client) error {
 	panic("not used")
 }
+func (f *fakeClientRepo) RegisterClientBound(_ context.Context, _ *domain.Client, _ repository.ServiceAccountLock) error {
+	panic("not used")
+}
 func (f *fakeClientRepo) GetClientByID(_ context.Context, _ uuid.UUID) (*domain.Client, error) {
 	if f.byID == nil {
 		return nil, nil

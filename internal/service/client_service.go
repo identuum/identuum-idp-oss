@@ -276,11 +276,23 @@ func (s *ClientService) RegisterClient(ctx context.Context, opts RegisterClientO
 		if opts.IsPublic {
 			return nil, "", fmt.Errorf("public client may not bind a service account")
 		}
+		// The check reads through its own connection, before the create's
+		// transaction (as the save does). The create then share-locks the
+		// account and re-checks it as read under that lock, so a soft delete,
+		// a deactivation or an expiry that landed in between refuses the
+		// create, and one that comes later waits for it (OSS-0913-O9-FIX).
+		lockSA := repository.ServiceAccountLock{ID: *opts.ServiceAccountID}
 		if s.saBinding != nil {
 			if err := s.saBinding.ValidateBindingForClient(ctx, *opts.ServiceAccountID, opts.OrganizationID); err != nil {
 				return nil, "", err
 			}
+			org := opts.OrganizationID
+			lockSA.Recheck = func(sa *domain.ServiceAccount) error { return s.saBinding.RecheckLockedBinding(sa, org) }
 		}
+		if err := s.repo.RegisterClientBound(ctx, client, lockSA); err != nil {
+			return nil, "", err
+		}
+		return client, plaintextSecret, nil
 	}
 
 	if err := s.repo.RegisterClient(ctx, client); err != nil {

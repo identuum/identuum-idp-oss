@@ -57,6 +57,10 @@ func (r *minimalClientRepo) RegisterClient(_ context.Context, c *domain.Client) 
 	r.rows[c.ClientID] = c
 	return nil
 }
+
+func (r *minimalClientRepo) RegisterClientBound(ctx context.Context, c *domain.Client, _ repository.ServiceAccountLock) error {
+	return r.RegisterClient(ctx, c)
+}
 func (r *minimalClientRepo) GetClientByID(_ context.Context, _ uuid.UUID) (*domain.Client, error) {
 	return nil, nil
 }

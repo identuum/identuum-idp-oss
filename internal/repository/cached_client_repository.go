@@ -155,6 +155,10 @@ func (r *CachedClientRepository) RegisterClient(ctx context.Context, client *dom
 	return r.delegate.RegisterClient(ctx, client)
 }
 
+func (r *CachedClientRepository) RegisterClientBound(ctx context.Context, client *domain.Client, lockServiceAccount ServiceAccountLock) error {
+	return r.delegate.RegisterClientBound(ctx, client, lockServiceAccount)
+}
+
 func (r *CachedClientRepository) Update(ctx context.Context, client *domain.Client) error {
 	// Fetch before update so we can clear the old clientID key if it changed
 	existing, _ := r.delegate.GetClientByID(ctx, client.ID)

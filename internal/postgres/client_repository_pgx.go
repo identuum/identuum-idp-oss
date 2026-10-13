@@ -367,6 +367,55 @@ func (r *PgxClientRepository) Update(ctx context.Context, client *domain.Client)
 	return nil
 }
 
+// lockBoundServiceAccount share-locks the account a client save or create
+// binds, inside that save's or create's transaction, and runs l.Recheck on the
+// account as read under the lock (nil when it is missing or soft-deleted).
+// Recheck's error is returned unchanged; a failed read is
+// domain.AuthStoreUnavailable.
+func lockBoundServiceAccount(ctx context.Context, tx pgx.Tx, l *repository.ServiceAccountLock) error {
+	// FOR SHARE (OSS-0912-C1-FIX): OSS deletes and deactivates an account
+	// by UPDATE, and every UPDATE of it waits until this save or create ends.
+	// One that waited reads the committed row, or none after a soft delete.
+	// Account, then client: the order the organization delete takes.
+	var sa *domain.ServiceAccount
+	var row domain.ServiceAccount
+	err := tx.QueryRow(ctx, `SELECT id, organization_id, active, expires_at FROM service_accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE`,
+		l.ID).Scan(&row.ID, &row.OrganizationID, &row.Active, &row.ExpiresAt)
+	switch {
+	case err == nil:
+		sa = &row
+	case !errors.Is(err, pgx.ErrNoRows):
+		return clientStoreError(err)
+	}
+	if l.Recheck != nil {
+		return l.Recheck(sa)
+	}
+	return nil
+}
+
+// RegisterClientBound implements repository.ClientRepository.RegisterClientBound
+// (OSS-0913-O9-FIX). Lock order: the service account, then the new client
+// row; the create locks no existing client.
+func (r *PgxClientRepository) RegisterClientBound(ctx context.Context, client *domain.Client, lockServiceAccount repository.ServiceAccountLock) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return clientStoreError(err)
+	}
+	// After a commit this is a no-op; on every other path it drops the lock
+	// and the insert. Not tied to ctx, so a cancelled request still rolls back.
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := lockBoundServiceAccount(ctx, tx, &lockServiceAccount); err != nil {
+		return err
+	}
+	if err := (&PgxClientRepository{db: tx}).RegisterClient(ctx, client); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return clientStoreError(err)
+	}
+	return nil
+}
+
 // MutateClient implements repository.ClientRepository.MutateClient (C1, OSS
 // v0.9.12). Lock order: the service account (only when one is being bound),
 // then this one client row; never anything after the client, never a second
@@ -382,24 +431,8 @@ func (r *PgxClientRepository) MutateClient(ctx context.Context, id uuid.UUID, lo
 	locked := &PgxClientRepository{db: tx}
 
 	if lockServiceAccount != nil {
-		// FOR SHARE (OSS-0912-C1-FIX): OSS deletes and deactivates an account
-		// by UPDATE, and every UPDATE of it waits until this save ends. A save
-		// that waited reads the committed row, or none after a soft delete.
-		// Account, then client: the order the organization delete takes.
-		var sa *domain.ServiceAccount
-		var row domain.ServiceAccount
-		err := tx.QueryRow(ctx, `SELECT id, organization_id, active, expires_at FROM service_accounts WHERE id = $1 AND deleted_at IS NULL FOR SHARE`,
-			lockServiceAccount.ID).Scan(&row.ID, &row.OrganizationID, &row.Active, &row.ExpiresAt)
-		switch {
-		case err == nil:
-			sa = &row
-		case !errors.Is(err, pgx.ErrNoRows):
-			return nil, nil, clientStoreError(err)
-		}
-		if lockServiceAccount.Recheck != nil {
-			if err := lockServiceAccount.Recheck(sa); err != nil {
-				return nil, nil, err
-			}
+		if err := lockBoundServiceAccount(ctx, tx, lockServiceAccount); err != nil {
+			return nil, nil, err
 		}
 	}
 	// FOR NO KEY UPDATE (owner answer Q-C1-3): saves, deletes and tombstones
