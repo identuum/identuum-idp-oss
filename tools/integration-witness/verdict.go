@@ -82,7 +82,10 @@ var (
 
 	reTestHead = regexp.MustCompile(`^=== (?:RUN|CONT|NAME|PAUSE)\s+(\S+)`)
 	reTestEnd  = regexp.MustCompile(`^\s*--- (PASS|FAIL|SKIP): (\S+)`)
-	rePkgEnd   = regexp.MustCompile(`^(ok|FAIL|\?)[ \t]+(\S+)`)
+	// rePkgEnd is go test's own package line: the verb, space padding, a
+	// tab, the package, then a tab or " [build failed]"/" [setup failed]".
+	// A test's stdout line such as "ok x" has no tab and is not one (K1).
+	rePkgEnd = regexp.MustCompile(`^(ok|FAIL|\?) *\t(\S+)(?:\t| \[(?:build|setup) failed\]$)`)
 )
 
 var reBuild = regexp.MustCompile(`(?m)^(# |.*\[build failed\]|.*cannot find package)`)

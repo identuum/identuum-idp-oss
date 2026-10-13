@@ -256,6 +256,20 @@ func TestRule_INTEGRATION_GATE_1(t *testing.T) {
 			wantExit:  1,
 			wantLine:  "passed=1 skipped=0 failed=1 first=github.com/identuum/identuum-idp-oss/zzprobe/d.TestReal ",
 		},
+		// K1 (WITNESS-FIX-REREVIEW F1). A test's own stdout line that starts
+		// "ok " is not a package end: go test prints the verb, padding, then a
+		// tab before the package. Taken as one, it reset the package and hid
+		// the failure before it as CANNOT-EVALUATE.
+		{
+			name: "K1: an unindented stdout line starting with ok does not end the package",
+			output: "=== RUN   TestReal\n    k_test.go:9: expected 1, got 2\n--- FAIL: TestReal (0.00s)\n" +
+				"=== RUN   TestPrints\nok fixture loaded\n--- PASS: TestPrints (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/zzprobe/k\t0.100s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "packages=1 passed=1 skipped=0 failed=1 first=github.com/identuum/identuum-idp-oss/zzprobe/k.TestReal ",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
