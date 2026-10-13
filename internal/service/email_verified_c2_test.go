@@ -187,6 +187,7 @@ func TestSendOwnVerification(t *testing.T) {
 	})
 }
 
+// RULE: EMAIL-VERIFIED-PROVEN-1
 func TestIDToken_EmailVerifiedClaimReadsTheProof(t *testing.T) {
 	svc, _ := newIDTokenSvc(t)
 	session := newIDTokenSession()
