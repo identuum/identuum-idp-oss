@@ -534,3 +534,32 @@ func TestMeConsents_DeleteOtherUsersClientIs404(t *testing.T) {
 		t.Errorf("bob's refresh token refused after alice's DELETE: %v", err)
 	}
 }
+
+// OSS-0913-A-REVIEW F2: a deleted application answers DELETE as GET shows it,
+// absent: 404 not_found with a plain message, the same answer as an unknown
+// client_id (so the answer does not tell that the caller once consented), and
+// nothing is revoked.
+func TestMeConsents_DeleteOfADeletedApplicationIs404(t *testing.T) {
+	w := newD3World(t)
+	ctx := context.Background()
+	type notFound struct {
+		Error   string `json:"error"`
+		Message string `json:"message"`
+	}
+	answer := func(clientID string) (int, notFound, string) {
+		rec := w.do(http.MethodDelete, "/api/v1/me/consents/"+clientID, d3AliceToken)
+		var body notFound
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		return rec.Code, body, rec.Body.String()
+	}
+	code, gone, raw := answer("client-gone")
+	if code != http.StatusNotFound || gone.Error != "not_found" || strings.TrimSpace(gone.Message) == "" {
+		t.Fatalf("DELETE of a deleted application = %d body=%q, want 404 {\"error\":\"not_found\",\"message\":<plain text>}", code, raw)
+	}
+	if code, unknown, raw := answer("client-never-existed"); code != http.StatusNotFound || unknown != gone {
+		t.Errorf("DELETE of an unknown client_id = %d body=%q, want the same 404 answer as a deleted application %+v", code, raw, gone)
+	}
+	if d, _ := w.consents.Lookup(ctx, w.alice, "client-gone", "", "openid"); !d.Covered {
+		t.Errorf("a 404 DELETE revoked alice's consent row for the deleted application")
+	}
+}

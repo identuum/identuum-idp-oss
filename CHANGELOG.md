@@ -26,8 +26,9 @@ follows [Semantic Versioning](https://semver.org/).
   Removing access revokes the consent and ends the user's refresh tokens for
   that application, so it asks again at the next sign-in; an access token it
   already holds stays valid until it expires (`access_token_lifetime_seconds`
-  in the list, one hour). An application the user has not given access to
-  answers `404 not_found`. Audited as `self_consent_revoked`.
+  in the list, one hour). An application the user has not given access to,
+  or one that was deleted, answers `404 not_found` with a plain message and
+  nothing is revoked. Audited as `self_consent_revoked`.
 - **A client save made from an outdated page is refused instead of undoing
   a newer save.** `PUT /api/v1/clients/{id}` takes an optional
   `expect_updated_at` (the `updated_at` the page read). When someone saved

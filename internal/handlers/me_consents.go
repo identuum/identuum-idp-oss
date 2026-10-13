@@ -83,7 +83,7 @@ func RegisterMeConsentRoutes(router gin.IRouter, deps MeConsentsHandlerDeps) {
 	// docgen:summary=Self-service removal of an application's access: revokes the authenticated user's consent for the application on every audience and ends the user's refresh tokens for it, so the application asks again at its next sign-in.
 	// docgen:tier=oss
 	// docgen:auth=authenticated
-	// docgen:notes=204 No Content on success. The access tokens linked to the ended refresh tokens are denylisted; an access token issued without a refresh token stays valid until it expires (access_token_lifetime_seconds of the list). An application the caller has no active consent for, another user's, or an unknown client_id answers 404 {"error":"not_found"}. 503 {"error":"temporarily_unavailable"} when the refresh tokens could not be ended; the consent is then kept, so a retry completes the removal. The route accepts no request body and no user_id query parameter; the user is derived only from the authenticated principal. Audited as self_consent_revoked (actor and subject the caller; metadata client_id and counts, never a token). Cache-Control no-store + Pragma no-cache.
+	// docgen:notes=204 No Content on success. The access tokens linked to the ended refresh tokens are denylisted; an access token issued without a refresh token stays valid until it expires (access_token_lifetime_seconds of the list). An application the caller has no active consent for, another user's, an unknown client_id or a deleted application answers 404 {"error":"not_found","message":"You have not given this application access."} and revokes nothing. 503 {"error":"temporarily_unavailable"} when the refresh tokens could not be ended; the consent is then kept, so a retry completes the removal. The route accepts no request body and no user_id query parameter; the user is derived only from the authenticated principal. Audited as self_consent_revoked (actor and subject the caller; metadata client_id and counts, never a token). Cache-Control no-store + Pragma no-cache.
 	// docgen:status=204
 	g.DELETE("/:client_id", HandleRevokeOwnConsent(deps))
 }
@@ -160,6 +160,12 @@ func HandleListOwnConsents(deps MeConsentsHandlerDeps) gin.HandlerFunc {
 	}
 }
 
+// meConsentNotFound is the one 404 of DELETE: an application the caller holds
+// no active consent for, another user's, an unknown or a deleted one.
+func meConsentNotFound(c *gin.Context) {
+	c.JSON(http.StatusNotFound, gin.H{"error": "not_found", "message": "You have not given this application access."})
+}
+
 // HandleRevokeOwnConsent serves DELETE /api/v1/me/consents/:client_id. The
 // refresh tokens are ended BEFORE the consent is revoked: if ending them
 // fails, the consent stays listed and a retry finishes the work, instead of
@@ -178,7 +184,18 @@ func HandleRevokeOwnConsent(deps MeConsentsHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		if !held {
-			c.JSON(http.StatusNotFound, gin.H{"error": "not_found"})
+			meConsentNotFound(c)
+			return
+		}
+		// A deleted application is absent here as in the list: the same 404
+		// as an unknown client_id, and nothing is revoked (OSS-0913-A-REVIEW F2).
+		client, err := deps.Clients.GetClientByClientID(ctx, clientID)
+		if errors.Is(err, domain.ErrClientNotFound) || (err == nil && client == nil) {
+			meConsentNotFound(c)
+			return
+		}
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 			return
 		}
 		refreshCount, err := deps.Refresh.RevokeAllForUserClient(ctx, user.ID, clientID)
