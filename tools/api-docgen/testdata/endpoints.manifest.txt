@@ -21,6 +21,7 @@ GET /api/v1/agent-communication-authorizations
 GET /api/v1/agent-communication-authorizations/:id
 GET /api/v1/api-resources
 GET /api/v1/api-resources/:id
+GET /api/v1/audit/event-types
 GET /api/v1/audit/events
 GET /api/v1/auth/browser-login
 GET /api/v1/auth/claim/validate

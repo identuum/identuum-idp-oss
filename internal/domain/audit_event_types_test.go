@@ -11,7 +11,8 @@ import (
 // minExpectedAuditEventTypes is a lower-bound regression guard.
 // Fail if AllAuditEventTypeGroups shrinks below this number (mass-deletion catch).
 // Update upward when new constants are added; never lower this threshold.
-const minExpectedAuditEventTypes = 120
+// 141 = the names the server records (OSS-0913-C, the drift test pins them).
+const minExpectedAuditEventTypes = 141
 
 func TestAllAuditEventTypeGroups_NoDuplicates(t *testing.T) {
 	seen := make(map[AuditEventType]string)
@@ -48,18 +49,20 @@ func TestAllAuditEventTypeGroups_MinimumCount(t *testing.T) {
 			"If new constants were added, increase minExpectedAuditEventTypes.", total, minExpectedAuditEventTypes))
 }
 
+// The catalog lists recorded names only (OSS-0913-C): the key names below are
+// the ones the server writes for sign-in, users, organizations and tokens.
 func TestAllAuditEventTypeGroups_KeyValuesPresent(t *testing.T) {
 	required := []AuditEventType{
-		AuditDataAccessed,
-		AuditAuthSuccess,
-		AuditAuthFailure,
+		"user_session.login.success",
+		"user_session.login.failure",
+		"user.created",
 		AuditUserCreated,
-		AuditOrgCreated,
+		"organization.created",
 		AuditPasswordChanged,
-		AuditSessionCreated,
 		AuditSessionRevoked,
-		AuditPermissionDenied,
-		AuditSecurityViolation,
+		"user_session.logout",
+		"scope.denied",
+		"feature.denied",
 		AuditOAuthTokenRevoked,
 	}
 
@@ -87,13 +90,13 @@ func TestAuditOAuthTokenRevoked_StringValueIsStable(t *testing.T) {
 }
 
 // TestAuditOAuthTokenRevoked_RegisteredInTokensGroup asserts the
-// typed constant lives in the "Tokens" group rather than getting
-// orphaned outside the registered set. The discovery test guards
+// typed constant lives in the "Tokens and consent" group rather than
+// getting orphaned outside the registered set. The discovery test guards
 // against drift between the typed constants and the documented
 // group catalogue.
 func TestAuditOAuthTokenRevoked_RegisteredInTokensGroup(t *testing.T) {
 	for _, g := range AllAuditEventTypeGroups {
-		if g.Label != "Tokens" {
+		if g.Label != "Tokens and consent" {
 			continue
 		}
 		for _, et := range g.Types {
@@ -101,7 +104,28 @@ func TestAuditOAuthTokenRevoked_RegisteredInTokensGroup(t *testing.T) {
 				return
 			}
 		}
-		t.Fatalf("AuditOAuthTokenRevoked not present in the Tokens group: %v", g.Types)
+		t.Fatalf("AuditOAuthTokenRevoked not present in the Tokens and consent group: %v", g.Types)
 	}
-	t.Fatalf("AllAuditEventTypeGroups has no Tokens group; registration check cannot run")
+	t.Fatalf("AllAuditEventTypeGroups has no Tokens and consent group; registration check cannot run")
+}
+
+// Labels come from one function: plain words, first letter upper case, the
+// abbreviations spelled out, and every catalog entry gets a non-empty one.
+func TestAuditEventTypeLabel(t *testing.T) {
+	cases := map[AuditEventType]string{
+		"user_session.login.mfa_verified": "User session login MFA verified",
+		"organization.created":            "Organization created",
+		"oauth_token.revoked":             "OAuth token revoked",
+		"dcr.iat_issued":                  "Dynamic registration initial access token issued",
+		"org.identity_provider_created":   "Organization identity provider created",
+		"webauthn_credential_registered":  "Passkey credential registered",
+	}
+	for in, want := range cases {
+		assert.Equal(t, want, AuditEventTypeLabel(in), "label of %q", in)
+	}
+	for _, g := range AllAuditEventTypeGroups {
+		for _, et := range g.Types {
+			assert.NotEmpty(t, AuditEventTypeLabel(et), "label of %q", et)
+		}
+	}
 }

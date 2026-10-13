@@ -110,7 +110,9 @@ import (
 // /api/v1/auth/reset-link/validate, POST /api/v1/auth/reset-link, an
 // administrator's one-time reset link and the page that spends it
 // (OSS-0913-B D9).
-const CanonicalEndpointCount = 165
+// 165 → 166: GET /api/v1/audit/event-types, the event types the server can
+// record, for the audit log's filter (OSS-0913-C).
+const CanonicalEndpointCount = 166
 
 // TestCanonicalEndpointCount asserts the canonical OSS endpoint
 // count via the in-process api-docgen extraction path — the same

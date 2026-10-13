@@ -1,107 +1,135 @@
 package domain
 
+import "strings"
+
 // AuditEventTypeGroup groups related audit event type values for UI display.
-// Used by the GET /api/v1/audit/event-types endpoint and coverage tests.
+// Served by GET /api/v1/audit/event-types (the console's event-type filter).
 type AuditEventTypeGroup struct {
 	Label string
 	Types []AuditEventType
 }
 
-// AllAuditEventTypeGroups is the canonical grouped list of known audit event types.
-// This is the single source of truth used by both the audit event-types API endpoint
-// and drift-protection tests.
+// AllAuditEventTypeGroups lists exactly the event_type values this server
+// can record, grouped in plain words. The console's event-type filter is
+// built from it, so a name missing here cannot be picked and a name listed
+// here that nothing records offers an empty result.
 //
-// MAINTENANCE: when adding a new AuditEventType constant above (audit.go), add it to
-// the appropriate group here. The coverage test TestAllAuditEventTypeGroups_NoDuplicates
-// and TestAllAuditEventTypeGroups_MinimumCount in audit_event_types_test.go will catch
-// duplicates and mass-deletion regressions.
+// MAINTENANCE: TestAuditEventTypeCatalog_MatchesRecordedNames reads every
+// audit.Event Action in the module and fails on a recorded name missing here
+// and on a name here that nothing records. Add a new name to the group it
+// belongs to; never rename a recorded name (stored rows keep the old one).
+// Labels come from AuditEventTypeLabel, never from a hand list.
 var AllAuditEventTypeGroups = []AuditEventTypeGroup{
-	{"Authentication & sessions", []AuditEventType{
-		"auth_success", "auth_failure", "logout",
-		"session_created", "session_revoked", "session_expired",
-		"self_sessions_revoked",
-		"mfa_enabled", "mfa_disabled", "mfa_reset_by_admin",
-		"step_up_triggered", "step_up_passed",
-		"session_acr_uplifted", "session_acr_uplift_failed",
-		"EMERGENCY_LOGIN_DETECTED", "concurrent_session_limit",
-		"local_login_blocked_by_role", "session_revoked_anomaly",
-		"session_evicted_max_sessions",
+	{"Sign-in", []AuditEventType{
+		"auth.oidc_login.failure", "auth.oidc_login.success", "auth.oidc_login_initiated",
+		"local_login_blocked_by_role",
+		"user_session.browser_login.failure", "user_session.browser_login.success",
+		"user_session.login.failure", "user_session.login.success",
+		"user_session.login.mfa_enroll_complete_failure", "user_session.login.mfa_enrolled",
+		"user_session.login.mfa_enrollment_required", "user_session.login.mfa_pending_create_failure",
+		"user_session.login.mfa_recovery_code_consumed", "user_session.login.mfa_required",
+		"user_session.login.mfa_verified", "user_session.login.mfa_verify_failure",
+		"user_session.login.password_change_required", "user_session.login.password_changed",
+		"user_session.login.password_expired",
+		"user_session.login.webauthn_failure", "user_session.login.webauthn_mfa_required",
+		"user_session.login.webauthn_policy_denied", "user_session.login.webauthn_success",
+		"user_session.step_up.failure", "user_session.step_up.passkey_failure",
+		"user_session.step_up.passkey_success", "user_session.step_up.success",
 	}},
-	{"Tokens", []AuditEventType{
-		"token_issued", "token_refreshed", "token_revoked",
-		"oauth_token.revoked",
-		"token_introspected", "token_exchanged", "token_exchange",
-		"par_request_created", "assertion_consumed",
+	{"Sessions and sign-out", []AuditEventType{
+		"backchannel_logout_delivery.replayed",
+		"self_sessions_revoked", "session_evicted_max_sessions", "session_revoked",
+		"user_session.backchannel_logout.delivered", "user_session.frontchannel_logout",
+		"user_session.logout", "user_session.logout.cookie_revoked",
+		"user_session.logout.redirected", "user_session.logout.revocation_unconfirmed",
+		"user_session.refresh.reuse_detected", "user_session.refresh.success",
+		"user_session.revoke.success",
+	}},
+	{"Multi-factor and passkeys", []AuditEventType{
+		"mfa_disabled", "org_admin_mfa_reset",
+		"user_session.mfa.recovery_codes_regenerated", "user_session.mfa.self_enrolled",
+		"user_session.mfa.self_enrollment_started",
+		"webauthn_credential_deleted", "webauthn_credential_registered",
 	}},
 	{"Users", []AuditEventType{
-		"user_created", "bulk_user_created", "user_updated", "user_deleted",
-		"user_restored", "user_activated", "user_deactivated",
-		"password_changed", "role_changed", "site_admin_credentials_reset",
-		"email_verified", "email_verification_resent",
-		"invitation_consumed", "invitation_regenerated", "registration_approved",
-		"user_password_reset_requested", "user_password_reset_completed",
+		"email_verification_resent", "email_verified", "password_changed", "profile.updated",
+		"user.created", "user.deleted", "user.invite_redeemed", "user.invite_reissued",
+		"user.invited", "user.password_reset_link_issued", "user.registration_approved",
+		"user.registration_rejected", "user.restored", "user.self_registered",
+		"user.self_registration_refused", "user.updated",
+		"user_activated", "user_created", "user_deactivated",
+		"user_password_reset_completed", "user_password_reset_requested",
 	}},
 	{"Organizations", []AuditEventType{
-		"organization_created", "organization_updated", "organization_deleted",
-		"organization_restored", "organization_activated", "organization_deactivated",
-		"organization_admin_last_removed", "max_sessions_changed",
+		"org.identity_provider_created", "org.identity_provider_deleted",
+		"org.identity_provider_updated", "org.protocol_settings_changed",
+		"organization.activation_token_resent", "organization.created", "organization.deleted",
+		"organization.initial_admin_failed", "organization.registration_updated",
+		"organization.restored", "organization.updated", "organization_activated",
+		"organization_domain.created", "organization_domain.deleted",
+		"organization_domain.set_primary", "organization_domain.verified",
 	}},
-	{"Security & access", []AuditEventType{
-		"data_accessed", "access_denied", "permission_denied",
-		"security_violation", "rate_limit_exceeded",
-		"anomaly_detected", "resource_not_found",
+	{"Roles and scopes", []AuditEventType{
+		"org_role.assigned", "org_role.created", "org_role.deleted", "org_role.scope_added",
+		"org_role.scope_removed", "org_role.unassigned", "org_role.updated",
+		"scope.denied",
+		"scope_template.created", "scope_template.deleted", "scope_template.updated",
 	}},
-	{"OAuth & clients", []AuditEventType{
-		"client_created", "client_updated", "client_deleted",
-		"client_linked_service_account", "client_secret_rotated",
-		"client_assertion_auth",
-		"dynamic_client_registered", "dynamic_registration_token_issued",
-		"service_account_created", "service_account_deleted",
+	{"Applications and APIs", []AuditEventType{
+		"api_resource.created", "api_resource.deleted", "api_resource.secret_rotated",
+		"api_resource.updated",
+		"client.created", "client.dcr_registered", "client.deleted", "client.secret_rotated",
+		"client.updated",
+		"dcr.client_deleted", "dcr.client_read", "dcr.client_updated", "dcr.iat_issued",
+		"dcr.iat_revoked",
 	}},
-	{"Identity providers", []AuditEventType{
-		"identity_provider_created", "identity_provider_updated", "identity_provider_deleted",
-		"consent_granted", "consent_denied",
-		"directory_sync_completed", "directory_sync_failed",
+	{"Tokens and consent", []AuditEventType{
+		"oauth_authorize.code_issued", "oauth_authorize.error_redirect",
+		"oauth_authorize.request_object_rejected",
+		"oauth_consent.denied", "oauth_consent.granted",
+		"oauth_token.issued", "oauth_token.revoked",
+		"oidc_userinfo.served", "self_consent_revoked",
 	}},
-	{"Passkeys & WebAuthn", []AuditEventType{
-		"webauthn_credential_registered", "webauthn_credential_deleted", "webauthn_credential_renamed",
+	{"Service accounts and agents", []AuditEventType{
+		"agent_communication.token.issued", "agent_communication.token.refused",
+		"agent_communication_authorization.created", "agent_communication_authorization.revoked",
+		"service_account.created", "service_account.deleted", "service_account.disabled",
+		"service_account.enabled", "service_account.linked_oauth_client",
+		"service_account.owner_assigned", "service_account.unlinked_oauth_client",
+		"service_account.updated", "service_account_client.created",
 	}},
-	{"RBAC", []AuditEventType{
-		"rbac_role_created", "rbac_role_updated", "rbac_role_deleted",
-		"rbac_role_assigned", "rbac_role_revoked",
-		"rbac_role_scope_added", "rbac_role_scope_removed",
+	{"Signing keys", []AuditEventType{
+		"key.deprecated", "key.expired_purged", "key.generated", "key.rotated",
 	}},
-	{"API resources & scopes", []AuditEventType{
-		"api_resource_created", "api_resource_updated", "api_resource_deleted", "api_resource_secret_rotated",
-		"scope_template_created", "scope_template_updated", "scope_template_deleted",
+	{"Setup and instance", []AuditEventType{
+		"claim.consumed", "claim.email_send_attempted", "claim.generated",
+		"feature.denied", "instance.self_registration_updated", "setup.completed",
 	}},
-	{"Webhooks", []AuditEventType{
-		"webhook_endpoint_created", "webhook_endpoint_deleted", "webhook_signature_mismatch",
-	}},
-	{"SCIM", []AuditEventType{
-		"scim_user_created", "scim_user_updated", "scim_user_deleted",
-	}},
-	{"MCP", []AuditEventType{
-		"mcp_connection", "mcp_tool_called",
-	}},
-	{"Keys & credentials", []AuditEventType{
-		"signing_key_generated", "signing_key_rotated", "signing_key_deprecated",
-		"signing_key_deleted", "signing_key_reloaded", "signing_key_auto_rotated",
-		"encryption_key_rotated", "smtp_credentials_rotated", "secret_rotation_failed",
-	}},
-	{"System & backups", []AuditEventType{
-		"system_backup_completed", "system_backup_failed",
-		"system_backup_initiated", "system_backup_rotation",
-		"org_backup_initiated", "org_backup_completed", "org_backup_downloaded", "org_backup_purged",
-		"org_backup_restore_started", "org_backup_restore_completed",
-		"org_backup_restore_failed", "org_backup_sessions_revoked", "org_restored_from_backup",
-		"compliance_attestation", "compliance_authorize_auto_delete",
-	}},
-	{"SPIFFE & federation", []AuditEventType{
-		"spiffe_peer_created", "spiffe_peer_updated", "spiffe_peer_deleted",
-		"spiffe_bundle_accepted", "spiffe_bundle_rejected",
-		"spiffe_bundle_stale", "spiffe_bundle_unchanged",
-		"spiffe_mapping_rule_created", "spiffe_mapping_rule_updated", "spiffe_mapping_rule_deleted",
-		"spiffe_jit_sa_provisioned", "spiffe_svid_exchanged", "spiffe_svid_rejected",
-	}},
+}
+
+// auditLabelWords spells the abbreviations of the event names in plain words.
+var auditLabelWords = map[string]string{
+	"api": "API", "dcr": "dynamic registration", "iat": "initial access token",
+	"mfa": "MFA", "oauth": "OAuth", "oidc": "OIDC", "org": "organization",
+	"webauthn": "passkey",
+}
+
+// AuditEventTypeLabel is the one function that turns a recorded event name
+// into its label: the name's words in order, separators as spaces, the first
+// letter upper case ("user_session.login.mfa_verified" -> "User session
+// login MFA verified").
+func AuditEventTypeLabel(et AuditEventType) string {
+	words := strings.FieldsFunc(string(et), func(r rune) bool { return r == '.' || r == '_' })
+	for i, w := range words {
+		if plain, ok := auditLabelWords[strings.ToLower(w)]; ok {
+			words[i] = plain
+		} else {
+			words[i] = strings.ToLower(w)
+		}
+	}
+	label := strings.Join(words, " ")
+	if label == "" {
+		return label
+	}
+	return strings.ToUpper(label[:1]) + label[1:]
 }

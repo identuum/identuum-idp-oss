@@ -83,6 +83,7 @@ func RegisterAuditRoutes(router gin.IRouter, deps AuditHandlerDeps) {
 		)
 		g := router.Group("/api/v1/audit/events")
 		g.GET("", serviceMissingFallback("audit"))
+		router.Group("/api/v1/audit/event-types").GET("", serviceMissingFallback("audit"))
 		return
 	}
 	if deps.Audit == nil {
@@ -102,6 +103,53 @@ func RegisterAuditRoutes(router gin.IRouter, deps AuditHandlerDeps) {
 	// docgen:notes=site_admin sees all orgs (unscoped); an org_admin with the audit:read scope sees ONLY their own org — every row whose organization_id (the organization acted upon) is its own, whoever acted, a site_admin included; rows written before migration 0042 by their actor_organization_id as before. The org clamp is an explicit repository argument taken from Principal.OrganizationID, and any client-supplied actor_organization_id filter is IGNORED for a non-site_admin (P3-13 tenant boundary). Every row names its actor (actor_type user, client, service_account, setup_token, system, or anonymous without a principal). org_user is refused 403 even holding the scope. No COUNT(*): the response carries the page plus has_more. Reading the log emits no audit event of its own.
 	// docgen:status=200
 	g.GET("", HandleListAuditEvents(deps))
+
+	// The event-type catalog sits under the same guard as the log it filters.
+	types := router.Group("/api/v1/audit/event-types")
+	types.Use(mw.RequireSiteAdminOrOrgAdminWithScopesAudit(deps.Audit, domain.ScopeAuditRead))
+
+	// docgen:endpoint
+	// docgen:surface=audit
+	// docgen:method=GET
+	// docgen:path=/api/v1/audit/event-types
+	// docgen:summary=List the audit event types this server can record, in plain-word groups, for the audit log's event-type filter.
+	// docgen:tier=oss
+	// docgen:auth=site_admin|org_admin
+	// docgen:notes=The answer is {"groups":[{"label","types":[{"value","label"}]}]}: value is the event_type exactly as GET /api/v1/audit/events records and filters it, label is its plain-word name. The list is the same for every caller and holds every name the server can record and no other. Same authority as GET /api/v1/audit/events: site_admin, or an org_admin with the audit:read scope; org_user is refused 403 even holding the scope. Reading it emits no audit event.
+	// docgen:status=200
+	types.GET("", HandleListAuditEventTypes())
+}
+
+type auditEventTypeView struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+type auditEventTypeGroupView struct {
+	Label string               `json:"label"`
+	Types []auditEventTypeView `json:"types"`
+}
+
+type auditEventTypesResponse struct {
+	Groups []auditEventTypeGroupView `json:"groups"`
+}
+
+// HandleListAuditEventTypes serves GET /api/v1/audit/event-types from
+// domain.AllAuditEventTypeGroups.
+func HandleListAuditEventTypes() gin.HandlerFunc {
+	groups := make([]auditEventTypeGroupView, 0, len(domain.AllAuditEventTypeGroups))
+	for _, g := range domain.AllAuditEventTypeGroups {
+		types := make([]auditEventTypeView, 0, len(g.Types))
+		for _, et := range g.Types {
+			types = append(types, auditEventTypeView{Value: string(et), Label: domain.AuditEventTypeLabel(et)})
+		}
+		groups = append(groups, auditEventTypeGroupView{Label: g.Label, Types: types})
+	}
+	resp := auditEventTypesResponse{Groups: groups}
+	return func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, resp)
+	}
 }
 
 // HandleListAuditEvents serves GET /api/v1/audit/events.
