@@ -124,7 +124,7 @@ func run(args []string, d deps, stdout io.Writer) int {
 	// The full output goes to the operator; the record keeps the one line.
 	_, _ = stdout.Write(out)
 
-	verdict, _, line := Classify(string(out), failed)
+	verdict, _, line := Classify(string(out), failed, host)
 	fmt.Fprintln(stdout, line)
 	return verdict.ExitCode()
 }

@@ -5,6 +5,19 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+- **The integration check no longer hides a failing test as "no database".**
+  Before, `make verify-integration` reported "cannot evaluate, no database"
+  (exit 2) for a run with a real test failure whenever any line of the run
+  said "connection refused", and the redis and SMTP tests print that text
+  while they pass. Now it reads only the failed tests' own lines, and it
+  reports "no database" only when every failure shows a database error
+  (a connection error to the test database's port, a missing test database,
+  or the unset test database URL). Any other failure is red, and the red line
+  names the first such test and the failing packages (rule
+  INTEGRATION-GATE-1).
+
 ## `v0.9.12`
 
 The "email verified" status now tells the truth, client saves no longer

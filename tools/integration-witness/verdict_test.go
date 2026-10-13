@@ -104,10 +104,104 @@ func TestRule_INTEGRATION_GATE_1(t *testing.T) {
 			wantExit:  1,
 			wantLine:  "failed=1",
 		},
+		// THE-HIDDEN-RED (OSS-INTEGRATION-WITNESS-FIX). Only the failed
+		// tests' own lines can explain a failure: the redis and SMTP suites
+		// log "connection refused" by design while they PASS, and a real
+		// failure beside them was once read as "no database".
+		{
+			name: "a real failure beside a passing test's connection-refused log stays RED",
+			output: "=== RUN   TestRedisClient\n" +
+				"redis: 2026/10/12 19:30:58 pool.go:762: redis: connection pool: failed to dial after 5 attempts: dial tcp 127.0.0.1:57346: connect: connection refused\n" +
+				"--- PASS: TestRedisClient (3.10s)\nPASS\n" +
+				"ok  \tgithub.com/identuum/identuum-idp-oss/internal/infra/cache\t3.2s\n" +
+				"=== RUN   TestB\n    x_test.go:9: expected 404, got 503\n--- FAIL: TestB (0.02s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/e2e\t1.0s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "failed=1 first=github.com/identuum/identuum-idp-oss/internal/e2e.TestB",
+		},
+		{
+			name: "every failed test shows the pgx connect error to the DSN: CANNOT-EVALUATE",
+			output: "=== RUN   TestX\n    x_test.go:12: open pool: failed to connect to `user=idp_oss_user database=identuum_idp_oss_test`: " +
+				"127.0.0.1:5513 (127.0.0.1): dial error: connection refused\n--- FAIL: TestX (0.00s)\n" +
+				"=== RUN   TestY\n    y_test.go:30: failed to connect to `user=idp_oss_user database=identuum_idp_oss_test`: " +
+				"127.0.0.1:5513 (localhost): server error: FATAL: the database system is starting up (SQLSTATE 57P03)\n--- FAIL: TestY (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/postgres\t0.3s\n",
+			runFailed: true,
+			want:      VerdictCannotEvaluate,
+			wantExit:  2,
+			wantLine:  "CANNOT-EVALUATE",
+		},
+		{
+			name: "mixed database and non-database failures stay RED",
+			output: "=== RUN   TestX\n    x_test.go:12: open pool: failed to connect to `user=idp_oss_user database=identuum_idp_oss_test`: " +
+				"127.0.0.1:5513 (127.0.0.1): dial error: connection refused\n--- FAIL: TestX (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/postgres\t0.3s\n" +
+				"=== RUN   TestToken\n    token_test.go:401: expected 200, got 500: dial tcp 127.0.0.1:1: connect: connection refused\n" +
+				"--- FAIL: TestToken (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/handlers\t0.2s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "failed=2 first=github.com/identuum/identuum-idp-oss/internal/handlers.TestToken failed_packages=github.com/identuum/identuum-idp-oss/internal/postgres,github.com/identuum/identuum-idp-oss/internal/handlers",
+		},
+		{
+			name: "a pgx connect error to a server that is not the DSN's stays RED",
+			output: "=== RUN   TestDialer\n    dialer_test.go:7: failed to connect to `user=u database=d`: 127.0.0.1:1 (127.0.0.1): dial error: connection refused\n" +
+				"--- FAIL: TestDialer (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/infra\t0.1s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "first=github.com/identuum/identuum-idp-oss/internal/infra.TestDialer",
+		},
+		{
+			name: "a parent failed only by its database-failed subtest is explained by it",
+			output: "=== RUN   TestRepo\n=== RUN   TestRepo/create\n" +
+				"    repo_test.go:20: failed to connect to `user=idp_oss_user database=identuum_idp_oss_test`: 127.0.0.1:5513 (127.0.0.1): dial error: connection refused\n" +
+				"--- FAIL: TestRepo (0.00s)\n    --- FAIL: TestRepo/create (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/postgres\t0.1s\n",
+			runFailed: true,
+			want:      VerdictCannotEvaluate,
+			wantExit:  2,
+			wantLine:  "CANNOT-EVALUATE",
+		},
+		{
+			name: "a parent's own non-database error is not hidden by a database-failed subtest",
+			output: "=== RUN   TestRepo\n=== RUN   TestRepo/create\n" +
+				"    repo_test.go:20: failed to connect to `user=idp_oss_user database=identuum_idp_oss_test`: 127.0.0.1:5513 (127.0.0.1): dial error: connection refused\n" +
+				"=== NAME  TestRepo\n    repo_test.go:31: cleanup left 3 rows\n" +
+				"--- FAIL: TestRepo (0.00s)\n    --- FAIL: TestRepo/create (0.00s)\nFAIL\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/postgres\t0.1s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "first=github.com/identuum/identuum-idp-oss/internal/postgres.TestRepo ",
+		},
+		{
+			name: "a package that fails before any test, on the harness's missing-DSN fatal: CANNOT-EVALUATE",
+			output: "IDENTUUM_IDP_TEST_DATABASE_URL is not set; the provisioning teeth were requested via -tags integration\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/runtime\t0.1s\n",
+			runFailed: true,
+			want:      VerdictCannotEvaluate,
+			wantExit:  2,
+			wantLine:  "CANNOT-EVALUATE",
+		},
+		{
+			name: "a package that fails before any test for another reason stays RED and is named",
+			output: "--- PASS: TestA (0.01s)\nok  \tgithub.com/identuum/identuum-idp-oss/internal/a\t0.1s\n" +
+				"panic: init: dial tcp 127.0.0.1:6379: connect: connection refused\n" +
+				"FAIL\tgithub.com/identuum/identuum-idp-oss/internal/b\t0.1s\n",
+			runFailed: true,
+			want:      VerdictRed,
+			wantExit:  1,
+			wantLine:  "first=github.com/identuum/identuum-idp-oss/internal/b failed_packages=github.com/identuum/identuum-idp-oss/internal/b",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, counts, line := Classify(tc.output, tc.runFailed)
+			got, counts, line := Classify(tc.output, tc.runFailed, "127.0.0.1:5513")
 			if got != tc.want {
 				t.Fatalf("verdict = %v, want %v (counts %+v, line %q)", got, tc.want, counts, line)
 			}
