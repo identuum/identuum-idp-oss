@@ -174,7 +174,7 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:summary=Redeem an administrator's reset link (D9): the member sets their own password under the organization's policy; every session and refresh token of the user is revoked and no change is owed at the next sign-in. Answers {"success":true}.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=Single use. 400 invalid_token (used, expired, replaced, or the organization no longer allows the member a local password) or weak_password (the link stays usable). Cache-Control no-store. Rate-limited per IP with the reset routes. Raw token never logged.
+		// docgen:notes=Single use. 400 invalid_token (used, expired, replaced, or the organization no longer allows the member a local password) or weak_password (the link stays usable). 500 {"error":"sessions_not_ended","message":"Your new password is set, but your other sign-ins could not be ended. Sign in with the new password and ask your administrator to end your other sessions."} when the password is set and the link spent but the user's other sessions or refresh tokens could not be ended; a retry answers invalid_token, so the console shows it as a set password with a warning. Cache-Control no-store. Rate-limited per IP with the reset routes. Raw token never logged.
 		resetGroup.POST("/api/v1/auth/reset-link", HandleRedeemResetLink(deps))
 	}
 	if deps.EmailVerify != nil {

@@ -727,9 +727,10 @@ func (d9FailingRefreshRevoker) RevokeAllForUser(context.Context, uuid.UUID) (int
 }
 
 // Review F4 (OSS-0913-B-REVIEW): when the other sign-ins cannot be ended, the
-// password is already set and the link spent. The answer stays 500
-// internal_error, and its message says the password was set instead of
-// inviting a retry that would answer invalid_token.
+// password is already set and the link spent. The answer stays 500, with its
+// own code sessions_not_ended since OSS-0913-C (UI-0913-B-REST-REVIEW Q1 (a)),
+// and its message says the password was set instead of inviting a retry that
+// would answer invalid_token.
 func TestD9_RedeemSaysThePasswordWasSetWhenRevocationFails(t *testing.T) {
 	w := newD9World(t, d9UIBase)
 	w.svc.WithRefreshTokenRevoker(d9FailingRefreshRevoker{})
@@ -744,8 +745,8 @@ func TestD9_RedeemSaysThePasswordWasSetWhenRevocationFails(t *testing.T) {
 	w.engine.ServeHTTP(out, req)
 	var got struct{ Error, Message string }
 	_ = json.Unmarshal(out.Body.Bytes(), &got)
-	if out.Code != http.StatusInternalServerError || got.Error != "internal_error" {
-		t.Fatalf("redeem with a failing revocation = %d %s; want 500 internal_error", out.Code, got.Error)
+	if out.Code != http.StatusInternalServerError || got.Error != "sessions_not_ended" {
+		t.Fatalf("redeem with a failing revocation = %d %s; want 500 sessions_not_ended", out.Code, got.Error)
 	}
 	if !strings.Contains(got.Message, "password is set") {
 		t.Errorf("message = %q; want it to say the password is set", got.Message)
