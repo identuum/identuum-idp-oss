@@ -372,7 +372,10 @@ func (r *PgxUserRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.
 	return user, nil
 }
 
-// FindUsersByEmail finds users by email
+// FindUsersByEmail finds users by email. The typed address is normalized and
+// matched on lower(email) (index users_email_lower_key_undeleted, 0056), so an
+// address typed in another case or with spaces, and an older account stored in
+// mixed case before 0056, are found.
 func (r *PgxUserRepository) FindUsersByEmail(ctx context.Context, email string) ([]*domain.User, error) {
 	query := `
 		SELECT
@@ -381,9 +384,9 @@ func (r *PgxUserRepository) FindUsersByEmail(ctx context.Context, email string) 
 			o.domain, o.name AS organization_name, o.mfa_policy, o.auth_policy, o.max_sessions_per_user, o.password_complexity_enabled
 		FROM users u
 		LEFT JOIN organizations o ON u.organization_id = o.id
-		WHERE u.email = $1 AND u.banned = false AND u.deleted_at IS NULL AND (u.organization_id IS NULL OR (o.active = true AND o.deleted_at IS NULL))`
+		WHERE lower(u.email) = $1 AND u.banned = false AND u.deleted_at IS NULL AND (u.organization_id IS NULL OR (o.active = true AND o.deleted_at IS NULL))`
 
-	rows, err := r.db.Query(ctx, query, email)
+	rows, err := r.db.Query(ctx, query, domain.NormalizeEmail(email))
 	if err != nil {
 		return nil, fmt.Errorf("failed to find users by email: %w", err)
 	}
@@ -405,20 +408,22 @@ func (r *PgxUserRepository) FindUsersByEmail(ctx context.Context, email string) 
 	return users, nil
 }
 
-// GetByEmailAndOrgID retrieves a user by email and organization ID
+// GetByEmailAndOrgID retrieves a user by email and organization ID, matching
+// the normalized address on lower(email) as FindUsersByEmail does.
 func (r *PgxUserRepository) GetByEmailAndOrgID(ctx context.Context, orgID uuid.UUID, email string) (*domain.User, error) {
+	email = domain.NormalizeEmail(email)
 	if orgID == uuid.Nil {
 		query := `
 		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via, admin_password_set_at
 		FROM users
-		WHERE organization_id IS NULL AND email = $1 AND banned = false AND deleted_at IS NULL`
+		WHERE organization_id IS NULL AND lower(email) = $1 AND banned = false AND deleted_at IS NULL`
 		return r.scanUserWithPassword(r.db.QueryRow(ctx, query, email))
 	}
 
 	query := `
 		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via, admin_password_set_at
 		FROM users
-		WHERE organization_id = $1 AND email = $2 AND banned = false AND deleted_at IS NULL`
+		WHERE organization_id = $1 AND lower(email) = $2 AND banned = false AND deleted_at IS NULL`
 
 	return r.scanUserWithPassword(r.db.QueryRow(ctx, query, orgID, email))
 }

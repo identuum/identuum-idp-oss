@@ -46,6 +46,15 @@ follows [Semantic Versioning](https://semver.org/).
   duplicates are resolved. Check before upgrading with the query in the
   operator guide ("Before upgrading to v0.9.14"). Sign-in, password reset and
   passkey flows are unchanged. No new setting.
+- **Sign-in by email finds the account in any case.** Passkey sign-in by
+  email looked up the address exactly as typed, so `Alice@Example.com` or an
+  address with a space did not find the account `alice@example.com`. An
+  account whose address was stored in capitals before v0.9.14 could not sign
+  in with a password, reset its password, re-send its verification mail, or
+  be found at a first sign-in through its organization's identity provider.
+  Every one of these lookups now trims and lowercases the typed address and
+  compares it with the stored address in lower case. Stored addresses are
+  not changed. The passkey ceremony is unchanged.
 
 ## `v0.9.13`
 

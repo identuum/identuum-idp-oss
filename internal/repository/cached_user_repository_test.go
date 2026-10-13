@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/infra/cache"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -240,6 +242,38 @@ func TestCachedUserRepository_GetByEmailAndOrgID(t *testing.T) {
 	res2, err := cachedRepo.GetByEmailAndOrgID(ctx, orgID, email)
 	assert.NoError(t, err)
 	assert.Equal(t, user.ID, res2.ID)
+}
+
+// The in-organization lookup by address keys its cache entry by the
+// normalized address, so a typed address in another case or with spaces
+// shares the account's entry and an update of the account drops it.
+func TestCachedUserRepository_GetByEmailAndOrgID_TypedCaseSharesTheEntry(t *testing.T) {
+	mr, rdb := setupTestRedis(t)
+	defer mr.Close()
+
+	mockRepo := new(MockUserRepository)
+	cachedRepo := NewCachedUserRepository(mockRepo, rdb, 5*time.Minute)
+
+	ctx := context.Background()
+	typed := "  Test@Example.COM "
+	orgID := uuid.New()
+	user := &domain.User{ID: uuid.New(), Email: "Test@example.com", OrganizationID: orgID}
+
+	mockRepo.On("GetByEmailAndOrgID", ctx, orgID, typed).Return(user, nil).Twice()
+	mockRepo.On("GetByID", ctx, user.ID).Return(user, nil).Once()
+	mockRepo.On("Update", ctx, user.ID, orgID, mock.Anything).Return(user, nil).Once()
+
+	_, err := cachedRepo.GetByEmailAndOrgID(ctx, orgID, typed)
+	assert.NoError(t, err)
+	assert.True(t, mr.Exists(fmt.Sprintf("user:email_org:%s:%s", orgID, "test@example.com")), "entry keyed by the normalized address")
+
+	_, err = cachedRepo.Update(ctx, user.ID, orgID, UpdateUserOptions{})
+	assert.NoError(t, err)
+
+	// The update dropped the entry: the next lookup reads the delegate again.
+	_, err = cachedRepo.GetByEmailAndOrgID(ctx, orgID, typed)
+	assert.NoError(t, err)
+	mockRepo.AssertExpectations(t)
 }
 
 func TestCachedUserRepository_GetByExternalID(t *testing.T) {

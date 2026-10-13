@@ -91,7 +91,7 @@ func (r *CachedUserRepository) invalidateUserCache(ctx context.Context, user *do
 
 	// Invalidate GetByEmailAndOrgID cache
 	if user.Email != "" {
-		keys = append(keys, fmt.Sprintf("user:email_org:%s:%s", user.OrganizationID, user.Email))
+		keys = append(keys, emailOrgKey(user.OrganizationID, user.Email))
 	}
 
 	// Invalidate GetByExternalID cache
@@ -141,8 +141,15 @@ func (r *CachedUserRepository) FindUsersByEmail(ctx context.Context, email strin
 	return r.delegate.FindUsersByEmail(ctx, email)
 }
 
+// emailOrgKey keys GetByEmailAndOrgID by the normalized address: the delegate
+// matches every case of it, so every case shares one entry, and invalidation
+// by the stored address drops it.
+func emailOrgKey(orgID uuid.UUID, email string) string {
+	return fmt.Sprintf("user:email_org:%s:%s", orgID, domain.NormalizeEmail(email))
+}
+
 func (r *CachedUserRepository) GetByEmailAndOrgID(ctx context.Context, orgID uuid.UUID, email string) (*domain.User, error) {
-	key := fmt.Sprintf("user:email_org:%s:%s", orgID, email)
+	key := emailOrgKey(orgID, email)
 	var user domain.User
 
 	// 1. Try Cache
