@@ -653,6 +653,11 @@ func (r *PgxUserRepository) Update(ctx context.Context, id uuid.UUID, orgID uuid
 	// links in the same statement, so no link mailed to the old address
 	// outlives the change. The CTE reads the row before the update: it
 	// matches only when this update matches and the address differs.
+	// Lock order (O14): the users row first, then the user's
+	// email_verifications rows. The CTE is unreferenced, so PostgreSQL runs
+	// it to completion after the main UPDATE has taken the users row;
+	// ProveInTx (email_verification_repository_pgx.go) takes the same two in
+	// the same order, so the two paths cannot deadlock on each other.
 	retireLinks := ""
 	if opts.Email != nil {
 		args = append(args, *opts.Email)

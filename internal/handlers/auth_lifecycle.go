@@ -180,7 +180,7 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:summary=Verify an email address via a one-time token. Single use — a second use of the same link answers 400 invalid_token, as every other failure does except a live link mailed to an earlier address, which answers 400 email_changed.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=No Set-Cookie. 400 invalid_token collapses every failure mode (bad / expired / consumed / unknown user). A live link mailed to another address than the user's current one is spent and answers 400 email_changed with a plain message; it proves nothing. Raw token never logged. Rate-limited per IP (429 past the window). Audited as email_verified.
+		// docgen:notes=No Set-Cookie. 400 invalid_token collapses every failure mode (bad / expired / consumed / unknown user). A live link mailed to another address than the user's current one is not used up and answers 400 email_changed with a plain message; it proves nothing. Raw token never logged. Rate-limited per IP (429 past the window). Audited as email_verified.
 		verifyGroup.GET("/api/v1/auth/verify-email", HandleVerifyEmail(deps))
 		// docgen:endpoint
 		// docgen:surface=auth-lifecycle
@@ -189,7 +189,7 @@ func RegisterAccountLifecycleRoutes(router gin.IRouter, deps AccountLifecycleHan
 		// docgen:summary=Resend a verification email. Anti-enumeration — always 200 regardless of whether the email matches an unverified user.
 		// docgen:tier=oss
 		// docgen:auth=public
-		// docgen:notes=No Set-Cookie. Banned / deleted / mailbox-proven users are silently skipped. Raw token never echoed. Rate-limited per IP and per target address (hashed; known and unknown addresses alike), 429 past either window. Each sent mail is audited as email_verification_resent, without the address.
+		// docgen:notes=No Set-Cookie. Banned / deleted / mailbox-proven users and the site_admin are silently skipped. Raw token never echoed. Rate-limited per IP and per target address (hashed; known and unknown addresses alike), 429 past either window. Each sent mail is audited as email_verification_resent, without the address.
 		resendGroup.POST("/api/v1/auth/resend-verification", HandleResendVerification(deps))
 
 		// OSS-0912-C2: the signed-in user asks for a link to their own

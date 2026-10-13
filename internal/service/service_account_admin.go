@@ -462,14 +462,17 @@ func (s *ServiceAccountService) ValidateBindingForClient(ctx context.Context, sa
 	if sa == nil {
 		return ErrServiceAccountNotFound
 	}
+	// O8: visibility first, as RecheckLockedBinding decides it. Another
+	// organization's account is a mismatch whatever its state, so a
+	// cross-org probe learns nothing about whether it is inactive or expired.
+	if clientOrgID != nil && *clientOrgID != sa.OrganizationID {
+		return ErrServiceAccountOrgMismatch
+	}
 	if !sa.Active {
 		return ErrServiceAccountInactive
 	}
 	if sa.ExpiresAt != nil && !sa.ExpiresAt.After(s.now()) {
 		return ErrServiceAccountExpired
-	}
-	if clientOrgID != nil && *clientOrgID != sa.OrganizationID {
-		return ErrServiceAccountOrgMismatch
 	}
 	return nil
 }

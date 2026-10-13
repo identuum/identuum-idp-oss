@@ -1462,7 +1462,8 @@ func mountAuthSessions(router gin.IRouter, resolved OSSRouterDeps) {
 	if resolved.UserRepo != nil {
 		// Self-service POST /api/v1/auth/change-password (THE-V036-PASSWORD).
 		// Min-length 0 ⇒ the service's own default floor (8, mirroring
-		// password reset). R2 parked: no session/refresh revocation wired.
+		// password reset). The handler ends the user's other sessions and
+		// refresh tokens after a change (HandleChangePassword, R2).
 		authDeps.ChangePassword = service.NewChangePasswordService(resolved.UserRepo, 0)
 	}
 	// THE-UNLIMITED-REGENERATE (2026-09-12): POST /api/v1/me/mfa/recovery-codes/
