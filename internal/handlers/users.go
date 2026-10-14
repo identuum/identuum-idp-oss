@@ -677,6 +677,7 @@ func HandleListUsers(deps UsersHandlerDeps) gin.HandlerFunc {
 			Pagination: repository.NewPagination(page, pageSize),
 			Sort:       repository.NewUserSort("created_at", true),
 		}
+		pageSize = opts.Pagination.PageSize // answer with the size served: NewPagination caps it (V3-039)
 		actor, _ := mw.PrincipalFromContext(c)
 		var (
 			users []*domain.User

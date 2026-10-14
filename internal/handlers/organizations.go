@@ -521,6 +521,7 @@ func HandleListOrganizations(deps OrganizationsHandlerDeps) gin.HandlerFunc {
 		pageSize := parsePositiveQuery(c, "page_size", 50, 200)
 		page := parsePositiveQuery(c, "page", 1, 1<<16)
 		pagination := repository.NewPagination(page, pageSize)
+		pageSize = pagination.PageSize // answer with the size served: NewPagination caps it (V3-039)
 		sort := repository.NewOrganizationSort("created_at", true)
 		actor, _ := mw.PrincipalFromContext(c)
 		// org_admin path: return only own org as a single-row list.

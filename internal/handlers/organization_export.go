@@ -88,6 +88,7 @@ func HandleListOrganizationExportCandidates(deps OrganizationsHandlerDeps) gin.H
 		pageSize := parsePositiveQuery(c, "page_size", 50, 200)
 		page := parsePositiveQuery(c, "page", 1, 1<<16)
 		pagination := repository.NewPagination(page, pageSize)
+		pageSize = pagination.PageSize // answer with the size served: NewPagination caps it (V3-039)
 		sort := repository.NewOrganizationSort("name", false)
 		actor, _ := mw.PrincipalFromContext(c)
 
