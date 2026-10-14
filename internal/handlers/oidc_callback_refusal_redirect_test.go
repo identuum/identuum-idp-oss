@@ -71,6 +71,9 @@ func TestOIDCCallbackRoute_RefusalRedirectsWithReason(t *testing.T) {
 		{service.ErrCallbackDiscoveryFailed, "provider_unavailable"},
 		{service.ErrCallbackExchangeFailed, "provider_unavailable"},
 		{service.ErrCallbackStateInvalid, "sign_in_expired"},
+		// OSS-0914-MUSTCHANGE: D-017 and G2 hold for the upstream sign-in.
+		{service.ErrLoginPasswordChangeRequired, "password_change_required"},
+		{service.ErrLoginPasswordExpired, "password_expired"},
 	}
 	for _, tc := range cases {
 		for _, minter := range []*service.UserTokenService{nil, consoleMinter(t)} {
@@ -121,6 +124,8 @@ func TestOIDCCallbackRoute_RefusalReasonsAreAClosedList(t *testing.T) {
 	want := []string{
 		"email_not_shared",
 		"invitation_pending",
+		"password_change_required",
+		"password_expired",
 		"provider_unavailable",
 		"registration_pending",
 		"sign_in_expired",

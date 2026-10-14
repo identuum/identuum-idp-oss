@@ -183,7 +183,7 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 			if errors.Is(err, service.ErrLoginPasswordExpired) {
 				// G2: the admin-set password is past its 24 hours. The row
 				// names the user whose password expired.
-				auditLoginStep(c, deps.Audit, "user_session.login.password_expired", result)
+				auditLoginStep(c, deps.Audit, "user_session.login.password_expired", result, map[string]any{"method": "password"})
 				loc := "/api/v1/auth/browser-login?error=password_expired"
 				if returnTo != "" {
 					loc += "&return_to=" + url.QueryEscape(returnTo)
@@ -196,7 +196,7 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 				// their own before any cookie exists.
 				row, perr := deps.MFAEnrollment.CreatePending(c.Request.Context(), result.User, domain.MFAPendingKindPasswordChange, remember)
 				if perr == nil && row != nil {
-					auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result)
+					auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result, map[string]any{"method": "password"})
 					renderPasswordChangeForm(c, deps, row.ID.String(), returnTo, remember, "")
 					return
 				}
@@ -206,7 +206,7 @@ func HandleBrowserLoginSubmit(deps BrowserLoginHandlerDeps) gin.HandlerFunc {
 				// requires an authenticator the user has not enrolled; enrol
 				// it here (FIN-2's enrolment) before any cookie exists.
 				if startBrowserMFAEnrol(c, deps, result.User, remember, returnTo) {
-					auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result)
+					auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result, nil)
 					return
 				}
 			}

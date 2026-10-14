@@ -590,23 +590,11 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 			UserAgent: c.Request.UserAgent(),
 		})
 		c.JSON(loginStepStatus(c), body)
-	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
+	case errors.Is(err, service.ErrLoginPasswordChangeRequired), errors.Is(err, service.ErrLoginPasswordExpired):
 		// D-017: an admin-set password was proven; the user must choose
-		// their own first. No session, no token, no cookie — only a
-		// one-time handle for POST /api/v1/auth/login/password-change.
-		body := gin.H{"error": "password_change_required", "password_change_required": true}
-		sessionID := mintPendingMFAHandle(c, deps, result, domain.MFAPendingKindPasswordChange, rememberMe)
-		if sessionID != "" {
-			body["session_id"] = sessionID
-		}
-		auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result)
-		c.JSON(loginStepStatus(c), body)
-	case errors.Is(err, service.ErrLoginPasswordExpired):
-		// G2: the admin-set password is past its 24 hours. No session, no
-		// handle for the change step. The row names the user whose
-		// admin-set password expired.
-		auditLoginStep(c, deps.Audit, "user_session.login.password_expired", result)
-		c.JSON(http.StatusUnauthorized, passwordExpiredBody())
+		// their own first (a one-time handle for the change step). G2: past
+		// its 24 hours it opens nothing. The passkey sign-in answers the same.
+		emitPasswordOwed(c, deps, err, result, rememberMe, "password")
 	case errors.Is(err, service.ErrLoginAccountUnverified):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account_unverified"})
 	case errors.Is(err, service.ErrLoginRegistrationPending):

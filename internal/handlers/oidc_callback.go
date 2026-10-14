@@ -117,6 +117,19 @@ func HandleOIDCCallback(deps OIDCCallbackHandlerDeps) gin.HandlerFunc {
 		ua := c.Request.UserAgent()
 		res, err := deps.OIDCCallback.HandleCallback(c.Request.Context(), providerID, state, code, ip, ua)
 		if err != nil {
+			// D-017 / G2 (OSS-0914-MUSTCHANGE): the member owes a password
+			// change, or the admin-set password expired. No session exists;
+			// the row names the member, the method and the provider, as the
+			// password sign-in's row names the member.
+			if res != nil && res.User != nil {
+				step := &service.LoginResult{User: res.User}
+				meta := map[string]any{"method": "oidc_upstream", "provider_id": providerID.String()}
+				if errors.Is(err, service.ErrLoginPasswordExpired) {
+					auditLoginStep(c, deps.Audit, "user_session.login.password_expired", step, meta)
+				} else {
+					auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", step, meta)
+				}
+			}
 			redirectUpstreamRefusal(c, upstreamRefusalReason(err))
 			return
 		}
@@ -264,6 +277,13 @@ const (
 	// refusalSignInUnavailable: the sign-in could not be completed on this
 	// side (a store or key failure); trying again may work.
 	refusalSignInUnavailable = "sign_in_unavailable"
+	// refusalPasswordChangeRequired: the member must first choose a new
+	// password, as an administrator asked (D-017); password sign-in leads to
+	// the change step (OSS-0914-MUSTCHANGE).
+	refusalPasswordChangeRequired = "password_change_required"
+	// refusalPasswordExpired: the member's administrator-set password is past
+	// its 24 hours (G2); the member asks the administrator for a reset link.
+	refusalPasswordExpired = "password_expired"
 )
 
 // UpstreamSignInRefusalReasons is the closed list of reason codes above.
@@ -276,6 +296,8 @@ var UpstreamSignInRefusalReasons = []string{
 	refusalRegistrationPending,
 	refusalProviderUnavailable,
 	refusalSignInUnavailable,
+	refusalPasswordChangeRequired,
+	refusalPasswordExpired,
 }
 
 // consoleSignInPath is the console's sign-in page; its reason banner reads
@@ -297,6 +319,10 @@ func upstreamRefusalReason(err error) string {
 	switch {
 	case errors.Is(err, service.ErrCallbackValidationFailed):
 		return refusalSignInFailed
+	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
+		return refusalPasswordChangeRequired
+	case errors.Is(err, service.ErrLoginPasswordExpired):
+		return refusalPasswordExpired
 	case errors.Is(err, service.ErrCallbackInvitePending):
 		return refusalInvitationPending
 	case errors.Is(err, service.ErrCallbackRegistrationPending):

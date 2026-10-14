@@ -36,9 +36,14 @@ type loginPasswordChangeRequest struct {
 	NewPassword string `json:"new_password"`
 }
 
-// auditLoginStep records a denied sign-in step with the user's id only.
-func auditLoginStep(c *gin.Context, svc audit.Service, action string, result *service.LoginResult) {
+// auditLoginStep records a denied sign-in step with the user's id and the
+// extra metadata given, such as the sign-in method that met a required
+// password change (OSS-0914-MUSTCHANGE); extra may be nil.
+func auditLoginStep(c *gin.Context, svc audit.Service, action string, result *service.LoginResult, extra map[string]any) {
 	meta := map[string]any{}
+	for k, v := range extra {
+		meta[k] = v
+	}
 	ev := audit.Event{
 		Action:    action,
 		Outcome:   "denied",
@@ -57,6 +62,31 @@ func auditLoginStep(c *gin.Context, svc audit.Service, action string, result *se
 		ev.OrganizationID = result.User.OrganizationID
 	}
 	_ = svc.Record(c.Request.Context(), ev)
+}
+
+// emitPasswordOwed answers a password or passkey sign-in that met a required
+// password change (D-017) or an expired admin-set password (G2), and reports
+// whether err was one of the two. No session, no token, no cookie: for the
+// change only a one-time handle for POST /api/v1/auth/login/password-change.
+// The audit row names the sign-in method (OSS-0914-MUSTCHANGE).
+func emitPasswordOwed(c *gin.Context, deps AuthSessionsHandlerDeps, err error, result *service.LoginResult, rememberMe bool, method string) bool {
+	switch {
+	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
+		body := gin.H{"error": "password_change_required", "password_change_required": true}
+		if h := mintPendingMFAHandle(c, deps, result, domain.MFAPendingKindPasswordChange, rememberMe); h != "" {
+			body["session_id"] = h
+		}
+		auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result, map[string]any{"method": method})
+		c.JSON(loginStepStatus(c), body)
+		return true
+	case errors.Is(err, service.ErrLoginPasswordExpired):
+		// G2: past its 24 hours the admin-set password opens nothing, not
+		// even the change step. The row names the user.
+		auditLoginStep(c, deps.Audit, "user_session.login.password_expired", result, map[string]any{"method": method})
+		c.JSON(http.StatusUnauthorized, passwordExpiredBody())
+		return true
+	}
+	return false
 }
 
 // changeRequiredPassword runs the shared change for both sign-in surfaces:
@@ -122,14 +152,14 @@ func HandleLoginPasswordChange(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			if h := mintPendingMFAHandle(c, deps, result, domain.MFAPendingKindEnroll, remember); h != "" {
 				body["session_id"] = h
 			}
-			auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result)
+			auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result, nil)
 			c.JSON(loginStepStatus(c), body)
 		case user.MFAEnabled:
 			body := gin.H{"error": "mfa_required", "mfa_required": true, "mfa_enrollment_required": false}
 			if h := mintPendingMFAHandle(c, deps, result, domain.MFAPendingKindVerify, remember); h != "" {
 				body["session_id"] = h
 			}
-			auditLoginStep(c, deps.Audit, "user_session.login.mfa_required", result)
+			auditLoginStep(c, deps.Audit, "user_session.login.mfa_required", result, nil)
 			c.JSON(loginStepStatus(c), body)
 		default:
 			completeMFALogin(c, deps, &service.MFAEnrollmentCompleteResult{User: user, RememberMe: remember}, "user_session.login.success", false)

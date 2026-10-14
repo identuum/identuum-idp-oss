@@ -176,6 +176,15 @@ for each:
 | `registration_pending` | The person's self-registration waits for an administrator's approval. |
 | `provider_unavailable` | The provider's discovery document or token endpoint could not be used. |
 | `sign_in_unavailable` | The sign-in could not be completed on this side (a store or key failure); trying again may work. |
+| `password_change_required` | An administrator set this member's password and asked for a change, and the member has not chosen a new password yet. The member signs in with that password once and chooses a new one; then the provider sign-in works. Since v0.9.14. |
+| `password_expired` | The password an administrator set for this member is more than 24 hours old and was never changed. The member asks the administrator for a new reset link. Since v0.9.14. |
+
+A member with no local password (an account the provider created or linked, or an
+organization whose policy is `idp_only` for its members) is never refused for a password.
+Both password refusals come before the provider identity is linked to the account, and the
+audit log records `user_session.login.password_change_required` or
+`user_session.login.password_expired` with `metadata.method` = `oidc_upstream` and
+`metadata.provider_id`.
 
 Until v0.9.13 the callback answered these refusals with a JSON status (400, 401, 403, 500, 502)
 or `503 temporarily unavailable, try again`.

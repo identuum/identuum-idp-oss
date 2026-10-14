@@ -1412,6 +1412,8 @@ func mountWebAuthn(router gin.IRouter, resolved OSSRouterDeps) {
 		UserLookup:    resolved.UserLookup,
 		Audit:         resolved.Audit,
 		LoginFinisher: resolved.WebAuthnService,
+		// D-017 / G2: the passkey sign-in's handle for the change step.
+		MFAEnrollment: resolved.MFAEnrollment,
 		// R7: per-IP rate limiters on ceremony routes (keyed on c.ClientIP()
 		// which honours SetTrustedProxies — forged X-Forwarded-For from
 		// untrusted sources falls back to RemoteAddr).

@@ -116,6 +116,10 @@ type WebAuthnHandlerDeps struct {
 	// passkey can require a RECENT sign-in (H6). nil fails closed: those two
 	// routes answer 403 reauth_required.
 	SessionLookup SessionByIDLookup
+	// MFAEnrollment mints the one-time handle of the required password change
+	// step (D-017, OSS-0914-MUSTCHANGE). nil answers the change requirement
+	// without a handle, as password sign-in does.
+	MFAEnrollment *service.MFAEnrollmentService
 	// RecentSignInWindow is how long after a sign-in or step-up a passkey may
 	// be added or removed. Zero means DefaultPassKeyRecentSignIn.
 	RecentSignInWindow time.Duration
@@ -625,6 +629,16 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
 			return
 		}
+		// (1b) REQUIRED PASSWORD CHANGE (D-017) and the 24-hour expiry of an
+		// admin-set password (G2), before MFA as on password sign-in
+		// (OSS-0914-MUSTCHANGE): the same answers, the same one-time handle
+		// for the change step, no session before the member chooses a
+		// password. The change step then continues as password sign-in does.
+		rememberMe := c.Query("remember_me") == "true"
+		if owed := service.PasswordOwedAtSignIn(user, orgAuthPolicy, time.Now()); owed != nil {
+			emitPasswordOwed(c, AuthSessionsHandlerDeps{MFAEnrollment: deps.MFAEnrollment, Audit: deps.Audit}, owed, &service.LoginResult{User: user}, rememberMe, "passkey")
+			return
+		}
 		// (2) MFA POLICY (UV-conditional) — when the org policy requires
 		// MFA, a WebAuthn assertion satisfies that requirement IF AND ONLY
 		// IF it included user verification (UV). A UV-verified assertion is
@@ -645,7 +659,6 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "mfa_required"})
 			return
 		}
-		rememberMe := c.Query("remember_me") == "true"
 		ip := c.ClientIP()
 		ua := c.Request.UserAgent()
 		var ipPtr, uaPtr *string

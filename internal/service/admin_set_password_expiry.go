@@ -30,3 +30,26 @@ func adminSetPasswordExpired(u *domain.User, now time.Time) bool {
 	return u != nil && u.RequiresPasswordChange && u.AdminPasswordSetAt != nil &&
 		now.Sub(*u.AdminPasswordSetAt) > AdminSetPasswordTTL
 }
+
+// PasswordOwedAtSignIn is the D-017 / G2 gate of a sign-in that proves the
+// member without the password: a passkey or an upstream provider
+// (OSS-0914-MUSTCHANGE). It answers what password sign-in answers for the
+// same state, ErrLoginPasswordExpired or ErrLoginPasswordChangeRequired, so
+// no session exists before the member chooses a password. A member with no
+// local password is never asked for one: no hash, an account the provider
+// owns (the change step, ChangeRequiredAtSignIn, refuses it), or local
+// credentials barred by the organization's policy (idp_only).
+func PasswordOwedAtSignIn(u *domain.User, orgAuthPolicy string, now time.Time) error {
+	if u == nil || u.PasswordHash == domain.NoPasswordSentinel ||
+		(u.AuthSource != "" && u.AuthSource != domain.AuthSourceLocal) ||
+		!IsLocalCredentialFlowAllowed(u, orgAuthPolicy).Allowed {
+		return nil
+	}
+	if adminSetPasswordExpired(u, now) {
+		return ErrLoginPasswordExpired
+	}
+	if u.RequiresPasswordChange {
+		return ErrLoginPasswordChangeRequired
+	}
+	return nil
+}

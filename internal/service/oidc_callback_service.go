@@ -319,7 +319,12 @@ func (s *OIDCCallbackService) HandleCallback(ctx context.Context, providerID uui
 			return nil, ErrCallbackForbidden
 		}
 	}
-	user, err := s.resolveLocalUser(ctx, provider, eu)
+	user, err := s.resolveLocalUser(ctx, provider, org.AuthPolicy, eu)
+	if errors.Is(err, ErrLoginPasswordChangeRequired) || errors.Is(err, ErrLoginPasswordExpired) {
+		// D-017 / G2 (OSS-0914-MUSTCHANGE): no session; the user is returned
+		// so the refusal's audit row names whose password is owed.
+		return &OIDCCallbackResult{User: user}, err
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -401,7 +406,11 @@ func (s *OIDCCallbackService) mintSession(ctx context.Context, user *domain.User
 // verified email within the org (linking the external identity), else
 // JIT-create a passwordless federated user. Reuses the existing UserRepository
 // — no parallel user store.
-func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *domain.IdentityProvider, eu *domain.ExternalUser) (*domain.User, error) {
+//
+// A member with a local password owed a change (D-017) or past its 24 hours
+// (G2) is refused with the password sign-in error and returned beside it,
+// before any link is written (PasswordOwedAtSignIn, OSS-0914-MUSTCHANGE).
+func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *domain.IdentityProvider, orgAuthPolicy string, eu *domain.ExternalUser) (*domain.User, error) {
 	// Gate: the provider must have asserted a verified email whose domain is
 	// allow-listed (unless AllowExternalDomains). Unverified or off-list ⇒ no
 	// provisioning. This is the JIT-abuse gate.
@@ -428,6 +437,9 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 		if err := s.refusePendingAccount(ctx, u); err != nil {
 			return nil, err
 		}
+		if err := PasswordOwedAtSignIn(u, orgAuthPolicy, s.now()); err != nil {
+			return u, err
+		}
 		return u, nil
 	} else if err != nil && !errors.Is(err, domain.ErrUserNotFound) {
 		return nil, ErrCallbackProvisionFailed
@@ -446,6 +458,11 @@ func (s *OIDCCallbackService) resolveLocalUser(ctx context.Context, provider *do
 		}
 		if u.ExternalID != nil && *u.ExternalID != "" && *u.ExternalID != eu.ExternalID {
 			return nil, ErrCallbackForbidden
+		}
+		// Before the link: a linked account is the provider's, and the change
+		// step could no longer take the member's new password.
+		if err := PasswordOwedAtSignIn(u, orgAuthPolicy, s.now()); err != nil {
+			return u, err
 		}
 		extID := eu.ExternalID
 		iss := eu.Issuer
