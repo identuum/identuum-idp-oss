@@ -1821,6 +1821,7 @@ func mountEndSession(router gin.IRouter, resolved OSSRouterDeps) {
 		UserSession:         resolved.UserSessionService,
 		Clients:             clients,
 		IDTokenVerifier:     resolved.IDTokenVerifier,
+		UserLookup:          resolved.UserLookup,
 		BackchannelDelivery: delivery,
 		SessionRPs:          relyingParties,
 		// The deliveries happen after the response: a slow relying party must

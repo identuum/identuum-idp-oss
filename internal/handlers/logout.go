@@ -33,6 +33,9 @@ type EndSessionHandlerDeps struct {
 	UserSession     *service.UserSessionService
 	Clients         ConsentClientLookup
 	IDTokenVerifier *service.IDTokenVerifier
+	// UserLookup resolves only the subject verified by the cookie, bearer or
+	// ID-token hint. A relying party's ownership is not member ownership.
+	UserLookup UserByIDLookup
 	// BackchannelDelivery posts the logout token to a relying party's
 	// back-channel logout endpoint. *service.BackchannelLogoutService
 	// satisfies it; nil disables back-channel delivery.
@@ -421,12 +424,28 @@ func deliverBackchannelLogout(c *gin.Context, deps EndSessionHandlerDeps, rp *do
 		if result != nil {
 			meta["http_status"] = result.Status
 		}
+		organizationID := uuid.Nil
+		if subject != uuid.Nil && deps.UserLookup != nil {
+			user, lookupErr := deps.UserLookup.GetByID(ctx, subject)
+			if lookupErr == nil && user != nil && user.ID == subject && user.Role != domain.RoleSiteAdmin && user.OrganizationID.String() != domain.SystemOrgID {
+				organizationID = user.OrganizationID
+			}
+		}
+		if organizationID == uuid.Nil {
+			// A caller's organization must not turn a member-less delivery into
+			// a tenant event, including the reader's legacy actor-org fallback.
+			if actor, ok := audit.ActorFrom(ctx); ok {
+				actor.OrganizationID = uuid.Nil
+				ctx = audit.WithActor(ctx, actor)
+			}
+		}
 		_ = deps.Audit.Record(ctx, audit.Event{
-			Action:    "user_session.backchannel_logout.delivered",
-			Outcome:   deliveryStatus,
-			IPAddress: ip,
-			UserAgent: ua,
-			Metadata:  meta,
+			Action:         "user_session.backchannel_logout.delivered",
+			OrganizationID: organizationID,
+			Outcome:        deliveryStatus,
+			IPAddress:      ip,
+			UserAgent:      ua,
+			Metadata:       meta,
 		})
 	}
 	if deps.Background == nil {

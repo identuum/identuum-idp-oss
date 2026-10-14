@@ -124,7 +124,12 @@ follows [Semantic Versioning](https://semver.org/).
   refusals with a known member, and authenticated-client communication refusals.
   Failure attribution uses the member or client resolved by the runtime;
   submitted identifiers alone do not assign an organization. Historical audit
-  rows stay as written. Global relying-party delivery attribution is unchanged.
+  rows stay as written.
+
+- Back-channel logout deliveries by a global relying party now name the verified
+  tenant member's organization, so that organization's administrator sees them.
+  Deliveries without a known tenant member remain server-wide and are visible
+  only to site administrators. Existing audit rows are not rewritten.
 
 ## `v0.9.13`
 

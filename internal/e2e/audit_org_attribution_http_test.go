@@ -575,6 +575,100 @@ func TestE2E_OSSAuditOrgAttribution(t *testing.T) {
 		visible("user_session.logout.cookie_revoked", ua, w.orgA.ID)
 		visible("user_session.logout.redirected", ua, w.orgA.ID)
 	})
+	t.Run("global RP delivery ownership", func(t *testing.T) {
+		probe = t
+		app := &domain.Client{ID: uuid.New(), ClientID: "audit-global-rp-" + uuid.NewString(), Name: "Audit global RP",
+			RedirectURIs: []string{"https://example.invalid/cb"}, PostLogoutRedirectURIs: []string{"https://example.invalid/bye"}, BackchannelLogoutURI: "https://127.0.0.1:1/logout"}
+		if err := w.repos.Client.RegisterClient(w.ctx, app); err != nil {
+			t.Fatal("seed global relying party failed")
+		}
+		query := url.Values{"client_id": {app.ClientID}, "post_logout_redirect_uri": {app.PostLogoutRedirectURIs[0]}}
+		awaitDelivery := func(ua string) {
+			t.Helper()
+			deadline := time.After(5 * time.Second)
+			tick := time.NewTicker(10 * time.Millisecond)
+			defer tick.Stop()
+			for {
+				var found bool
+				if err := w.pool.QueryRow(w.ctx, `SELECT EXISTS(SELECT 1 FROM audit_events WHERE event_type='user_session.backchannel_logout.delivered' AND user_agent=$1)`, ua).Scan(&found); err != nil {
+					t.Fatal("read background delivery observation failed")
+				}
+				if found {
+					return
+				}
+				select {
+				case <-tick.C:
+				case <-deadline:
+					t.Fatal("background delivery observation absent")
+				}
+			}
+		}
+		cookie := &http.Cookie{Name: browserSessionCookieName, Value: w.browserSession("userA")}
+		mac := hmac.New(sha256.New, []byte(cookie.Value))
+		mac.Write([]byte("identuum end-session confirmation"))
+		query.Set("confirm", hex.EncodeToString(mac.Sum(nil)))
+		st, _, ua, _ := call("", http.MethodGet, "/api/v1/oidc/logout?"+query.Encode(), "", "", cookie)
+		must(http.StatusFound, st, "member logout to global relying party")
+		awaitDelivery(ua)
+		visible("user_session.backchannel_logout.delivered", ua, w.orgA.ID)
+		// The same ownership must survive the signed-hint path, with no cookie
+		// or actor organization for the audit writer to inherit.
+		member := seed(false, domain.RoleOrgUser)
+		sessions := service.NewUserSessionService(nil, w.repos.Session, service.UserSessionServiceOptions{})
+		issued, err := sessions.CreateUserSession(w.ctx, service.CreateUserSessionInput{UserID: member.ID, OrganizationID: member.OrganizationID, Role: string(member.Role)})
+		if err != nil {
+			t.Fatal("seed hint member session failed")
+		}
+		hints := service.NewIDTokenService(nil, service.NewKeyService(w.repos.Key), service.IDTokenServiceOptions{Issuer: "http://localhost:7113"})
+		hint, err := hints.Issue(w.ctx, service.IDTokenInput{User: member, Session: issued.Session, Audience: app.ClientID})
+		if err != nil {
+			t.Fatal("issue signed hint fixture failed")
+		}
+		query.Del("confirm")
+		query.Set("id_token_hint", hint.IDToken)
+		st, _, ua, _ = call("", http.MethodGet, "/api/v1/oidc/logout?"+query.Encode(), "", "")
+		must(http.StatusFound, st, "verified member hint to global relying party")
+		awaitDelivery(ua)
+		visible("user_session.backchannel_logout.delivered", ua, w.orgA.ID)
+		query.Del("id_token_hint")
+		// A caller's tenant is not the subject of a delivery with no member.
+		// Both an anonymous request and a tenant-member request remain server-wide.
+		caller := seed(false, domain.RoleOrgUser)
+		st, signIn, _, _ := call("", http.MethodPost, "/api/v1/auth/login", loginBody(caller, ""), "application/json")
+		must(http.StatusOK, st, "independent delivery caller sign-in")
+		callerBearer, ok := signIn["access_token"].(string)
+		if !ok || callerBearer == "" {
+			t.Fatal("delivery caller credential absent")
+		}
+		for _, bearer := range []string{"", callerBearer} {
+			st, _, ua, _ := call(bearer, http.MethodGet, "/api/v1/oidc/logout?"+query.Encode(), "", "")
+			must(http.StatusFound, st, "global relying party without a member")
+			awaitDelivery(ua)
+			var id uuid.UUID
+			var target, actorOrg *uuid.UUID
+			if err := w.pool.QueryRow(w.ctx, `SELECT id, organization_id, actor_organization_id FROM audit_events WHERE event_type='user_session.backchannel_logout.delivered' AND user_agent=$1`, ua).Scan(&id, &target, &actorOrg); err != nil {
+				t.Fatal("read member-less delivery failed")
+			}
+			if target != nil || actorOrg != nil {
+				t.Error("member-less delivery acquired tenant attribution")
+			}
+			for _, who := range []string{"adminA", "adminB", "site"} {
+				path := "/api/v1/audit/events?limit=200&event_type=user_session.backchannel_logout.delivered"
+				if who != "site" {
+					path += "&actor_organization_id=" + w.orgA.ID.String()
+				}
+				st, out, _, _ := call(w.bearers[who], http.MethodGet, path, "", "")
+				must(http.StatusOK, st, "read member-less delivery audit")
+				seen := false
+				for _, raw := range out["events"].([]any) {
+					seen = seen || raw.(map[string]any)["id"] == id.String()
+				}
+				if seen != (who == "site") {
+					t.Errorf("member-less delivery: %s visibility %v; want %v", who, seen, who == "site")
+				}
+			}
+		}
+	})
 	t.Run("browser authorization code", func(t *testing.T) {
 		probe = t
 		app := &domain.Client{ID: uuid.New(), ClientID: "audit-authorize-" + uuid.NewString(), Name: "Audit authorize", OrganizationID: &w.orgA.ID,
