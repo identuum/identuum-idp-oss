@@ -544,6 +544,12 @@ func (s *Service) ensureSiteAdmin(ctx context.Context, orgID uuid.UUID, in Compl
 // ensureFirstSigningKey is the appliance-target version of the manual
 // POST /api/v1/keys/generate the operator used to run. Resolves
 // D-IDP-INSTALL-09's open item against the current code.
+//
+// SETUP-FIRST-KEY-1: two completions running together (two replicas, or a
+// retry) can both read an empty store, so a missing key is created through
+// KeyService.EnsureActive, which re-checks for an active default key and
+// inserts in one transaction under the provisioning lock that startup uses
+// (SIGNING-KEY-PROVISION-1). The second completion reuses the first one's key.
 func (s *Service) ensureFirstSigningKey(ctx context.Context) error {
 	existing, err := s.deps.KeyService.ListActive(ctx)
 	if err != nil {
@@ -552,10 +558,9 @@ func (s *Service) ensureFirstSigningKey(ctx context.Context) error {
 	if len(existing) > 0 {
 		return nil
 	}
-	if _, err := s.deps.KeyService.Generate(ctx, service.GenerateKeyOptions{
+	if _, err := s.deps.KeyService.EnsureActive(ctx, service.GenerateKeyOptions{
 		Algorithm: string(domain.KeyAlgorithmEdDSA),
-		State:     domain.KeyStateActive,
-	}); err != nil {
+	}, domain.KeyAlgorithmEdDSA, domain.KeyAlgorithmES256); err != nil {
 		return fmt.Errorf("setup complete: generate signing key: %w", err)
 	}
 	return nil

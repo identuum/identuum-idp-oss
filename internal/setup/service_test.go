@@ -119,7 +119,29 @@ func (m *memKeyRepo) DeprecateSigningKey(_ context.Context, _ string, _ time.Tim
 }
 func (m *memKeyRepo) DeleteExpiredKeys(_ context.Context) (int, error) { return 0, nil }
 
-var _ repository.KeyRepository = (*memKeyRepo)(nil)
+// CreateSigningKeyUnlessActive mirrors the store's locked re-check: the mutex
+// stands in for the provisioning lock.
+func (m *memKeyRepo) CreateSigningKeyUnlessActive(_ context.Context, key *domain.SigningKey, satisfiedBy []domain.KeyAlgorithm) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, k := range m.keys {
+		if k.State != domain.KeyStateActive || k.PrivateKey == "" {
+			continue
+		}
+		for _, alg := range satisfiedBy {
+			if k.Algorithm == alg {
+				return false, nil
+			}
+		}
+	}
+	m.keys = append(m.keys, *key)
+	return true, nil
+}
+
+var (
+	_ repository.KeyRepository     = (*memKeyRepo)(nil)
+	_ repository.SigningKeyEnsurer = (*memKeyRepo)(nil)
+)
 
 // --- in-memory UserRepository ----------------------------------------------
 

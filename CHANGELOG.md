@@ -66,6 +66,14 @@ follows [Semantic Versioning](https://semver.org/).
   It now counts the addresses held by more than one live account, prints the
   user ids and organization ids of each (never the address), and exits `1`
   while any exist. The operator guide points to it beside the SQL query.
+- **Two setup completions at once now leave one signing key.** When two
+  completions ran together (two replicas, or a retry while the first request
+  was still running), each could find no signing key and create one, leaving
+  two active EdDSA keys. Setup now creates its first key under the same
+  database lock that startup key provisioning uses (v0.9.11), so the second
+  completion reuses the first one's key and still succeeds. A key store
+  error still refuses setup and leaves it open for the same setup code; setup
+  stays single-use. Rule SETUP-FIRST-KEY-1.
 
 ## `v0.9.13`
 
