@@ -18,6 +18,13 @@ Newest release first. Each entry says which versions are affected and where the 
   `409 email_exists` on `POST /api/v1/organizations` is not enforced across organizations until v0.9.14.
 - **Fix planned for v0.9.14:** one address per server.
 - **Tracked:** the identuum-idp-oss queue (owner decision EMAIL-SCOPE (a), 2026-10-13).
+- **Fixed in v0.9.14:** one email address belongs to at most one live
+  account on the whole server, in any case. Organization create, user
+  create, invite, bulk create, email update, a first sign-in through an
+  organization's identity provider and an organization claim refuse an
+  address another live account holds. Migration 0056 adds the database
+  rule and refuses an upgrade while such a pair exists (nothing changed;
+  see the operator guide, "Before upgrading to v0.9.14").
 
 ### A passkey or provider sign-in does not ask for the password change an administrator requested
 
