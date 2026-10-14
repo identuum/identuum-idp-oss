@@ -10,11 +10,11 @@ follows [Semantic Versioning](https://semver.org/).
 Members see and remove their connected applications, administrators hand
 over one-time reset links, organizations keep a working sign-in policy,
 mail with a display name leaves, and refusals say why in plain words.
-identuum-ui `4aa55db` embedded (`v0.9.12` embedded `a932627`; `4aa55db`'s
+identuum-ui `8974dfe` embedded (`v0.9.12` embedded `a932627`; `8974dfe`'s
 `package.json` says `0.9.13`). The delta since `v0.9.12`
-(`git rev-list --count v0.9.12..4fcd2d3` and
-`git diff --shortstat v0.9.12..4fcd2d3`, measured at `4fcd2d3`, before this
-notes update) is 51 commits, 141 files, +9251/−451. The endpoint count goes
+(`git rev-list --count v0.9.12..c79cf5b` and
+`git diff --shortstat v0.9.12..c79cf5b`, measured at `c79cf5b`, before this
+notes update) is 55 commits, 143 files, +9407/−451. The endpoint count goes
 from 160 to 166 (`grep -c . tools/api-docgen/testdata/endpoints.manifest.txt`).
 This release adds one SQL migration, `0055_users_admin_password_set_at.sql`;
 the tracked `migrations/` directory contains 55 SQL files, with head `0055`.
@@ -89,6 +89,9 @@ sign-in for both accounts (KNOWN_ISSUES.md; fix planned for v0.9.14).
   organization still sign in with a password: the console's sign-in page
   offers "Administrator? Sign in with password" to every address alike,
   and Continue still sends members to the provider.
+- **The console's user list reaches every user.** List answers now give the
+  `page_size` they served (at most 100), and the console pages by it; before,
+  an organization with 101 to 200 users saw 100 and no next page.
 - **Editing a provider no longer drops `active` or `priority` silently.**
   `PUT /api/v1/organizations/{id}/identity-provider` used to accept both
   fields, ignore them and answer `200`. This server cannot switch a provider
