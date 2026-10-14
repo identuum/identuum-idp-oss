@@ -280,6 +280,16 @@ func finishBootstrap(ctx context.Context, deps bootstrapDeps, stdout, stderr io.
 // argon2id-hashes them via internal/crypto. We never store the
 // plaintext and we never log it. The local Password buffer is
 // zeroed before bootstrapCore returns regardless of outcome.
+// bootstrapKeySatisfiedBy names the active-key algorithms that already meet a
+// bootstrap request: a default signer (EdDSA or ES256) for either default, the
+// requested algorithm itself otherwise.
+func bootstrapKeySatisfiedBy(alg domain.KeyAlgorithm) []domain.KeyAlgorithm {
+	if alg == domain.KeyAlgorithmEdDSA || alg == domain.KeyAlgorithmES256 {
+		return []domain.KeyAlgorithm{domain.KeyAlgorithmEdDSA, domain.KeyAlgorithmES256}
+	}
+	return []domain.KeyAlgorithm{alg}
+}
+
 func bootstrapCore(ctx context.Context, deps bootstrapDeps, opts bootstrapOptions, stdout, stderr io.Writer) (rc int) {
 	// Best-effort password scrub. Go strings are immutable so we
 	// rebind the field to the zero value; any copies held in lower
@@ -301,18 +311,27 @@ func bootstrapCore(ctx context.Context, deps bootstrapDeps, opts bootstrapOption
 		fmt.Fprintln(stderr, "identuum-idp: bootstrap: list active signing keys failed:", err)
 		return 1
 	}
-	if len(existingKeys) > 0 {
-		fmt.Fprintf(stdout, "identuum-idp: bootstrap: signing key already present (kid=%s, alg=%s) — skip generation\n", existingKeys[0].KID, existingKeys[0].Algorithm)
-	} else {
-		generated, genErr := keySvc.Generate(ctx, service.GenerateKeyOptions{
+	if len(existingKeys) == 0 {
+		// BOOTSTRAP-FIRST-KEY-1: another bootstrap or a setup completion may
+		// have read the same empty store, so the missing key is created
+		// under the provisioning lock (KeyService.EnsureActive), which
+		// re-checks and inserts as one step.
+		generated, genErr := keySvc.EnsureActive(ctx, service.GenerateKeyOptions{
 			Algorithm: string(opts.Algorithm),
-			State:     domain.KeyStateActive,
-		})
+		}, bootstrapKeySatisfiedBy(opts.Algorithm)...)
 		if genErr != nil {
 			fmt.Fprintln(stderr, "identuum-idp: bootstrap: generate signing key failed:", genErr)
 			return 1
 		}
-		fmt.Fprintf(stdout, "identuum-idp: bootstrap: created signing key (kid=%s, alg=%s)\n", generated.KID, generated.Algorithm)
+		if generated != nil {
+			fmt.Fprintf(stdout, "identuum-idp: bootstrap: created signing key (kid=%s, alg=%s)\n", generated.KID, generated.Algorithm)
+		} else if existingKeys, err = keySvc.ListActive(ctx); err != nil || len(existingKeys) == 0 {
+			fmt.Fprintln(stderr, "identuum-idp: bootstrap: list active signing keys failed:", err)
+			return 1
+		}
+	}
+	if len(existingKeys) > 0 {
+		fmt.Fprintf(stdout, "identuum-idp: bootstrap: signing key already present (kid=%s, alg=%s) — skip generation\n", existingKeys[0].KID, existingKeys[0].Algorithm)
 	}
 
 	// Step 2: site_admin. GetByEmailAndOrgID short-circuits when

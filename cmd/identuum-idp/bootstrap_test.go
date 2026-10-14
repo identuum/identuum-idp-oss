@@ -72,6 +72,22 @@ func (m *memKeyRepo) DeprecateSigningKey(_ context.Context, _ string, _ time.Tim
 }
 func (m *memKeyRepo) DeleteExpiredKeys(_ context.Context) (int, error) { return 0, nil }
 
+// CreateSigningKeyUnlessActive mirrors the store's locked re-check.
+func (m *memKeyRepo) CreateSigningKeyUnlessActive(_ context.Context, key *domain.SigningKey, satisfiedBy []domain.KeyAlgorithm) (bool, error) {
+	for _, k := range m.keys {
+		if k.State != domain.KeyStateActive || k.PrivateKey == "" {
+			continue
+		}
+		for _, alg := range satisfiedBy {
+			if k.Algorithm == alg {
+				return false, nil
+			}
+		}
+	}
+	m.keys = append(m.keys, *key)
+	return true, nil
+}
+
 // --- in-memory UserRepository ---------------------------------------------
 
 type memUserRepo struct {

@@ -74,6 +74,12 @@ follows [Semantic Versioning](https://semver.org/).
   completion reuses the first one's key and still succeeds. A key store
   error still refuses setup and leaves it open for the same setup code; setup
   stays single-use. Rule SETUP-FIRST-KEY-1.
+- **`identuum-idp bootstrap` takes the same lock.** A bootstrap run that
+  overlapped another bootstrap or a setup completion could also add a second
+  active key. It now creates its key under that lock; when another run has
+  just made the key, it prints the usual `signing key already present` line
+  naming that key. An existing EdDSA or ES256 key satisfies an EdDSA or
+  ES256 bootstrap, as before. Rule BOOTSTRAP-FIRST-KEY-1.
 
 ## `v0.9.13`
 
