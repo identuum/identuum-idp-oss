@@ -105,7 +105,7 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 				if rerr := deps.UserSession.RevokeSession(c.Request.Context(), resolved.Session.ID, "frontchannel_logout"); rerr != nil && !errors.Is(rerr, domain.ErrSessionNotFound) {
 					unconfirmedCID = noteLogoutRevocationUnconfirmed(c, deps.Audit, "frontchannel", "revoke-session", rerr)
 				} else {
-					_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+					event := audit.Event{
 						Action:    "user_session.frontchannel_logout",
 						Outcome:   "success",
 						IPAddress: c.ClientIP(),
@@ -113,7 +113,11 @@ func HandleFrontchannelLogout(deps FrontchannelLogoutHandlerDeps) gin.HandlerFun
 						Metadata: map[string]any{
 							"session_id": resolved.Session.ID.String(),
 						},
-					})
+					}
+					if resolved.User != nil {
+						event.OrganizationID = resolved.User.OrganizationID
+					}
+					_ = deps.Audit.Record(c.Request.Context(), event)
 				}
 			}
 		}

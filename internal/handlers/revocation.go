@@ -156,6 +156,7 @@ func HandleRevoke(deps RevocationHandlerDeps) gin.HandlerFunc {
 		if ac, ok := mw.AuthenticatedClientFromContext(c); ok && ac != nil {
 			safeMeta["client_id"] = ac.ClientID
 			safeMeta["client_kind"] = string(ac.Kind)
+			safeMeta["organization_id"] = ac.OrganizationID
 		}
 		triedRefresh := hint == "refresh_token" || hint == ""
 		if triedRefresh {
@@ -200,6 +201,7 @@ func HandleRevoke(deps RevocationHandlerDeps) gin.HandlerFunc {
 			if ac, ok := mw.AuthenticatedClientFromContext(c); ok && ac != nil {
 				meta["client_id"] = ac.ClientID
 				meta["client_kind"] = string(ac.Kind)
+				meta["organization_id"] = ac.OrganizationID
 			}
 			var (
 				firedSession bool

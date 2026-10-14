@@ -203,10 +203,11 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "oauth_consent.granted",
-			Outcome:   "success",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
+			Action:         "oauth_consent.granted",
+			OrganizationID: principal.OrganizationID,
+			Outcome:        "success",
+			IPAddress:      c.ClientIP(),
+			UserAgent:      c.Request.UserAgent(),
 			Metadata: map[string]any{
 				"client_id":    req.ClientID,
 				"scopes_count": len(splitWhitespace(req.Scope)),
@@ -217,7 +218,7 @@ func HandleConsentSubmit(deps ConsentHandlerDeps) gin.HandlerFunc {
 			emitAuthorizeError(c, AuthorizeHandlerDeps{AuthorizeService: deps.AuthorizeService, Audit: deps.Audit}, req, authorizeQueryFromRequest(req), err)
 			return
 		}
-		recordCodeIssued(c, deps.Audit, result, req.Scope)
+		recordCodeIssued(c, deps.Audit, result, req.Scope, principal)
 		c.Redirect(http.StatusFound, result.RedirectURL)
 	}
 }
@@ -238,7 +239,7 @@ func handleConsentDeny(c *gin.Context, deps ConsentHandlerDeps, req service.Auth
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 		return
 	}
-	_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+	event := audit.Event{
 		Action:    "oauth_consent.denied",
 		Outcome:   "denied",
 		IPAddress: c.ClientIP(),
@@ -246,7 +247,11 @@ func handleConsentDeny(c *gin.Context, deps ConsentHandlerDeps, req service.Auth
 		Metadata: map[string]any{
 			"client_id": req.ClientID,
 		},
-	})
+	}
+	if req.Principal != nil {
+		event.OrganizationID = req.Principal.OrganizationID
+	}
+	_ = deps.Audit.Record(c.Request.Context(), event)
 	c.Redirect(http.StatusFound, location)
 }
 

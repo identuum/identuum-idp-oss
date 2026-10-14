@@ -158,7 +158,8 @@ func HandlePasskeyStepUpFinish(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 			}
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 				Action: "user_session.step_up.passkey_failure", Outcome: "denied", IPAddress: ip, UserAgent: ua,
-				Metadata: map[string]any{"session_id": resolved.Session.ID.String(), "reason": reason},
+				OrganizationID: resolved.User.OrganizationID,
+				Metadata:       map[string]any{"session_id": resolved.Session.ID.String(), "reason": reason},
 			})
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_assertion"})
 			return
@@ -169,7 +170,8 @@ func HandlePasskeyStepUpFinish(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 		if !userVerified {
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 				Action: "user_session.step_up.passkey_failure", Outcome: "denied", IPAddress: ip, UserAgent: ua,
-				Metadata: map[string]any{"session_id": resolved.Session.ID.String(), "reason": "user_verification_absent"},
+				OrganizationID: resolved.User.OrganizationID,
+				Metadata:       map[string]any{"session_id": resolved.Session.ID.String(), "reason": "user_verification_absent"},
 			})
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "user_verification_required"})
 			return

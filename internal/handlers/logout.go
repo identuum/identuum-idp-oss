@@ -182,6 +182,7 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 		// asked to leave this device.)
 		var cookieResolvedSessionID uuid.UUID
 		var cookieResolvedUserID uuid.UUID
+		var cookieResolvedOrgID uuid.UUID
 		revocationUnconfirmed := false
 		if hasCookie {
 			switch {
@@ -192,6 +193,7 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 				cookieResolvedSessionID = resolved.Session.ID
 				if resolved.User != nil {
 					cookieResolvedUserID = resolved.User.ID
+					cookieResolvedOrgID = resolved.User.OrganizationID
 				}
 				endedFor[cookieResolvedSessionID] = cookieResolvedUserID
 				// A session the store no longer finds was ended meanwhile
@@ -208,10 +210,11 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 						}
 					}
 					_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-						Action:    "user_session.logout.cookie_revoked",
-						Outcome:   "success",
-						IPAddress: c.ClientIP(),
-						UserAgent: c.Request.UserAgent(),
+						Action:         "user_session.logout.cookie_revoked",
+						OrganizationID: cookieResolvedOrgID,
+						Outcome:        "success",
+						IPAddress:      c.ClientIP(),
+						UserAgent:      c.Request.UserAgent(),
 						Metadata: map[string]any{
 							"session_id": resolved.Session.ID.String(),
 						},
@@ -364,10 +367,11 @@ func HandleEndSession(deps EndSessionHandlerDeps) gin.HandlerFunc {
 				location = appendQueryParam(location, "state", state)
 			}
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-				Action:    "user_session.logout.redirected",
-				Outcome:   "success",
-				IPAddress: c.ClientIP(),
-				UserAgent: c.Request.UserAgent(),
+				Action:         "user_session.logout.redirected",
+				OrganizationID: cookieResolvedOrgID,
+				Outcome:        "success",
+				IPAddress:      c.ClientIP(),
+				UserAgent:      c.Request.UserAgent(),
 				Metadata: map[string]any{
 					"client_id":              resolvedClient.ClientID,
 					"hint_used":              hint != nil,

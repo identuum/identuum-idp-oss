@@ -500,10 +500,11 @@ func (s *LocalLoginService) Login(ctx context.Context, in LoginInput) (*LoginRes
 			ua = *in.UserAgent
 		}
 		_ = s.auditSvc.Record(ctx, audit.Event{
-			Action:    "user_session.login.mfa_recovery_code_consumed",
-			Outcome:   "success",
-			IPAddress: ip,
-			UserAgent: ua,
+			Action:         "user_session.login.mfa_recovery_code_consumed",
+			Outcome:        "success",
+			OrganizationID: user.OrganizationID,
+			IPAddress:      ip,
+			UserAgent:      ua,
 			Metadata: map[string]any{
 				"user_id":                        user.ID.String(),
 				"session_id":                     issued.Session.ID.String(),

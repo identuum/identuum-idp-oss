@@ -244,10 +244,11 @@ func HandleToken(deps TokenHandlerDeps) gin.HandlerFunc {
 			scopesCount = len(splitWhitespace(resp.Scope))
 		}
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "oauth_token.issued",
-			Outcome:   "success",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
+			Action:         "oauth_token.issued",
+			OrganizationID: client.OrganizationID,
+			Outcome:        "success",
+			IPAddress:      c.ClientIP(),
+			UserAgent:      c.Request.UserAgent(),
 			Metadata: map[string]any{
 				"client_id":    client.ClientID,
 				"client_kind":  string(client.Kind),

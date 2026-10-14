@@ -311,7 +311,7 @@ func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *s
 		cookie := deps.CookieSession.IssueForSignIn(cookieValue, result.Session.ExpiresAt, remember)
 		writeSessionCookie(c, cookie)
 
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		signedIn := audit.Event{
 			Action:    "user_session.browser_login.success",
 			Outcome:   "success",
 			IPAddress: ip,
@@ -320,7 +320,11 @@ func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *s
 				"user_id":    result.UserID,
 				"session_id": result.Session.ID.String(),
 			},
-		})
+		}
+		if result.User != nil {
+			signedIn.OrganizationID = result.User.OrganizationID
+		}
+		_ = deps.Audit.Record(c.Request.Context(), signedIn)
 
 		if returnTo == "" {
 			returnTo = "/"

@@ -208,7 +208,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 			return
 		}
 
-		recordCodeIssued(c, deps.Audit, result, req.Scope)
+		recordCodeIssued(c, deps.Audit, result, req.Scope, principal)
 		c.Redirect(http.StatusFound, result.RedirectURL)
 	}
 }
@@ -216,7 +216,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 // recordCodeIssued is the one oauth_authorize.code_issued record, written
 // wherever Authorize mints a code: the /authorize handler and the consent
 // page's approve (OSS-POLISH, audit F7 — the latter was unaudited).
-func recordCodeIssued(c *gin.Context, auditSvc audit.Service, result *service.AuthorizeResult, scope string) {
+func recordCodeIssued(c *gin.Context, auditSvc audit.Service, result *service.AuthorizeResult, scope string, principal *domain.Principal) {
 	meta := map[string]any{
 		"client_id":       result.ClientID,
 		"response_type":   "code",
@@ -228,13 +228,17 @@ func recordCodeIssued(c *gin.Context, auditSvc audit.Service, result *service.Au
 	if result.PublicClientWithoutPKCE {
 		meta["issued_without_pkce"] = true
 	}
-	_ = auditSvc.Record(c.Request.Context(), audit.Event{
+	event := audit.Event{
 		Action:    "oauth_authorize.code_issued",
 		Outcome:   "success",
 		IPAddress: c.ClientIP(),
 		UserAgent: c.Request.UserAgent(),
 		Metadata:  meta,
-	})
+	}
+	if principal != nil {
+		event.OrganizationID = principal.OrganizationID
+	}
+	_ = auditSvc.Record(c.Request.Context(), event)
 }
 
 // authorizeQueryFromRequest re-encodes an AuthorizeRequest's wire

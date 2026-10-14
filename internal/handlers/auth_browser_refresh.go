@@ -69,7 +69,8 @@ func HandleBrowserSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		if deps.Audit != nil {
 			_ = deps.Audit.Record(ctx, audit.Event{
 				Action: "user_session.refresh.success", Outcome: "success",
-				IPAddress: c.ClientIP(), UserAgent: c.Request.UserAgent(),
+				OrganizationID: user.OrganizationID,
+				IPAddress:      c.ClientIP(), UserAgent: c.Request.UserAgent(),
 			})
 		}
 		refresh := issued.RefreshToken

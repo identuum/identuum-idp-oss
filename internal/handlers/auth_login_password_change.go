@@ -110,11 +110,12 @@ func changeRequiredPassword(c *gin.Context, mfa *service.MFAEnrollmentService, c
 		return nil, false, err
 	}
 	_ = auditSvc.Record(c.Request.Context(), audit.Event{
-		Action:    "user_session.login.password_changed",
-		Outcome:   "success",
-		IPAddress: c.ClientIP(),
-		UserAgent: c.Request.UserAgent(),
-		Metadata:  map[string]any{"user_id": user.ID.String()},
+		Action:         "user_session.login.password_changed",
+		OrganizationID: user.OrganizationID,
+		Outcome:        "success",
+		IPAddress:      c.ClientIP(),
+		UserAgent:      c.Request.UserAgent(),
+		Metadata:       map[string]any{"user_id": user.ID.String()},
 	})
 	return user, remember, nil
 }

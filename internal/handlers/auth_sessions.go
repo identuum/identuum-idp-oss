@@ -562,12 +562,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		if sessionID != "" {
 			body["session_id"] = sessionID
 		}
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user_session.login.mfa_required",
-			Outcome:   "denied",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
-		})
+		auditLoginStep(c, deps.Audit, "user_session.login.mfa_required", result)
 		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginMFAEnrollmentRequired):
 		// Policy-required MFA but the user has not yet enrolled a
@@ -583,12 +578,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		if sessionID != "" {
 			body["session_id"] = sessionID
 		}
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user_session.login.mfa_enrollment_required",
-			Outcome:   "denied",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
-		})
+		auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result)
 		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginPasswordChangeRequired), errors.Is(err, service.ErrLoginPasswordExpired):
 		// D-017: an admin-set password was proven; the user must choose
@@ -708,12 +698,12 @@ func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			}
 			return
 		}
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		event := audit.Event{
 			Action:    "user_session.refresh.success",
 			Outcome:   "success",
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
-		})
+		}
 		resp := sessionRefreshResponse{
 			SessionID:    issued.Session.ID.String(),
 			RefreshToken: issued.RefreshToken,
@@ -724,17 +714,21 @@ func HandleSessionRefresh(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		// user_id → *domain.User so the token can stamp
 		// email/role/org_id without an extra service-layer round
 		// trip.
-		if deps.UserToken != nil && deps.UserLookup != nil {
+		if deps.UserLookup != nil {
 			user, lookupErr := deps.UserLookup.GetByID(c.Request.Context(), issued.Session.UserID)
 			if lookupErr == nil && user != nil {
-				access, accessErr := deps.UserToken.IssueForSession(c.Request.Context(), user, issued.Session)
-				if accessErr == nil {
-					resp.AccessToken = access.AccessToken
-					resp.TokenType = access.TokenType
-					resp.ExpiresIn = access.ExpiresIn
+				event.OrganizationID = user.OrganizationID
+				if deps.UserToken != nil {
+					access, accessErr := deps.UserToken.IssueForSession(c.Request.Context(), user, issued.Session)
+					if accessErr == nil {
+						resp.AccessToken = access.AccessToken
+						resp.TokenType = access.TokenType
+						resp.ExpiresIn = access.ExpiresIn
+					}
 				}
 			}
 		}
+		_ = deps.Audit.Record(c.Request.Context(), event)
 		c.JSON(http.StatusOK, resp)
 	}
 }

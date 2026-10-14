@@ -148,12 +148,12 @@ func HandleStepUpSubmit(deps StepUpHandlerDeps) gin.HandlerFunc {
 		if !resolved.User.MFAEnabled {
 			// /authorize already refuses this as unmet_authentication_requirements;
 			// a direct POST gets the same honest answer.
-			_ = deps.Audit.Record(c.Request.Context(), audit.Event{Action: "user_session.step_up.failure", Outcome: "denied", IPAddress: ip, UserAgent: ua, Metadata: map[string]any{"reason": "mfa_not_enrolled"}})
+			_ = deps.Audit.Record(c.Request.Context(), audit.Event{Action: "user_session.step_up.failure", Outcome: "denied", OrganizationID: resolved.User.OrganizationID, IPAddress: ip, UserAgent: ua, Metadata: map[string]any{"reason": "mfa_not_enrolled"}})
 			c.JSON(http.StatusForbidden, gin.H{"error": "mfa_not_enrolled"})
 			return
 		}
 		if err := deps.Verifier.Verify(c.Request.Context(), resolved.User, c.PostForm("totp_code")); err != nil {
-			_ = deps.Audit.Record(c.Request.Context(), audit.Event{Action: "user_session.step_up.failure", Outcome: "denied", IPAddress: ip, UserAgent: ua, Metadata: map[string]any{"session_id": resolved.Session.ID.String()}})
+			_ = deps.Audit.Record(c.Request.Context(), audit.Event{Action: "user_session.step_up.failure", Outcome: "denied", OrganizationID: resolved.User.OrganizationID, IPAddress: ip, UserAgent: ua, Metadata: map[string]any{"session_id": resolved.Session.ID.String()}})
 			loc := "/api/v1/auth/step-up?error=invalid_code"
 			if errors.Is(err, service.ErrLoginThrottled) {
 				// The user's wrong-code budget is spent: sign-in's wait answer,
@@ -177,7 +177,8 @@ func HandleStepUpSubmit(deps StepUpHandlerDeps) gin.HandlerFunc {
 		}
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action: "user_session.step_up.success", Outcome: "success", IPAddress: ip, UserAgent: ua,
-			Metadata: map[string]any{"user_id": resolved.User.ID.String(), "session_id": resolved.Session.ID.String(), "acr": service.ACRMFA},
+			OrganizationID: resolved.User.OrganizationID,
+			Metadata:       map[string]any{"user_id": resolved.User.ID.String(), "session_id": resolved.Session.ID.String(), "acr": service.ACRMFA},
 		})
 		if returnTo == "" {
 			returnTo = "/"

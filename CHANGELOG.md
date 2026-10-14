@@ -110,6 +110,13 @@ follows [Semantic Versioning](https://semver.org/).
   (`password`, `passkey` or `oidc_upstream`; `provider_id` for the
   provider). A member with no local password (an account the provider owns,
   or an `idp_only` organization's member) is never asked for one.
+- Organization audit views include newly written events for recovery-code
+  sign-in, required MFA and password-change steps, session refresh, browser
+  sign-in, tenant token issuance, known-user step-up failures, cookie logout
+  and authorization-code issuance, consent decisions and client token revocation.
+  Each event names its subject's organization;
+  the existing tenant clamp still excludes other organizations and server-wide
+  events. Existing audit rows are not rewritten and retain their prior visibility.
 
 ## `v0.9.13`
 
