@@ -10,11 +10,11 @@ follows [Semantic Versioning](https://semver.org/).
 Members see and remove their connected applications, administrators hand
 over one-time reset links, organizations keep a working sign-in policy,
 mail with a display name leaves, and refusals say why in plain words.
-identuum-ui `6643cd0` embedded (`v0.9.12` embedded `a932627`; `6643cd0`'s
+identuum-ui `181361c` embedded (`v0.9.12` embedded `a932627`; `181361c`'s
 `package.json` says `0.9.13`). The delta since `v0.9.12`
-(`git rev-list --count v0.9.12..c138ed1` and
-`git diff --shortstat v0.9.12..c138ed1`, measured at `c138ed1`, before the
-notes commit) is 42 commits, 139 files, +9187/−413. The endpoint count goes
+(`git rev-list --count v0.9.12..8f5029d` and
+`git diff --shortstat v0.9.12..8f5029d`, measured at `8f5029d`, before this
+notes update) is 46 commits, 141 files, +9419/−418. The endpoint count goes
 from 160 to 166 (`grep -c . tools/api-docgen/testdata/endpoints.manifest.txt`).
 This release adds one SQL migration, `0055_users_admin_password_set_at.sql`;
 the tracked `migrations/` directory contains 55 SQL files, with head `0055`.
