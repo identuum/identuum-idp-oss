@@ -29,15 +29,18 @@ import (
 	"github.com/identuum/identuum-idp-oss/internal/testsupport"
 )
 
-func recoverTestPool(t *testing.T) *pgxpool.Pool {
-	t.Helper()
-	var dsn string
+func recoverTestDSN() string {
 	for _, env := range []string{"IDENTUUM_IDP_TEST_DATABASE_URL", "IDENTUUM_IDP_DATABASE_URL"} {
 		if v := os.Getenv(env); v != "" {
-			dsn = v
-			break
+			return v
 		}
 	}
+	return ""
+}
+
+func recoverTestPool(t *testing.T) *pgxpool.Pool {
+	t.Helper()
+	dsn := recoverTestDSN()
 	if dsn == "" {
 		t.Fatal("IDENTUUM_IDP_TEST_DATABASE_URL (or IDENTUUM_IDP_DATABASE_URL) is not set; the recover-site-admin " +
 			"revocation tooth was requested via -tags integration and requires a live Postgres DSN. " +
@@ -182,7 +185,7 @@ func TestRecoverSiteAdmin_EndsTheSiteAdminsSessionsAndTokensOnly(t *testing.T) {
 	}
 
 	var stdout, stderr bytes.Buffer
-	rc := recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: refresh},
+	rc := recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: refresh, Audit: service.NewOperatorAuditor(repos.Audit)},
 		recoverOptions{Password: "Recover-Integration-Pw-1!"}, &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("recover rc = %d, stderr = %s", rc, stderr.String())
@@ -305,7 +308,7 @@ func TestRecoverSiteAdmin_RetryCompletesTheLinkedAccessRevocationAfterAPartialFa
 	// exit, the reset named, the retry advised; the refresh row is revoked but
 	// its linked access token still introspects active.
 	var stdout, stderr bytes.Buffer
-	if rc := recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: broken},
+	if rc := recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: broken, Audit: service.NewOperatorAuditor(repos.Audit)},
 		recoverOptions{Password: "Recover-Integration-Pw-1!"}, &stdout, &stderr); rc == 0 {
 		t.Fatalf("first run rc = 0 with a failing denylist; stdout = %s", stdout.String())
 	}
@@ -323,7 +326,7 @@ func TestRecoverSiteAdmin_RetryCompletesTheLinkedAccessRevocationAfterAPartialFa
 	// the linked access revocation the first run lost.
 	stdout.Reset()
 	stderr.Reset()
-	if rc := recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: healthy},
+	if rc := recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: healthy, Audit: service.NewOperatorAuditor(repos.Audit)},
 		recoverOptions{Password: "Recover-Integration-Pw-1!"}, &stdout, &stderr); rc != 0 {
 		t.Fatalf("retry rc = %d, stderr = %s", rc, stderr.String())
 	}
@@ -338,5 +341,93 @@ func TestRecoverSiteAdmin_RetryCompletesTheLinkedAccessRevocationAfterAPartialFa
 	}
 	if revoked, err := jtis.IsRevoked(ctx, otherJTI); err != nil || revoked {
 		t.Errorf("another user's linked access JTI was denylisted (revoked=%t err=%v)", revoked, err)
+	}
+}
+
+// OSS-0914-RECOVER-AUDIT: recover-site-admin, run through its real entry
+// point against the live schema, leaves exactly one audit row in the shape
+// reset-org-admin-mfa uses — the system actor, the system organization, the
+// site_admin as subject, via=cli and what the revocation ended — and the row
+// carries neither the password, its hash nor the environment value. A run
+// refused for a missing password value leaves no row. Until this slice the
+// command wrote no audit event at all. (The rule row RECOVER-AUDIT-1 binds
+// the unit half in recover_test.go; this is its live-schema proof.)
+func TestRecoverSiteAdmin_RecordsOneAuditEventWithoutTheCredential(t *testing.T) {
+	pool := recoverTestPool(t)
+	defer pool.Close()
+	ctx := context.Background()
+	ensureSiteAdminRow(t, pool)
+	siteAdminID := uuid.MustParse(domain.SiteAdminID)
+	since := time.Now().UTC()
+
+	type auditRow struct {
+		eventType, outcome, actorType string
+		org                           *uuid.UUID
+		metadata                      map[string]any
+		row                           string
+	}
+	rows := func() []auditRow {
+		t.Helper()
+		rs, err := pool.Query(ctx, `SELECT a.event_type, COALESCE(a.outcome, ''), a.actor_type, a.organization_id, a.metadata, row_to_json(a)::text
+			FROM audit_events a WHERE a.subject_id = $1 AND a.created_at >= $2 ORDER BY a.created_at`, siteAdminID, since)
+		if err != nil {
+			t.Fatalf("audit rows: %v", err)
+		}
+		defer rs.Close()
+		var out []auditRow
+		for rs.Next() {
+			var r auditRow
+			if err := rs.Scan(&r.eventType, &r.outcome, &r.actorType, &r.org, &r.metadata, &r.row); err != nil {
+				t.Fatalf("scan audit row: %v", err)
+			}
+			out = append(out, r)
+		}
+		if err := rs.Err(); err != nil {
+			t.Fatalf("audit rows: %v", err)
+		}
+		return out
+	}
+
+	// Refused: no password value. Nothing changes and nothing is recorded.
+	var stdout, stderr bytes.Buffer
+	t.Setenv(envRecoverPassword, "")
+	if rc := runRecoverSiteAdmin(ctx, recoverTestDSN(), &stdout, &stderr); rc == 0 {
+		t.Fatalf("a run without %s exited 0", envRecoverPassword)
+	}
+	if got := rows(); len(got) != 0 {
+		t.Fatalf("a refused run recorded %d audit rows", len(got))
+	}
+
+	const password = "Recover-Audit-Integration-Pw-1!"
+	t.Setenv(envRecoverPassword, password)
+	stdout.Reset()
+	stderr.Reset()
+	if rc := runRecoverSiteAdmin(ctx, recoverTestDSN(), &stdout, &stderr); rc != 0 {
+		t.Fatalf("recover rc = %d, stderr = %s", rc, stderr.String())
+	}
+	got := rows()
+	if len(got) != 1 {
+		t.Fatalf("a successful recovery recorded %d audit rows about the site_admin, want exactly 1", len(got))
+	}
+	r := got[0]
+	if r.eventType != "site_admin_credentials_reset" || r.outcome != "success" || r.actorType != "system" ||
+		r.org == nil || r.org.String() != domain.SystemOrgID {
+		t.Errorf("audit row event_type=%q outcome=%q actor_type=%q organization_id=%v; want site_admin_credentials_reset, success, system, the system organization",
+			r.eventType, r.outcome, r.actorType, r.org)
+	}
+	if r.metadata["via"] != "cli" || r.metadata["user_id"] != domain.SiteAdminID || r.metadata["sessions_revoked"] != true {
+		t.Errorf("audit metadata = %v; want via=cli, the site_admin's user_id, sessions_revoked=true", r.metadata)
+	}
+	if _, ok := r.metadata["refresh_tokens_revoked_count"].(float64); !ok {
+		t.Errorf("audit metadata lacks the refresh token count: %v", r.metadata)
+	}
+	var hash string
+	if err := pool.QueryRow(ctx, `SELECT password_hash FROM users WHERE id = $1`, siteAdminID).Scan(&hash); err != nil {
+		t.Fatalf("site_admin hash: %v", err)
+	}
+	for name, secret := range map[string]string{"the password": password, "the password hash": hash, "the environment variable": envRecoverPassword} {
+		if secret == "" || strings.Contains(r.row, secret) {
+			t.Errorf("the audit row carries %s", name)
+		}
 	}
 }

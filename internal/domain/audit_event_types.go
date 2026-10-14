@@ -56,6 +56,7 @@ var AllAuditEventTypeGroups = []AuditEventTypeGroup{
 		"user.created", "user.deleted", "user.invite_redeemed", "user.invite_reissued",
 		"user.invited", "user.password_reset_link_issued", "user.registration_approved",
 		"user.registration_rejected", "user.restored", "user.self_registered",
+		"site_admin_credentials_reset",
 		"user.self_registration_refused", "user.updated",
 		"user_activated", "user_created", "user_deactivated",
 		"user_password_reset_completed", "user_password_reset_requested",

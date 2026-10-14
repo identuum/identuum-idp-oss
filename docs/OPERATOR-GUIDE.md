@@ -325,6 +325,14 @@ sign in again and whoever held the old credentials cannot. The password
 travels only through the exec environment (mind your host shell history)
 and is never echoed.
 
+Each run that resets the row records `site_admin_credentials_reset` in the
+audit log (actor `system`, `via: cli`, the system organization), with
+`sessions_revoked` and `refresh_tokens_revoked_count`; the outcome is
+`success` only when both revocations completed. The record never carries
+the password, its hash or the environment value. A refused run records
+nothing. If the record cannot be written the command exits non-zero and
+says so; run it again.
+
 ### What this invalidates (the aftermath)
 
 The reset rewrites `password_hash` AND wipes the MFA enrollment

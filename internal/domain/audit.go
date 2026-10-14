@@ -287,7 +287,11 @@ const (
 	AuditSessionEvictedMaxSessions AuditEventType = "session_evicted_max_sessions"
 
 	// Emitted by the operator credential-recovery CLI command when site_admin
-	// credentials are reset outside the normal authentication flow.
+	// credentials are reset outside the normal authentication flow
+	// (recover-site-admin, recorded since OSS-0914-RECOVER-AUDIT). Metadata
+	// carries via=cli, user_id, organization_id, sessions_revoked and
+	// refresh_tokens_revoked_count; never the password, its hash or the
+	// environment value it came from.
 	AuditSiteAdminCredentialsReset AuditEventType = "site_admin_credentials_reset" // #nosec G101 -- audit event type label string, not a credential value.
 
 	// Emitted during the first-login MFA enrollment flow for eligible users.

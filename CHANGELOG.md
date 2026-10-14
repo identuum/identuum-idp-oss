@@ -80,6 +80,16 @@ follows [Semantic Versioning](https://semver.org/).
   just made the key, it prints the usual `signing key already present` line
   naming that key. An existing EdDSA or ES256 key satisfies an EdDSA or
   ES256 bootstrap, as before. Rule BOOTSTRAP-FIRST-KEY-1.
+- **A site_admin recovery now leaves an audit record.** `recover-site-admin`
+  reset the password and MFA and ended every session and refresh token, and
+  wrote nothing to the audit log. Now each run that resets the row records
+  `site_admin_credentials_reset` by the system actor (`via: cli`) in the
+  system organization, with whether the sessions were revoked and how many
+  refresh tokens were — `success` when both revocations completed, `failure`
+  when one did not. It never records the password, its hash or the
+  environment value. A refused run records nothing. If the record cannot be
+  written the command exits non-zero and says so; running it again records
+  the recovery. The console's event-type filter lists the new type.
 
 ## `v0.9.13`
 

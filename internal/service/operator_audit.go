@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
@@ -33,6 +34,36 @@ func (o *OperatorAuditor) OrgAdminMFAReset(ctx context.Context, admin *domain.Us
 	_ = o.svc.Record(ctx, audit.Event{
 		Action:         string(domain.AuditOrgAdminMFAReset),
 		Outcome:        "success",
+		ActorType:      audit.ActorTypeSystem,
+		OrganizationID: admin.OrganizationID,
+		SubjectID:      admin.ID,
+		SubjectType:    "user",
+		SubjectEmail:   admin.Email,
+		Metadata:       meta,
+	})
+}
+
+// SiteAdminCredentialsReset records recover-site-admin in the shape OrgAdminMFAReset
+// uses: the site_admin whose password and MFA were reset, whether its
+// sessions were revoked, and how many refresh tokens were (nil when that
+// revocation failed or did not run). The outcome is "success" only when both
+// revocations completed. Unlike OrgAdminMFAReset it returns the write's
+// error: the command exits non-zero when its only record is lost.
+func (o *OperatorAuditor) SiteAdminCredentialsReset(ctx context.Context, admin *domain.User, sessionsRevoked bool, refreshRevoked *int64) error {
+	if o == nil || o.svc == nil || admin == nil {
+		return errors.New("operator auditor: no audit sink or no administrator")
+	}
+	meta := map[string]any{"via": "cli", "user_id": admin.ID, "organization_id": admin.OrganizationID, "sessions_revoked": sessionsRevoked}
+	outcome := "failure"
+	if refreshRevoked != nil {
+		meta["refresh_tokens_revoked_count"] = *refreshRevoked
+		if sessionsRevoked {
+			outcome = "success"
+		}
+	}
+	return o.svc.Record(ctx, audit.Event{
+		Action:         string(domain.AuditSiteAdminCredentialsReset),
+		Outcome:        outcome,
 		ActorType:      audit.ActorTypeSystem,
 		OrganizationID: admin.OrganizationID,
 		SubjectID:      admin.ID,

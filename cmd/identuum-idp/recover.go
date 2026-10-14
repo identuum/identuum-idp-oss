@@ -111,6 +111,9 @@ type recoverDeps struct {
 	Refresh interface {
 		RevokeAllForUser(ctx context.Context, userID uuid.UUID) (int64, error)
 	}
+	// Audit records site_admin_credentials_reset by the system actor (via=cli), the
+	// way reset-org-admin-mfa records its reset (OSS-0914-RECOVER-AUDIT).
+	Audit *service.OperatorAuditor
 }
 
 // recoverSiteAdminCore is the pure state machine. It is idempotent in
@@ -140,6 +143,11 @@ type recoverDeps struct {
 // password change and the operator MFA reset use. A revocation failure
 // exits non-zero after the row update and names the remedy; the success
 // line is never printed over live sessions.
+//
+// The record (OSS-0914-RECOVER-AUDIT): every run that reset the row writes
+// one site_admin_credentials_reset audit event by the system actor (via=cli) with
+// what the revocation ended; a refused run writes none, and a failed write
+// exits non-zero.
 //
 // Untouched: id, email, role, organization_id, auth_source,
 // email_verified, banned, deleted_at, external_id, oidc_linked,
@@ -185,6 +193,10 @@ func recoverSiteAdminCore(ctx context.Context, deps recoverDeps, opts recoverOpt
 		fmt.Fprintf(stderr, "identuum-idp: recover: refusing to update — located row role=%q is not %q\n", existing.Role, domain.RoleSiteAdmin)
 		return 1
 	}
+	if deps.Audit == nil {
+		fmt.Fprintln(stderr, "identuum-idp: recover: refusing to update — no audit sink is wired (a defect in the command, not in the database)")
+		return 1
+	}
 
 	pw := opts.Password
 	mfaDisabled := false
@@ -208,25 +220,47 @@ func recoverSiteAdminCore(ctx context.Context, deps recoverDeps, opts recoverOpt
 		return 1
 	}
 
+	// The credential changed, so every exit from here records it
+	// (OSS-0914-RECOVER-AUDIT). The event is written after the revocation,
+	// not in the row update's transaction: it carries what the revocation
+	// ended, and the user row, the sessions, the refresh tokens and the audit
+	// log are written through separate repositories with no shared
+	// transaction. A lost record exits non-zero and says so; a rerun
+	// records again.
+	recorded := func(sessionsRevoked bool, refreshRevoked *int64) bool {
+		if err := deps.Audit.SiteAdminCredentialsReset(ctx, updated, sessionsRevoked, refreshRevoked); err != nil {
+			fmt.Fprintln(stderr, "identuum-idp: recover: the password and MFA were reset, but writing the site_admin_credentials_reset audit event failed:", err)
+			return false
+		}
+		return true
+	}
+
 	// What the old credentials minted ends here, or the command fails: a
 	// recovery that leaves a compromised administrator's sessions live is
 	// not a recovery (OSS-RECOVER-REVOKE). The row update above has already
 	// committed, so a failure says so and names the remedy instead of
 	// claiming success over live sessions.
 	if deps.Sessions == nil || deps.Refresh == nil {
+		recorded(false, nil)
 		fmt.Fprintln(stderr, "identuum-idp: recover: the password and MFA were reset, but no revocation sink is wired — a defect in the command, not in the database")
 		fmt.Fprintln(stderr, recoverRevocationAdvice)
 		return 1
 	}
 	if err := deps.Sessions.RevokeByUserID(ctx, updated.ID, recoverRevocationReason); err != nil {
+		recorded(false, nil)
 		fmt.Fprintln(stderr, "identuum-idp: recover: the password and MFA were reset, but revoking the site_admin's sessions failed:", err)
 		fmt.Fprintln(stderr, recoverRevocationAdvice)
 		return 1
 	}
 	refreshRevoked, err := deps.Refresh.RevokeAllForUser(ctx, updated.ID)
 	if err != nil {
+		recorded(true, nil)
 		fmt.Fprintln(stderr, "identuum-idp: recover: the password and MFA were reset, but revoking the site_admin's refresh tokens failed:", err)
 		fmt.Fprintln(stderr, recoverRevocationAdvice)
+		return 1
+	}
+	if !recorded(true, &refreshRevoked) {
+		fmt.Fprintln(stderr, "identuum-idp: recover: sessions and refresh tokens were revoked; run recover-site-admin again to record the recovery")
 		return 1
 	}
 
@@ -271,7 +305,7 @@ func runRecoverSiteAdmin(ctx context.Context, databaseURL string, stdout, stderr
 	// nil key cipher (the key repository is fail-closed: a nil cipher can
 	// never write plaintext).
 	repos := postgres.NewPgxRepositories(pool, nil)
-	if repos == nil || repos.User == nil || repos.Session == nil || repos.RefreshToken == nil || repos.TokenRevocation == nil {
+	if repos == nil || repos.User == nil || repos.Session == nil || repos.RefreshToken == nil || repos.TokenRevocation == nil || repos.Audit == nil {
 		fmt.Fprintln(stderr, "identuum-idp: recover: repository factory returned nil")
 		return 1
 	}
@@ -280,5 +314,6 @@ func runRecoverSiteAdmin(ctx context.Context, databaseURL string, stdout, stderr
 	refresh := service.NewRefreshTokenService(nil, repos.RefreshToken, service.RefreshTokenServiceOptions{}).
 		WithTokenRevocationService(service.NewTokenRevocationService(nil, repos.TokenRevocation))
 
-	return recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: refresh}, opts, stdout, stderr)
+	return recoverSiteAdminCore(ctx, recoverDeps{Users: repos.User, Sessions: repos.Session, Refresh: refresh,
+		Audit: service.NewOperatorAuditor(repos.Audit)}, opts, stdout, stderr)
 }

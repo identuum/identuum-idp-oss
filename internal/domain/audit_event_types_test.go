@@ -11,8 +11,9 @@ import (
 // minExpectedAuditEventTypes is a lower-bound regression guard.
 // Fail if AllAuditEventTypeGroups shrinks below this number (mass-deletion catch).
 // Update upward when new constants are added; never lower this threshold.
-// 141 = the names the server records (OSS-0913-C, the drift test pins them).
-const minExpectedAuditEventTypes = 141
+// 141 = the names the server records (OSS-0913-C, the drift test pins them);
+// 142 with site_admin_credentials_reset (OSS-0914-RECOVER-AUDIT).
+const minExpectedAuditEventTypes = 142
 
 func TestAllAuditEventTypeGroups_NoDuplicates(t *testing.T) {
 	seen := make(map[AuditEventType]string)

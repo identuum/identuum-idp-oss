@@ -19,12 +19,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
+	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
 // recoverSessionSink records whose sessions recover-site-admin ended and can
@@ -61,7 +63,15 @@ func (s *recoverRefreshSink) RevokeAllForUser(_ context.Context, userID uuid.UUI
 // recoverDepsFor wires the fake user repository with sinks that never fail,
 // for the tests that are about the user row and not the revocation.
 func recoverDepsFor(repo *memUserRepo) recoverDeps {
-	return recoverDeps{Users: repo, Sessions: &recoverSessionSink{}, Refresh: &recoverRefreshSink{}}
+	return recoverDeps{Users: repo, Sessions: &recoverSessionSink{}, Refresh: &recoverRefreshSink{},
+		Audit: service.NewOperatorAuditor(&auditRows{})}
+}
+
+// failingAuditRows is an audit log whose every insert fails.
+type failingAuditRows struct{}
+
+func (failingAuditRows) Insert(context.Context, domain.AuditEvent) error {
+	return errors.New("audit store down")
 }
 
 // seedBootstrappedSiteAdmin returns a memUserRepo containing exactly
@@ -231,8 +241,10 @@ func TestRecoverSiteAdminCore_RefusesWrongSentinelID(t *testing.T) {
 
 	sessions := &recoverSessionSink{}
 	refresh := &recoverRefreshSink{}
+	rec := &auditRows{}
 	var stdout, stderr bytes.Buffer
-	rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: sessions, Refresh: refresh}, recoverOptions{Password: "demo-only"}, &stdout, &stderr)
+	rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: sessions, Refresh: refresh, Audit: service.NewOperatorAuditor(rec)},
+		recoverOptions{Password: "demo-only"}, &stdout, &stderr)
 	if rc == 0 {
 		t.Fatal("expected non-zero rc on sentinel ID drift")
 	}
@@ -243,6 +255,10 @@ func TestRecoverSiteAdminCore_RefusesWrongSentinelID(t *testing.T) {
 	// site_admin's to revoke.
 	if len(sessions.users) != 0 || len(refresh.users) != 0 {
 		t.Fatalf("a refusal revoked sessions %v / refresh tokens %v", sessions.users, refresh.users)
+	}
+	// And records nothing: no recovery happened.
+	if len(rec.rows) != 0 {
+		t.Fatalf("a refusal wrote %d audit rows", len(rec.rows))
 	}
 }
 
@@ -317,7 +333,7 @@ func TestRecoverSiteAdminCore_EndsTheSiteAdminsSessionsAndTokens(t *testing.T) {
 	sessions := &recoverSessionSink{}
 	refresh := &recoverRefreshSink{n: 3}
 	var stdout, stderr bytes.Buffer
-	rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: sessions, Refresh: refresh},
+	rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: sessions, Refresh: refresh, Audit: service.NewOperatorAuditor(&auditRows{})},
 		recoverOptions{Password: "new-demo-password-not-printed"}, &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("expected rc=0, got %d (stderr=%s)", rc, stderr.String())
@@ -353,11 +369,18 @@ func TestRecoverSiteAdminCore_RevocationFailureExitsNonZero(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			repo := seedBootstrappedSiteAdmin(t)
+			rec := &auditRows{}
 			var stdout, stderr bytes.Buffer
-			rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: tc.sessions, Refresh: tc.refresh},
+			rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: tc.sessions, Refresh: tc.refresh, Audit: service.NewOperatorAuditor(rec)},
 				recoverOptions{Password: "new-demo-password-not-printed"}, &stdout, &stderr)
 			if rc == 0 {
 				t.Fatalf("rc = 0 although revoking the %s failed", tc.name)
+			}
+			// The credential still changed, so the recovery is recorded — as a
+			// failure, without a refresh count.
+			if len(rec.rows) != 1 || rec.rows[0].EventType != domain.AuditSiteAdminCredentialsReset || rec.rows[0].Outcome == nil ||
+				*rec.rows[0].Outcome != "failure" || rec.rows[0].Metadata["refresh_tokens_revoked_count"] != nil {
+				t.Errorf("audit rows = %+v, want one site_admin_credentials_reset with outcome failure and no refresh count", rec.rows)
 			}
 			// Never a success line over live sessions.
 			if strings.Contains(stdout.String(), "site_admin password updated") {
@@ -369,5 +392,92 @@ func TestRecoverSiteAdminCore_RevocationFailureExitsNonZero(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// --- OSS-0914-RECOVER-AUDIT: the recovery leaves an audit record ---
+
+// RULE: RECOVER-AUDIT-1
+func TestRecoverSiteAdminCore_RecordsOneAuditEvent(t *testing.T) {
+	t.Parallel()
+
+	const secret = "recover-audit-marker-never-recorded"
+	repo := seedBootstrappedSiteAdmin(t)
+	rec := &auditRows{}
+	var stdout, stderr bytes.Buffer
+	rc := recoverSiteAdminCore(context.Background(), recoverDeps{Users: repo, Sessions: &recoverSessionSink{}, Refresh: &recoverRefreshSink{n: 2},
+		Audit: service.NewOperatorAuditor(rec)}, recoverOptions{Password: secret}, &stdout, &stderr)
+	if rc != 0 {
+		t.Fatalf("rc = %d, stderr = %s", rc, stderr.String())
+	}
+	if len(rec.rows) != 1 {
+		t.Fatalf("audit rows = %d, want exactly 1", len(rec.rows))
+	}
+	e := rec.rows[0]
+	siteAdminID := uuid.MustParse(domain.SiteAdminID)
+	if e.EventType != domain.AuditSiteAdminCredentialsReset || e.Outcome == nil || *e.Outcome != "success" || e.ActorType != "system" ||
+		e.OrganizationID == nil || e.OrganizationID.String() != domain.SystemOrgID || e.SubjectID == nil || *e.SubjectID != siteAdminID {
+		t.Errorf("audit row = %+v, want site_admin_credentials_reset, success, by the system actor, in the system organization, about the site_admin", e)
+	}
+	if e.Metadata["via"] != "cli" || e.Metadata["user_id"] != siteAdminID || e.Metadata["sessions_revoked"] != true ||
+		e.Metadata["refresh_tokens_revoked_count"] != int64(2) {
+		t.Errorf("audit metadata = %v, want via=cli, the site_admin's user_id, sessions_revoked=true, 2 refresh tokens", e.Metadata)
+	}
+	// Never the password, the resulting hash or the environment value's name.
+	row := fmt.Sprintf("%+v %v", e, e.Metadata)
+	for name, s := range map[string]string{"password": secret, "hash": repo.users[0].PasswordHash, "environment variable": envRecoverPassword} {
+		if strings.Contains(row, s) {
+			t.Errorf("the audit row carries the %s", name)
+		}
+	}
+}
+
+func TestRecoverSiteAdminCore_RefusedRecoveryRecordsNothing(t *testing.T) {
+	t.Parallel()
+
+	rec := &auditRows{}
+	deps := recoverDepsFor(&memUserRepo{})
+	deps.Audit = service.NewOperatorAuditor(rec)
+	var stdout, stderr bytes.Buffer
+	if rc := recoverSiteAdminCore(context.Background(), deps, recoverOptions{Password: "demo-only"}, &stdout, &stderr); rc == 0 {
+		t.Fatal("rc = 0 with no site_admin row")
+	}
+	if len(rec.rows) != 0 {
+		t.Fatalf("a refused recovery wrote %d audit rows", len(rec.rows))
+	}
+}
+
+func TestRecoverSiteAdminCore_AuditWriteFailureExitsNonZero(t *testing.T) {
+	t.Parallel()
+
+	repo := seedBootstrappedSiteAdmin(t)
+	deps := recoverDepsFor(repo)
+	deps.Audit = service.NewOperatorAuditor(failingAuditRows{})
+	var stdout, stderr bytes.Buffer
+	if rc := recoverSiteAdminCore(context.Background(), deps, recoverOptions{Password: "new-demo-password-not-printed"}, &stdout, &stderr); rc == 0 {
+		t.Fatal("rc = 0 although the audit event was not written")
+	}
+	if strings.Contains(stdout.String(), "site_admin password updated") {
+		t.Errorf("success was reported without its audit record: %q", stdout.String())
+	}
+	for _, want := range []string{"writing the site_admin_credentials_reset audit event failed", "run recover-site-admin again"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Errorf("stderr lacks %q: %q", want, stderr.String())
+		}
+	}
+}
+
+func TestRecoverSiteAdminCore_RefusesWithoutAnAuditSink(t *testing.T) {
+	t.Parallel()
+
+	repo := seedBootstrappedSiteAdmin(t)
+	deps := recoverDepsFor(repo)
+	deps.Audit = nil
+	var stdout, stderr bytes.Buffer
+	if rc := recoverSiteAdminCore(context.Background(), deps, recoverOptions{Password: "new-demo-password-not-printed"}, &stdout, &stderr); rc == 0 {
+		t.Fatal("rc = 0 with no audit sink")
+	}
+	if repo.users[0].PasswordHash != "$argon2id$placeholder$old$hash$bytes" {
+		t.Error("the password changed although the recovery could not be recorded")
 	}
 }
