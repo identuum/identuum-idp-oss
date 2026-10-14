@@ -36,6 +36,8 @@ Newest release first. Each entry says which versions are affected and where the 
 - **Until it is fixed:** for a member who has a passkey or a provider login, give a reset link
   (`POST /api/v1/users/{id}/recovery/reset-link`) instead of setting a password, so the member chooses one.
 - **Tracked:** the identuum-idp-oss queue (OSS-0913-B).
+- **Fixed in v0.9.14:** a passkey sign-in and a provider sign-in give the answers password sign-in gives: the
+  member chooses a new password first, and an expired administrator-set password opens nothing.
 
 ## v0.9.11
 

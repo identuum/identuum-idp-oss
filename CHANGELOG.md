@@ -90,6 +90,26 @@ follows [Semantic Versioning](https://semver.org/).
   environment value. A refused run records nothing. If the record cannot be
   written the command exits non-zero and says so; running it again records
   the recovery. The console's event-type filter lists the new type.
+- **A passkey or provider sign-in now asks for the password change an
+  administrator requested.** Until now only password sign-in read the
+  change request (D-017) and the 24-hour expiry of an administrator-set
+  password; a member who also had a passkey, or who signed in through the
+  organization's identity provider, got a session without choosing a new
+  password (KNOWN_ISSUES.md, v0.9.13). Now a passkey sign-in
+  (`POST /api/v1/auth/login/webauthn/finish`) gives the answers password
+  sign-in gives: `401 password_change_required` with the one-time
+  `session_id` for `POST /api/v1/auth/login/password-change`, or
+  `401 password_expired`. A provider sign-in, for the console or for an
+  application, redirects to `/login?reason=password_change_required` or
+  `/login?reason=password_expired` (two new codes in the closed list of
+  `docs/guides/oidc-upstream-login.md`) before the provider identity is
+  linked to the account. No session, refresh token or cookie exists before
+  the member chooses a password. The audit rows
+  `user_session.login.password_change_required` and
+  `user_session.login.password_expired` now carry `metadata.method`
+  (`password`, `passkey` or `oidc_upstream`; `provider_id` for the
+  provider). A member with no local password (an account the provider owns,
+  or an `idp_only` organization's member) is never asked for one.
 
 ## `v0.9.13`
 
