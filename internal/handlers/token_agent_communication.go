@@ -34,11 +34,12 @@ func handleAgentCommunicationGrant(c *gin.Context, deps TokenHandlerDeps, client
 		// A store outage is not a verdict: no refusal is recorded for it.
 		if reason := service.AgentCommunicationRefusalReason(err); reason != "" && !domain.IsAuthStoreUnavailable(err) {
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-				Action:        AuditActionAgentCommunicationTokenRefused,
-				Outcome:       "refused",
-				CorrelationID: mw.CorrelationID(c),
-				IPAddress:     c.ClientIP(),
-				UserAgent:     c.Request.UserAgent(),
+				Action:         AuditActionAgentCommunicationTokenRefused,
+				OrganizationID: client.OrganizationID,
+				Outcome:        "refused",
+				CorrelationID:  mw.CorrelationID(c),
+				IPAddress:      c.ClientIP(),
+				UserAgent:      c.Request.UserAgent(),
 				Metadata: map[string]any{
 					"client_id": client.ClientID,
 					"reason":    reason,

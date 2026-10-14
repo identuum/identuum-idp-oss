@@ -292,7 +292,7 @@ func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *s
 				if deps.UserSession != nil {
 					revoked = deps.UserSession.RevokeSession(c.Request.Context(), result.Session.ID, "browser_session_token_issue_failed") == nil
 				}
-				_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+				failure := audit.Event{
 					Action:    "user_session.browser_login.failure",
 					Outcome:   "error",
 					IPAddress: ip,
@@ -302,7 +302,11 @@ func finishBrowserSignIn(c *gin.Context, deps BrowserLoginHandlerDeps, result *s
 						"session_id":      result.Session.ID.String(),
 						"session_revoked": revoked,
 					},
-				})
+				}
+				if result.User != nil {
+					failure.OrganizationID = result.User.OrganizationID
+				}
+				_ = deps.Audit.Record(c.Request.Context(), failure)
 				c.String(http.StatusServiceUnavailable, "temporarily unavailable, try again")
 				return
 			}

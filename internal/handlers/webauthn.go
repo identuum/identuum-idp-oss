@@ -618,13 +618,14 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		}
 		if decision := service.IsLocalCredentialFlowAllowed(user, orgAuthPolicy); !decision.Allowed {
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-				Action:    "user_session.login.webauthn_policy_denied",
-				Outcome:   "denied",
-				IPAddress: c.ClientIP(),
-				UserAgent: c.Request.UserAgent(),
-				ActorID:   user.ID,
-				SubjectID: user.ID,
-				Metadata:  map[string]any{"reason": "idp_only_auth_policy"},
+				Action:         "user_session.login.webauthn_policy_denied",
+				OrganizationID: user.OrganizationID,
+				Outcome:        "denied",
+				IPAddress:      c.ClientIP(),
+				UserAgent:      c.Request.UserAgent(),
+				ActorID:        user.ID,
+				SubjectID:      user.ID,
+				Metadata:       map[string]any{"reason": "idp_only_auth_policy"},
 			})
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
 			return
@@ -648,13 +649,14 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		// created and a second factor is required.
 		if service.IsMFARequiredForUser(user) && !userVerified {
 			_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-				Action:    "user_session.login.webauthn_mfa_required",
-				Outcome:   "denied",
-				IPAddress: c.ClientIP(),
-				UserAgent: c.Request.UserAgent(),
-				ActorID:   user.ID,
-				SubjectID: user.ID,
-				Metadata:  map[string]any{"reason": "mfa_required_uv_absent"},
+				Action:         "user_session.login.webauthn_mfa_required",
+				OrganizationID: user.OrganizationID,
+				Outcome:        "denied",
+				IPAddress:      c.ClientIP(),
+				UserAgent:      c.Request.UserAgent(),
+				ActorID:        user.ID,
+				SubjectID:      user.ID,
+				Metadata:       map[string]any{"reason": "mfa_required_uv_absent"},
 			})
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "mfa_required"})
 			return
@@ -712,12 +714,13 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 			return
 		}
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user_session.login.webauthn_success",
-			Outcome:   "success",
-			IPAddress: ip,
-			UserAgent: ua,
-			ActorID:   user.ID,
-			SubjectID: user.ID,
+			Action:         "user_session.login.webauthn_success",
+			OrganizationID: user.OrganizationID,
+			Outcome:        "success",
+			IPAddress:      ip,
+			UserAgent:      ua,
+			ActorID:        user.ID,
+			SubjectID:      user.ID,
 			Metadata: map[string]any{
 				"user_id":    user.ID.String(),
 				"session_id": issued.Session.ID.String(),

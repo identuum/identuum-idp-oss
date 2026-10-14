@@ -384,7 +384,7 @@ func refuseUpstreamSignIn(c *gin.Context, deps OIDCCallbackHandlerDeps, res *ser
 	if deps.UserSession != nil {
 		revoked = deps.UserSession.RevokeSession(c.Request.Context(), res.Session.ID, reason) == nil
 	}
-	_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+	event := audit.Event{
 		Action:    "auth.oidc_login.failure",
 		Outcome:   "error",
 		IPAddress: ip,
@@ -395,6 +395,10 @@ func refuseUpstreamSignIn(c *gin.Context, deps OIDCCallbackHandlerDeps, res *ser
 			"session_id":      res.Session.ID.String(),
 			"session_revoked": revoked,
 		},
-	})
+	}
+	if res.User != nil {
+		event.OrganizationID = res.User.OrganizationID
+	}
+	_ = deps.Audit.Record(c.Request.Context(), event)
 	redirectUpstreamRefusal(c, refusalSignInUnavailable)
 }

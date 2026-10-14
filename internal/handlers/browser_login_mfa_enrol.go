@@ -104,12 +104,19 @@ func handleBrowserMFAEnrol(c *gin.Context, deps BrowserLoginHandlerDeps, handle,
 	}
 	out, err := deps.MFAEnrollment.Complete(c.Request.Context(), id, code)
 	if err != nil || out == nil || out.User == nil {
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		event := audit.Event{
 			Action:    "user_session.login.mfa_enroll_complete_failure",
 			Outcome:   "denied",
 			IPAddress: c.ClientIP(),
 			UserAgent: c.Request.UserAgent(),
-		})
+		}
+		var subject *service.AuditSubjectError
+		if errors.As(err, &subject) {
+			event.SubjectID = subject.SubjectID
+			event.SubjectType = "user"
+			event.OrganizationID = subject.OrganizationID
+		}
+		_ = deps.Audit.Record(c.Request.Context(), event)
 		if errors.Is(err, service.ErrMFAEnrollmentInvalid) {
 			renderMFAEnrolForm(c, deps, handle, returnTo, `<p>Enter the code your authenticator app shows for this account.</p>`, true)
 			return
@@ -147,11 +154,12 @@ func startBrowserSession(c *gin.Context, deps BrowserLoginHandlerDeps, user *dom
 	}
 	if auditAction != "" {
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    auditAction,
-			Outcome:   "success",
-			IPAddress: ip,
-			UserAgent: ua,
-			Metadata:  map[string]any{"user_id": user.ID.String(), "session_id": issued.Session.ID.String()},
+			Action:         auditAction,
+			OrganizationID: user.OrganizationID,
+			Outcome:        "success",
+			IPAddress:      ip,
+			UserAgent:      ua,
+			Metadata:       map[string]any{"user_id": user.ID.String(), "session_id": issued.Session.ID.String()},
 		})
 	}
 	finishBrowserSignIn(c, deps, &service.LoginResult{UserID: user.ID.String(), User: user, Session: issued.Session, RefreshToken: issued.RefreshToken}, returnTo, remember)

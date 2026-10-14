@@ -475,6 +475,13 @@ func (s *UserSessionService) RotateRefreshToken(ctx context.Context, rawRefreshT
 		// §4.13.2). Revoke the ENTIRE session family for this user AND
 		// emit the breach signal (ERROR log + token_reuse metric) so the
 		// operator is alerted.
+		// The selector resolved this stored session; the presented validator is
+		// never used as an identity. An attribution lookup must not prevent the
+		// protective family revocation or change its public refusal contract.
+		orgID := uuid.Nil
+		if info, lookupErr := s.repo.GetSessionWithUserAndOrgStatus(ctx, session.ID); lookupErr == nil && info != nil && info.Session != nil && info.Session.UserID == session.UserID {
+			orgID = info.OrganizationID
+		}
 		revokeErr := s.repo.RevokeByUserID(ctx, session.UserID, "security_breach_token_reuse")
 		alert := "SECURITY ALERT: refresh-token reuse detected on session rotation — revoking session family"
 		if revokeErr != nil {
@@ -493,9 +500,9 @@ func (s *UserSessionService) RotateRefreshToken(ctx context.Context, rawRefreshT
 		if revokeErr != nil {
 			// Keep both facts: reuse was detected, but its protective write
 			// was not confirmed. Never expose the store's diagnostic here.
-			return nil, errors.Join(ErrUserSessionReuse, ErrUserSessionUnavailable)
+			return nil, &AuditSubjectError{SubjectID: session.UserID, OrganizationID: orgID, Err: errors.Join(ErrUserSessionReuse, ErrUserSessionUnavailable)}
 		}
-		return nil, ErrUserSessionReuse
+		return nil, &AuditSubjectError{SubjectID: session.UserID, OrganizationID: orgID, Err: ErrUserSessionReuse}
 	}
 
 	// Every accepted refresh, including a predecessor within grace, requires

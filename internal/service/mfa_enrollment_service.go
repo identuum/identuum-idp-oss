@@ -469,7 +469,7 @@ func (s *MFAEnrollmentService) Complete(ctx context.Context, pendingID uuid.UUID
 // complete is Complete; hashedCodes, when non-nil, replaces the recovery
 // codes Initiate stored on the pending row (self-enrolment shows its codes at
 // complete, not at initiate).
-func (s *MFAEnrollmentService) complete(ctx context.Context, pendingID uuid.UUID, code string, hashedCodes []string) (*MFAEnrollmentCompleteResult, error) {
+func (s *MFAEnrollmentService) complete(ctx context.Context, pendingID uuid.UUID, code string, hashedCodes []string) (result *MFAEnrollmentCompleteResult, err error) {
 	row, err := s.pending.GetByID(ctx, pendingID)
 	if err != nil {
 		if errors.Is(err, repository.ErrMFAPendingSessionNotFound) {
@@ -477,6 +477,17 @@ func (s *MFAEnrollmentService) complete(ctx context.Context, pendingID uuid.UUID
 		}
 		return nil, ErrMFAEnrollmentInvalid
 	}
+	// A stored pending handle, not a submitted user ID, identifies the member
+	// whose enrollment failed. Keep that subject on errors without returning
+	// any enrollment material or changing the public refusal classification.
+	defer func() {
+		if err == nil {
+			return
+		}
+		if user, lookupErr := s.users.GetByID(ctx, row.UserID); lookupErr == nil && user != nil {
+			err = &AuditSubjectError{SubjectID: user.ID, OrganizationID: user.OrganizationID, Err: err}
+		}
+	}()
 	if ok, _ := row.CanBeUsed(s.now(), domain.MFAPendingKindEnroll); !ok {
 		if row.ConsumedAt != nil {
 			return nil, ErrMFAEnrollmentAlreadyConsumed

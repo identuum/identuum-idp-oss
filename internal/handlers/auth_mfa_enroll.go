@@ -74,10 +74,13 @@ func mintPendingMFAHandle(c *gin.Context, deps AuthSessionsHandlerDeps, result *
 	row, err := deps.MFAEnrollment.CreatePending(c.Request.Context(), result.User, kind, rememberMe)
 	if err != nil || row == nil {
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
-			Action:    "user_session.login.mfa_pending_create_failure",
-			Outcome:   "denied",
-			IPAddress: c.ClientIP(),
-			UserAgent: c.Request.UserAgent(),
+			Action:         "user_session.login.mfa_pending_create_failure",
+			OrganizationID: result.User.OrganizationID,
+			SubjectID:      result.User.ID,
+			SubjectType:    "user",
+			Outcome:        "denied",
+			IPAddress:      c.ClientIP(),
+			UserAgent:      c.Request.UserAgent(),
 		})
 		return ""
 	}

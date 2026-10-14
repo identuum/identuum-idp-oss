@@ -184,7 +184,8 @@ func HandlePasskeyStepUpFinish(deps PasskeyStepUpHandlerDeps) gin.HandlerFunc {
 		}
 		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
 			Action: "user_session.step_up.passkey_success", Outcome: "success", IPAddress: ip, UserAgent: ua,
-			Metadata: map[string]any{"user_id": resolved.User.ID.String(), "session_id": resolved.Session.ID.String(), "acr": service.ACRPhishingResistant},
+			OrganizationID: resolved.User.OrganizationID,
+			Metadata:       map[string]any{"user_id": resolved.User.ID.String(), "session_id": resolved.Session.ID.String(), "acr": service.ACRPhishingResistant},
 		})
 		if returnTo == "" {
 			returnTo = "/"

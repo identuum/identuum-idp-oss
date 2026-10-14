@@ -174,7 +174,7 @@ func HandleAuthorize(deps AuthorizeHandlerDeps) gin.HandlerFunc {
 		if rawRequest != "" && deps.RequestObjects != nil {
 			merged, redirectSafe, rerr := deps.RequestObjects.Resolve(c.Request.Context(), values)
 			if rerr != nil {
-				emitRequestObjectError(c, deps, values, redirectSafe, rerr)
+				emitRequestObjectError(c, deps, values, principal, redirectSafe, rerr)
 				return
 			}
 			values = merged
@@ -463,11 +463,12 @@ func resumableAuthorizeQuery(values url.Values) string {
 // redirected ONLY when the QUERY redirect_uri is registered for the client
 // (the object's own redirect_uri cannot be trusted before it verifies);
 // otherwise a direct 400 — never an open redirect.
-func emitRequestObjectError(c *gin.Context, deps AuthorizeHandlerDeps, values url.Values, redirectSafe bool, err error) {
+func emitRequestObjectError(c *gin.Context, deps AuthorizeHandlerDeps, values url.Values, principal *domain.Principal, redirectSafe bool, err error) {
 	req := service.AuthorizeRequest{
 		ClientID:    values.Get("client_id"),
 		RedirectURI: values.Get("redirect_uri"),
 		State:       values.Get("state"),
+		Principal:   principal,
 	}
 	switch {
 	case errors.Is(err, service.ErrAuthorizeMissingParameters):
@@ -475,11 +476,15 @@ func emitRequestObjectError(c *gin.Context, deps AuthorizeHandlerDeps, values ur
 	case errors.Is(err, service.ErrAuthorizeInvalidClient):
 		respondAuthorizeDirectError(c, "invalid_client", "Unknown or inactive client")
 	case errors.Is(err, service.ErrAuthorizeInvalidRequestObject) && redirectSafe:
-		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+		event := audit.Event{
 			Action: "oauth_authorize.request_object_rejected", Outcome: "denied",
 			IPAddress: c.ClientIP(), UserAgent: c.Request.UserAgent(),
 			Metadata: map[string]any{"client_id": req.ClientID},
-		})
+		}
+		if principal != nil {
+			event.OrganizationID = principal.OrganizationID
+		}
+		_ = deps.Audit.Record(c.Request.Context(), event)
 		redirectAuthorizeError(c, deps, req, "invalid_request_object")
 	default:
 		respondAuthorizeDirectError(c, "invalid_request_object", "The request object could not be verified")
@@ -495,7 +500,7 @@ func redirectAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req servi
 		})
 		return
 	}
-	_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+	event := audit.Event{
 		Action:    "oauth_authorize.error_redirect",
 		Outcome:   "denied",
 		IPAddress: c.ClientIP(),
@@ -504,6 +509,10 @@ func redirectAuthorizeError(c *gin.Context, deps AuthorizeHandlerDeps, req servi
 			"client_id": req.ClientID,
 			"error":     code,
 		},
-	})
+	}
+	if req.Principal != nil {
+		event.OrganizationID = req.Principal.OrganizationID
+	}
+	_ = deps.Audit.Record(c.Request.Context(), event)
 	c.Redirect(http.StatusFound, location)
 }

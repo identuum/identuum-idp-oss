@@ -744,6 +744,10 @@ func recordSessionRefreshReuse(c *gin.Context, sink audit.Service, err error) {
 	if errors.Is(err, service.ErrUserSessionUnavailable) {
 		event.Metadata = map[string]any{"revocation": "unconfirmed"}
 	}
+	var subject *service.AuditSubjectError
+	if errors.As(err, &subject) {
+		event.OrganizationID = subject.OrganizationID
+	}
 	_ = sink.Record(c.Request.Context(), event)
 }
 

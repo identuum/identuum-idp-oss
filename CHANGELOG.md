@@ -118,6 +118,14 @@ follows [Semantic Versioning](https://semver.org/).
   the existing tenant clamp still excludes other organizations and server-wide
   events. Existing audit rows are not rewritten and retain their prior visibility.
 
+- Organization audit views also include verified passkey sign-in and step-up,
+  refresh-reuse refusals, browser MFA enrollment outcomes, browser and upstream
+  final-mint failures, pending-MFA storage failures, browser authorization
+  refusals with a known member, and authenticated-client communication refusals.
+  Failure attribution uses the member or client resolved by the runtime;
+  submitted identifiers alone do not assign an organization. Historical audit
+  rows stay as written. Global relying-party delivery attribution is unchanged.
+
 ## `v0.9.13`
 
 Members see and remove their connected applications, administrators hand
