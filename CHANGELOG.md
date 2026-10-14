@@ -10,11 +10,11 @@ follows [Semantic Versioning](https://semver.org/).
 Members see and remove their connected applications, administrators hand
 over one-time reset links, organizations keep a working sign-in policy,
 mail with a display name leaves, and refusals say why in plain words.
-identuum-ui `181361c` embedded (`v0.9.12` embedded `a932627`; `181361c`'s
+identuum-ui `4aa55db` embedded (`v0.9.12` embedded `a932627`; `4aa55db`'s
 `package.json` says `0.9.13`). The delta since `v0.9.12`
-(`git rev-list --count v0.9.12..8f5029d` and
-`git diff --shortstat v0.9.12..8f5029d`, measured at `8f5029d`, before this
-notes update) is 46 commits, 141 files, +9419/−418. The endpoint count goes
+(`git rev-list --count v0.9.12..4fcd2d3` and
+`git diff --shortstat v0.9.12..4fcd2d3`, measured at `4fcd2d3`, before this
+notes update) is 51 commits, 141 files, +9251/−451. The endpoint count goes
 from 160 to 166 (`grep -c . tools/api-docgen/testdata/endpoints.manifest.txt`).
 This release adds one SQL migration, `0055_users_admin_password_set_at.sql`;
 the tracked `migrations/` directory contains 55 SQL files, with head `0055`.
@@ -85,7 +85,10 @@ sign-in for both accounts (KNOWN_ISSUES.md; fix planned for v0.9.14).
   without an active provider (on update or at creation) answers `400
   no_active_identity_provider`; deleting the provider while the policy is
   `idp_only` answers `409 last_active_identity_provider`. Both explain the
-  fix in plain words and change nothing.
+  fix in plain words and change nothing. Administrators of such an
+  organization still sign in with a password: the console's sign-in page
+  offers "Administrator? Sign in with password" to every address alike,
+  and Continue still sends members to the provider.
 - **Editing a provider no longer drops `active` or `priority` silently.**
   `PUT /api/v1/organizations/{id}/identity-provider` used to accept both
   fields, ignore them and answer `200`. This server cannot switch a provider
