@@ -334,7 +334,10 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				// A client still holding the token of a session that has ended
 				// must be able to sign in again: the sign-in routes continue
 				// with NO principal, so nothing is admitted on this token.
-				if _, signIn := signInRoutes[c.FullPath()]; signIn {
+				// The request's own escaped path must equal the routed one: an
+				// encoded spelling the router decodes onto a sign-in route is
+				// not the sign-in route.
+				if _, signIn := signInRoutes[c.FullPath()]; signIn && c.Request.URL.EscapedPath() == c.FullPath() {
 					c.Next()
 					return
 				}
