@@ -122,8 +122,10 @@ fixed public test encryption key by default. It is suitable only for
 disposable development data; never use it for a product installation.
 
 Open the application URL after `/health` answers successfully. A fresh
-database takes you to `/setup`. Use the setup code shown by the application
-to complete the wizard and create the site administrator. The wizard is the
+database takes you to `/setup`. Startup prints the setup code only when
+stdout is a terminal; in a container, read it with
+`/app/identuum-idp show-setup-code /app/data` inside the app container. Use
+that code to complete the wizard and create the site administrator. The wizard is the
 product bootstrap path; `bootstrap` is a separate one-shot operator command.
 See [first sign-in](OPERATOR-GUIDE.md#sign-in-the-first-time) for MFA enrolment.
 

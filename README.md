@@ -126,10 +126,11 @@ database and data under any project name.
 Open `http://localhost:7113` in a browser — the UI detects the
 first-run state, redirects to `/setup`, and runs the wizard. The
 wizard prompts for the setup code, then for the initial organization
-and site-administrator credentials. The setup code is printed to the
-IDP boot log on every restart while the system is in `setup_required`
-state, alongside the wizard URL and the local support command for
-re-displaying it later:
+and site-administrator credentials. While the system is in
+`setup_required` state, every restart prints the wizard URL and the
+local support command to the IDP boot log. The setup code itself is
+printed only when stdout is a terminal, so `docker compose` logs do not
+carry it; read it with the support command:
 
 ```bash
 docker compose exec identuum-idp /app/identuum-idp show-setup-code /app/data
@@ -390,7 +391,9 @@ export IDENTUUM_IDP_DATA_DIR=/var/lib/identuum-idp
 ./identuum-idp
 ```
 
-The boot log prints the wizard URL and the setup code; re-display it with
+The boot log prints the wizard URL and the support command. It prints the
+setup code too when stdout is a terminal; when stdout is redirected or
+piped, read the code with
 `./identuum-idp show-setup-code "$IDENTUUM_IDP_DATA_DIR"`. Check health with
 `./identuum-idp healthcheck http://127.0.0.1:7113`. `./identuum-idp help`
 lists every subcommand. (Developers: `make oss-up` builds the local image
@@ -432,8 +435,9 @@ wizard is part of the embedded UI). Its parts:
   image; unset, the per-user config directory's `identuum-idp`, never the
   working directory) and as a
   SHA-256 hash in the database. While setup is incomplete, the
-  serve boot log prints the wizard URL, the plaintext code,
-  and the local `show-setup-code` command. Once setup completes the
+  serve boot log prints the wizard URL and the local
+  `show-setup-code` command, and the plaintext code only when stdout
+  is a terminal. Once setup completes the
   file is deleted, the hash is cleared, and the setup APIs respond
   `410 Gone`.
 - Three public endpoints under `/api/setup/`:

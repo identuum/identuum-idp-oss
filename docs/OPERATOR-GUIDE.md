@@ -303,14 +303,16 @@ non-zero and the final `FAILING:` line names each failing state (for example
 current at-rest key — the state that otherwise looks like "every login
 fails").
 
-## Show the setup code again
+## Show the setup code
 
 ```
 docker exec identuum-idp-oss /app/identuum-idp show-setup-code /app/data
 ```
 
-Re-displays the one-time setup code after the boot log has scrolled away.
-Only works while the appliance still reports `setup_required`; after setup
+Displays the one-time setup code. This is the normal way to read it in a
+container: the boot log carries the wizard URL and this command, and
+prints the code itself only when stdout is a terminal. It also works after
+terminal output has scrolled away. Only works while the appliance still reports `setup_required`; after setup
 completes it refuses (the stale file is ignored).
 
 ## Reset the site_admin password (break-glass)

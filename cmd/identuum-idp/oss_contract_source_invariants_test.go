@@ -14,8 +14,9 @@
 //     binary exits non-zero naming the variable rather than starting a
 //     degraded "scaffold".
 //   - The operator one-shots are SUBCOMMANDS: migrate, bootstrap,
-//     recover-site-admin, show-setup-code (operator-run, env-fed, never
-//     printed). The OSS binary has NO --setup flag (setup is bootstrap).
+//     recover-site-admin, show-setup-code (operator-run, env-fed; their
+//     sensitive inputs are never logged, while show-setup-code printing
+//     the setup code is its intended output). The OSS binary has NO --setup flag (setup is bootstrap).
 //   - The split-era serve flags (--gin-serve, --jwks-db, the stdlib
 //     --serve smoke server) and the diagnostic flags (--oss-smoke*,
 //     --db-check, --print-license-info, --check-feature, --get-limit) are

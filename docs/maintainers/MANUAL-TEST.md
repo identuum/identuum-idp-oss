@@ -79,9 +79,10 @@ correct. OSS is API-first:
 `make dev-reset` bootstraps `site_admin@system.local` for you and prints its
 password and TOTP secret **once**, to stdout. Read them from that output.
 
-If you are not using the seed, the product prints a first-run setup code once at
-boot and stores it at `/app/data/setup-token.txt` inside the container. To show
-it again:
+If you are not using the seed, the product stores a first-run setup code at
+`/app/data/setup-token.txt` inside the container. While setup is required, the
+boot log shows the wizard URL and the command below; it shows the code itself
+only when stdout is a terminal. To show the code:
 
 ```
 /app/identuum-idp show-setup-code /app/data

@@ -320,8 +320,9 @@ do **not** bootstrap. Then:
 make oss-setup-code    # prints the first-run setup code
 ```
 
-Treat that code like a password: it authorises the wizard. It is also printed
-in the boot log. It is regenerated whenever the app container is recreated, so
+Treat that code like a password: it authorises the wizard. The container's
+boot log does not carry it (startup prints the code only when stdout is a
+terminal), so read it from the running container this way. It is regenerated whenever the app container is recreated, so
 read it after starting the container you intend to set up. Once setup is
 complete the command tells you so and stops — it never prints a stale code.
 

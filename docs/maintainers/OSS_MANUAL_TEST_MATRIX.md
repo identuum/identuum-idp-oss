@@ -34,7 +34,9 @@ never paste any of those values into a bug report, screenshot, log, or chat.
 ### OSS-1 — First-run setup wizard (single-organization)
 
 **Manual steps.** From a fresh DB volume, browse to `/setup` on the UI; paste
-the setup token printed by `identuum --setup --plain`; create the single
+the setup token printed by `/app/identuum-idp show-setup-code /app/data` in
+the app container (startup prints it only when stdout is a terminal; the
+container log shows only the wizard URL and that command); create the single
 site_admin row.
 
 **Expected.** Wizard advances through email → password → MFA enrollment
@@ -57,7 +59,8 @@ the CE-only `license_valid` pre-flight gate (the wizard's license
 step is conditional on `distribution === "ce"` and never reached
 against an OSS backend).
 
-**Secret-safety.** Setup token is single-use, plaintext-only-in-CLI-out.
+**Secret-safety.** Setup token is single-use; its plaintext appears only in
+`show-setup-code` output and in terminal startup output.
 Never copy/paste into reports.
 
 ---

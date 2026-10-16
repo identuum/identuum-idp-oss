@@ -3674,11 +3674,13 @@ oss-bootstrap:
 ##
 ##   The code is only valid while the DB reports setup_required; once setup
 ##   completes the command says so and exits 2. The token is per-container:
-##   recreating the app container regenerates it (the new one is printed on
-##   the boot banner), so read it AFTER the container you intend to set up.
+##   recreating the app container regenerates it, so read it AFTER starting
+##   the container you intend to set up. The container's boot log shows only
+##   the wizard URL and this command (startup prints the code only when
+##   stdout is a terminal), so this target is how the code is read.
 ##
-##   Prints the code to the operator's terminal — treat that terminal like
-##   the boot log: it is a credential for the wizard.
+##   Prints the code to the operator's terminal — treat that output as a
+##   credential for the wizard.
 oss-setup-code:
 	@$(COMPOSE_CMD) -f $(COMPOSE_FILE) --profile app exec \
 		app /app/identuum-idp show-setup-code /app/data

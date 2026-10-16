@@ -24,9 +24,10 @@ is needed, and the customer never compiles anything locally.
 
 The UI detects the first-run state and redirects to `/setup`. The
 wizard prompts for the setup code, then for the initial organization
-and site administrator. The setup code is printed to the IDP boot log
-on every restart while setup is still required, along with the
-in-container support command:
+and site administrator. While setup is still required, every restart
+prints the wizard URL and the in-container support command to the IDP
+log. The container's stdout is not a terminal, so the log does not
+carry the setup code; read it with the support command:
 
 ```bash
 docker compose exec identuum-idp \

@@ -57,8 +57,9 @@ type Repository interface {
 }
 
 // SetupBanner is returned by Initialize while status == setup_required.
-// The boot code logs it once per startup; it is also the basis for
-// the no-secrets-in-response GET /api/setup/status hints.
+// The boot code presents it once per startup, printing SetupToken only
+// when stdout is a terminal; it is also the basis for the
+// no-secrets-in-response GET /api/setup/status hints.
 type SetupBanner struct {
 	SetupURL        string
 	SetupToken      string // plaintext — caller MUST treat as a credential
