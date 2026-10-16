@@ -18,11 +18,46 @@ import (
 // coverage if a future operator clears the table by hand.
 type PgxSetupStateRepository struct {
 	db DBTX
+	// admit lets one local caller at a time wait on the database lock, so
+	// waiters cannot take every pool connection from the lock holder.
+	admit chan struct{}
 }
 
 // NewPgxSetupStateRepository constructs a pgx-backed repo.
 func NewPgxSetupStateRepository(db DBTX) *PgxSetupStateRepository {
-	return &PgxSetupStateRepository{db: db}
+	return &PgxSetupStateRepository{db: db, admit: make(chan struct{}, 1)}
+}
+
+// setupCompleteLock serializes setup completion across every instance on
+// the database. It is taken before, and independently of, the signing-key
+// provisioning lock (signingKeyEnsureLock), which bootstrap takes alone.
+const setupCompleteLock = `SELECT pg_advisory_xact_lock(hashtextextended('system_setup_state.complete', 0))`
+
+// WithCompletionLock runs fn while this repository holds setupCompleteLock
+// in its own transaction. The transaction writes nothing; ending it on any
+// path (or losing its connection) releases the lock. fn uses other
+// connections, so the pool needs at least two.
+func (r *PgxSetupStateRepository) WithCompletionLock(ctx context.Context, fn func(context.Context) error) error {
+	select {
+	case r.admit <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-r.admit }()
+
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("system_setup_state: begin completion lock: %w", err)
+	}
+	defer func() {
+		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		_ = tx.Rollback(release)
+	}()
+	if _, err := tx.Exec(ctx, setupCompleteLock); err != nil {
+		return fmt.Errorf("system_setup_state: completion lock: %w", err)
+	}
+	return fn(ctx)
 }
 
 // Get returns the singleton setup state row. Returns ErrSetupStateNotFound

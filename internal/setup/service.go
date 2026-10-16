@@ -51,6 +51,9 @@ type Repository interface {
 	EnsureRow(ctx context.Context) error
 	UpdateTokenHash(ctx context.Context, hash string, createdAt time.Time) error
 	MarkComplete(ctx context.Context, at time.Time) error
+	// WithCompletionLock runs fn while holding the cross-instance setup
+	// completion lock, and releases it on every return path.
+	WithCompletionLock(ctx context.Context, fn func(context.Context) error) error
 }
 
 // SetupBanner is returned by Initialize while status == setup_required.
@@ -321,6 +324,22 @@ func (s *Service) VerifyToken(ctx context.Context, plaintext string) error {
 //
 // dataDir is needed only for step 6.
 func (s *Service) Complete(ctx context.Context, dataDir string, in CompleteInput) (*CompleteOutput, error) {
+	// G7: the state read and every completion write run under one lock, so
+	// an overlapping request reads the winner's completed state and is
+	// refused before key verification or any write.
+	var out *CompleteOutput
+	err := s.deps.Repo.WithCompletionLock(ctx, func(ctx context.Context) error {
+		var err error
+		out, err = s.complete(ctx, dataDir, in)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Service) complete(ctx context.Context, dataDir string, in CompleteInput) (*CompleteOutput, error) {
 	state, err := s.deps.Repo.Get(ctx)
 	if err != nil {
 		return nil, err

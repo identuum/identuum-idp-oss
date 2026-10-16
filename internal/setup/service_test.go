@@ -70,6 +70,12 @@ func (m *memSetupStateRepo) MarkComplete(_ context.Context, at time.Time) error 
 	return nil
 }
 
+// WithCompletionLock does not serialize: the in-memory store has no other
+// instance, and the key race test sends two completions in at once.
+func (m *memSetupStateRepo) WithCompletionLock(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
+
 // --- in-memory KeyRepository ------------------------------------------------
 
 type memKeyRepo struct {
