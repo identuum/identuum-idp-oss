@@ -25,7 +25,6 @@ import (
 //
 // Start must pass setupOutputIsTerminal as the check. The wiring test below
 // keeps a correct but unused renderer from satisfying the output tests.
-// This test-only commit is expected not to compile until that seam is added.
 func TestSetupBootOutput_NonTTYDoesNotPrintCode(t *testing.T) {
 	banner := syntheticSetupBanner(t)
 	var stdout bytes.Buffer

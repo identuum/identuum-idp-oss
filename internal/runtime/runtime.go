@@ -549,24 +549,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			return fmt.Errorf("runtime: setup initialize: %w", setupErr)
 		}
 		if banner != nil {
-			// Print URL + plaintext setup code + the local
-			// show-setup-code subcommand on every boot while
-			// status == setup_required. The setup code is the
-			// wizard-authorisation credential, not an admin
-			// password (D-IDP-INSTALL-19), and is allowed in logs
-			// by the appliance install UX decisions
-			// (D-IDP-INSTALL-11). Operators with log-retention
-			// concerns can run `<binary> show-setup-code <data-dir>`
-			// (/app/identuum-idp in the image) to read the file directly.
-			fmt.Fprintf(r.cfg.Stdout,
-				"identuum-idp: serve: first-run setup required — open %s\n",
-				banner.SetupURL)
-			fmt.Fprintf(r.cfg.Stdout,
-				"identuum-idp: serve: setup code (also stored at %s): %s\n",
-				banner.TokenFilePath, banner.SetupToken)
-			fmt.Fprintf(r.cfg.Stdout,
-				"identuum-idp: serve: to re-display the setup code later, run: %s\n",
-				banner.ShowCodeCommand)
+			writeSetupBanner(r.cfg.Stdout, banner, setupOutputIsTerminal)
 		}
 	}
 
