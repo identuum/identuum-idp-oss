@@ -46,7 +46,8 @@ const agentCommunicationParticipantColumns = `
 // participant clients, each in id order; the inserts after. The order the
 // client save (account, client) and the organization delete (accounts,
 // clients) take. The organization delete locks the organization's accounts
-// in id order before it updates them (G5, 2026-10-16), so a create holding
+// in id order before it updates them, and no account is created in the
+// organization until the delete ends (G5, 2026-10-16), so a create holding
 // one of two accounts makes the delete wait instead of deadlocking with it.
 func (r *PgxAgentCommunicationAuthorizationRepository) Create(ctx context.Context, a *domain.AgentCommunicationAuthorization, recheck repository.AgentCommunicationParticipantRecheck) error {
 	if a == nil {

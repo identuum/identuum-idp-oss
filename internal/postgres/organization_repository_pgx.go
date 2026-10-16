@@ -559,6 +559,11 @@ func (r *PgxOrganizationRepository) update(ctx context.Context, id uuid.UUID, op
 	return org, nil
 }
 
+// organizationLifecycleLockKey is the transaction advisory lock key of one
+// organization ($1): Delete takes it exclusively, a service account create
+// shared (G5 R1).
+const organizationLifecycleLockKey = `hashtextextended('organizations.lifecycle:' || $1::text, 0)`
+
 // Delete soft deletes an organization and all its users in a transaction
 func (r *PgxOrganizationRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	tx, err := r.db.Begin(ctx)
@@ -566,6 +571,14 @@ func (r *PgxOrganizationRepository) Delete(ctx context.Context, id uuid.UUID) er
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer tx.Rollback(ctx)
+
+	// G5 R1: exclusive before any row lock, so no service account is created
+	// in this organization until the delete ends (the create takes it shared
+	// as its first statement). The ordered account lock below therefore sees
+	// every account the tombstone UPDATE writes.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(`+organizationLifecycleLockKey+`)`, id); err != nil {
+		return fmt.Errorf("failed to lock the organization's lifecycle: %w", err)
+	}
 
 	now := time.Now()
 

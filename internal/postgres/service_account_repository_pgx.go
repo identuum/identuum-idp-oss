@@ -32,6 +32,27 @@ func (r *PgxServiceAccountRepository) Create(ctx context.Context, sa *domain.Ser
 	timer := prometheus.NewTimer(metrics.DBQueryDuration.WithLabelValues("service_account_repo", "create", "all"))
 	defer timer.ObserveDuration()
 
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback on any non-commit path
+
+	// G5 R1: the organization delete holds this lock exclusively from its
+	// first statement, so an account is never inserted between its ordered
+	// account lock and its tombstone UPDATE. A create that waited reads the
+	// organization after the delete and is refused.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock_shared(`+organizationLifecycleLockKey+`)`, sa.OrganizationID); err != nil {
+		return nil, fmt.Errorf("failed to lock the organization's lifecycle: %w", err)
+	}
+	var live bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM organizations WHERE id = $1 AND deleted_at IS NULL)`, sa.OrganizationID).Scan(&live); err != nil {
+		return nil, fmt.Errorf("failed to read the organization: %w", err)
+	}
+	if !live {
+		return nil, domain.ErrOrganizationNotFound
+	}
+
 	query := `
 		INSERT INTO service_accounts (organization_id, name, description, active, expires_at, role, owner_user_id, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
@@ -42,7 +63,7 @@ func (r *PgxServiceAccountRepository) Create(ctx context.Context, sa *domain.Ser
 	if roleStr == "" {
 		roleStr = string(domain.RoleOrgAdmin)
 	}
-	err := r.db.QueryRow(ctx, query, sa.OrganizationID, sa.Name, sa.Description, sa.Active, sa.ExpiresAt, roleStr, sa.OwnerUserID).Scan(
+	err = tx.QueryRow(ctx, query, sa.OrganizationID, sa.Name, sa.Description, sa.Active, sa.ExpiresAt, roleStr, sa.OwnerUserID).Scan(
 		&id,
 		&sa.CreatedAt,
 		&sa.UpdatedAt,
@@ -54,6 +75,9 @@ func (r *PgxServiceAccountRepository) Create(ctx context.Context, sa *domain.Ser
 			return nil, domain.ErrServiceAccountNameTaken
 		}
 		return nil, fmt.Errorf("failed to create service account: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("failed to commit service account: %w", err)
 	}
 
 	metrics.DBQueryDuration.WithLabelValues("service_account_repo", "create", "success").Observe(timer.ObserveDuration().Seconds())
