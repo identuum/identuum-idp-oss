@@ -5,7 +5,22 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## `v0.9.14`
+
+One email address is one account on the whole server, every sign-in asks
+for the password change an administrator requested, organization audit
+views show the events that concern the organization, and two setup runs at
+once leave one signing key. identuum-ui `3fab1c8` embedded (`v0.9.13`
+embedded `8974dfe`; `3fab1c8`'s `package.json` says `0.9.14`). The delta
+since `v0.9.13` (`git rev-list --count v0.9.13..9f1f671` and
+`git diff --shortstat v0.9.13..9f1f671`, measured at `9f1f671`, before this
+notes update) is 25 commits, 108 files, +4937/−298. The endpoint count stays
+166 (`grep -c . tools/api-docgen/testdata/endpoints.manifest.txt`). This
+release adds one SQL migration, `0056_users_email_global_unique.sql`; the
+tracked `migrations/` directory contains 56 SQL files, with head `0056`.
+Before upgrading, run `identuum-idp audit-preupgrade`: migration 0056
+refuses while one email address belongs to two live accounts
+(docs/releases/v0.9.14.md).
 
 - **An agent communication authorization cannot name a participant that
   changes at the same moment.** `POST
