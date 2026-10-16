@@ -180,8 +180,10 @@ func mcPasskeySignIns(t *testing.T) {
 		t.Errorf("audit row for the change requirement = %v; want one naming the user with method passkey", row)
 	}
 	// The member chooses a password through the same change step, and the
-	// next passkey sign-in is a full sign-in.
-	if st, cm, _ := w.call("", http.MethodPost, "/api/v1/auth/login/password-change", `{"session_id":"`+handle+`","new_password":"`+g2Chosen+`"}`); st != http.StatusOK {
+	// next passkey sign-in is a full sign-in. The change step comes from the
+	// client that made the assertion, with the cookie its finish set
+	// (OSS-G8-PASSKEY-MFA-R2).
+	if st, cm := w.g8ChangeAs(res.Cookies(), handle, g2Chosen); st != http.StatusOK {
 		t.Fatalf("change step after the passkey sign-in = %d %v; want 200", st, cm["error"])
 	}
 	if res, m := w.mcPasskeySignIn(email, key); res.StatusCode != http.StatusOK || m["session_id"] == nil {
