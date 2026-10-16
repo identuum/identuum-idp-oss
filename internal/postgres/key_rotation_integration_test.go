@@ -37,12 +37,20 @@ func keyState(t *testing.T, ctx context.Context, db postgres.DBTX, kid string) s
 // RULE: SIGNING-KEY-ROTATE-1
 func TestSigningKeyRotation_AtomicPromotesNewRetiresOld(t *testing.T) {
 	pool := keyEncPool(t)
+	// Cleanups run last-in first-out, so registering Close first keeps the
+	// pool open for the row deletion below (G6R-F1).
 	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	cipher, _ := crypto.NewCryptoService(keyEncTestHexKey)
 	repo := postgres.NewPgxKeyRepository(pool, cipher)
 	svc := service.NewKeyService(repo)
 
+	var seeded []string
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM signing_keys WHERE kid = ANY($1)`, seeded); err != nil {
+			t.Errorf("delete seeded signing keys: %v", err)
+		}
+	})
 	seed := func(state domain.KeyState) string {
 		privPEM, pubPEM := genEdDSAPEM(t)
 		kid := "rotate-" + uuid.NewString()
@@ -52,11 +60,9 @@ func TestSigningKeyRotation_AtomicPromotesNewRetiresOld(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("CreateSigningKey(%s): %v", state, err)
 		}
+		seeded = append(seeded, kid)
 		return kid
 	}
-	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM signing_keys WHERE kid LIKE 'rotate-%'`)
-	})
 
 	// Happy path: old active -> rotating, new -> active, atomically.
 	oldKID := seed(domain.KeyStateActive)
