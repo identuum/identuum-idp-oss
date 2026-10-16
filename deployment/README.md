@@ -26,13 +26,17 @@ The UI detects the first-run state and redirects to `/setup`. The
 wizard prompts for the setup code, then for the initial organization
 and site administrator. While setup is still required, every restart
 prints the wizard URL and the in-container support command to the IDP
-log. The container's stdout is not a terminal, so the log does not
-carry the setup code; read it with the support command:
+log. This compose file attaches no terminal to the container, so the
+log does not carry the setup code; read it with the support command:
 
 ```bash
 docker compose exec identuum-idp \
     /app/identuum-idp show-setup-code /app/data
 ```
+
+Do not add `tty: true` (or start the container with `docker run -t`):
+stdout is then a terminal, so the code is printed and Docker keeps it in
+the container logs. Use `show-setup-code` instead.
 
 The setup code authorises the wizard only. It is not the
 administrator password — that is created during the wizard.

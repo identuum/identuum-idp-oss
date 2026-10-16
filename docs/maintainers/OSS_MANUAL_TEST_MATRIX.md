@@ -35,8 +35,9 @@ never paste any of those values into a bug report, screenshot, log, or chat.
 
 **Manual steps.** From a fresh DB volume, browse to `/setup` on the UI; paste
 the setup token printed by `/app/identuum-idp show-setup-code /app/data` in
-the app container (startup prints it only when stdout is a terminal; the
-container log shows only the wizard URL and that command); create the single
+the app container (startup prints it only when stdout is a terminal; with
+no tty attached, the container log shows only the wizard URL and that
+command); create the single
 site_admin row.
 
 **Expected.** Wizard advances through email → password → MFA enrollment
@@ -60,7 +61,8 @@ step is conditional on `distribution === "ce"` and never reached
 against an OSS backend).
 
 **Secret-safety.** Setup token is single-use; its plaintext appears only in
-`show-setup-code` output and in terminal startup output.
+`show-setup-code` output and in terminal startup output (including a
+container started with a tty, whose log then keeps it).
 Never copy/paste into reports.
 
 ---

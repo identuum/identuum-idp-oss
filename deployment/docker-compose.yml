@@ -200,8 +200,9 @@ services:
       IDENTUUM_IDP_UI_PUBLIC_BASE_URL: "http://localhost:7113"
       # IDENTUUM_IDP_DATABASE_URL is consumed by the show-setup-code
       # subcommand so the customer can read the setup code (the boot log
-      # shows only the wizard URL and this command, because the container's
-      # stdout is not a terminal), via:
+      # shows only the wizard URL and this command, because this service has
+      # no tty; do not add `tty: true`, or the code is printed and kept in
+      # the container log), via:
       #
       #   docker compose exec identuum-idp \
       #     /app/identuum-idp show-setup-code /app/data

@@ -3677,7 +3677,8 @@ oss-bootstrap:
 ##   recreating the app container regenerates it, so read it AFTER starting
 ##   the container you intend to set up. The container's boot log shows only
 ##   the wizard URL and this command (startup prints the code only when
-##   stdout is a terminal), so this target is how the code is read.
+##   stdout is a terminal, and this compose file attaches no tty), so this
+##   target is how the code is read.
 ##
 ##   Prints the code to the operator's terminal — treat that output as a
 ##   credential for the wizard.

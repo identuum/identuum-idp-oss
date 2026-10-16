@@ -129,15 +129,19 @@ wizard prompts for the setup code, then for the initial organization
 and site-administrator credentials. While the system is in
 `setup_required` state, every restart prints the wizard URL and the
 local support command to the IDP boot log. The setup code itself is
-printed only when stdout is a terminal, so `docker compose` logs do not
-carry it; read it with the support command:
+printed only when stdout is a terminal. The shipped compose file attaches
+no terminal, so its `docker compose` logs do not carry the code; read it
+with the support command:
 
 ```bash
 docker compose exec identuum-idp /app/identuum-idp show-setup-code /app/data
 ```
 
 (The image is distroless: the binary is `/app/identuum-idp` and is not on
-the `PATH`.) The setup code authorises the wizard only. It is not the
+the `PATH`.) Do not start the container with a terminal attached
+(`docker run -t`, or `tty: true` in compose): its stdout is then a
+terminal, so the code is printed and Docker keeps it in the container
+logs. Use `show-setup-code` instead. The setup code authorises the wizard only. It is not the
 administrator password — that you create during the wizard. After
 the wizard completes, the setup APIs respond `410 Gone` and the
 code is invalidated.

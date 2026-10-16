@@ -15,9 +15,13 @@ import (
 // plaintext setup code, the wizard-authorisation credential (not an
 // admin password, D-IDP-INSTALL-19), is printed only when isTerminal
 // reports w as a terminal (owner decision P-R2 option (b), 2026-10-16,
-// superseding the log disclosure of D-IDP-INSTALL-11). Captured output
-// (container logs, pipes, files) gets the command instead:
+// superseding the log disclosure of D-IDP-INSTALL-11). Non-terminal
+// output (pipes, files, and container logs in the default setup with no
+// TTY, as the shipped compose file runs) gets the command instead:
 // `<binary> show-setup-code <data-dir>` (/app/identuum-idp in the image).
+// A container started with a TTY (docker run -t, compose tty: true) has a
+// terminal stdout, so the code is printed and Docker keeps it in the
+// container log.
 func writeSetupBanner(w io.Writer, banner *setup.SetupBanner, isTerminal func(io.Writer) bool) {
 	fmt.Fprintf(w,
 		"identuum-idp: serve: first-run setup required — open %s\n",
