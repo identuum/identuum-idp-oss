@@ -336,7 +336,9 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				// with NO principal, so nothing is admitted on this token.
 				// The request's own escaped path must equal the routed one: an
 				// encoded spelling the router decodes onto a sign-in route is
-				// not the sign-in route.
+				// not the sign-in route. A trailing-slash spelling never gets
+				// here: the router redirects it to the canonical path before
+				// any middleware runs, and the follow-up request is judged here.
 				if _, signIn := signInRoutes[c.FullPath()]; signIn && c.Request.URL.EscapedPath() == c.FullPath() {
 					c.Next()
 					return

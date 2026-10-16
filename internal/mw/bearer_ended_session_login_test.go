@@ -28,6 +28,9 @@ func endedSessionEngine(planted *bool) *gin.Engine {
 	for _, p := range signInPaths {
 		r.POST(p, h)
 	}
+	// Production also serves the browser login form on GET
+	// (handlers.RegisterBrowserLoginRoutes).
+	r.GET("/api/v1/auth/browser-login", h)
 	r.POST("/api/v1/auth/logout", h)
 	r.GET("/api/v1/me", h)
 	r.GET("/api/v1/auth/login-history", h)
@@ -54,41 +57,91 @@ var signInPaths = []string{
 }
 
 func TestBearerPrincipal_EndedSessionDoesNotBlockSignIn(t *testing.T) {
+	cases := []struct{ method, path string }{
+		{http.MethodGet, "/api/v1/auth/browser-login"},
+	}
 	for _, p := range signInPaths {
+		cases = append(cases, struct{ method, path string }{http.MethodPost, p})
+	}
+	for _, tc := range cases {
 		var planted bool
-		w := doEndedRequest(endedSessionEngine(&planted), http.MethodPost, p)
+		w := doEndedRequest(endedSessionEngine(&planted), tc.method, tc.path)
 		if w.Code != http.StatusOK {
-			t.Fatalf("POST %s with an ended session token: status = %d, want 200 (sign-in must proceed)", p, w.Code)
+			t.Fatalf("%s %s with an ended session token: status = %d, want 200 (sign-in must proceed)", tc.method, tc.path, w.Code)
 		}
 		if planted {
-			t.Fatalf("POST %s: a principal was planted for an ended session", p)
+			t.Fatalf("%s %s: a principal was planted for an ended session", tc.method, tc.path)
 		}
 	}
 }
 
-// Only the canonical path the router serves as sign-in is exempt. An encoded
-// or variant spelling that the router decodes or folds onto the same route
-// must not reach the sign-in handler on an ended token: it is refused, or
-// redirected to the canonical path, and never served as-is.
-func TestBearerPrincipal_EndedSessionVariantSignInPathsNotExempt(t *testing.T) {
-	paths := []string{
-		"/api/v1/auth/%6cogin",
-		"/api/v1/auth%2flogin",
-		"/api/v1/auth/login%2fmfa",
-		"/api%2fv1/auth/browser-login",
-		"/api/v1/auth/LOGIN",
-		"//api/v1/auth/login",
-		"/api/v1//auth/login",
-		"/api/v1/auth/login/",
+func assertSessionNotLive(t *testing.T, method, path string) {
+	t.Helper()
+	var planted bool
+	w := doEndedRequest(endedSessionEngine(&planted), method, path)
+	if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), ReasonSessionNotLive) {
+		t.Errorf("%s %s with an ended session token: status = %d body = %q, want 401 %s", method, path, w.Code, w.Body.String(), ReasonSessionNotLive)
 	}
-	for _, p := range paths {
+	if planted {
+		t.Errorf("%s %s: a principal was planted for an ended session", method, path)
+	}
+}
+
+// The exemption is keyed on the routed template for the request's method. A
+// sign-in path called with a method it is not registered for has no sign-in
+// template and is refused like any other route.
+func TestBearerPrincipal_EndedSessionWrongMethodSignInNotExempt(t *testing.T) {
+	assertSessionNotLive(t, http.MethodGet, "/api/v1/auth/login")
+	assertSessionNotLive(t, http.MethodGet, "/api/v1/auth/login/webauthn/finish")
+	assertSessionNotLive(t, http.MethodPut, "/api/v1/auth/login")
+	assertSessionNotLive(t, http.MethodPut, "/api/v1/auth/browser-login")
+	assertSessionNotLive(t, http.MethodDelete, "/api/v1/auth/browser-login")
+	assertSessionNotLive(t, http.MethodHead, "/api/v1/auth/browser-login")
+}
+
+// Only the canonical path the router serves as sign-in is exempt. An encoded,
+// case-variant or doubled-slash spelling of a sign-in path is refused with
+// session_not_live on an ended token.
+func TestBearerPrincipal_EndedSessionVariantSignInPathsNotExempt(t *testing.T) {
+	cases := []struct{ method, path string }{
+		{http.MethodPost, "/api/v1/auth/%6cogin"},
+		{http.MethodPost, "/api/v1/auth%2flogin"},
+		{http.MethodPost, "/api/v1/auth/login%2fmfa"},
+		{http.MethodPost, "/api%2fv1/auth/browser-login"},
+		{http.MethodPost, "/api/v1/auth/LOGIN"},
+		{http.MethodPost, "//api/v1/auth/login"},
+		{http.MethodPost, "/api/v1//auth/login"},
+		{http.MethodGet, "/api/v1/auth/%62rowser-login"},
+		{http.MethodGet, "/api/v1/auth/BROWSER-LOGIN"},
+		{http.MethodGet, "/api/v1//auth/browser-login"},
+	}
+	for _, tc := range cases {
+		assertSessionNotLive(t, tc.method, tc.path)
+	}
+}
+
+// A trailing-slash spelling is NOT refused with session_not_live: Gin's
+// default RedirectTrailingSlash answers it before any middleware runs (307 for
+// POST, 301 for GET) and points the client at the canonical path, where the
+// exemption then applies. This predates the exemption and admits no identity:
+// the redirect is served without consulting the bearer and with no principal.
+func TestBearerPrincipal_EndedSessionTrailingSlashRedirects(t *testing.T) {
+	cases := []struct {
+		method, path, location string
+		want                   int
+	}{
+		{http.MethodPost, "/api/v1/auth/login/", "/api/v1/auth/login", http.StatusTemporaryRedirect},
+		{http.MethodPost, "/api/v1/auth/browser-login/", "/api/v1/auth/browser-login", http.StatusTemporaryRedirect},
+		{http.MethodGet, "/api/v1/auth/browser-login/", "/api/v1/auth/browser-login", http.StatusMovedPermanently},
+	}
+	for _, tc := range cases {
 		var planted bool
-		w := doEndedRequest(endedSessionEngine(&planted), http.MethodPost, p)
-		if w.Code == http.StatusOK {
-			t.Errorf("POST %s with an ended session token: status = 200, want refusal or redirect (variant path took the sign-in exemption)", p)
+		w := doEndedRequest(endedSessionEngine(&planted), tc.method, tc.path)
+		if w.Code != tc.want || w.Header().Get("Location") != tc.location {
+			t.Errorf("%s %s with an ended session token: status = %d location = %q, want %d %q", tc.method, tc.path, w.Code, w.Header().Get("Location"), tc.want, tc.location)
 		}
 		if planted {
-			t.Errorf("POST %s: a principal was planted for an ended session", p)
+			t.Errorf("%s %s: a principal was planted for an ended session", tc.method, tc.path)
 		}
 	}
 }
