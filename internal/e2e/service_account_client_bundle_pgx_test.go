@@ -102,7 +102,7 @@ func TestBundleAtomic_HappyPathCreatesBoundPair(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	bundleSvc, repos := bundleHarnessPgx(t, ctx, pool)
 	orgID := seedBundleOrg(t, ctx, pool, repos)
@@ -153,7 +153,7 @@ func TestBundleAtomic_ClientInsertFailureLeavesNoOrphanSA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	bundleSvc, repos := bundleHarnessPgx(t, ctx, pool)
 	orgID := seedBundleOrg(t, ctx, pool, repos)

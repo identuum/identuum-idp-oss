@@ -20,7 +20,7 @@ import (
 
 func TestClaimPasswordReset_ClearsRequiredChange(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	orgID, userID := uuid.New(), uuid.New()
 	slug := "prc-" + uuid.NewString()[:8]

@@ -20,7 +20,7 @@ import (
 
 func TestMFAPending_GetLatestLiveEnroll(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxMFAPendingLoginSessionRepository(pool)
 	orgID := seedScratchOrg(t, pool)

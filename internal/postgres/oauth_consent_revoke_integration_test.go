@@ -24,7 +24,7 @@ import (
 // RULE: CONSENT-REVOKE-1
 func TestOAuthConsentRevoke_ScopedToUserClientAudience(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxOAuthConsentRepository(pool)
 

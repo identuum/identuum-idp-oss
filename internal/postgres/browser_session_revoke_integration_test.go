@@ -65,7 +65,7 @@ func seedBrowserToken(t *testing.T, ctx context.Context, repo *postgres.PgxBrows
 // RULE: BROWSER-SESSION-REVOKE-1
 func TestBrowserSessionTokenRevoke_ByHashAndBySessionIdempotent(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxBrowserSessionTokenRepository(pool)
 

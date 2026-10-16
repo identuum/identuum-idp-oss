@@ -28,7 +28,7 @@ import (
 
 func TestOAuthConsentListActiveByUser_AndRevokeAllForClient(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxOAuthConsentRepository(pool)
 
@@ -94,7 +94,7 @@ func TestOAuthConsentListActiveByUser_AndRevokeAllForClient(t *testing.T) {
 // RULE: REFRESH-SUBJECT-CLIENT-REVOKE-1
 func TestRefreshRevokeAllBySubjectAndClient_ScopedAndReturnsJTIs(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxRefreshTokenRepository(pool)
 

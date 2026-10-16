@@ -18,7 +18,7 @@ import (
 
 func TestCountRecoveryBlockingOrgAdmins_ValidPendingBlocksExpiredDoesNot(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 
 	seed := func(kind string) uuid.UUID {

@@ -43,7 +43,7 @@ func TestE2E_OSS_OIDCState_ConcurrentSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 	states := postgres.NewPgxOIDCStateRepository(pool)
@@ -64,7 +64,9 @@ func TestE2E_OSS_OIDCState_ConcurrentSingleUse(t *testing.T) {
 		t.Fatalf("seed org: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = repos.Organization.Delete(context.Background(), createdOrg.ID)
+		if _, err := pool.Exec(context.Background(), `DELETE FROM organizations WHERE id = $1`, createdOrg.ID); err != nil {
+			t.Errorf("cleanup organization: %v", err)
+		}
 	})
 
 	// oidc_states.provider_id REFERENCES identity_providers(id) — seed a

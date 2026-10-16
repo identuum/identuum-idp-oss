@@ -21,7 +21,7 @@ import (
 
 func TestAdminPasswordSetAt_WrittenAndClearedWithTheFlag(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	orgID, userID := uuid.New(), uuid.New()
 	slug := "g2-" + uuid.NewString()[:8]

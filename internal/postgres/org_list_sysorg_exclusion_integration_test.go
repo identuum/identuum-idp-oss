@@ -21,7 +21,7 @@ import (
 // RULE: ORG-LIST-SYSORG-EXCLUDED-1
 func TestOrgList_SystemOrgExcludedEvenFullyWidened(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxOrganizationRepository(pool)
 

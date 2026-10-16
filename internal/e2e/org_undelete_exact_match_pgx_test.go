@@ -168,7 +168,7 @@ func TestOrgUndelete_ExactMatch_OverRestoreDead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 
 	f := seedUndeleteFixture(t, ctx, pool, repos)

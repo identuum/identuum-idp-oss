@@ -487,7 +487,7 @@ func TestDispatchRotateEncryptionKey_RefusesUnknownSchemaByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pool: %v", err)
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	requireRotationSchema(t, pool)
 
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS rot_guard_dispatch_fixture (id int PRIMARY KEY, sealed text)`); err != nil {

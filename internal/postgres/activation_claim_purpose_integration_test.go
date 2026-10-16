@@ -46,7 +46,7 @@ func seedActivationClaimCase(t *testing.T, ctx context.Context, pool *pgxpool.Po
 
 func TestConsumeActivationToken_OnlyAPendingOrgAdmin(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxUserRepository(pool)
 

@@ -51,7 +51,7 @@ func TestE2E_OSS_ADeletedClientsTokensStopAtOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: error returned (URL redacted): %s", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 	orgA := seedTestOrganization(t, ctx, repos)
 	orgB := seedTestOrganization(t, ctx, repos)

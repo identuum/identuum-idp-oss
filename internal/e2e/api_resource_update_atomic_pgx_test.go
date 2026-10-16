@@ -30,7 +30,7 @@ func TestAPIResourceUpdate_ValidateBeforeWrite_Atomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 
 	suffix := uuid.NewString()[:8]
@@ -42,7 +42,11 @@ func TestAPIResourceUpdate_ValidateBeforeWrite_Atomic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed org: %v", err)
 	}
-	t.Cleanup(func() { _ = repos.Organization.Delete(context.Background(), org.ID) })
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM organizations WHERE id = $1`, org.ID); err != nil {
+			t.Errorf("cleanup organization: %v", err)
+		}
+	})
 
 	svc := service.NewAPIResourceService(nil, repos.APIResource)
 	// THE-INVERTED-GUARD: the service is actor-scoped now — this suite acts

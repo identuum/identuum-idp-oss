@@ -71,6 +71,13 @@ func ensureSiteAdminRow(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 	siteAdminID := uuid.MustParse(domain.SiteAdminID)
+	startedAt := time.Now().UTC()
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM audit_events
+			WHERE subject_id = $1 AND event_type = 'site_admin_credentials_reset' AND created_at >= $2`, siteAdminID, startedAt); err != nil {
+			t.Errorf("cleanup recovery audit events: %v", err)
+		}
+	})
 	var exists bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)`, siteAdminID).Scan(&exists); err != nil {
 		t.Fatalf("site_admin lookup: %v", err)
@@ -120,7 +127,7 @@ func seedRecoverSession(t *testing.T, pool *pgxpool.Pool, userID uuid.UUID) uuid
 // RULE: RECOVER-3
 func TestRecoverSiteAdmin_EndsTheSiteAdminsSessionsAndTokensOnly(t *testing.T) {
 	pool := recoverTestPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repos := postgres.NewPgxRepositories(pool, nil)
 
@@ -243,7 +250,7 @@ func (c claimsByToken) IntrospectToken(_ context.Context, raw string) (*service.
 // rows and reported success over a live access token.
 func TestRecoverSiteAdmin_RetryCompletesTheLinkedAccessRevocationAfterAPartialFailure(t *testing.T) {
 	pool := recoverTestPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repos := postgres.NewPgxRepositories(pool, nil)
 
@@ -354,7 +361,7 @@ func TestRecoverSiteAdmin_RetryCompletesTheLinkedAccessRevocationAfterAPartialFa
 // the unit half in recover_test.go; this is its live-schema proof.)
 func TestRecoverSiteAdmin_RecordsOneAuditEventWithoutTheCredential(t *testing.T) {
 	pool := recoverTestPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	ensureSiteAdminRow(t, pool)
 	siteAdminID := uuid.MustParse(domain.SiteAdminID)

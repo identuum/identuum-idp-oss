@@ -29,7 +29,7 @@ func TestSADefaultExpiry_StoredOrgValueAndExistingRowsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	bundleSvc, repos := bundleHarnessPgx(t, ctx, pool)
 	orgID := seedBundleOrg(t, ctx, pool, repos)

@@ -45,7 +45,7 @@ func TestE2E_OSS_AuthCodeConsume_ConcurrentSingleUse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 
 	repo := postgres.NewPgxOAuthAuthorizationCodeRepository(pool)
 	svc := service.NewAuthorizationCodeService(nil, repo, service.AuthorizationCodeServiceOptions{TTL: time.Hour})

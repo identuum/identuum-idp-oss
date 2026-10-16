@@ -16,7 +16,7 @@ import (
 
 func TestClaimPasswordReset_RetiresTheUsersOtherLinks(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 
 	orgID := uuid.New()

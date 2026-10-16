@@ -45,7 +45,7 @@ func TestRetentionSweep_PrunesExpiredKeepsLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 
 	// Seed one org + one user (the FK anchors). Child rows cascade on delete.
@@ -58,7 +58,11 @@ func TestRetentionSweep_PrunesExpiredKeepsLive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("seed org: %v", err)
 	}
-	t.Cleanup(func() { _ = repos.Organization.Delete(context.Background(), org.ID) })
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM organizations WHERE id = $1`, org.ID); err != nil {
+			t.Errorf("cleanup organization: %v", err)
+		}
+	})
 
 	uid, _ := uuid.NewV7()
 	user, err := repos.User.Create(ctx, &domain.User{

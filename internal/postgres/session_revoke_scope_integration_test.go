@@ -60,7 +60,7 @@ func sessionRowRevokedAt(t *testing.T, ctx context.Context, db postgres.DBTX, id
 // RULE: SESSION-SINK-SCOPE-1
 func TestSessionRevokeSinks_ScopedToPredicate(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxSessionRepository(pool)
 

@@ -44,7 +44,7 @@ func mfaPendingConsumedAt(t *testing.T, ctx context.Context, db postgres.DBTX, i
 // RULE: MFA-PENDING-CONSUME-1
 func TestMFAPending_MarkConsumedSingleUse(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxMFAPendingLoginSessionRepository(pool)
 
@@ -78,7 +78,7 @@ func TestMFAPending_MarkConsumedSingleUse(t *testing.T) {
 // RULE: MFA-PENDING-ATTEMPTS-1
 func TestMFAPending_RecordFailedVerifyAttemptBounds(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxMFAPendingLoginSessionRepository(pool)
 
@@ -117,7 +117,7 @@ func TestMFAPending_RecordFailedVerifyAttemptBounds(t *testing.T) {
 // for repository.MFAFailedAttemptRetention so the sum does not shrink early.
 func TestMFAPending_CountRecentFailedVerifyAttemptsAndRetention(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	repo := postgres.NewPgxMFAPendingLoginSessionRepository(pool)
 

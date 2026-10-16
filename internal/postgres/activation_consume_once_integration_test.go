@@ -53,7 +53,7 @@ func seedInactiveOrgWithActivationUser(t *testing.T, ctx context.Context, pool *
 // RULE: ACTIVATION-CONSUME-ONCE-1
 func TestOrganizationActivation_ConsumableExactlyOnce(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 
 	userRepo := postgres.NewPgxUserRepository(pool)

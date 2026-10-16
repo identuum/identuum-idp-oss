@@ -25,7 +25,7 @@ func TestE2E_OSS_AuditEvents_Read(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open pool: %v", classifyOpenError(err))
 	}
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 	repo := postgres.NewPgxAuditRepository(pool, time.Hour)
 

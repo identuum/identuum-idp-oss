@@ -37,7 +37,7 @@ func keyState(t *testing.T, ctx context.Context, db postgres.DBTX, kid string) s
 // RULE: SIGNING-KEY-ROTATE-1
 func TestSigningKeyRotation_AtomicPromotesNewRetiresOld(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close)
 	ctx := context.Background()
 	cipher, _ := crypto.NewCryptoService(keyEncTestHexKey)
 	repo := postgres.NewPgxKeyRepository(pool, cipher)
