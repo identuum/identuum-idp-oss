@@ -47,15 +47,33 @@ func seedActiveEdDSAKey(t *testing.T, dbURL, kid string) ed25519.PrivateKey {
 		t.Fatalf("seed cipher: %v", err)
 	}
 	repos := postgres.NewPgxRepositories(pool, seedCipher)
-	if err := repos.Key.CreateSigningKey(context.Background(), &domain.SigningKey{
+	key := &domain.SigningKey{
 		ID:        uuid.New(),
 		KID:       kid,
 		Algorithm: domain.KeyAlgorithmEdDSA,
 		PublicKey: pubPEM,
 		State:     domain.KeyStateActive,
-	}); err != nil {
+	}
+	if err := repos.Key.CreateSigningKey(context.Background(), key); err != nil {
 		t.Fatalf("create signing key: %v", err)
 	}
+	// G6: the row is PUBLIC-ONLY. Left behind in a reused test database it
+	// counts as an active key while nothing can sign with it, and a later
+	// suite's token minting fails with "no compatible signing key". Delete
+	// exactly this row (by the ID the insert returned) when the test ends;
+	// the seed pool is closed by then.
+	id := key.ID
+	t.Cleanup(func() {
+		c, err := postgres.NewPool(context.Background(), dbURL, nil)
+		if err != nil {
+			t.Errorf("cleanup pool: %v", err)
+			return
+		}
+		defer c.Close()
+		if _, err := c.Exec(context.Background(), `DELETE FROM signing_keys WHERE id = $1`, id); err != nil {
+			t.Errorf("cleanup signing key %s: %v", kid, err)
+		}
+	})
 	return priv
 }
 
