@@ -270,10 +270,10 @@ click around in. Every step below is a `make` target run from
 **The whole thing, one command** (destroys the local dev database, so it asks
 you to say so explicitly):
 
-First export `IDENTUUM_IDP_BOOTSTRAP_PASSWORD` using the hidden Bash prompt
-in OPERATOR-GUIDE.md → "Create the first admin + signing key (bootstrap)".
-Then invoke the existing `oss-fresh` target with its explicit destruction
-confirmation only on a disposable stack you are authorized to destroy.
+Use OPERATOR-GUIDE.md → "Run bootstrap through make", including its
+`oss-fresh` variant. Keep the make command inside the hidden-prompt
+subshell, with the explicit destruction confirmation, and run it only on
+a disposable stack you are authorized to destroy.
 Never use the owner's protected development stack.
 
 That destroys the old stack, builds and starts the appliance, waits for it to
@@ -297,10 +297,10 @@ make fast-down         # stop + remove containers, KEEP the database
 ```
 
 `make oss-bootstrap` needs `IDENTUUM_IDP_BOOTSTRAP_PASSWORD` exported in
-your environment. Use the hidden Bash prompt in OPERATOR-GUIDE.md →
-"Create the first admin + signing key (bootstrap)" to set it. Do not type
-the password into a shell command, or enable shell tracing. Invoke the
-target only against an explicitly authorized development stack.
+its environment. Use OPERATOR-GUIDE.md → "Run bootstrap through make";
+keep the make command inside that hidden-prompt subshell. Do not type the
+password into a shell command, or enable shell tracing. Invoke the target
+only against an explicitly authorized development stack.
 
 ### The two ways to create the first administrator — pick ONE
 

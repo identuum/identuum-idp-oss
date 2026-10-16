@@ -3632,9 +3632,9 @@ oss-logs:
 ##   in the compose env). Neither shows up in `make` stdout.
 ##
 ##   Usage:
-##     Read the password at a hidden prompt and export
-##     IDENTUUM_IDP_BOOTSTRAP_PASSWORD as shown in docs/OPERATOR-GUIDE.md,
-##     then invoke oss-bootstrap only against an explicitly authorized stack.
+##     Follow docs/OPERATOR-GUIDE.md, "Run bootstrap through make".
+##     Keep oss-bootstrap inside the hidden-prompt subshell, and invoke it
+##     only against an explicitly authorized stack.
 ##
 ##   The bootstrap binary runs identuum-idp bootstrap inside the existing
 ##   identuum-idp-oss container. The container keeps serving HTTP — this is a
@@ -3716,9 +3716,10 @@ openid-conformance:
 ##   audit row in the local dev database is gone. It refuses to run without
 ##   an explicit opt-in, which is deliberately not a default:
 ##
-##     Export IDENTUUM_IDP_BOOTSTRAP_PASSWORD using the hidden prompt in
-##     docs/OPERATOR-GUIDE.md before invoking this target with its existing
-##     explicit data-destruction confirmation. Never use the owner's stack.
+##     Follow the oss-fresh variant in docs/OPERATOR-GUIDE.md,
+##     "Run bootstrap through make". Keep the target and its explicit
+##     data-destruction confirmation inside the hidden-prompt subshell.
+##     Never use the owner's stack.
 ##
 ##   Sequence: fast-clean (profile-aware, so nothing survives) → oss-up →
 ##   wait for /health → oss-bootstrap → print where to sign in. Bootstrap
@@ -3731,7 +3732,7 @@ oss-fresh:
 		echo "  container, and the named Postgres volume (every org, user, client,"; \
 		echo "  signing key and audit row in the local dev database)."; \
 		echo "  Re-run with an explicit opt-in if that is what you want:"; \
-		echo "    IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<password>' make oss-fresh I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1"; \
+		echo "    Follow docs/OPERATOR-GUIDE.md, Run bootstrap through make, oss-fresh variant."; \
 		exit 2; \
 	fi
 	@if [ -z "$$IDENTUUM_IDP_BOOTSTRAP_PASSWORD" ]; then \
@@ -3796,10 +3797,9 @@ oss-fresh:
 ##   the repository layer and never crosses the recovery boundary.
 ##
 ##   Usage:
-##     Read the password at a hidden prompt and export
-##     IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD as shown in
-##     docs/OPERATOR-GUIDE.md, then invoke oss-recover-site-admin
-##     only against an explicitly authorized development stack.
+##     Follow docs/OPERATOR-GUIDE.md, "Run recovery through make".
+##     Keep oss-recover-site-admin inside the hidden-prompt subshell, and
+##     invoke it only against an explicitly authorized development stack.
 ##
 ##   The recovery binary refuses to operate on a row whose ID/role/org
 ##   does not match the SiteAdminID / RoleSiteAdmin / SystemOrgID

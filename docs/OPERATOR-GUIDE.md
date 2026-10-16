@@ -346,6 +346,22 @@ the password, its hash or the environment value. A refused run records
 nothing. If the record cannot be written the command exits non-zero and
 says so; run it again.
 
+### Run recovery through make
+
+From the OSS repository root, use this variant only against a development
+stack you are explicitly authorized to recover. Run the make command inside
+the same subshell as the hidden prompt; the variable is discarded afterward.
+
+```bash
+(
+  set +x
+  IFS= read -r -s -p 'New site_admin password: ' IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD </dev/tty || exit 2
+  printf '\n' >/dev/tty
+  export IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD
+  make oss-recover-site-admin
+)
+```
+
 ### What this invalidates (the aftermath)
 
 The reset rewrites `password_hash` AND wipes the MFA enrollment
@@ -495,6 +511,28 @@ key exists and creates the `site_admin` row, then marks setup complete. Like
 the wizard, a bootstrap that creates the `site_admin` is audited
 (`setup.completed` and `user_created`, actor `system`, metadata
 `via: bootstrap`); a re-run that finds it records nothing.
+
+### Run bootstrap through make
+
+From the OSS repository root, use this variant only against a development
+stack you are explicitly authorized to initialize. Run the make command
+inside the same subshell as the hidden prompt; the variable is discarded
+afterward.
+
+```bash
+(
+  set +x
+  IFS= read -r -s -p 'New site_admin password: ' IDENTUUM_IDP_BOOTSTRAP_PASSWORD </dev/tty || exit 2
+  printf '\n' >/dev/tty
+  export IDENTUUM_IDP_BOOTSTRAP_PASSWORD
+  make oss-bootstrap
+)
+```
+
+For `oss-fresh`, replace the last command inside that subshell with
+`make oss-fresh I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1`. This destroys the
+target stack's data. Use it only on a disposable stack you are explicitly
+authorized to destroy. Never use the owner's protected development stack.
 
 ## Reading the audit log
 
