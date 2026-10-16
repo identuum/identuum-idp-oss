@@ -315,15 +315,28 @@ completes it refuses (the stale file is ignored).
 
 ## Reset the site_admin password (break-glass)
 
-```
-docker exec -e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<new-password>' identuum-idp-oss /app/identuum-idp recover-site-admin
+Run this in an interactive Bash shell. Replace `<target-container>` with the
+container you are authorized to recover. Enter the password at the hidden
+prompt; do not put it in the command text.
+
+```bash
+(
+  set +x
+  IFS= read -r -s -p 'New site_admin password: ' IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD </dev/tty || exit 2
+  printf '\n' >/dev/tty
+  export IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD
+  docker exec -e IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD '<target-container>' /app/identuum-idp recover-site-admin
+)
 ```
 
 Resets the `site_admin@system.local` password, clears its MFA enrollment
 and ends every signed-in session of that administrator, so the operator can
-sign in again and whoever held the old credentials cannot. The password
-travels only through the exec environment (mind your host shell history)
-and is never echoed.
+sign in again and whoever held the old credentials cannot. The shell does
+not echo the password, and the Docker command carries only its environment
+variable name. The password is absent from shell command history and Docker
+command arguments. It remains in process environments and the Docker exec
+request, which privileged inspection can expose. The subshell discards its
+variable when the command ends. Do not use shell tracing for this operation.
 
 Each run that resets the row records `site_admin_credentials_reset` in the
 audit log (actor `system`, `via: cli`, the system organization), with
@@ -460,9 +473,22 @@ next token is signed with whatever key is active.
 
 ## Create the first admin + signing key (bootstrap)
 
+Run this in an interactive Bash shell. Replace `<target-container>` with
+the container you are authorized to initialize.
+
+```bash
+(
+  set +x
+  IFS= read -r -s -p 'New site_admin password: ' IDENTUUM_IDP_BOOTSTRAP_PASSWORD </dev/tty || exit 2
+  printf '\n' >/dev/tty
+  export IDENTUUM_IDP_BOOTSTRAP_PASSWORD
+  docker exec -e IDENTUUM_IDP_BOOTSTRAP_PASSWORD '<target-container>' /app/identuum-idp bootstrap
+)
 ```
-docker exec -e IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<password>' identuum-idp-oss /app/identuum-idp bootstrap
-```
+
+The password is absent from shell command history and Docker command
+arguments. It remains in process environments and the Docker exec request.
+Do not use shell tracing for this operation.
 
 Idempotent alternative to the browser setup wizard: ensures an active signing
 key exists and creates the `site_admin` row, then marks setup complete. Like

@@ -3632,8 +3632,9 @@ oss-logs:
 ##   in the compose env). Neither shows up in `make` stdout.
 ##
 ##   Usage:
-##     IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<choose-a-strong-local-demo-password>' \
-##       make oss-bootstrap
+##     Read the password at a hidden prompt and export
+##     IDENTUUM_IDP_BOOTSTRAP_PASSWORD as shown in docs/OPERATOR-GUIDE.md,
+##     then invoke oss-bootstrap only against an explicitly authorized stack.
 ##
 ##   The bootstrap binary runs identuum-idp bootstrap inside the existing
 ##   identuum-idp-oss container. The container keeps serving HTTP — this is a
@@ -3715,8 +3716,9 @@ openid-conformance:
 ##   audit row in the local dev database is gone. It refuses to run without
 ##   an explicit opt-in, which is deliberately not a default:
 ##
-##     IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<strong-local-demo-password>' \
-##       make oss-fresh I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1
+##     Export IDENTUUM_IDP_BOOTSTRAP_PASSWORD using the hidden prompt in
+##     docs/OPERATOR-GUIDE.md before invoking this target with its existing
+##     explicit data-destruction confirmation. Never use the owner's stack.
 ##
 ##   Sequence: fast-clean (profile-aware, so nothing survives) → oss-up →
 ##   wait for /health → oss-bootstrap → print where to sign in. Bootstrap
@@ -3794,8 +3796,10 @@ oss-fresh:
 ##   the repository layer and never crosses the recovery boundary.
 ##
 ##   Usage:
-##     IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD='<choose-new-local-demo-password>' \
-##       make oss-recover-site-admin
+##     Read the password at a hidden prompt and export
+##     IDENTUUM_IDP_RECOVER_SITE_ADMIN_PASSWORD as shown in
+##     docs/OPERATOR-GUIDE.md, then invoke oss-recover-site-admin
+##     only against an explicitly authorized development stack.
 ##
 ##   The recovery binary refuses to operate on a row whose ID/role/org
 ##   does not match the SiteAdminID / RoleSiteAdmin / SystemOrgID

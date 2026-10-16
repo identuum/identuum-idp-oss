@@ -270,10 +270,11 @@ click around in. Every step below is a `make` target run from
 **The whole thing, one command** (destroys the local dev database, so it asks
 you to say so explicitly):
 
-```bash
-IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<choose-a-strong-local-password>' \
-  make oss-fresh I_UNDERSTAND_THIS_DESTROYS_ALL_DATA=1
-```
+First export `IDENTUUM_IDP_BOOTSTRAP_PASSWORD` using the hidden Bash prompt
+in OPERATOR-GUIDE.md → "Create the first admin + signing key (bootstrap)".
+Then invoke the existing `oss-fresh` target with its explicit destruction
+confirmation only on a disposable stack you are authorized to destroy.
+Never use the owner's protected development stack.
 
 That destroys the old stack, builds and starts the appliance, waits for it to
 answer, and creates the site administrator. Without the opt-in it refuses and
@@ -295,12 +296,11 @@ make oss-logs          # follow the app log (Ctrl-C detaches)
 make fast-down         # stop + remove containers, KEEP the database
 ```
 
-`make oss-bootstrap` needs the password in your environment; it is never
-printed:
-
-```bash
-IDENTUUM_IDP_BOOTSTRAP_PASSWORD='<password>' make oss-bootstrap
-```
+`make oss-bootstrap` needs `IDENTUUM_IDP_BOOTSTRAP_PASSWORD` exported in
+your environment. Use the hidden Bash prompt in OPERATOR-GUIDE.md →
+"Create the first admin + signing key (bootstrap)" to set it. Do not type
+the password into a shell command, or enable shell tracing. Invoke the
+target only against an explicitly authorized development stack.
 
 ### The two ways to create the first administrator — pick ONE
 
