@@ -9,8 +9,8 @@
 -- the phishing-resistant rung instead of asking for TOTP. The proof is the
 -- row itself — same user, same expiry, one use — and it is bound to the
 -- client that made the assertion (OSS-G8-PASSKEY-MFA-R2): client_binding is
--- the SHA-256 of a secret only that client holds, required for the new kind
--- and absent from every other.
+-- the SHA-256 of a secret only that client holds: exactly 32 bytes on the
+-- new kind and NULL on every other kind (OSS-G8-BN2).
 --
 -- Additive: no existing row changes, and no row becomes the new kind. Down
 -- removes the new kind's rows (short-lived handles; a member mid-change signs
@@ -30,7 +30,7 @@ ALTER TABLE mfa_pending_login_sessions
 
 ALTER TABLE mfa_pending_login_sessions
     ADD CONSTRAINT mfa_pending_login_sessions_client_binding_check
-        CHECK ((kind = 'password_change_passkey_uv') = (client_binding IS NOT NULL AND octet_length(client_binding) = 32));
+        CHECK (CASE WHEN kind = 'password_change_passkey_uv' THEN client_binding IS NOT NULL AND octet_length(client_binding) = 32 ELSE client_binding IS NULL END);
 
 -- +goose Down
 

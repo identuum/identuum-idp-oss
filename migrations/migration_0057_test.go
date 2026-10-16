@@ -26,10 +26,10 @@ func TestMigration0057PendingLoginPasskeyPasswordChange(t *testing.T) {
 		t.Errorf("0057 Up does not admit the password_change_passkey_uv kind")
 	}
 	// OSS-G8-PASSKEY-MFA-R2: the proof kind carries its client binding, and
-	// no other kind does.
+	// no other kind does (OSS-G8-BN2: NULL, not merely not 32 bytes).
 	if !strings.Contains(up, `ADD COLUMN client_binding BYTEA;`) ||
-		!strings.Contains(up, `CHECK ((kind = 'password_change_passkey_uv') = (client_binding IS NOT NULL AND octet_length(client_binding) = 32))`) {
-		t.Errorf("0057 Up does not require a 32-byte client_binding on, and only on, the passkey proof kind")
+		!strings.Contains(up, `CHECK (CASE WHEN kind = 'password_change_passkey_uv' THEN client_binding IS NOT NULL AND octet_length(client_binding) = 32 ELSE client_binding IS NULL END)`) {
+		t.Errorf("0057 Up does not require a 32-byte client_binding on the passkey proof kind and NULL on every other kind")
 	}
 	if !strings.Contains(down, `DROP COLUMN client_binding;`) {
 		t.Errorf("0057 Down does not drop client_binding")
