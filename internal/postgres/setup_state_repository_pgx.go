@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
@@ -18,14 +19,11 @@ import (
 // coverage if a future operator clears the table by hand.
 type PgxSetupStateRepository struct {
 	db DBTX
-	// admit lets one local caller at a time wait on the database lock, so
-	// waiters cannot take every pool connection from the lock holder.
-	admit chan struct{}
 }
 
 // NewPgxSetupStateRepository constructs a pgx-backed repo.
 func NewPgxSetupStateRepository(db DBTX) *PgxSetupStateRepository {
-	return &PgxSetupStateRepository{db: db, admit: make(chan struct{}, 1)}
+	return &PgxSetupStateRepository{db: db}
 }
 
 // setupCompleteLock serializes setup completion across every instance on
@@ -33,31 +31,57 @@ func NewPgxSetupStateRepository(db DBTX) *PgxSetupStateRepository {
 // provisioning lock (signingKeyEnsureLock), which bootstrap takes alone.
 const setupCompleteLock = `SELECT pg_advisory_xact_lock(hashtextextended('system_setup_state.complete', 0))`
 
+// setupCompleteLockWait bounds one wait for setupCompleteLock; the pause
+// after a timed-out wait lets the holder take the freed connection.
+const (
+	setupCompleteLockWait  = `SET LOCAL lock_timeout = '250ms'`
+	setupCompleteLockPause = 50 * time.Millisecond
+)
+
 // WithCompletionLock runs fn while this repository holds setupCompleteLock
 // in its own transaction. The transaction writes nothing; ending it on any
-// path (or losing its connection) releases the lock. fn uses other
-// connections, so the pool needs at least two.
+// path (or losing its connection) releases the lock. A waiter gives up its
+// connection after each bounded wait and tries again, so waiters cannot
+// keep every pool connection from the holder's fn. fn uses other
+// connections, so the pool needs at least two (NewPool sets 25).
 func (r *PgxSetupStateRepository) WithCompletionLock(ctx context.Context, fn func(context.Context) error) error {
-	select {
-	case r.admit <- struct{}{}:
-	case <-ctx.Done():
-		return ctx.Err()
+	for {
+		held, err := r.tryCompletionLock(ctx, fn)
+		if held || err != nil {
+			return err
+		}
+		select {
+		case <-time.After(setupCompleteLockPause):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
-	defer func() { <-r.admit }()
+}
 
+// tryCompletionLock runs fn and reports held=true when it got
+// setupCompleteLock; after a timed-out wait it ends its transaction without
+// running fn.
+func (r *PgxSetupStateRepository) tryCompletionLock(ctx context.Context, fn func(context.Context) error) (bool, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("system_setup_state: begin completion lock: %w", err)
+		return false, fmt.Errorf("system_setup_state: begin completion lock: %w", err)
 	}
 	defer func() {
 		release, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		_ = tx.Rollback(release)
 	}()
-	if _, err := tx.Exec(ctx, setupCompleteLock); err != nil {
-		return fmt.Errorf("system_setup_state: completion lock: %w", err)
+	if _, err := tx.Exec(ctx, setupCompleteLockWait); err != nil {
+		return false, fmt.Errorf("system_setup_state: completion lock wait: %w", err)
 	}
-	return fn(ctx)
+	if _, err := tx.Exec(ctx, setupCompleteLock); err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "55P03" { // lock_not_available
+			return false, nil
+		}
+		return false, fmt.Errorf("system_setup_state: completion lock: %w", err)
+	}
+	return true, fn(ctx)
 }
 
 // Get returns the singleton setup state row. Returns ErrSetupStateNotFound
