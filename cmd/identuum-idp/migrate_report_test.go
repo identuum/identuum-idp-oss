@@ -135,7 +135,9 @@ func TestMigrate_ARefusedMigrationExitsRefused(t *testing.T) {
 	defer db.Close()
 	for _, q := range []string{
 		`DROP INDEX users_email_lower_key_undeleted`,
-		`DELETE FROM goose_db_version WHERE version_id = 56`,
+		// Before 0056 means 0056 and every later version unapplied: a later
+		// version left applied makes goose refuse the gap, not 0056.
+		`DELETE FROM goose_db_version WHERE version_id >= 56`,
 		`INSERT INTO organizations (name, domain, org_slug, active) VALUES ('eg-a', 'eg-a.example.invalid', 'eg-a', true), ('eg-b', 'eg-b.example.invalid', 'eg-b', true)`,
 		`INSERT INTO users (email, password_hash, organization_id, role) SELECT 'dup@example.invalid', 'x', id, 'org_user' FROM organizations WHERE org_slug IN ('eg-a', 'eg-b')`,
 	} {
