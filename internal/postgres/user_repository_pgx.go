@@ -1474,13 +1474,15 @@ func (r *PgxUserRepository) GetByIDAdmin(ctx context.Context, id uuid.UUID) (*do
 	return r.scanUser(r.db.QueryRow(ctx, query, id))
 }
 
+// GetByEmailAdmin matches the normalized address on lower(email) as
+// FindUsersByEmail does, without its banned, deleted or organization filters.
 func (r *PgxUserRepository) GetByEmailAdmin(ctx context.Context, email string) (*domain.User, error) {
 	query := `
 		SELECT id, email, name, organization_id, role, password_hash, banned, email_verified, deleted_at, created_at, updated_at, last_login_at, mfa_enabled, mfa_secret, mfa_recovery_codes, auth_source, external_id, requires_password_change, oidc_linked, oidc_issuer, activation_token_expires_at, activation_token_hash, verification_token_hash, email_verified_via, admin_password_set_at
 		FROM users
-		WHERE email = $1`
+		WHERE lower(email) = $1`
 
-	return r.scanUserWithPassword(r.db.QueryRow(ctx, query, email))
+	return r.scanUserWithPassword(r.db.QueryRow(ctx, query, domain.NormalizeEmail(email)))
 }
 
 func (r *PgxUserRepository) ListAll(ctx context.Context, opts repository.ListUserOptions) ([]*domain.User, int, error) {
