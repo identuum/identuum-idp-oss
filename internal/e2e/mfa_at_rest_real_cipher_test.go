@@ -111,19 +111,7 @@ func TestE2E_OSS_MFAAtRestRealCipher(t *testing.T) {
 		_ = repos.User.Delete(context.Background(), created.ID, created.OrganizationID)
 	})
 
-	keySvc := service.NewKeyService(repos.Key)
-	active, err := keySvc.ListActive(ctx)
-	if err != nil {
-		t.Fatalf("ListActive: %v", err)
-	}
-	if len(active) == 0 {
-		if _, err := keySvc.Generate(ctx, service.GenerateKeyOptions{
-			Algorithm: string(domain.KeyAlgorithmEdDSA),
-			State:     domain.KeyStateActive,
-		}); err != nil {
-			t.Fatalf("generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 
 	const issuer = "http://localhost:7113"
 	// Match runtime.buildDeps: share the durable guard across both MFA services.

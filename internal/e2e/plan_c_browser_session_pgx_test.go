@@ -78,14 +78,7 @@ func newPlanCFixture(t *testing.T, ctx context.Context) *planCFixture {
 	}
 	t.Cleanup(func() { _ = repos.User.Delete(context.Background(), user.ID, user.OrganizationID) })
 
-	keySvc := service.NewKeyService(repos.Key)
-	if active, err := keySvc.ListActive(ctx); err != nil {
-		t.Fatalf("ListActive keys: %v", err)
-	} else if len(active) == 0 {
-		if _, err := keySvc.Generate(ctx, service.GenerateKeyOptions{Algorithm: string(domain.KeyAlgorithmEdDSA), State: domain.KeyStateActive}); err != nil {
-			t.Fatalf("Generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})
 	issued, err := sessions.CreateUserSession(ctx, service.CreateUserSessionInput{
 		UserID: user.ID, Acr: "urn:identuum:acr:mfa", Amr: []string{"pwd", "otp"},

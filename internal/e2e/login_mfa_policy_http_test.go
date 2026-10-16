@@ -81,20 +81,7 @@ func TestE2E_OSS_AdminWithoutMFAReturnsEnrollmentRequired(t *testing.T) {
 		_ = repos.User.Delete(context.Background(), created.ID, created.OrganizationID)
 	})
 
-	keySvc := service.NewKeyService(repos.Key)
-	active, err := keySvc.ListActive(ctx)
-	if err != nil {
-		t.Fatalf("ListActive keys: %v", err)
-	}
-	if len(active) == 0 {
-		_, err := keySvc.Generate(ctx, service.GenerateKeyOptions{
-			Algorithm: string(domain.KeyAlgorithmEdDSA),
-			State:     domain.KeyStateActive,
-		})
-		if err != nil {
-			t.Fatalf("Generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 
 	const issuer = "http://localhost:7113"
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})

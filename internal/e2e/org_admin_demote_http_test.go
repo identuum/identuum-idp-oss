@@ -66,14 +66,7 @@ func demoteSetup(t *testing.T) *demoteWorld {
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 	org := seedTestOrganization(t, ctx, repos)
 
-	keySvc := service.NewKeyService(repos.Key)
-	if active, err := keySvc.ListActive(ctx); err != nil {
-		t.Fatalf("ListActive keys: %v", err)
-	} else if len(active) == 0 {
-		if _, err := keySvc.Generate(ctx, service.GenerateKeyOptions{Algorithm: string(domain.KeyAlgorithmEdDSA), State: domain.KeyStateActive}); err != nil {
-			t.Fatalf("Generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})
 	tokens := service.NewUserTokenService(nil, keySvc, service.UserTokenServiceOptions{Issuer: demoteIssuer})
 	verifier := auth.NewRepositoryVerifier(nil, repos.Key, auth.VerifierOptions{ExpectedIssuer: demoteIssuer})

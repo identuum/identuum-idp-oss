@@ -95,17 +95,7 @@ func TestE2E_OSS_AdminDisablesThenReenablesUser(t *testing.T) {
 		UserRepo:    repos.User,
 	})
 
-	keySvc := service.NewKeyService(repos.Key)
-	if active, err := keySvc.ListActive(ctx); err != nil {
-		t.Fatalf("ListActive keys: %v", err)
-	} else if len(active) == 0 {
-		if _, err := keySvc.Generate(ctx, service.GenerateKeyOptions{
-			Algorithm: string(domain.KeyAlgorithmEdDSA),
-			State:     domain.KeyStateActive,
-		}); err != nil {
-			t.Fatalf("Generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 	const issuer = "http://localhost:7113"
 	sessions := service.NewUserSessionService(nil, repos.Session, service.UserSessionServiceOptions{})
 	authAPI := gin.New()

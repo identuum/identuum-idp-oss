@@ -99,20 +99,7 @@ func TestE2E_OSS_LoginCookiesAndValidate_RoundTrip(t *testing.T) {
 	// bootstrap slice, this is a no-op; if it does not, we generate
 	// one inline. The KID is read back to assert structurally only —
 	// the private-key material never leaves the service.
-	keySvc := service.NewKeyService(repos.Key)
-	active, err := keySvc.ListActive(ctx)
-	if err != nil {
-		t.Fatalf("ListActive keys: %v", err)
-	}
-	if len(active) == 0 {
-		_, err := keySvc.Generate(ctx, service.GenerateKeyOptions{
-			Algorithm: string(domain.KeyAlgorithmEdDSA),
-			State:     domain.KeyStateActive,
-		})
-		if err != nil {
-			t.Fatalf("Generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 
 	const issuer = "http://localhost:7113"
 

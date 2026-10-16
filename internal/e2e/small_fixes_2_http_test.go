@@ -49,14 +49,7 @@ func TestE2E_OSS_SmallFixes2_ClientStoreErrorAndRevokedBearer(t *testing.T) {
 	t.Cleanup(pool.Close)
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 	orgA := seedTestOrganization(t, ctx, repos)
-	keySvc := service.NewKeyService(repos.Key)
-	if active, err := keySvc.ListActive(ctx); err != nil {
-		t.Fatalf("ListActive keys: %v", err)
-	} else if len(active) == 0 {
-		if _, err := keySvc.Generate(ctx, service.GenerateKeyOptions{Algorithm: string(domain.KeyAlgorithmEdDSA), State: domain.KeyStateActive}); err != nil {
-			t.Fatalf("Generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 
 	t.Setenv("IDENTUUM_IDP_ENCRYPTION_KEY", "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff")
 	t.Setenv("IDENTUUM_IDP_ALLOW_MULTI_REPLICA", "true")

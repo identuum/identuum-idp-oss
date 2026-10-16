@@ -10,7 +10,9 @@ package e2e
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base32"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -20,14 +22,42 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 	"github.com/identuum/identuum-idp-oss/internal/runtime"
+	"github.com/identuum/identuum-idp-oss/internal/service"
 	"github.com/identuum/identuum-idp-oss/pkg/totp"
 	"github.com/identuum/identuum-idp-oss/pkg/uiserve"
 )
+
+// Reuse an existing active key, but remove a key this fixture creates. The
+// caller registers pool.Close before calling this helper so cleanup can query.
+func ensureE2EActiveSigningKey(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repos *postgres.Repositories) *service.KeyService {
+	t.Helper()
+	keySvc := service.NewKeyService(repos.Key)
+	active, err := keySvc.ListActive(ctx)
+	if err != nil {
+		t.Fatalf("ListActive keys: %v", err)
+	}
+	if len(active) == 0 {
+		key, err := keySvc.Generate(ctx, service.GenerateKeyOptions{
+			Algorithm: string(domain.KeyAlgorithmEdDSA),
+			State:     domain.KeyStateActive,
+		})
+		if err != nil {
+			t.Fatalf("Generate signing key: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := pool.Exec(context.Background(), "DELETE FROM signing_keys WHERE id = $1", key.ID); err != nil {
+				t.Errorf("cleanup signing key: %v", err)
+			}
+		})
+	}
+	return keySvc
+}
 
 func TestE2E_OSS_AccountSettingsEnrolsAnAuthenticator(t *testing.T) {
 	dbURL := testDBURL(t)
@@ -41,6 +71,14 @@ func TestE2E_OSS_AccountSettingsEnrolsAnAuthenticator(t *testing.T) {
 	t.Cleanup(pool.Close)
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
 	org := seedTestOrganization(t, ctx, repos)
+	ensureE2EActiveSigningKey(t, ctx, pool, repos)
+	// The shared seed helper soft-deletes; this fixture owns the tenant and
+	// must also remove its users, sessions, pending proofs and audit events.
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), "DELETE FROM organizations WHERE id = $1", org.ID); err != nil {
+			t.Errorf("cleanup organization: %v", err)
+		}
+	})
 
 	const password = "Self-Enrol-Pass-1!"
 	hash, err := crypto.GenerateHash([]byte(password))
@@ -48,7 +86,18 @@ func TestE2E_OSS_AccountSettingsEnrolsAnAuthenticator(t *testing.T) {
 		t.Fatal(err)
 	}
 	email := "e2e-selfenrol-" + uuid.NewString() + "@example.invalid"
-	if _, err := repos.User.Create(ctx, &domain.User{ID: uuid.New(), OrganizationID: org.ID, Email: email,
+	userID := uuid.New()
+	// These two stores have no tenant/user foreign-key cascade.
+	emailHash := sha256.Sum256([]byte(email))
+	t.Cleanup(func() {
+		if _, err := pool.Exec(context.Background(), "DELETE FROM login_attempts WHERE email_hash = $1", hex.EncodeToString(emailHash[:])); err != nil {
+			t.Errorf("cleanup login attempts: %v", err)
+		}
+		if _, err := pool.Exec(context.Background(), "DELETE FROM totp_used_steps WHERE user_id = $1", userID); err != nil {
+			t.Errorf("cleanup TOTP steps: %v", err)
+		}
+	})
+	if _, err := repos.User.Create(ctx, &domain.User{ID: userID, OrganizationID: org.ID, Email: email,
 		PasswordHash: hash, Role: domain.RoleOrgUser, AuthSource: domain.AuthSourceLocal, EmailVerified: true}); err != nil {
 		t.Fatalf("seed user: %v", err)
 	}

@@ -86,14 +86,7 @@ func startInviteEngine(t *testing.T, env map[string]string) *inviteWorld {
 		t.Fatalf("clear login_attempts: %v", err)
 	}
 	repos := postgres.NewPgxRepositories(pool, e2eSigningKeyCipher())
-	keySvc := service.NewKeyService(repos.Key)
-	if active, err := keySvc.ListActive(ctx); err != nil {
-		t.Fatalf("ListActive keys: %v", err)
-	} else if len(active) == 0 {
-		if _, err := keySvc.Generate(ctx, service.GenerateKeyOptions{Algorithm: string(domain.KeyAlgorithmEdDSA), State: domain.KeyStateActive}); err != nil {
-			t.Fatalf("Generate signing key: %v", err)
-		}
-	}
+	keySvc := ensureE2EActiveSigningKey(t, ctx, pool, repos)
 	t.Setenv("IDENTUUM_IDP_ENCRYPTION_KEY", inviteEncryptionKey)
 	t.Setenv("IDENTUUM_IDP_ALLOW_MULTI_REPLICA", "true")
 	for k, v := range env {
