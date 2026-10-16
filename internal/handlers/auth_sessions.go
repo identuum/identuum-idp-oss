@@ -562,7 +562,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		if sessionID != "" {
 			body["session_id"] = sessionID
 		}
-		auditLoginStep(c, deps.Audit, "user_session.login.mfa_required", result)
+		auditLoginStep(c, deps.Audit, "user_session.login.mfa_required", result, nil)
 		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginMFAEnrollmentRequired):
 		// Policy-required MFA but the user has not yet enrolled a
@@ -578,7 +578,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		if sessionID != "" {
 			body["session_id"] = sessionID
 		}
-		auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result)
+		auditLoginStep(c, deps.Audit, "user_session.login.mfa_enrollment_required", result, nil)
 		c.JSON(loginStepStatus(c), body)
 	case errors.Is(err, service.ErrLoginPasswordChangeRequired), errors.Is(err, service.ErrLoginPasswordExpired):
 		// D-017: an admin-set password was proven; the user must choose
