@@ -251,6 +251,10 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 		// must be too. This is what all three handler-side extractors do.
 		token := strings.TrimSpace(header[len(prefix):])
 		if token == "" {
+			if isSignInRequest(c) {
+				c.Next()
+				return
+			}
 			RespondUnauthenticatedReason(c, ReasonMissingCredential)
 			return
 		}
@@ -261,6 +265,13 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 			// refusal itself is unchanged (nothing is admitted).
 			if domain.IsAuthStoreUnavailable(err) {
 				RespondAuthStoreUnavailable(c, "bearer.verify", err)
+				return
+			}
+			// An expired or otherwise invalid token must not block a fresh
+			// sign-in either: as for an ended session below, the sign-in
+			// routes continue with NO principal.
+			if isSignInRequest(c) {
+				c.Next()
 				return
 			}
 			respondInvalidBearerToken(c, ReasonTokenInvalid)
@@ -334,12 +345,7 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				// A client still holding the token of a session that has ended
 				// must be able to sign in again: the sign-in routes continue
 				// with NO principal, so nothing is admitted on this token.
-				// The request's own escaped path must equal the routed one: an
-				// encoded spelling the router decodes onto a sign-in route is
-				// not the sign-in route. A trailing-slash spelling never gets
-				// here: the router redirects it to the canonical path before
-				// any middleware runs, and the follow-up request is judged here.
-				if _, signIn := signInRoutes[c.FullPath()]; signIn && c.Request.URL.EscapedPath() == c.FullPath() {
+				if isSignInRequest(c) {
 					c.Next()
 					return
 				}
@@ -384,18 +390,31 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 	}
 }
 
-// signInRoutes are the routes a client signs in through. A bearer token whose
-// session is no longer live does not block them (G1); every other route still
-// refuses it with session_not_live.
+// signInRoutes are the routes a client signs in through, keyed by method and
+// routed template. An empty or invalid bearer token, or one whose session is
+// no longer live, does not block them; every other route still refuses it.
 var signInRoutes = map[string]struct{}{
-	"/api/v1/auth/login":                     {},
-	"/api/v1/auth/login/mfa":                 {},
-	"/api/v1/auth/login/mfa/enroll/initiate": {},
-	"/api/v1/auth/login/mfa/enroll/complete": {},
-	"/api/v1/auth/login/password-change":     {},
-	"/api/v1/auth/login/webauthn/begin":      {},
-	"/api/v1/auth/login/webauthn/finish":     {},
-	"/api/v1/auth/browser-login":             {},
+	"POST /api/v1/auth/login":                     {},
+	"POST /api/v1/auth/login/mfa":                 {},
+	"POST /api/v1/auth/login/mfa/enroll/initiate": {},
+	"POST /api/v1/auth/login/mfa/enroll/complete": {},
+	"POST /api/v1/auth/login/password-change":     {},
+	"POST /api/v1/auth/login/webauthn/begin":      {},
+	"POST /api/v1/auth/login/webauthn/finish":     {},
+	"POST /api/v1/auth/browser-login":             {},
+	"GET /api/v1/auth/browser-login":              {},
+}
+
+// isSignInRequest reports whether the request is for a sign-in route. The
+// request's own escaped path must equal the routed one: an encoded spelling
+// the router decodes onto a sign-in route is not the sign-in route. A
+// trailing-slash spelling never gets here: the router redirects it to the
+// canonical path before any middleware runs, and the follow-up request is
+// judged here.
+func isSignInRequest(c *gin.Context) bool {
+	path := c.FullPath()
+	_, signIn := signInRoutes[c.Request.Method+" "+path]
+	return signIn && c.Request.URL.EscapedPath() == path
 }
 
 // isAppIssuedUserToken reports whether a token is a user's access token issued
