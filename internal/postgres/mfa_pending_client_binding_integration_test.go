@@ -19,7 +19,7 @@ import (
 
 func TestMFAPending_ClientBindingOnlyOnThePasskeyProofKind(t *testing.T) {
 	pool := keyEncPool(t)
-	defer pool.Close()
+	t.Cleanup(pool.Close) // registered first, so it runs after the row cleanup below
 	ctx := context.Background()
 	orgID := seedScratchOrg(t, pool)
 	userID := seedSessionUser(t, ctx, pool, orgID)
