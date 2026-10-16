@@ -82,6 +82,18 @@ func TestSetupBootOutput_TerminalCheckRejectsLogCapture(t *testing.T) {
 			t.Fatal("the null character device must not count as terminal stdout")
 		}
 	})
+	// Positive control: without it a detector that always answers false
+	// passes every case above and hides the code from terminal operators.
+	t.Run("controlling_terminal", func(t *testing.T) {
+		tty, err := os.OpenFile("/dev/tty", os.O_WRONLY, 0)
+		if err != nil {
+			t.Skip("no controlling terminal; run under script(1) to exercise this control")
+		}
+		defer tty.Close()
+		if !setupOutputIsTerminal(tty) {
+			t.Fatal("the controlling terminal must count as terminal stdout")
+		}
+	})
 }
 
 func TestSetupBootOutput_StartUsesGuardedRenderer(t *testing.T) {
