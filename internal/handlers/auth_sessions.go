@@ -584,7 +584,7 @@ func emitLoginError(c *gin.Context, deps AuthSessionsHandlerDeps, err error, res
 		// D-017: an admin-set password was proven; the user must choose
 		// their own first (a one-time handle for the change step). G2: past
 		// its 24 hours it opens nothing. The passkey sign-in answers the same.
-		emitPasswordOwed(c, deps, err, result, rememberMe, "password")
+		emitPasswordOwed(c, deps, err, result, rememberMe, "password", domain.MFAPendingKindPasswordChange)
 	case errors.Is(err, service.ErrLoginAccountUnverified):
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "account_unverified"})
 	case errors.Is(err, service.ErrLoginRegistrationPending):

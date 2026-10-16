@@ -634,10 +634,19 @@ func HandleWebAuthnLoginFinish(deps WebAuthnHandlerDeps) gin.HandlerFunc {
 		// admin-set password (G2), before MFA as on password sign-in
 		// (OSS-0914-MUSTCHANGE): the same answers, the same one-time handle
 		// for the change step, no session before the member chooses a
-		// password. The change step then continues as password sign-in does.
+		// password. The change step then continues as password sign-in does,
+		// except that an assertion verified HERE with user verification is
+		// kept on the handle (its kind) and finishes the sign-in at this
+		// path's own rung after the change, without TOTP
+		// (OSS-G8-PASSKEY-MFA-CARRYOVER). A presence-only assertion gets the
+		// ordinary handle and meets the MFA policy after the change.
 		rememberMe := c.Query("remember_me") == "true"
 		if owed := service.PasswordOwedAtSignIn(user, orgAuthPolicy, time.Now()); owed != nil {
-			emitPasswordOwed(c, AuthSessionsHandlerDeps{MFAEnrollment: deps.MFAEnrollment, Audit: deps.Audit}, owed, &service.LoginResult{User: user}, rememberMe, "passkey")
+			kind := domain.MFAPendingKindPasswordChange
+			if userVerified {
+				kind = domain.MFAPendingKindPasswordChangePasskeyUV
+			}
+			emitPasswordOwed(c, AuthSessionsHandlerDeps{MFAEnrollment: deps.MFAEnrollment, Audit: deps.Audit}, owed, &service.LoginResult{User: user}, rememberMe, "passkey", kind)
 			return
 		}
 		// (2) MFA POLICY (UV-conditional) — when the org policy requires

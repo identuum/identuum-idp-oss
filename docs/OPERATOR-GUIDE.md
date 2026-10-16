@@ -820,7 +820,12 @@ the account, and the creation is audited (`user.created` with
 change the password at first sign-in**: the password you set gets them only
 to a "choose a new password" step (console and OpenID Connect sign-in
 alike), then MFA enrolment when the organization's policy requires it, and
-only then a session. The new password follows the organization's policy and
+only then a session. A member who signs in to the console with a passkey
+that verified them (fingerprint, face or PIN) reaches the same step; after
+choosing a password they are signed in without TOTP enrolment, because that
+passkey already is the second factor. A passkey that only checks presence
+does not count, and a password sign-in still meets the MFA policy. The new
+password follows the organization's policy and
 must differ from the one you set. Send `"must_change_password": false` to let
 your password stand; that choice is audited too
 (`must_change_password: false`).

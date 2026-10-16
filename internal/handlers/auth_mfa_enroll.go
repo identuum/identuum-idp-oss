@@ -476,6 +476,20 @@ func emitPendingFailure(c *gin.Context, deps AuthSessionsHandlerDeps, err error,
 // HandleMFAVerifyLogin so the post-MFA wire shape is identical
 // to the post-password wire shape (single contract for the UI).
 func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service.MFAEnrollmentCompleteResult, auditAction string, mfaDone bool) {
+	// THE-HONEST-ACR: both pending-MFA paths (enroll-complete and
+	// verify-login) reach here with the password AND a TOTP code verified
+	// (mfaDone true). The D-017 password-change step reaches here with the
+	// new password only when no MFA applies (mfaDone false).
+	acr, amr := service.LoginContext(mfaDone)
+	completeLogin(c, deps, out, auditAction, acr, amr, "password")
+}
+
+// completeLogin issues the session of a sign-in that finished in a pending
+// step, stamped with the context the sign-in earned (acr, amr) and the
+// sign-in method its audit row names: "password", or "passkey" for a passkey
+// sign-in finished by the required password change
+// (OSS-G8-PASSKEY-MFA-CARRYOVER).
+func completeLogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service.MFAEnrollmentCompleteResult, auditAction, acr string, amr []string, method string) {
 	if deps.UserSession == nil || out == nil || out.User == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 		return
@@ -493,11 +507,6 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 	if out.User.OrgMaxSessionsPerUser != nil {
 		maxSessions = *out.User.OrgMaxSessionsPerUser
 	}
-	// THE-HONEST-ACR: both pending-MFA paths (enroll-complete and
-	// verify-login) reach here with the password AND a TOTP code verified
-	// (mfaDone true). The D-017 password-change step reaches here with the
-	// new password only when no MFA applies (mfaDone false).
-	acr, amr := service.LoginContext(mfaDone)
 	issued, err := deps.UserSession.CreateUserSession(c.Request.Context(), service.CreateUserSessionInput{
 		UserID:             out.User.ID,
 		IPAddress:          ipPtr,
@@ -530,7 +539,7 @@ func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service
 			"user_id":    out.User.ID.String(),
 			"session_id": issued.Session.ID.String(),
 			// The sign-in method, beside an upstream sign-in's oidc_upstream.
-			"method": "password",
+			"method": method,
 		},
 	})
 	if out.RecoveryCodeUsed {

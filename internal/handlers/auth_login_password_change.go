@@ -7,7 +7,10 @@ package handlers
 // with the new password (organization policy; not the admin-set one), then
 // the sign-in continues exactly as a password sign-in would: MFA enrolment
 // or verification when the policy asks (a new handle), else the session.
-// Nothing issued before the change is a credential.
+// A passkey sign-in whose assertion was user-verified holds a handle of its
+// own kind and finishes here at the phishing-resistant rung instead
+// (OSS-G8-PASSKEY-MFA-CARRYOVER). Nothing issued before the change is a
+// credential.
 
 import (
 	"errors"
@@ -68,12 +71,14 @@ func auditLoginStep(c *gin.Context, svc audit.Service, action string, result *se
 // password change (D-017) or an expired admin-set password (G2), and reports
 // whether err was one of the two. No session, no token, no cookie: for the
 // change only a one-time handle for POST /api/v1/auth/login/password-change.
-// The audit row names the sign-in method (OSS-0914-MUSTCHANGE).
-func emitPasswordOwed(c *gin.Context, deps AuthSessionsHandlerDeps, err error, result *service.LoginResult, rememberMe bool, method string) bool {
+// The audit row names the sign-in method (OSS-0914-MUSTCHANGE). kind is the
+// handle's kind: MFAPendingKindPasswordChangePasskeyUV only from a passkey
+// finish that verified the assertion with user verification.
+func emitPasswordOwed(c *gin.Context, deps AuthSessionsHandlerDeps, err error, result *service.LoginResult, rememberMe bool, method string, kind domain.MFAPendingKind) bool {
 	switch {
 	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
 		body := gin.H{"error": "password_change_required", "password_change_required": true}
-		if h := mintPendingMFAHandle(c, deps, result, domain.MFAPendingKindPasswordChange, rememberMe); h != "" {
+		if h := mintPendingMFAHandle(c, deps, result, kind, rememberMe); h != "" {
 			body["session_id"] = h
 		}
 		auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result, map[string]any{"method": method})
@@ -91,23 +96,28 @@ func emitPasswordOwed(c *gin.Context, deps AuthSessionsHandlerDeps, err error, r
 
 // changeRequiredPassword runs the shared change for both sign-in surfaces:
 // peek the handle, change (policy, reuse, single winner), claim the handle,
-// audit. Returns the user (with org projections) and the remember-me choice.
-// A *service.ChangePasswordPolicyError leaves the handle usable.
-func changeRequiredPassword(c *gin.Context, mfa *service.MFAEnrollmentService, change *service.ChangePasswordService, auditSvc audit.Service, handle, newPassword string) (*domain.User, bool, error) {
+// audit. Returns the user (with org projections) and what the handle carried.
+// A *service.ChangePasswordPolicyError leaves the handle usable. A handle with
+// a passkey proof is refused, before anything changes, unless acceptPasskey:
+// only the console step knows how to finish that sign-in.
+func changeRequiredPassword(c *gin.Context, mfa *service.MFAEnrollmentService, change *service.ChangePasswordService, auditSvc audit.Service, handle, newPassword string, acceptPasskey bool) (*domain.User, service.PendingPasswordChange, error) {
 	id, err := uuid.Parse(handle)
 	if err != nil {
-		return nil, false, service.ErrMFAEnrollmentInvalid
+		return nil, service.PendingPasswordChange{}, service.ErrMFAEnrollmentInvalid
 	}
-	userID, remember, err := mfa.PeekPasswordChange(c.Request.Context(), id)
+	pending, err := mfa.PeekPasswordChange(c.Request.Context(), id)
 	if err != nil {
-		return nil, false, err
+		return nil, service.PendingPasswordChange{}, err
 	}
-	user, err := change.ChangeRequiredAtSignIn(c.Request.Context(), userID, newPassword)
+	if pending.PasskeyVerified && !acceptPasskey {
+		return nil, service.PendingPasswordChange{}, service.ErrMFAEnrollmentInvalid
+	}
+	user, err := change.ChangeRequiredAtSignIn(c.Request.Context(), pending.UserID, newPassword)
 	if err != nil {
-		return nil, false, err
+		return nil, service.PendingPasswordChange{}, err
 	}
 	if err := mfa.ConsumePasswordChange(c.Request.Context(), id); err != nil {
-		return nil, false, err
+		return nil, service.PendingPasswordChange{}, err
 	}
 	_ = auditSvc.Record(c.Request.Context(), audit.Event{
 		Action:         "user_session.login.password_changed",
@@ -117,7 +127,7 @@ func changeRequiredPassword(c *gin.Context, mfa *service.MFAEnrollmentService, c
 		UserAgent:      c.Request.UserAgent(),
 		Metadata:       map[string]any{"user_id": user.ID.String()},
 	})
-	return user, remember, nil
+	return user, pending, nil
 }
 
 // HandleLoginPasswordChange serves POST /api/v1/auth/login/password-change.
@@ -131,7 +141,8 @@ func HandleLoginPasswordChange(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid_request"})
 			return
 		}
-		user, remember, err := changeRequiredPassword(c, deps.MFAEnrollment, deps.ChangePassword, deps.Audit, req.SessionID, req.NewPassword)
+		user, pending, err := changeRequiredPassword(c, deps.MFAEnrollment, deps.ChangePassword, deps.Audit, req.SessionID, req.NewPassword, true)
+		remember := pending.RememberMe
 		var policy *service.ChangePasswordPolicyError
 		switch {
 		case errors.As(err, &policy):
@@ -142,6 +153,26 @@ func HandleLoginPasswordChange(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			return
 		case err != nil:
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_session"})
+			return
+		}
+		// OSS-G8-PASSKEY-MFA-CARRYOVER: the sign-in began with a passkey
+		// assertion the server verified with user verification. That is the
+		// second factor the MFA policy asks for, so the sign-in finishes as
+		// the passkey sign-in would have: the phishing-resistant rung, no
+		// amr, whether or not TOTP is enrolled. The organization's policy is
+		// read again (the reloaded user) so an org turned idp_only since the
+		// assertion gains nothing here.
+		if pending.PasskeyVerified {
+			orgAuthPolicy := ""
+			if user.OrgAuthPolicy != nil {
+				orgAuthPolicy = *user.OrgAuthPolicy
+			}
+			if !service.IsLocalCredentialFlowAllowed(user, orgAuthPolicy).Allowed {
+				auditLoginStep(c, deps.Audit, "user_session.login.webauthn_policy_denied", &service.LoginResult{User: user}, map[string]any{"reason": "idp_only_auth_policy"})
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid_credentials"})
+				return
+			}
+			completeLogin(c, deps, &service.MFAEnrollmentCompleteResult{User: user, RememberMe: remember}, "user_session.login.success", service.ACRPhishingResistant, nil, "passkey")
 			return
 		}
 		// Continue the sign-in with the new password proven: the MFA gate

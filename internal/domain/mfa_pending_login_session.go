@@ -80,6 +80,16 @@ const (
 	// (or the browser sign-in's change step) consumes the row with the new
 	// password. Migration 0041 admits the kind.
 	MFAPendingKindPasswordChange MFAPendingKind = "password_change"
+
+	// MFAPendingKindPasswordChangePasskeyUV (OSS-G8-PASSKEY-MFA-CARRYOVER,
+	// owner decision 2026-10-16) is the change step of a passkey sign-in whose
+	// assertion the server verified WITH user verification. The kind is the
+	// proof: only the passkey finish mints it, after its own validation of that
+	// assertion, and the console change step that consumes it finishes the
+	// sign-in at the phishing-resistant rung, as the passkey sign-in would
+	// have, instead of asking for TOTP. It lives and dies with the row: same
+	// user, same expiry, one use. Migration 0057 admits the kind.
+	MFAPendingKindPasswordChangePasskeyUV MFAPendingKind = "password_change_passkey_uv"
 )
 
 // MFAPendingTTL is the default lifetime of a pending row. The

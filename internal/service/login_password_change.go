@@ -23,27 +23,42 @@ import (
 // password_change handle; no session exists.
 var ErrLoginPasswordChangeRequired = errors.New("service: login password change required")
 
-// PeekPasswordChange validates a password_change handle WITHOUT consuming
+// PendingPasswordChange is what a live password-change handle carries.
+// PasskeyVerified is true only for a handle the passkey finish minted after
+// verifying an assertion with user verification (OSS-G8-PASSKEY-MFA-CARRYOVER);
+// it comes from the stored row's kind, never from the request.
+type PendingPasswordChange struct {
+	UserID          uuid.UUID
+	RememberMe      bool
+	PasskeyVerified bool
+}
+
+// PeekPasswordChange validates a password-change handle WITHOUT consuming
 // it, so a refused new password (policy, reuse) does not burn the handle.
-// Returns the user it belongs to and the sign-in's remember-me choice.
-func (s *MFAEnrollmentService) PeekPasswordChange(ctx context.Context, pendingID uuid.UUID) (uuid.UUID, bool, error) {
+// Returns the user it belongs to, the sign-in's remember-me choice and
+// whether the handle carries a verified passkey proof.
+func (s *MFAEnrollmentService) PeekPasswordChange(ctx context.Context, pendingID uuid.UUID) (PendingPasswordChange, error) {
 	row, err := s.pending.GetByID(ctx, pendingID)
 	if err != nil {
 		if errors.Is(err, repository.ErrMFAPendingSessionNotFound) {
-			return uuid.Nil, false, ErrMFAEnrollmentNotFound
+			return PendingPasswordChange{}, ErrMFAEnrollmentNotFound
 		}
-		return uuid.Nil, false, ErrMFAEnrollmentInvalid
+		return PendingPasswordChange{}, ErrMFAEnrollmentInvalid
 	}
-	if ok, _ := row.CanBeUsed(s.now(), domain.MFAPendingKindPasswordChange); !ok {
+	kind := domain.MFAPendingKindPasswordChange
+	if row.Kind == domain.MFAPendingKindPasswordChangePasskeyUV {
+		kind = domain.MFAPendingKindPasswordChangePasskeyUV
+	}
+	if ok, _ := row.CanBeUsed(s.now(), kind); !ok {
 		if row.ConsumedAt != nil {
-			return uuid.Nil, false, ErrMFAEnrollmentAlreadyConsumed
+			return PendingPasswordChange{}, ErrMFAEnrollmentAlreadyConsumed
 		}
 		if !row.ExpiresAt.After(s.now()) {
-			return uuid.Nil, false, ErrMFAEnrollmentExpired
+			return PendingPasswordChange{}, ErrMFAEnrollmentExpired
 		}
-		return uuid.Nil, false, ErrMFAEnrollmentInvalid
+		return PendingPasswordChange{}, ErrMFAEnrollmentInvalid
 	}
-	return row.UserID, row.RememberMe, nil
+	return PendingPasswordChange{UserID: row.UserID, RememberMe: row.RememberMe, PasskeyVerified: kind == domain.MFAPendingKindPasswordChangePasskeyUV}, nil
 }
 
 // ConsumePasswordChange claims the handle once the password has changed.

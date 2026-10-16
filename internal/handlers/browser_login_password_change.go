@@ -119,7 +119,12 @@ func handleBrowserPasswordChange(c *gin.Context, deps BrowserLoginHandlerDeps, h
 		renderPasswordChangeForm(c, deps, handle, returnTo, remember, "The two passwords do not match.")
 		return
 	}
-	user, remember, err := changeRequiredPassword(c, deps.MFAEnrollment, deps.ChangePassword, deps.Audit, handle, newPassword)
+	// The browser sign-in starts from a password, so its handles never carry
+	// a passkey proof; one that does is refused before the password changes
+	// rather than finished here at a rung it did not earn
+	// (OSS-G8-PASSKEY-MFA-CARRYOVER).
+	user, pending, err := changeRequiredPassword(c, deps.MFAEnrollment, deps.ChangePassword, deps.Audit, handle, newPassword, false)
+	remember = pending.RememberMe
 	var policy *service.ChangePasswordPolicyError
 	switch {
 	case errors.As(err, &policy):

@@ -329,7 +329,7 @@ func (s *MFAEnrollmentService) CreatePending(ctx context.Context, user *domain.U
 	if user.Banned || user.DeletedAt != nil {
 		return nil, ErrMFAEnrollmentInvalid
 	}
-	if kind != domain.MFAPendingKindEnroll && kind != domain.MFAPendingKindVerify && kind != domain.MFAPendingKindPasswordChange {
+	if kind != domain.MFAPendingKindEnroll && kind != domain.MFAPendingKindVerify && kind != domain.MFAPendingKindPasswordChange && kind != domain.MFAPendingKindPasswordChangePasskeyUV {
 		return nil, ErrMFAEnrollmentInvalid
 	}
 	id, err := uuidgen.NewV7()
