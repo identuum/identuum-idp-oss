@@ -1,8 +1,11 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -62,44 +65,74 @@ func TestLogin_RequiredPasswordChangeNeedsThePassword(t *testing.T) {
 func TestPeekPasswordChange_ProofComesFromTheRowKind(t *testing.T) {
 	ctx := context.Background()
 	svc, pending, _, user := newEnrollSvc(t)
-	for _, tt := range []struct {
-		kind  domain.MFAPendingKind
-		proof bool
-	}{
-		{domain.MFAPendingKindPasswordChange, false},
-		{domain.MFAPendingKindPasswordChangePasskeyUV, true},
-	} {
-		row, err := svc.CreatePending(ctx, user, tt.kind, true)
-		if err != nil {
-			t.Fatalf("CreatePending(%s): %v", tt.kind, err)
-		}
-		got, err := svc.PeekPasswordChange(ctx, row.ID)
-		if err != nil || got.UserID != user.ID || !got.RememberMe || got.PasskeyVerified != tt.proof {
-			t.Errorf("Peek(%s) = %+v, %v; want the user, remember-me and proof %v", tt.kind, got, err, tt.proof)
-		}
+	plain, err := svc.CreatePending(ctx, user, domain.MFAPendingKindPasswordChange, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.PeekPasswordChange(ctx, plain.ID, ""); err != nil || got.UserID != user.ID || !got.RememberMe || got.PasskeyVerified {
+		t.Errorf("Peek(password_change) = %+v, %v; want the user, remember-me and no proof", got, err)
+	}
+	proof, secret, err := svc.CreatePasskeyPasswordChange(ctx, user, true)
+	if err != nil || proof.Kind != domain.MFAPendingKindPasswordChangePasskeyUV {
+		t.Fatalf("CreatePasskeyPasswordChange = %v, %v", proof, err)
+	}
+	if got, err := svc.PeekPasswordChange(ctx, proof.ID, secret); err != nil || got.UserID != user.ID || !got.RememberMe || !got.PasskeyVerified {
+		t.Errorf("Peek(proof, its client) = %+v, %v; want the user, remember-me and the proof", got, err)
 	}
 	for _, kind := range []domain.MFAPendingKind{domain.MFAPendingKindEnroll, domain.MFAPendingKindVerify} {
 		row, err := svc.CreatePending(ctx, user, kind, false)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, err := svc.PeekPasswordChange(ctx, row.ID); !errors.Is(err, ErrMFAEnrollmentInvalid) || got.PasskeyVerified {
+		if got, err := svc.PeekPasswordChange(ctx, row.ID, ""); !errors.Is(err, ErrMFAEnrollmentInvalid) || got.PasskeyVerified {
 			t.Errorf("Peek(%s handle) = %+v, %v; want ErrMFAEnrollmentInvalid", kind, got, err)
 		}
 	}
-	spent, _ := svc.CreatePending(ctx, user, domain.MFAPendingKindPasswordChangePasskeyUV, false)
+	spent, spentSecret, _ := svc.CreatePasskeyPasswordChange(ctx, user, false)
 	if err := svc.ConsumePasswordChange(ctx, spent.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.PeekPasswordChange(ctx, spent.ID); !errors.Is(err, ErrMFAEnrollmentAlreadyConsumed) {
+	if _, err := svc.PeekPasswordChange(ctx, spent.ID, spentSecret); !errors.Is(err, ErrMFAEnrollmentAlreadyConsumed) {
 		t.Errorf("Peek(spent proof) err = %v; want ErrMFAEnrollmentAlreadyConsumed", err)
 	}
 	if err := svc.ConsumePasswordChange(ctx, spent.ID); !errors.Is(err, ErrMFAEnrollmentAlreadyConsumed) {
 		t.Errorf("second consume err = %v; want ErrMFAEnrollmentAlreadyConsumed", err)
 	}
-	expired, _ := svc.CreatePending(ctx, user, domain.MFAPendingKindPasswordChangePasskeyUV, false)
+	expired, expiredSecret, _ := svc.CreatePasskeyPasswordChange(ctx, user, false)
 	pending.rows[expired.ID].ExpiresAt = svc.now().Add(-time.Second)
-	if _, err := svc.PeekPasswordChange(ctx, expired.ID); !errors.Is(err, ErrMFAEnrollmentExpired) {
+	if _, err := svc.PeekPasswordChange(ctx, expired.ID, expiredSecret); !errors.Is(err, ErrMFAEnrollmentExpired) {
 		t.Errorf("Peek(expired proof) err = %v; want ErrMFAEnrollmentExpired", err)
+	}
+}
+
+// OSS-G8-PASSKEY-MFA-R2 (F1): a passkey proof is minted only bound to its
+// client, stores the secret's hash and not the secret, and redeems only with
+// that client's secret; an unbound proof cannot be minted at all.
+func TestPeekPasswordChange_ProofIsBoundToItsClient(t *testing.T) {
+	ctx := context.Background()
+	svc, _, _, user := newEnrollSvc(t)
+	if _, err := svc.CreatePending(ctx, user, domain.MFAPendingKindPasswordChangePasskeyUV, false); !errors.Is(err, ErrMFAEnrollmentInvalid) {
+		t.Errorf("CreatePending(passkey proof) err = %v; want ErrMFAEnrollmentInvalid (unbound proof)", err)
+	}
+	a, secretA, err := svc.CreatePasskeyPasswordChange(ctx, user, false)
+	if err != nil || len(secretA) < 43 {
+		t.Fatalf("CreatePasskeyPasswordChange = %v, secret length %d; want >= 43 (32 bytes)", err, len(secretA))
+	}
+	_, secretB, _ := svc.CreatePasskeyPasswordChange(ctx, user, false)
+	sum := sha256.Sum256([]byte(secretA))
+	if !bytes.Equal(a.ClientBinding, sum[:]) || bytes.Contains(a.ClientBinding, []byte(secretA)) {
+		t.Errorf("the row stores %d binding bytes; want exactly the secret's SHA-256", len(a.ClientBinding))
+	}
+	last := "A"
+	if strings.HasSuffix(secretA, "A") {
+		last = "B"
+	}
+	for label, presented := range map[string]string{"no secret": "", "another flow's secret": secretB, "a near miss": secretA[:len(secretA)-1] + last} {
+		if got, err := svc.PeekPasswordChange(ctx, a.ID, presented); !errors.Is(err, ErrMFAEnrollmentInvalid) || got.PasskeyVerified || got.UserID != uuid.Nil {
+			t.Errorf("Peek(proof, %s) = %+v, %v; want ErrMFAEnrollmentInvalid and nothing", label, got, err)
+		}
+	}
+	if got, err := svc.PeekPasswordChange(ctx, a.ID, secretA); err != nil || !got.PasskeyVerified {
+		t.Errorf("Peek(proof, its own secret) after refusals = %+v, %v; want the proof", got, err)
 	}
 }

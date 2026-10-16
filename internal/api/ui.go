@@ -69,6 +69,9 @@ func mountUI(router gin.IRouter, resolved OSSRouterDeps) gin.HandlerFunc {
 		AllowedOrigins: resolved.CORSAllowedOrigins,
 		AccessCookie:   "access_token",
 		RefreshCookie:  "refresh_token",
+		// The passkey proof's client binding reaches the change step
+		// (OSS-G8-PASSKEY-MFA-R2); no other browser cookie is forwarded.
+		ForwardCookies: []string{handlers.PasskeyChangeCookieName},
 		// The bearer middleware's own refusals of a token it was handed
 		// (internal/mw/auth_verdict.go): only these mean "the cookie we
 		// lifted is dead".

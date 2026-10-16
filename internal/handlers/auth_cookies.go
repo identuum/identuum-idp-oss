@@ -211,6 +211,31 @@ func cookieSecureForRequest(r *http.Request) bool {
 	return !isLocalhost
 }
 
+// PasskeyChangeCookieName carries the secret that binds a passkey sign-in's
+// proof to the client that made it, through the required password change
+// (OSS-G8-PASSKEY-MFA-R2). The browser boundary forwards it to the API.
+const PasskeyChangeCookieName = "identuum_passkey_change"
+
+// setPasskeyChangeCookie hands the binding secret to the client of the passkey
+// finish only: HttpOnly (page script cannot read it, unlike the body's
+// handle), SameSite=Strict, and expiring with the handle.
+func setPasskeyChangeCookie(c *gin.Context, secret string, maxAge int) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     PasskeyChangeCookieName,
+		Value:    secret,
+		MaxAge:   maxAge,
+		Path:     "/",
+		Secure:   cookieSecureForRequest(c.Request),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+// clearPasskeyChangeCookie expires the binding cookie once its sign-in ends.
+func clearPasskeyChangeCookie(c *gin.Context) {
+	setPasskeyChangeCookie(c, "", -1)
+}
+
 // writeBrowserCSRFCookie stamps the transport-correct Secure flag onto a CSRF
 // cookie produced by BrowserCSRFService and writes it. The service leaves
 // Secure=false because it cannot see the request; this upgrades it to true in

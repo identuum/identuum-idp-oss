@@ -15,6 +15,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -73,12 +74,17 @@ func auditLoginStep(c *gin.Context, svc audit.Service, action string, result *se
 // change only a one-time handle for POST /api/v1/auth/login/password-change.
 // The audit row names the sign-in method (OSS-0914-MUSTCHANGE). kind is the
 // handle's kind: MFAPendingKindPasswordChangePasskeyUV only from a passkey
-// finish that verified the assertion with user verification.
+// finish that verified the assertion with user verification; that handle is
+// bound to this client by an HttpOnly cookie (OSS-G8-PASSKEY-MFA-R2).
 func emitPasswordOwed(c *gin.Context, deps AuthSessionsHandlerDeps, err error, result *service.LoginResult, rememberMe bool, method string, kind domain.MFAPendingKind) bool {
 	switch {
 	case errors.Is(err, service.ErrLoginPasswordChangeRequired):
 		body := gin.H{"error": "password_change_required", "password_change_required": true}
-		if h := mintPendingMFAHandle(c, deps, result, kind, rememberMe); h != "" {
+		if kind == domain.MFAPendingKindPasswordChangePasskeyUV {
+			if h := mintPasskeyChangeHandle(c, deps, result, rememberMe); h != "" {
+				body["session_id"] = h
+			}
+		} else if h := mintPendingMFAHandle(c, deps, result, kind, rememberMe); h != "" {
 			body["session_id"] = h
 		}
 		auditLoginStep(c, deps.Audit, "user_session.login.password_change_required", result, map[string]any{"method": method})
@@ -94,18 +100,50 @@ func emitPasswordOwed(c *gin.Context, deps AuthSessionsHandlerDeps, err error, r
 	return false
 }
 
+// mintPasskeyChangeHandle mints the passkey proof's change handle and gives
+// its binding secret to this client in the cookie, never the body. Returns
+// the handle, or "" when none could be minted (audited as mintPendingMFAHandle
+// does).
+func mintPasskeyChangeHandle(c *gin.Context, deps AuthSessionsHandlerDeps, result *service.LoginResult, rememberMe bool) string {
+	if deps.MFAEnrollment == nil || result == nil || result.User == nil {
+		return ""
+	}
+	row, secret, err := deps.MFAEnrollment.CreatePasskeyPasswordChange(c.Request.Context(), result.User, rememberMe)
+	if err != nil || row == nil {
+		_ = deps.Audit.Record(c.Request.Context(), audit.Event{
+			Action:         "user_session.login.mfa_pending_create_failure",
+			OrganizationID: result.User.OrganizationID,
+			SubjectID:      result.User.ID,
+			SubjectType:    "user",
+			Outcome:        "denied",
+			IPAddress:      c.ClientIP(),
+			UserAgent:      c.Request.UserAgent(),
+		})
+		return ""
+	}
+	maxAge := int(time.Until(row.ExpiresAt).Seconds())
+	if maxAge < 1 {
+		maxAge = 1
+	}
+	setPasskeyChangeCookie(c, secret, maxAge)
+	return row.ID.String()
+}
+
 // changeRequiredPassword runs the shared change for both sign-in surfaces:
 // peek the handle, change (policy, reuse, single winner), claim the handle,
 // audit. Returns the user (with org projections) and what the handle carried.
 // A *service.ChangePasswordPolicyError leaves the handle usable. A handle with
 // a passkey proof is refused, before anything changes, unless acceptPasskey:
-// only the console step knows how to finish that sign-in.
+// only the console step knows how to finish that sign-in. A passkey proof is
+// also refused, before anything changes, to a client without the binding
+// cookie its finish set (OSS-G8-PASSKEY-MFA-R2).
 func changeRequiredPassword(c *gin.Context, mfa *service.MFAEnrollmentService, change *service.ChangePasswordService, auditSvc audit.Service, handle, newPassword string, acceptPasskey bool) (*domain.User, service.PendingPasswordChange, error) {
 	id, err := uuid.Parse(handle)
 	if err != nil {
 		return nil, service.PendingPasswordChange{}, service.ErrMFAEnrollmentInvalid
 	}
-	pending, err := mfa.PeekPasswordChange(c.Request.Context(), id)
+	binding, _ := c.Cookie(PasskeyChangeCookieName)
+	pending, err := mfa.PeekPasswordChange(c.Request.Context(), id, binding)
 	if err != nil {
 		return nil, service.PendingPasswordChange{}, err
 	}
@@ -163,6 +201,8 @@ func HandleLoginPasswordChange(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 		// read again (the reloaded user) so an org turned idp_only since the
 		// assertion gains nothing here.
 		if pending.PasskeyVerified {
+			// The handle is spent: its binding has nothing left to prove.
+			clearPasskeyChangeCookie(c)
 			orgAuthPolicy := ""
 			if user.OrgAuthPolicy != nil {
 				orgAuthPolicy = *user.OrgAuthPolicy

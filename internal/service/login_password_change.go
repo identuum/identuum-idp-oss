@@ -10,7 +10,12 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 
@@ -33,11 +38,39 @@ type PendingPasswordChange struct {
 	PasskeyVerified bool
 }
 
+// passkeyBindingBytes is the entropy of the client secret that binds a
+// passkey proof to the client that made the assertion.
+const passkeyBindingBytes = 32
+
+// CreatePasskeyPasswordChange mints the change handle of a passkey sign-in
+// whose assertion was verified with user verification, bound to the client
+// that made it (OSS-G8-PASSKEY-MFA-R2). It returns the row and the client's
+// secret: the caller hands the secret to that client only, out of the
+// response body (an HttpOnly cookie); the row stores its SHA-256. The secret
+// is credential material: never logged, never in audit metadata.
+func (s *MFAEnrollmentService) CreatePasskeyPasswordChange(ctx context.Context, user *domain.User, rememberMe bool) (*domain.MFAPendingLoginSession, string, error) {
+	raw := make([]byte, passkeyBindingBytes)
+	if _, err := rand.Read(raw); err != nil {
+		return nil, "", fmt.Errorf("service: passkey binding generation: %w", err)
+	}
+	secret := base64.RawURLEncoding.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(secret))
+	row, err := s.createPending(ctx, user, domain.MFAPendingKindPasswordChangePasskeyUV, rememberMe, sum[:])
+	if err != nil {
+		return nil, "", err
+	}
+	return row, secret, nil
+}
+
 // PeekPasswordChange validates a password-change handle WITHOUT consuming
 // it, so a refused new password (policy, reuse) does not burn the handle.
 // Returns the user it belongs to, the sign-in's remember-me choice and
-// whether the handle carries a verified passkey proof.
-func (s *MFAEnrollmentService) PeekPasswordChange(ctx context.Context, pendingID uuid.UUID) (PendingPasswordChange, error) {
+// whether the handle carries a verified passkey proof. A passkey proof is
+// valid only with the secret of the client it was minted for (binding,
+// compared in constant time); any other client is refused as an invalid
+// handle, before anything changes (OSS-G8-PASSKEY-MFA-R2). binding is
+// ignored for an ordinary handle.
+func (s *MFAEnrollmentService) PeekPasswordChange(ctx context.Context, pendingID uuid.UUID, binding string) (PendingPasswordChange, error) {
 	row, err := s.pending.GetByID(ctx, pendingID)
 	if err != nil {
 		if errors.Is(err, repository.ErrMFAPendingSessionNotFound) {
@@ -58,7 +91,14 @@ func (s *MFAEnrollmentService) PeekPasswordChange(ctx context.Context, pendingID
 		}
 		return PendingPasswordChange{}, ErrMFAEnrollmentInvalid
 	}
-	return PendingPasswordChange{UserID: row.UserID, RememberMe: row.RememberMe, PasskeyVerified: kind == domain.MFAPendingKindPasswordChangePasskeyUV}, nil
+	passkey := kind == domain.MFAPendingKindPasswordChangePasskeyUV
+	if passkey {
+		sum := sha256.Sum256([]byte(binding))
+		if len(row.ClientBinding) != sha256.Size || binding == "" || subtle.ConstantTimeCompare(sum[:], row.ClientBinding) != 1 {
+			return PendingPasswordChange{}, ErrMFAEnrollmentInvalid
+		}
+	}
+	return PendingPasswordChange{UserID: row.UserID, RememberMe: row.RememberMe, PasskeyVerified: passkey}, nil
 }
 
 // ConsumePasswordChange claims the handle once the password has changed.

@@ -56,6 +56,11 @@ type MFAPendingLoginSession struct {
 	// attacker holding a valid handle gets a bounded number of guesses
 	// regardless of IP, replica, or restart. Zero for a fresh handle.
 	FailedAttempts int
+	// ClientBinding is the SHA-256 of a secret held only by the client that
+	// made the sign-in (an HttpOnly cookie, never the response body). Set
+	// only, and always, for MFAPendingKindPasswordChangePasskeyUV: the proof
+	// is redeemed only by that client (OSS-G8-PASSKEY-MFA-R2). Nil otherwise.
+	ClientBinding []byte
 }
 
 // MFAPendingKind identifies the finalisation path for a pending
@@ -88,7 +93,8 @@ const (
 	// assertion, and the console change step that consumes it finishes the
 	// sign-in at the phishing-resistant rung, as the passkey sign-in would
 	// have, instead of asking for TOTP. It lives and dies with the row: same
-	// user, same expiry, one use. Migration 0057 admits the kind.
+	// user, same expiry, one use, and only the originating client
+	// (ClientBinding). Migration 0057 admits the kind.
 	MFAPendingKindPasswordChangePasskeyUV MFAPendingKind = "password_change_passkey_uv"
 )
 

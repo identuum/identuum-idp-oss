@@ -323,13 +323,19 @@ func NewMFAEnrollmentService(report *lifecycle.StartupReport, repos MFAEnrollmen
 // MUST NOT have arrived here for such a user but the guard ensures
 // no pending handle exists for an unloggable account.
 func (s *MFAEnrollmentService) CreatePending(ctx context.Context, user *domain.User, kind domain.MFAPendingKind, rememberMe bool) (*domain.MFAPendingLoginSession, error) {
+	// The passkey proof kind is minted only bound to its client, by
+	// CreatePasskeyPasswordChange (OSS-G8-PASSKEY-MFA-R2).
+	if kind != domain.MFAPendingKindEnroll && kind != domain.MFAPendingKindVerify && kind != domain.MFAPendingKindPasswordChange {
+		return nil, ErrMFAEnrollmentInvalid
+	}
+	return s.createPending(ctx, user, kind, rememberMe, nil)
+}
+
+func (s *MFAEnrollmentService) createPending(ctx context.Context, user *domain.User, kind domain.MFAPendingKind, rememberMe bool, binding []byte) (*domain.MFAPendingLoginSession, error) {
 	if user == nil || user.ID == uuid.Nil {
 		return nil, ErrMFAEnrollmentInvalid
 	}
 	if user.Banned || user.DeletedAt != nil {
-		return nil, ErrMFAEnrollmentInvalid
-	}
-	if kind != domain.MFAPendingKindEnroll && kind != domain.MFAPendingKindVerify && kind != domain.MFAPendingKindPasswordChange && kind != domain.MFAPendingKindPasswordChangePasskeyUV {
 		return nil, ErrMFAEnrollmentInvalid
 	}
 	id, err := uuidgen.NewV7()
@@ -338,11 +344,12 @@ func (s *MFAEnrollmentService) CreatePending(ctx context.Context, user *domain.U
 	}
 	now := s.now().UTC()
 	row := &domain.MFAPendingLoginSession{
-		ID:         id,
-		UserID:     user.ID,
-		Kind:       kind,
-		RememberMe: rememberMe,
-		ExpiresAt:  now.Add(s.ttl),
+		ID:            id,
+		UserID:        user.ID,
+		Kind:          kind,
+		RememberMe:    rememberMe,
+		ExpiresAt:     now.Add(s.ttl),
+		ClientBinding: binding,
 	}
 	return s.pending.Create(ctx, row)
 }

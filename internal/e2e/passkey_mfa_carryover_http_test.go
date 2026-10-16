@@ -12,7 +12,10 @@
 package e2e
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/identuum/identuum-idp-oss/internal/service"
@@ -58,7 +61,15 @@ func TestE2E_OSS_PasskeyProofCarriesThroughTheRequiredPasswordChange(t *testing.
 	if kind, consumed := pendingRow(handle); kind != "password_change_passkey_uv" || consumed {
 		t.Fatalf("change handle = kind %q, consumed %v; want password_change_passkey_uv, unconsumed", kind, consumed)
 	}
-	st, cm, _ := w.call("", http.MethodPost, "/api/v1/auth/login/password-change", `{"session_id":"`+handle+`","new_password":"`+g2Chosen+`"}`)
+	// F1 (OSS-G8-PASSKEY-MFA-R2): another client holding only the handle is
+	// refused before the password changes; the handle stays live.
+	if st, xm, _ := w.call("", http.MethodPost, "/api/v1/auth/login/password-change", `{"session_id":"`+handle+`","new_password":"`+g2Chosen+`"}`); st != http.StatusUnauthorized || xm["error"] != "invalid_session" || xm["session_id"] != nil {
+		t.Fatalf("change step from another client = %d %v; want 401 invalid_session", st, xm["error"])
+	}
+	if _, consumed := pendingRow(handle); consumed || w.mcLiveSessions(id) != 0 {
+		t.Fatalf("the refused client consumed the handle or opened a session")
+	}
+	st, cm := w.g8ChangeAs(res.Cookies(), handle, g2Chosen)
 	access, _ := cm["access_token"].(string)
 	if st != http.StatusOK || cm["session_id"] == nil || access == "" || cm["mfa_enrollment_required"] != nil || cm["mfa_required"] != nil {
 		t.Fatalf("change step after the passkey = %d %v; want 200 with a session and no MFA step", st, cm["error"])
@@ -83,7 +94,7 @@ func TestE2E_OSS_PasskeyProofCarriesThroughTheRequiredPasswordChange(t *testing.
 		t.Errorf("authenticated read with the new session = %d %v; want 200", st, mm["error"])
 	}
 	// The handle is spent: a replay issues nothing.
-	if st, rm, _ := w.call("", http.MethodPost, "/api/v1/auth/login/password-change", `{"session_id":"`+handle+`","new_password":"`+g2Chosen+`x"}`); st != http.StatusUnauthorized || rm["session_id"] != nil {
+	if st, rm := w.g8ChangeAs(res.Cookies(), handle, g2Chosen+"x"); st != http.StatusUnauthorized || rm["session_id"] != nil {
 		t.Errorf("replayed change = %d %v; want 401 and no session", st, rm["error"])
 	}
 	if n := w.mcLiveSessions(id); n != 1 {
@@ -108,4 +119,23 @@ func TestE2E_OSS_PasskeyProofCarriesThroughTheRequiredPasswordChange(t *testing.
 	if n := w.mcLiveSessions(id2); n != 0 {
 		t.Errorf("password sign-in left %d live sessions; want 0 before MFA", n)
 	}
+}
+
+// g8ChangeAs posts the console change step from the client holding cookies.
+func (w *inviteWorld) g8ChangeAs(cookies []*http.Cookie, handle, password string) (int, map[string]any) {
+	w.t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, w.base+"/api/v1/auth/login/password-change", strings.NewReader(`{"session_id":"`+handle+`","new_password":"`+password+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	for _, ck := range cookies {
+		req.AddCookie(&http.Cookie{Name: ck.Name, Value: ck.Value})
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		w.t.Fatalf("change step: %v", err)
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	var m map[string]any
+	_ = json.Unmarshal(raw, &m)
+	return res.StatusCode, m
 }

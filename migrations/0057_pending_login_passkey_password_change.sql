@@ -7,11 +7,14 @@
 -- assertion WITH user verification, the handle is the new kind
 -- 'password_change_passkey_uv': the change step then finishes the sign-in at
 -- the phishing-resistant rung instead of asking for TOTP. The proof is the
--- row itself — same user, same expiry, one use; no other column changes.
+-- row itself — same user, same expiry, one use — and it is bound to the
+-- client that made the assertion (OSS-G8-PASSKEY-MFA-R2): client_binding is
+-- the SHA-256 of a secret only that client holds, required for the new kind
+-- and absent from every other.
 --
 -- Additive: no existing row changes, and no row becomes the new kind. Down
 -- removes the new kind's rows (short-lived handles; a member mid-change signs
--- in again) and restores the three-kind check.
+-- in again), the column and its check, and restores the three-kind check.
 
 -- +goose Up
 
@@ -22,9 +25,22 @@ ALTER TABLE mfa_pending_login_sessions
     ADD CONSTRAINT mfa_pending_login_sessions_kind_check
         CHECK (kind IN ('enroll', 'verify', 'password_change', 'password_change_passkey_uv'));
 
+ALTER TABLE mfa_pending_login_sessions
+    ADD COLUMN client_binding BYTEA;
+
+ALTER TABLE mfa_pending_login_sessions
+    ADD CONSTRAINT mfa_pending_login_sessions_client_binding_check
+        CHECK ((kind = 'password_change_passkey_uv') = (client_binding IS NOT NULL AND octet_length(client_binding) = 32));
+
 -- +goose Down
 
 DELETE FROM mfa_pending_login_sessions WHERE kind = 'password_change_passkey_uv';
+
+ALTER TABLE mfa_pending_login_sessions
+    DROP CONSTRAINT mfa_pending_login_sessions_client_binding_check;
+
+ALTER TABLE mfa_pending_login_sessions
+    DROP COLUMN client_binding;
 
 ALTER TABLE mfa_pending_login_sessions
     DROP CONSTRAINT mfa_pending_login_sessions_kind_check;

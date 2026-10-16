@@ -45,15 +45,15 @@ func (r *PgxMFAPendingLoginSessionRepository) Create(ctx context.Context, row *d
 		return nil, fmt.Errorf("postgres: invalid MFAPendingLoginSession kind %q", row.Kind)
 	}
 	const q = `
-INSERT INTO mfa_pending_login_sessions (id, user_id, kind, remember_me, expires_at)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts`
+INSERT INTO mfa_pending_login_sessions (id, user_id, kind, remember_me, expires_at, client_binding)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts, client_binding`
 	var out domain.MFAPendingLoginSession
 	var secret *string
 	var codesJSON []byte
 	if err := r.db.QueryRow(ctx, q,
-		row.ID, row.UserID, string(row.Kind), row.RememberMe, row.ExpiresAt,
-	).Scan(&out.ID, &out.UserID, (*string)(&out.Kind), &secret, &codesJSON, &out.RememberMe, &out.CreatedAt, &out.ExpiresAt, &out.ConsumedAt, &out.FailedAttempts); err != nil {
+		row.ID, row.UserID, string(row.Kind), row.RememberMe, row.ExpiresAt, row.ClientBinding,
+	).Scan(&out.ID, &out.UserID, (*string)(&out.Kind), &secret, &codesJSON, &out.RememberMe, &out.CreatedAt, &out.ExpiresAt, &out.ConsumedAt, &out.FailedAttempts, &out.ClientBinding); err != nil {
 		return nil, fmt.Errorf("postgres: create mfa_pending_login_session: %w", err)
 	}
 	out.Secret = secret
@@ -70,7 +70,7 @@ RETURNING id, user_id, kind, secret, recovery_codes, remember_me, created_at, ex
 // row including Secret + RecoveryCodes when present.
 func (r *PgxMFAPendingLoginSessionRepository) GetByID(ctx context.Context, id uuid.UUID) (*domain.MFAPendingLoginSession, error) {
 	const q = `
-SELECT id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts
+SELECT id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts, client_binding
 FROM   mfa_pending_login_sessions
 WHERE  id = $1`
 	return r.getOne(ctx, q, id)
@@ -82,7 +82,7 @@ WHERE  id = $1`
 // creation order.
 func (r *PgxMFAPendingLoginSessionRepository) GetLatestLiveEnroll(ctx context.Context, userID uuid.UUID, now time.Time) (*domain.MFAPendingLoginSession, error) {
 	const q = `
-SELECT id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts
+SELECT id, user_id, kind, secret, recovery_codes, remember_me, created_at, expires_at, consumed_at, failed_attempts, client_binding
 FROM   mfa_pending_login_sessions
 WHERE  user_id = $1 AND kind = 'enroll' AND secret IS NOT NULL AND consumed_at IS NULL AND expires_at > $2
 ORDER  BY created_at DESC, id DESC
@@ -96,7 +96,7 @@ func (r *PgxMFAPendingLoginSessionRepository) getOne(ctx context.Context, q stri
 	var secret *string
 	var codesJSON []byte
 	if err := r.db.QueryRow(ctx, q, args...).Scan(
-		&out.ID, &out.UserID, &kind, &secret, &codesJSON, &out.RememberMe, &out.CreatedAt, &out.ExpiresAt, &out.ConsumedAt, &out.FailedAttempts,
+		&out.ID, &out.UserID, &kind, &secret, &codesJSON, &out.RememberMe, &out.CreatedAt, &out.ExpiresAt, &out.ConsumedAt, &out.FailedAttempts, &out.ClientBinding,
 	); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, repository.ErrMFAPendingSessionNotFound

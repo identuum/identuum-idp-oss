@@ -196,8 +196,9 @@ func newG8World(t *testing.T, user *domain.User) *g8World {
 }
 
 // passkeyFinish runs the passkey finish handler with the assertion's UV flag
-// as the validator would report it, and returns the status and body.
-func (w *g8World) passkeyFinish(t *testing.T, uv bool) (int, map[string]any) {
+// as the validator would report it, and returns the status, the body and the
+// cookies the finish set on this client.
+func (w *g8World) passkeyFinish(t *testing.T, uv bool) (int, map[string]any, []*http.Cookie) {
 	t.Helper()
 	snap := w.users.user(w.user.ID)
 	deps := WebAuthnHandlerDeps{
@@ -213,16 +214,20 @@ func (w *g8World) passkeyFinish(t *testing.T, uv bool) (int, map[string]any) {
 	r.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/finish?session_id=abc", nil))
 	var m map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &m)
-	return rec.Code, m
+	return rec.Code, m, rec.Result().Cookies()
 }
 
-func (w *g8World) changeStep(t *testing.T, handle, password string, stepStatus bool) (int, map[string]any, *httptest.ResponseRecorder) {
+// changeStep posts the console change step from a client holding cookies.
+func (w *g8World) changeStep(t *testing.T, handle, password string, stepStatus bool, cookies ...*http.Cookie) (int, map[string]any, *httptest.ResponseRecorder) {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"session_id": handle, "new_password": password})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/password-change", strings.NewReader(string(body)))
 	req.Header.Set("Content-Type", "application/json")
 	if stepStatus {
 		req.Header.Set(LoginStepStatusHeader, LoginStepStatusOK)
+	}
+	for _, ck := range cookies {
+		req.AddCookie(&http.Cookie{Name: ck.Name, Value: ck.Value})
 	}
 	rec := httptest.NewRecorder()
 	w.engine.ServeHTTP(rec, req)
@@ -267,10 +272,10 @@ func (s *g8LockedSessions) Create(ctx context.Context, sess *domain.Session) (*d
 }
 
 // The passkey member's first two steps: the UV assertion meets the change step
-// with a handle and no credential.
-func g8PasskeyHandle(t *testing.T, w *g8World) string {
+// with a handle and no credential. The cookies are the originating client's.
+func g8PasskeyHandle(t *testing.T, w *g8World) (string, []*http.Cookie) {
 	t.Helper()
-	code, m := w.passkeyFinish(t, true)
+	code, m, jar := w.passkeyFinish(t, true)
 	handle, _ := m["session_id"].(string)
 	if code != http.StatusUnauthorized || m["error"] != "password_change_required" || handle == "" {
 		t.Fatalf("passkey finish = %d %v; want 401 password_change_required with a handle", code, m["error"])
@@ -278,7 +283,7 @@ func g8PasskeyHandle(t *testing.T, w *g8World) string {
 	if m["refresh_token"] != nil || m["access_token"] != nil || len(w.liveSessions()) != 0 {
 		t.Fatalf("passkey finish before the change issued a credential or a session")
 	}
-	return handle
+	return handle, jar
 }
 
 // RULE: PASSKEY-MFA-CARRYOVER-1
@@ -290,8 +295,8 @@ func TestPasskeyCarryover_UVProofFinishesTheChange(t *testing.T) {
 	for _, stepStatus := range []bool{false, true} {
 		t.Run(map[bool]string{false: "401-steps", true: "step-status-header"}[stepStatus], func(t *testing.T) {
 			w := newG8World(t, g8Member())
-			handle := g8PasskeyHandle(t, w)
-			code, m, rec := w.changeStep(t, handle, g8Chosen, stepStatus)
+			handle, jar := g8PasskeyHandle(t, w)
+			code, m, rec := w.changeStep(t, handle, g8Chosen, stepStatus, jar...)
 			if code != http.StatusOK || m["session_id"] == nil || m["mfa_enrollment_required"] != nil || m["mfa_required"] != nil {
 				t.Fatalf("change step after a UV passkey = %d %v; want 200 with a session and no MFA continuation", code, m["error"])
 			}
@@ -329,8 +334,8 @@ func TestPasskeyCarryover_TOTPEnrolledIsNotChallengedAgain(t *testing.T) {
 	secret := "enc:JBSWY3DPEHPK3PXP"
 	u.MFAEnabled, u.MFASecret, u.MFARecoveryCodes = true, &secret, []string{"h1", "h2"}
 	w := newG8World(t, u)
-	handle := g8PasskeyHandle(t, w)
-	code, m, _ := w.changeStep(t, handle, g8Chosen, false)
+	handle, jar := g8PasskeyHandle(t, w)
+	code, m, _ := w.changeStep(t, handle, g8Chosen, false, jar...)
 	if code != http.StatusOK || m["session_id"] == nil {
 		t.Fatalf("change step = %d %v; want 200 with a session (the UV passkey is the second factor)", code, m["error"])
 	}
@@ -347,7 +352,7 @@ func TestPasskeyCarryover_TOTPEnrolledIsNotChallengedAgain(t *testing.T) {
 func TestPasskeyCarryover_NoProofStillMeetsMFA(t *testing.T) {
 	t.Run("presence-only assertion", func(t *testing.T) {
 		w := newG8World(t, g8Member())
-		code, m := w.passkeyFinish(t, false)
+		code, m, _ := w.passkeyFinish(t, false)
 		handle, _ := m["session_id"].(string)
 		if code != http.StatusUnauthorized || m["error"] != "password_change_required" || handle == "" {
 			t.Fatalf("finish = %d %v; want 401 password_change_required", code, m["error"])
@@ -384,11 +389,11 @@ func TestPasskeyCarryover_NoProofStillMeetsMFA(t *testing.T) {
 func TestPasskeyCarryover_ProofIsOneUseAndExpires(t *testing.T) {
 	t.Run("replay", func(t *testing.T) {
 		w := newG8World(t, g8Member())
-		handle := g8PasskeyHandle(t, w)
-		if code, m, _ := w.changeStep(t, handle, g8Chosen, false); code != http.StatusOK {
+		handle, jar := g8PasskeyHandle(t, w)
+		if code, m, _ := w.changeStep(t, handle, g8Chosen, false, jar...); code != http.StatusOK {
 			t.Fatalf("first change = %d %v; want 200", code, m["error"])
 		}
-		code, m, _ := w.changeStep(t, handle, g8Chosen+"x", false)
+		code, m, _ := w.changeStep(t, handle, g8Chosen+"x", false, jar...)
 		if code != http.StatusUnauthorized || m["error"] != "invalid_session" || m["session_id"] != nil {
 			t.Errorf("replayed change = %d %v; want 401 invalid_session and no session", code, m["error"])
 		}
@@ -398,9 +403,9 @@ func TestPasskeyCarryover_ProofIsOneUseAndExpires(t *testing.T) {
 	})
 	t.Run("expired", func(t *testing.T) {
 		w := newG8World(t, g8Member())
-		handle := g8PasskeyHandle(t, w)
+		handle, jar := g8PasskeyHandle(t, w)
 		w.pending.expire(handle)
-		code, m, _ := w.changeStep(t, handle, g8Chosen, false)
+		code, m, _ := w.changeStep(t, handle, g8Chosen, false, jar...)
 		if code != http.StatusUnauthorized || m["session_id"] != nil {
 			t.Errorf("expired change = %d %v; want 401 and no session", code, m["error"])
 		}
@@ -413,14 +418,14 @@ func TestPasskeyCarryover_ProofIsOneUseAndExpires(t *testing.T) {
 	})
 	t.Run("concurrent", func(t *testing.T) {
 		w := newG8World(t, g8Member())
-		handle := g8PasskeyHandle(t, w)
+		handle, jar := g8PasskeyHandle(t, w)
 		var wg sync.WaitGroup
 		codes := make([]int, 8)
 		for i := range codes {
 			wg.Add(1)
 			go func(i int) {
 				defer wg.Done()
-				codes[i], _, _ = w.changeStep(t, handle, g8Chosen, false)
+				codes[i], _, _ = w.changeStep(t, handle, g8Chosen, false, jar...)
 			}(i)
 		}
 		wg.Wait()
@@ -440,9 +445,9 @@ func TestPasskeyCarryover_ProofIsOneUseAndExpires(t *testing.T) {
 // change gains no local sign-in through the proof.
 func TestPasskeyCarryover_PolicyRecheckedAtCompletion(t *testing.T) {
 	w := newG8World(t, g8Member())
-	handle := g8PasskeyHandle(t, w)
+	handle, jar := g8PasskeyHandle(t, w)
 	w.users.setAuthPolicy(w.user.ID, domain.AuthPolicyIDPOnly)
-	code, m, _ := w.changeStep(t, handle, g8Chosen, false)
+	code, m, _ := w.changeStep(t, handle, g8Chosen, false, jar...)
 	if code != http.StatusUnauthorized || m["error"] != "invalid_credentials" || m["session_id"] != nil {
 		t.Errorf("change after the org turned idp_only = %d %v; want 401 invalid_credentials and no handle", code, m["error"])
 	}
@@ -456,7 +461,7 @@ func TestPasskeyCarryover_PolicyRecheckedAtCompletion(t *testing.T) {
 // changes, never finished at a lower rung or stamped as OTP.
 func TestPasskeyCarryover_BrowserChangeRefusesThePasskeyHandle(t *testing.T) {
 	w := newG8World(t, g8Member())
-	handle := g8PasskeyHandle(t, w)
+	handle, _ := g8PasskeyHandle(t, w)
 	deps := BrowserLoginHandlerDeps{
 		Audit: w.rec, MFAEnrollment: w.mfa, ChangePassword: w.change,
 		UserSession: service.NewUserSessionService(nil, &g8LockedSessions{w.sessions, w.sessMu}, service.UserSessionServiceOptions{}),
@@ -479,4 +484,90 @@ func TestPasskeyCarryover_BrowserChangeRefusesThePasskeyHandle(t *testing.T) {
 	if row := w.pending.row(handle); row.ConsumedAt != nil {
 		t.Errorf("the browser step consumed the passkey handle; want it left to the console step")
 	}
+}
+
+// g8BindingCookie is the originating client's proof cookie (OSS-G8-PASSKEY-MFA-R2).
+const g8BindingCookie = "identuum_passkey_change"
+
+// F1 (OSS-G8-PASSKEY-MFA-R2): the proof finishes only the sign-in of the client
+// that made the assertion. The finish gives that client an HttpOnly cookie
+// whose value is not in the body; a second client that holds only the handle,
+// or another flow's cookie, is refused before the password changes, and the
+// handle stays usable by its own client.
+func TestPasskeyCarryover_ProofIsBoundToTheOriginatingClient(t *testing.T) {
+	refused := func(t *testing.T, w *g8World, handle, label string, cookies ...*http.Cookie) {
+		t.Helper()
+		code, m, _ := w.changeStep(t, handle, g8Chosen, false, cookies...)
+		if code != http.StatusUnauthorized || m["error"] != "invalid_session" || m["session_id"] != nil {
+			t.Errorf("%s: change = %d %v; want 401 invalid_session and no handle", label, code, m["error"])
+		}
+		if n := len(w.liveSessions()); n != 0 {
+			t.Errorf("%s: live sessions = %d; want 0", label, n)
+		}
+		if after := w.users.user(w.user.ID); !after.RequiresPasswordChange {
+			t.Errorf("%s: the password changed; want it unchanged", label)
+		}
+		if row := w.pending.row(handle); row.ConsumedAt != nil {
+			t.Errorf("%s: the handle was consumed; want it left to its own client", label)
+		}
+	}
+	t.Run("the finish binds the client", func(t *testing.T) {
+		w := newG8World(t, g8Member())
+		code, m, jar := w.passkeyFinish(t, true)
+		var bound *http.Cookie
+		for _, ck := range jar {
+			if ck.Name == g8BindingCookie {
+				bound = ck
+			}
+		}
+		if code != http.StatusUnauthorized || bound == nil || bound.Value == "" {
+			t.Fatalf("UV finish = %d; want 401 with the %s cookie", code, g8BindingCookie)
+		}
+		if !bound.HttpOnly || bound.SameSite != http.SameSiteStrictMode || bound.MaxAge <= 0 || bound.MaxAge > domain.MFAPendingTTL {
+			t.Errorf("binding cookie HttpOnly %v SameSite %v MaxAge %d; want HttpOnly, Strict, 0 < MaxAge <= %d", bound.HttpOnly, bound.SameSite, bound.MaxAge, domain.MFAPendingTTL)
+		}
+		for k, v := range m {
+			if s, ok := v.(string); ok && s == bound.Value {
+				t.Errorf("the body member %q carries the binding value; want it in the cookie only", k)
+			}
+		}
+		_, _, presence := w.passkeyFinish(t, false)
+		for _, ck := range presence {
+			if ck.Name == g8BindingCookie {
+				t.Errorf("a presence-only finish set the binding cookie; want none (no proof to bind)")
+			}
+		}
+	})
+	t.Run("another client with the handle alone", func(t *testing.T) {
+		w := newG8World(t, g8Member())
+		handle, jar := g8PasskeyHandle(t, w)
+		refused(t, w, handle, "no cookie")
+		refused(t, w, handle, "forged cookie", &http.Cookie{Name: g8BindingCookie, Value: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"})
+		if code, m, _ := w.changeStep(t, handle, g8Chosen, false, jar...); code != http.StatusOK || m["session_id"] == nil {
+			t.Fatalf("the originating client after the refusals = %d %v; want 200 with a session", code, m["error"])
+		}
+	})
+	t.Run("another flow's cookie", func(t *testing.T) {
+		w := newG8World(t, g8Member())
+		handleA, _ := g8PasskeyHandle(t, w)
+		handleB, jarB := g8PasskeyHandle(t, w)
+		refused(t, w, handleA, "flow B's cookie on flow A's handle", jarB...)
+		if code, _, _ := w.changeStep(t, handleB, g8Chosen, false, jarB...); code != http.StatusOK {
+			t.Errorf("flow B with its own cookie = %d; want 200", code)
+		}
+	})
+	t.Run("success clears the cookie", func(t *testing.T) {
+		w := newG8World(t, g8Member())
+		handle, jar := g8PasskeyHandle(t, w)
+		_, _, rec := w.changeStep(t, handle, g8Chosen, false, jar...)
+		cleared := false
+		for _, ck := range rec.Result().Cookies() {
+			if ck.Name == g8BindingCookie && ck.MaxAge < 0 {
+				cleared = true
+			}
+		}
+		if !cleared {
+			t.Errorf("the finished change did not expire the %s cookie", g8BindingCookie)
+		}
+	})
 }
