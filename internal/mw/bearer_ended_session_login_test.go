@@ -66,6 +66,33 @@ func TestBearerPrincipal_EndedSessionDoesNotBlockSignIn(t *testing.T) {
 	}
 }
 
+// Only the canonical path the router serves as sign-in is exempt. An encoded
+// or variant spelling that the router decodes or folds onto the same route
+// must not reach the sign-in handler on an ended token: it is refused, or
+// redirected to the canonical path, and never served as-is.
+func TestBearerPrincipal_EndedSessionVariantSignInPathsNotExempt(t *testing.T) {
+	paths := []string{
+		"/api/v1/auth/%6cogin",
+		"/api/v1/auth%2flogin",
+		"/api/v1/auth/login%2fmfa",
+		"/api%2fv1/auth/browser-login",
+		"/api/v1/auth/LOGIN",
+		"//api/v1/auth/login",
+		"/api/v1//auth/login",
+		"/api/v1/auth/login/",
+	}
+	for _, p := range paths {
+		var planted bool
+		w := doEndedRequest(endedSessionEngine(&planted), http.MethodPost, p)
+		if w.Code == http.StatusOK {
+			t.Errorf("POST %s with an ended session token: status = 200, want refusal or redirect (variant path took the sign-in exemption)", p)
+		}
+		if planted {
+			t.Errorf("POST %s: a principal was planted for an ended session", p)
+		}
+	}
+}
+
 func TestBearerPrincipal_EndedSessionStillRefusedElsewhere(t *testing.T) {
 	cases := []struct{ method, path string }{
 		{http.MethodGet, "/api/v1/me"},
