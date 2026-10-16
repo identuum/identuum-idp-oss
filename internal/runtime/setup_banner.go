@@ -3,6 +3,9 @@ package runtime
 import (
 	"fmt"
 	"io"
+	"os"
+
+	"golang.org/x/sys/unix"
 
 	"github.com/identuum/identuum-idp-oss/internal/setup"
 )
@@ -19,6 +22,12 @@ func writeSetupBanner(w io.Writer, banner *setup.SetupBanner, isTerminal func(io
 	fmt.Fprintf(w,
 		"identuum-idp: serve: first-run setup required — open %s\n",
 		banner.SetupURL)
+	if !isTerminal(w) {
+		fmt.Fprintf(w,
+			"identuum-idp: serve: setup code not shown because stdout is not a terminal; to display it, run: %s\n",
+			banner.ShowCodeCommand)
+		return
+	}
 	fmt.Fprintf(w,
 		"identuum-idp: serve: setup code (also stored at %s): %s\n",
 		banner.TokenFilePath, banner.SetupToken)
@@ -27,6 +36,23 @@ func writeSetupBanner(w io.Writer, banner *setup.SetupBanner, isTerminal func(io
 		banner.ShowCodeCommand)
 }
 
-// setupOutputIsTerminal keeps the base behaviour: every destination
-// receives the setup code.
-func setupOutputIsTerminal(io.Writer) bool { return true }
+// setupOutputIsTerminal reports whether w is a terminal. Anything that
+// is not an *os.File, or whose descriptor rejects the terminal
+// window-size ioctl (a pipe, a regular file, /dev/null), fails closed.
+func setupOutputIsTerminal(w io.Writer) bool {
+	f, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	conn, err := f.SyscallConn()
+	if err != nil {
+		return false
+	}
+	var ioctlErr error
+	if err := conn.Control(func(fd uintptr) {
+		_, ioctlErr = unix.IoctlGetWinsize(int(fd), unix.TIOCGWINSZ)
+	}); err != nil {
+		return false
+	}
+	return ioctlErr == nil
+}
