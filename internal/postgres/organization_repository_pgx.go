@@ -578,7 +578,21 @@ func (r *PgxOrganizationRepository) Delete(ctx context.Context, id uuid.UUID) er
 		return fmt.Errorf("failed to delete organization users: %w", err)
 	}
 
-	// Service Accounts
+	// Service Accounts — locked in id order first (G5), the order an agent
+	// communication create share-locks its participants (ACA-CREATE-LOCK-1).
+	// The bulk UPDATE below locks in scan order, so without this a create
+	// holding the lower of two accounts and a delete holding the higher one
+	// wait for each other and Postgres aborts one side (40P01). NO KEY UPDATE
+	// is the lock the UPDATE takes: it waits for FOR SHARE and still admits
+	// the foreign keys' KEY SHARE.
+	_, err = tx.Exec(ctx, `
+		SELECT id FROM service_accounts
+		WHERE organization_id = $1 AND deleted_at IS NULL
+		ORDER BY id
+		FOR NO KEY UPDATE`, id)
+	if err != nil {
+		return fmt.Errorf("failed to lock organization service accounts: %w", err)
+	}
 	_, err = tx.Exec(ctx, `
 		UPDATE service_accounts
 		SET deleted_at = $1

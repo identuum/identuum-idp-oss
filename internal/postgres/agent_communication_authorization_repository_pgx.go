@@ -45,10 +45,9 @@ const agentCommunicationParticipantColumns = `
 // Lock order (ACA-CREATE-LOCK-1): the participant service accounts, then the
 // participant clients, each in id order; the inserts after. The order the
 // client save (account, client) and the organization delete (accounts,
-// clients) take. Known limit: the organization delete updates every account
-// of the organization in one statement, in scan order, so a create holding
-// one of two accounts can deadlock with it; Postgres aborts one side
-// (40P01), and the create answers a store failure, which is retryable.
+// clients) take. The organization delete locks the organization's accounts
+// in id order before it updates them (G5, 2026-10-16), so a create holding
+// one of two accounts makes the delete wait instead of deadlocking with it.
 func (r *PgxAgentCommunicationAuthorizationRepository) Create(ctx context.Context, a *domain.AgentCommunicationAuthorization, recheck repository.AgentCommunicationParticipantRecheck) error {
 	if a == nil {
 		return fmt.Errorf("agent communication authorization: nil aggregate")
