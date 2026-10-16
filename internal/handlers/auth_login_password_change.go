@@ -234,7 +234,8 @@ func HandleLoginPasswordChange(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			auditLoginStep(c, deps.Audit, "user_session.login.mfa_required", result, nil)
 			c.JSON(loginStepStatus(c), body)
 		default:
-			completeMFALogin(c, deps, &service.MFAEnrollmentCompleteResult{User: user, RememberMe: remember}, "user_session.login.success", false)
+			acr, amr := service.LoginContext(false)
+			completeLogin(c, deps, &service.MFAEnrollmentCompleteResult{User: user, RememberMe: remember}, "user_session.login.success", acr, amr, "password")
 		}
 	}
 }

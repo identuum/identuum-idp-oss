@@ -27,9 +27,10 @@ func TestMFACompletion_RecoveryCodeConsumedIsAuditedAsTheTenantsUser(t *testing.
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa", nil)
-	completeMFALogin(c, AuthSessionsHandlerDeps{UserSession: sessions, Audit: rec},
+	acr, amr := service.LoginContext(true)
+	completeLogin(c, AuthSessionsHandlerDeps{UserSession: sessions, Audit: rec},
 		&service.MFAEnrollmentCompleteResult{User: user, RecoveryCodeUsed: true, RemainingRecoveryCodes: 3},
-		"user_session.login.mfa_verified", true)
+		"user_session.login.mfa_verified", acr, amr, "password")
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, body=%q", w.Code, w.Body.String())
 	}

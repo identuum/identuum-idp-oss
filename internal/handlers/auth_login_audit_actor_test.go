@@ -63,7 +63,7 @@ func TestLoginRoute_PasswordSignInIsAuditedAsTheTenantsUser(t *testing.T) {
 }
 
 func TestMFACompletion_SignInIsAuditedAsTheTenantsUser(t *testing.T) {
-	// completeMFALogin is the one tail of the second-factor, enrolment and
+	// completeLogin is the one tail of the second-factor, enrolment and
 	// password-change sign-ins; each names its own action and all are
 	// sign-ins of the person.
 	for _, action := range []string{"user_session.login.mfa_verified", "user_session.login.mfa_enrolled", "user_session.login.success"} {
@@ -75,7 +75,8 @@ func TestMFACompletion_SignInIsAuditedAsTheTenantsUser(t *testing.T) {
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
 			c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/login/mfa", nil)
-			completeMFALogin(c, AuthSessionsHandlerDeps{UserSession: sessions, Audit: rec}, &service.MFAEnrollmentCompleteResult{User: user}, action, true)
+			acr, amr := service.LoginContext(true)
+			completeLogin(c, AuthSessionsHandlerDeps{UserSession: sessions, Audit: rec}, &service.MFAEnrollmentCompleteResult{User: user}, action, acr, amr, "password")
 			if w.Code != http.StatusOK {
 				t.Fatalf("status = %d, body=%q", w.Code, w.Body.String())
 			}

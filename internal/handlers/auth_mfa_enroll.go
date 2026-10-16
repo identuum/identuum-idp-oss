@@ -203,7 +203,8 @@ func HandleMFAEnrollComplete(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			emitPendingFailure(c, deps, err, "user_session.login.mfa_enroll_complete_failure")
 			return
 		}
-		completeMFALogin(c, deps, out, "user_session.login.mfa_enrolled", true)
+		acr, amr := service.LoginContext(true)
+		completeLogin(c, deps, out, "user_session.login.mfa_enrolled", acr, amr, "password")
 	}
 }
 
@@ -245,7 +246,8 @@ func HandleMFAVerifyLogin(deps AuthSessionsHandlerDeps) gin.HandlerFunc {
 			emitPendingFailure(c, deps, err, "user_session.login.mfa_verify_failure")
 			return
 		}
-		completeMFALogin(c, deps, out, "user_session.login.mfa_verified", true)
+		acr, amr := service.LoginContext(true)
+		completeLogin(c, deps, out, "user_session.login.mfa_verified", acr, amr, "password")
 	}
 }
 
@@ -470,25 +472,18 @@ func emitPendingFailure(c *gin.Context, deps AuthSessionsHandlerDeps, err error,
 	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
 }
 
-// completeMFALogin issues the full session + access/refresh tokens
+// completeLogin issues the full session + access/refresh tokens
 // + Set-Cookie + 200 response that a normal /api/v1/auth/login
-// success returns. Used by both HandleMFAEnrollComplete and
-// HandleMFAVerifyLogin so the post-MFA wire shape is identical
-// to the post-password wire shape (single contract for the UI).
-func completeMFALogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service.MFAEnrollmentCompleteResult, auditAction string, mfaDone bool) {
-	// THE-HONEST-ACR: both pending-MFA paths (enroll-complete and
-	// verify-login) reach here with the password AND a TOTP code verified
-	// (mfaDone true). The D-017 password-change step reaches here with the
-	// new password only when no MFA applies (mfaDone false).
-	acr, amr := service.LoginContext(mfaDone)
-	completeLogin(c, deps, out, auditAction, acr, amr, "password")
-}
-
-// completeLogin issues the session of a sign-in that finished in a pending
-// step, stamped with the context the sign-in earned (acr, amr) and the
-// sign-in method its audit row names: "password", or "passkey" for a passkey
-// sign-in finished by the required password change
-// (OSS-G8-PASSKEY-MFA-CARRYOVER).
+// success returns, for a sign-in that finished in a pending step, so the
+// post-MFA wire shape is identical to the post-password wire shape (single
+// contract for the UI). It is stamped with the context the sign-in earned
+// (acr, amr) and the sign-in method its audit row names: "password", or
+// "passkey" for a passkey sign-in finished by the required password change
+// (OSS-G8-PASSKEY-MFA-CARRYOVER). THE-HONEST-ACR: both pending-MFA paths
+// (enroll-complete and verify-login) pass service.LoginContext(true), the
+// password AND a TOTP code verified; the D-017 password-change step passes
+// LoginContext(false) when no MFA applies. Every caller passes its audit
+// action as a literal, so the audit catalog can read it (AUDIT-EVENT-CATALOG-1).
 func completeLogin(c *gin.Context, deps AuthSessionsHandlerDeps, out *service.MFAEnrollmentCompleteResult, auditAction, acr string, amr []string, method string) {
 	if deps.UserSession == nil || out == nil || out.User == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal_error"})
