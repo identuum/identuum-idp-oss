@@ -2,17 +2,19 @@
 
 package setup
 
-// SETUP-FIRST-KEY-1: two setup completions that run together (two replicas, or
-// a retry while the first request is still running) must leave exactly one
-// active default signing key. Both completions read the key store before
-// either writes; the second must reuse the key the first created and still
-// succeed. The key store is real PostgreSQL in its own scratch database, next
-// to the test database, because the lock lives there; the setup state,
-// organization and user stores are the package's in-memory fakes. FAIL, DO
-// NOT SKIP: the file is behind `//go:build integration`.
+// SETUP-FIRST-KEY-1: the key provisioning of two setup completion attempts that
+// run together must leave exactly one active default signing key. Both read
+// the key store before either writes; the second must reuse the key the first
+// created and still succeed. The key store is real PostgreSQL in its own
+// scratch database, next to the test database, because the lock lives there;
+// the setup state, organization and user stores are the package's in-memory
+// fakes. The single-winner contract of full completions on PostgreSQL is
+// internal/e2e/setup_completion_race_pgx_test.go. FAIL, DO NOT SKIP: the file
+// is behind `//go:build integration`.
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"sync"
@@ -144,7 +146,13 @@ func waitForLockWaiters(t *testing.T, pool *pgxpool.Pool, want int) {
 }
 
 // RULE: SETUP-FIRST-KEY-1
-func TestSetupComplete_ConcurrentCompletionsCreateOneDefaultKey(t *testing.T) {
+//
+// The setup completion lock lets only one full completion reach key
+// provisioning, so this test drives the provisioning step of two completion
+// attempts directly: it must stay serialized by the signing-key provisioning
+// lock on its own. A full completion then reuses that key, and a competing
+// completion is refused.
+func TestSetupComplete_ConcurrentKeyProvisioningCreatesOneDefaultKey(t *testing.T) {
 	pool, repo := firstKeyScratchPool(t, "setup_first_key_race_test")
 	ctx := context.Background()
 
@@ -157,22 +165,19 @@ func TestSetupComplete_ConcurrentCompletionsCreateOneDefaultKey(t *testing.T) {
 
 	arrived := make(chan struct{}, 2)
 	release := make(chan struct{})
-	complete := func() <-chan error {
+	provision := func() <-chan error {
 		deps := h.svc.deps
 		deps.KeyService = service.NewKeyService(readHoldRepo{
 			PgxKeyRepository: repo, once: &sync.Once{}, arrived: arrived, release: release,
 		})
 		svc := New(deps)
 		done := make(chan error, 1)
-		go func() {
-			_, err := svc.Complete(ctx, h.dataDir, in)
-			done <- err
-		}()
+		go func() { done <- svc.ensureFirstSigningKey(ctx) }()
 		return done
 	}
 
 	// A SHARE lock on signing_keys lets every read through and holds every
-	// insert, so neither completion can write before both have decided.
+	// insert, so neither attempt can write before both have decided.
 	hold, err := pool.Begin(ctx)
 	if err != nil {
 		t.Fatalf("begin the holding transaction: %v", err)
@@ -182,17 +187,14 @@ func TestSetupComplete_ConcurrentCompletionsCreateOneDefaultKey(t *testing.T) {
 		t.Fatalf("hold inserts into signing_keys: %v", err)
 	}
 
-	// The first completion creates the organization and the site_admin, then
-	// reads an empty key store and waits. The second starts only then, so it
-	// resumes on the first one's organization and site_admin, and reads the
-	// same empty key store. Both are released together.
-	first := complete()
+	// Both attempts read the same empty key store, then are released together.
+	first := provision()
+	second := provision()
 	<-arrived
-	second := complete()
 	<-arrived
 	close(release)
 
-	// Both completions now wait in the database: with the provisioning lock,
+	// Both attempts now wait in the database: with the provisioning lock,
 	// one waits to insert and the other waits for the lock; without it, both
 	// have re-read an empty store and wait to insert. Only then are inserts let through.
 	waitForLockWaiters(t, pool, 2)
@@ -201,20 +203,28 @@ func TestSetupComplete_ConcurrentCompletionsCreateOneDefaultKey(t *testing.T) {
 	}
 
 	if err := <-first; err != nil {
-		t.Fatalf("the first setup completion failed: %v", err)
+		t.Fatalf("the first key provisioning failed: %v", err)
 	}
 	if err := <-second; err != nil {
-		t.Fatalf("the second setup completion failed although the first succeeded: %v", err)
+		t.Fatalf("the second key provisioning failed although the first succeeded: %v", err)
 	}
 	counts := firstKeyCounts(t, pool)
 	if counts["EdDSA/active"] != 1 || len(counts) != 1 {
-		t.Fatalf("two setup completions that both read an empty key store must leave exactly one active EdDSA key; got %v", counts)
+		t.Fatalf("two provisioning attempts that both read an empty key store must leave exactly one active EdDSA key; got %v", counts)
 	}
-	state, err := h.repo.Get(ctx)
-	if err != nil {
-		t.Fatalf("read the setup state: %v", err)
+
+	// A full completion reuses the existing default key; a competing
+	// completion is refused and writes no key.
+	deps := h.svc.deps
+	deps.KeyService = service.NewKeyService(repo)
+	svc := New(deps)
+	if _, err := svc.Complete(ctx, h.dataDir, in); err != nil {
+		t.Fatalf("setup completion after provisioning failed: %v", err)
 	}
-	if !state.IsComplete() {
-		t.Fatal("setup is not complete after two successful completions")
+	if _, err := svc.Complete(ctx, h.dataDir, in); !errors.Is(err, ErrAlreadyComplete) {
+		t.Fatalf("a second completion must be refused with ErrAlreadyComplete; got %v", err)
+	}
+	if counts := firstKeyCounts(t, pool); counts["EdDSA/active"] != 1 || len(counts) != 1 {
+		t.Fatalf("setup completion must reuse the existing default key; got %v", counts)
 	}
 }

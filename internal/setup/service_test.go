@@ -29,8 +29,9 @@ import (
 // --- in-memory Repository (setup state) -------------------------------------
 
 type memSetupStateRepo struct {
-	mu    sync.Mutex
-	state domain.SetupState
+	mu         sync.Mutex
+	completing sync.Mutex
+	state      domain.SetupState
 }
 
 func newMemSetupStateRepo() *memSetupStateRepo {
@@ -70,9 +71,11 @@ func (m *memSetupStateRepo) MarkComplete(_ context.Context, at time.Time) error 
 	return nil
 }
 
-// WithCompletionLock does not serialize: the in-memory store has no other
-// instance, and the key race test sends two completions in at once.
+// WithCompletionLock serializes completions on this store, as the database
+// lock does across instances.
 func (m *memSetupStateRepo) WithCompletionLock(ctx context.Context, fn func(context.Context) error) error {
+	m.completing.Lock()
+	defer m.completing.Unlock()
 	return fn(ctx)
 }
 
