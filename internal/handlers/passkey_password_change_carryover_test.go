@@ -461,7 +461,7 @@ func TestPasskeyCarryover_PolicyRecheckedAtCompletion(t *testing.T) {
 // changes, never finished at a lower rung or stamped as OTP.
 func TestPasskeyCarryover_BrowserChangeRefusesThePasskeyHandle(t *testing.T) {
 	w := newG8World(t, g8Member())
-	handle, _ := g8PasskeyHandle(t, w)
+	handle, jar := g8PasskeyHandle(t, w)
 	deps := BrowserLoginHandlerDeps{
 		Audit: w.rec, MFAEnrollment: w.mfa, ChangePassword: w.change,
 		UserSession: service.NewUserSessionService(nil, &g8LockedSessions{w.sessions, w.sessMu}, service.UserSessionServiceOptions{}),
@@ -471,6 +471,19 @@ func TestPasskeyCarryover_BrowserChangeRefusesThePasskeyHandle(t *testing.T) {
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/auth/browser-login", strings.NewReader(form.Encode()))
 	c.Request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, ck := range jar {
+		c.Request.AddCookie(&http.Cookie{Name: ck.Name, Value: ck.Value})
+	}
+	// A valid binding must reach the browser-purpose guard; a missing or
+	// invalid cookie would otherwise reject the request before that guard.
+	binding, err := c.Cookie(PasskeyChangeCookieName)
+	if err != nil {
+		t.Fatal("browser-purpose test requires the originating binding cookie")
+	}
+	proof, err := w.mfa.PeekPasswordChange(c.Request.Context(), uuid.MustParse(handle), binding)
+	if err != nil || !proof.PasskeyVerified {
+		t.Fatal("browser-purpose test requires a usable, client-bound passkey proof")
+	}
 	handleBrowserPasswordChange(c, deps, handle, "")
 	if c.Writer.Status() != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=invalid_credentials") {
 		t.Errorf("browser change with a passkey handle = %d to %q; want 303 to error=invalid_credentials", c.Writer.Status(), rec.Header().Get("Location"))
