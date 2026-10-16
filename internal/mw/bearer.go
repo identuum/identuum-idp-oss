@@ -331,6 +331,13 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 				return
 			}
 			if !ok {
+				// A client still holding the token of a session that has ended
+				// must be able to sign in again: the sign-in routes continue
+				// with NO principal, so nothing is admitted on this token.
+				if _, signIn := signInRoutes[c.FullPath()]; signIn {
+					c.Next()
+					return
+				}
 				RespondUnauthenticatedReason(c, ReasonSessionNotLive)
 				return
 			}
@@ -370,6 +377,20 @@ func BearerPrincipal(report *lifecycle.StartupReport, verifier TokenVerifier, se
 		SetPrincipal(c, principal)
 		c.Next()
 	}
+}
+
+// signInRoutes are the routes a client signs in through. A bearer token whose
+// session is no longer live does not block them (G1); every other route still
+// refuses it with session_not_live.
+var signInRoutes = map[string]struct{}{
+	"/api/v1/auth/login":                     {},
+	"/api/v1/auth/login/mfa":                 {},
+	"/api/v1/auth/login/mfa/enroll/initiate": {},
+	"/api/v1/auth/login/mfa/enroll/complete": {},
+	"/api/v1/auth/login/password-change":     {},
+	"/api/v1/auth/login/webauthn/begin":      {},
+	"/api/v1/auth/login/webauthn/finish":     {},
+	"/api/v1/auth/browser-login":             {},
 }
 
 // isAppIssuedUserToken reports whether a token is a user's access token issued
