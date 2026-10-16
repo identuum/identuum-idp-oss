@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/postgres"
 )
 
@@ -38,6 +39,172 @@ func TestOrgDeleteAccountLockOrder(t *testing.T) {
 	t.Run("control: unmodified delete, accounts inserted higher id first", func(t *testing.T) {
 		odlDeleteBesideCreate(t, false, false)
 	})
+	t.Run("delete_beside_accounts_created_after_its_account_lock", odlDeleteBesideNewAccounts)
+}
+
+// odlPausedDB holds the delete immediately before its bulk account UPDATE,
+// after every statement before it (the window between two READ COMMITTED
+// statements). On release it takes NO KEY UPDATE on first, when set, the
+// row an adverse scan reaches first. pid carries the delete's backend.
+type odlPausedDB struct {
+	*pgxpool.Pool
+	pid            chan uint32
+	paused, resume chan struct{}
+	first          uuid.UUID
+}
+
+func (d *odlPausedDB) Begin(ctx context.Context) (pgx.Tx, error) {
+	tx, err := d.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	d.pid <- tx.Conn().PgConn().PID()
+	return &odlPausedTx{Tx: tx, db: d}, nil
+}
+
+type odlPausedTx struct {
+	pgx.Tx
+	db *odlPausedDB
+}
+
+func (tx *odlPausedTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	if strings.HasPrefix(strings.TrimSpace(sql), "UPDATE service_accounts") {
+		close(tx.db.paused)
+		select {
+		case <-tx.db.resume:
+		case <-ctx.Done():
+			return pgconn.CommandTag{}, ctx.Err()
+		}
+		if tx.db.first != uuid.Nil {
+			if _, err := tx.Tx.Exec(ctx, `SELECT 1 FROM service_accounts WHERE id = $1 FOR NO KEY UPDATE`, tx.db.first); err != nil {
+				return pgconn.CommandTag{}, err
+			}
+		}
+	}
+	return tx.Tx.Exec(ctx, sql, args...)
+}
+
+// R1 (OSS-G5-ORG-DELETE-LOCK-ORDER-REVIEW): two accounts A < B are created
+// through the real repository while the delete sits between its account
+// lock and its bulk UPDATE. If the creates land, a create then share-locks
+// A and the bulk UPDATE meets B first: the delete holds B and waits for A,
+// the create asks for B, and Postgres aborts one side (40P01). The delete
+// must keep new accounts out until it commits: the creates wait for it and
+// are then refused, because the organization is deleted.
+func odlDeleteBesideNewAccounts(t *testing.T) {
+	pool := f2ScratchPool(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	w, _, _ := odlSeed(t, pool, false)
+	d := &odlPausedDB{Pool: pool, pid: make(chan uint32, 1), paused: make(chan struct{}), resume: make(chan struct{})}
+	var workers sync.WaitGroup
+	defer func() { cancel(); workers.Wait() }()
+	resumed := false
+	defer func() {
+		if !resumed {
+			close(d.resume)
+		}
+	}()
+	deleted := make(chan error, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		deleted <- postgres.NewPgxOrganizationRepository(d).Delete(ctx, w.orgID)
+	}()
+	var dpid uint32
+	select {
+	case dpid = <-d.pid:
+	case <-ctx.Done():
+		t.Fatal("organization delete never began; no behavioral verdict")
+	}
+	f2Await(t, ctx, d.paused)
+
+	var fresh [2]uuid.UUID
+	created := make(chan error, 1)
+	workers.Add(1)
+	go func() {
+		defer workers.Done()
+		repo := postgres.NewPgxServiceAccountRepository(pool)
+		for i := range fresh {
+			sa, err := repo.Create(ctx, &domain.ServiceAccount{OrganizationID: w.orgID, Name: "ODL new " + uuid.NewString(), Active: true, OwnerUserID: &w.owner})
+			if err != nil {
+				created <- err
+				return
+			}
+			fresh[i] = sa.ID
+		}
+		created <- nil
+	}()
+	if c1fixObserveWait(t, ctx, pool, dpid, created) {
+		// The create waits for the delete; release it and judge the outcome.
+		close(d.resume)
+		resumed = true
+		var cerr, derr error
+		select {
+		case cerr = <-created:
+		case <-ctx.Done():
+			t.Fatal("account create stalled; no behavioral verdict")
+		}
+		select {
+		case derr = <-deleted:
+		case <-ctx.Done():
+			t.Fatal("organization delete stalled; no behavioral verdict")
+		}
+		switch {
+		case odlDeadlock(cerr):
+			t.Error("the account create was a deadlock victim (40P01)")
+		case !errors.Is(cerr, domain.ErrOrganizationNotFound):
+			t.Error("an account create that waited for the organization delete was not refused as organization not found")
+		}
+		switch {
+		case odlDeadlock(derr):
+			t.Error("the organization delete was a deadlock victim (40P01)")
+		case derr != nil:
+			t.Error("the organization delete failed beside an account create (not 40P01)")
+		}
+		if derr == nil {
+			odlTombstoned(t, ctx, pool, w)
+		}
+		return
+	}
+
+	// The creates landed inside the delete's window: drive the R1 schedule.
+	if err := <-created; err != nil {
+		t.Fatal("account create failed beside the paused organization delete")
+	}
+	lower, higher := fresh[0], fresh[1]
+	if bytes.Compare(lower[:], higher[:]) > 0 {
+		lower, higher = higher, lower
+	}
+	w.sa = [2]uuid.UUID{lower, higher}
+	for i, sa := range w.sa {
+		w.client[i] = uuid.New()
+		w.clientID[i] = "odl-" + w.client[i].String()
+		if _, err := pool.Exec(ctx, `INSERT INTO oauth_clients (id, client_id, client_secret_hash, name, redirect_uris, scope,
+			service_account_id, organization_id, token_endpoint_auth_method, jwks)
+			VALUES ($1, $2, '', 'odl client', '{}', 'openid', $3, $4, 'private_key_jwt', '{"keys":[{"kty":"OKP"}]}')`,
+			w.client[i], w.clientID[i], sa, w.orgID); err != nil {
+			t.Fatal("seed scratch client failed")
+		}
+	}
+	a := f2Begin(t, ctx, pool)
+	gate := &c1fixAccountGate{entered: make(chan struct{}), release: make(chan struct{})}
+	released := false
+	defer func() {
+		if !released {
+			close(gate.release)
+		}
+	}()
+	accounts := 0
+	ra := aclStart(ctx, &workers, aclService(&odlSecondAccountGate{Tx: a, gate: gate, accounts: &accounts}, pool), w.input())
+	f2Await(t, ctx, gate.entered)
+	d.first = higher
+	close(d.resume)
+	resumed = true
+	waited := c1fixObserveWait(t, ctx, pool, a.Conn().PgConn().PID(), deleted)
+	close(gate.release)
+	released = true
+	odlVerdict(t, ctx, pool, w, a, ra, deleted, waited)
 }
 
 // odlSeed is aclSeed with ordered accounts: A < B in id bytes, B inserted
@@ -202,6 +369,14 @@ func odlDeleteBesideCreate(t *testing.T, reversed, scanOrder bool) {
 	waited := c1fixObserveWait(t, ctx, pool, a.Conn().PgConn().PID(), deleted)
 	close(gate.release)
 	released = true
+	odlVerdict(t, ctx, pool, w, a, ra, deleted, waited)
+}
+
+// odlVerdict finishes a create held beside the delete and judges both. Each
+// failure names its side and whether it was the deadlock victim (40P01);
+// neither error's text is printed.
+func odlVerdict(t *testing.T, ctx context.Context, pool *pgxpool.Pool, w *aclWorld, a pgx.Tx, ra chan aclResult, deleted chan error, waited bool) {
+	t.Helper()
 	r := aclAwait(t, ctx, ra)
 	if r.err == nil {
 		if err := a.Commit(ctx); err != nil {
@@ -219,18 +394,28 @@ func odlDeleteBesideCreate(t *testing.T, reversed, scanOrder bool) {
 	if !waited {
 		t.Error("the organization delete did not wait for the create holding the lower account")
 	}
-	if r.err != nil || r.a == nil {
-		t.Error("the create failed beside the organization delete (deadlock victim or store failure)")
+	switch {
+	case odlDeadlock(r.err):
+		t.Error("the create was a deadlock victim (40P01)")
+	case r.err != nil || r.a == nil:
+		t.Error("the create failed beside the organization delete (not 40P01)")
 	}
 	switch {
 	case odlDeadlock(derr):
 		t.Error("the organization delete was a deadlock victim (40P01)")
 	case derr != nil:
-		t.Error("the organization delete failed beside an authorization create")
+		t.Error("the organization delete failed beside an authorization create (not 40P01)")
 	}
 	if derr != nil {
 		return
 	}
+	odlTombstoned(t, ctx, pool, w)
+}
+
+// odlTombstoned: no user, account, client or organization row of the
+// organization is left live, and all carry the one instant of the delete.
+func odlTombstoned(t *testing.T, ctx context.Context, pool *pgxpool.Pool, w *aclWorld) {
+	t.Helper()
 	var stamps, live int
 	if err := pool.QueryRow(ctx, `SELECT count(DISTINCT deleted_at), count(*) FILTER (WHERE deleted_at IS NULL) FROM (
 		SELECT deleted_at FROM users WHERE organization_id = $1
