@@ -286,11 +286,11 @@ func g8PasskeyHandle(t *testing.T, w *g8World) (string, []*http.Cookie) {
 	return handle, jar
 }
 
-// RULE: PASSKEY-MFA-CARRYOVER-1
 // S1/S4: a UV passkey member with no TOTP, in an MFA-required organization,
 // chooses a password and is signed in at the phishing-resistant rung; no TOTP
 // enrolment, the TOTP state untouched, the handle spent, the audit row naming
 // the passkey. Both status contracts finish the same way.
+// RULE: PASSKEY-MFA-CARRYOVER-1
 func TestPasskeyCarryover_UVProofFinishesTheChange(t *testing.T) {
 	for _, stepStatus := range []bool{false, true} {
 		t.Run(map[bool]string{false: "401-steps", true: "step-status-header"}[stepStatus], func(t *testing.T) {
