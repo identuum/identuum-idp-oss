@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
+// RULE: MFA-PENDING-CLIENT-BINDING-1
 func TestMFAPending_ClientBindingOnlyOnThePasskeyProofKind(t *testing.T) {
 	pool := keyEncPool(t)
 	t.Cleanup(pool.Close) // registered first, so it runs after the row cleanup below
