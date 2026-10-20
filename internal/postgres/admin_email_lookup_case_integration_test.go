@@ -21,6 +21,8 @@ import (
 // the other spellings must find the same complete administrative record.
 // Each address belongs to one row, including deleted rows. This test does
 // not choose a winner when historical deleted addresses are reused.
+//
+// RULE: ADMIN-EMAIL-LOOKUP-CASE-1
 func TestUserRepository_GetByEmailAdmin(t *testing.T) {
 	pool := modelTeethPool(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
