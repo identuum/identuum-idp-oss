@@ -29,6 +29,8 @@ import (
 // create's order before it writes any of them. Same harness as
 // agent_communication_create_lock_pgx_test.go; no test prints a row, a key,
 // an SQL argument or a database error.
+//
+// RULE: ORG-DELETE-LOCK-ORDER-1
 func TestOrgDeleteAccountLockOrder(t *testing.T) {
 	t.Run("delete_beside_a_create_holding_the_lower_account", func(t *testing.T) {
 		odlDeleteBesideCreate(t, false, true)
