@@ -33,6 +33,8 @@ import (
 // an ordinary failing integration test, with no skip or expected-failure gate.
 // On 1af3ae4 the overlapping loser returns 400 setup_complete_failed, not 410.
 // RED execution belongs to the operator; source inspection is not a RED result.
+//
+// RULE: SETUP-COMPLETE-ONCE-1
 func TestE2E_OSS_SetupConcurrentOrganizationCollision(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

@@ -145,13 +145,13 @@ func waitForLockWaiters(t *testing.T, pool *pgxpool.Pool, want int) {
 	t.Fatalf("want %d sessions waiting for a lock; saw %d", want, got)
 }
 
-// RULE: SETUP-FIRST-KEY-1
-//
 // The setup completion lock lets only one full completion reach key
 // provisioning, so this test drives the provisioning step of two completion
 // attempts directly: it must stay serialized by the signing-key provisioning
 // lock on its own. A full completion then reuses that key, and a competing
 // completion is refused.
+//
+// RULE: SETUP-FIRST-KEY-1
 func TestSetupComplete_ConcurrentKeyProvisioningCreatesOneDefaultKey(t *testing.T) {
 	pool, repo := firstKeyScratchPool(t, "setup_first_key_race_test")
 	ctx := context.Background()

@@ -35,6 +35,8 @@ import (
 // the other instance with a different organization, contact address and
 // password. B must wait in the database and then get the exact 410; the
 // organization and administrator must still be A's.
+//
+// RULE: SETUP-COMPLETE-ONCE-2
 func TestE2E_OSS_SetupLoserCannotOverwriteWinner(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -110,6 +112,8 @@ func TestE2E_OSS_SetupLoserCannotOverwriteWinner(t *testing.T) {
 // after its organization and administrator writes and before MarkComplete.
 // Setup must stay required with the code still valid, and the same request
 // on the other instance must then finish with no duplicate resources.
+//
+// RULE: SETUP-COMPLETE-ONCE-3
 func TestE2E_OSS_SetupFailedWinnerCanRetry(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
