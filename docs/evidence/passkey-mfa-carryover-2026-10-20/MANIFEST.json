@@ -1,0 +1,47 @@
+{
+  "schema": "retained-proof-evidence.v1",
+  "observation_date": "2026-10-20",
+  "note": "Retained original mutation observations, not new runs. Only private absolute source locators are replaced with <source-root>. Original files remain retained by their recorded original_sha256. D01 is the unit proof; D02 is the PostgreSQL HTTP proof. Baseline and restored logs pass; mutated logs fail the assertions; diffs identify the mutation.",
+  "artifacts": [
+    {
+      "id": "sha256:27f661066b3aa093777630170ce1a45ff09816e936cef312cf82af48877a23fe",
+      "file": "d01-baseline.log",
+      "original_sha256": "27f661066b3aa093777630170ce1a45ff09816e936cef312cf82af48877a23fe"
+    },
+    {
+      "id": "sha256:5b77661607546c129ce7206ad19b8a6495ad7db4e59eeb83bf7d00b36ef9f77b",
+      "file": "d01-mutation.diff",
+      "original_sha256": "5b77661607546c129ce7206ad19b8a6495ad7db4e59eeb83bf7d00b36ef9f77b"
+    },
+    {
+      "id": "sha256:2eb7204d30977d95fd719e37e01e2f8d7a9019e1b7c4dbadac3c73fcb30e8f71",
+      "file": "d01-mutated.log",
+      "original_sha256": "2eb7204d30977d95fd719e37e01e2f8d7a9019e1b7c4dbadac3c73fcb30e8f71"
+    },
+    {
+      "id": "sha256:9c68dcfa3d6bc28d3f5d68624bf553fe0c00a15364f321dd60a4ae988d8b691e",
+      "file": "d01-restored.log",
+      "original_sha256": "9c68dcfa3d6bc28d3f5d68624bf553fe0c00a15364f321dd60a4ae988d8b691e"
+    },
+    {
+      "id": "sha256:0d1aea7e2b6878f23db496927ebdebb3a5dc45ba809b9d6f9e2b733e945a0451",
+      "file": "d02-baseline.log",
+      "original_sha256": "fe82c586b78a640a3508b35fdca147127218ff6a5a1ac79519e893a19c4f87e0"
+    },
+    {
+      "id": "sha256:2d11e465e7d0dd2b0f15197a354e6f079bf3a0fafa4ac5399d0a5c12afbe20cc",
+      "file": "d02-mutation.diff",
+      "original_sha256": "2d11e465e7d0dd2b0f15197a354e6f079bf3a0fafa4ac5399d0a5c12afbe20cc"
+    },
+    {
+      "id": "sha256:ed4a618df69c57369f01ba856734653b7e14bd3e000cfeb5488e4bb2a63d4903",
+      "file": "d02-mutated.log",
+      "original_sha256": "b3c6781aaa9a2052e4cc31ae8dfda106475b4067ab4e4fc940391e108bcc3f02"
+    },
+    {
+      "id": "sha256:ba565ced8424d3515aff861cdd06814c6c128b1795c7e01166cee6dd14b26cde",
+      "file": "d02-restored.log",
+      "original_sha256": "5216fb3b2102085d40cb33ff8f69f0408c2d344de22e85019d69e0f9284b4626"
+    }
+  ]
+}

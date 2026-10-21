@@ -1,0 +1,13 @@
+diff --git a/internal/service/login_password_change.go b/internal/service/login_password_change.go
+index 577e466..9cd09b3 100644
+--- a/internal/service/login_password_change.go
++++ b/internal/service/login_password_change.go
+@@ -92,7 +92,7 @@ func (s *MFAEnrollmentService) PeekPasswordChange(ctx context.Context, pendingID
+ 		return PendingPasswordChange{}, ErrMFAEnrollmentInvalid
+ 	}
+ 	passkey := kind == domain.MFAPendingKindPasswordChangePasskeyUV
+-	if passkey {
++	if false && passkey {
+ 		sum := sha256.Sum256([]byte(binding))
+ 		if len(row.ClientBinding) != sha256.Size || binding == "" || subtle.ConstantTimeCompare(sum[:], row.ClientBinding) != 1 {
+ 			return PendingPasswordChange{}, ErrMFAEnrollmentInvalid

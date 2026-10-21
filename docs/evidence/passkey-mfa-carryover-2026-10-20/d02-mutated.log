@@ -1,0 +1,15 @@
+=== RUN   TestE2E_OSS_PasskeyProofCarriesThroughTheRequiredPasswordChange
+    passkey_mfa_carryover_http_test.go:26: oss e2e: migrations: applied=0 of 57 embedded; database at version 57
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.025+0100","caller":"logger/logger.go:<source-root>:382","message":"Created organization","name":"e2e-test-org-b209fb62-e2f6-4b2d-b0f0-e8ee7b070980","domain":"e2e-b209fb62-e2f6-4b2d-b0f0-e8ee7b070980.example.invalid","slug":"e2e-org-b209fb62"}
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.027+0100","caller":"logger/logger.go:<source-root>:382","message":"Created organization","name":"e2e-test-org-acb7a210-9070-4d3b-9eac-8e7acd70e53b","domain":"e2e-acb7a210-9070-4d3b-9eac-8e7acd70e53b.example.invalid","slug":"e2e-org-acb7a210"}
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.071+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"6a49a02b-6f56-43f0-be2d-48a489bad839","role":"org_admin","org_id":"01a15a7c-123f-7266-b9f6-9e6f5e46268b"}
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.104+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"0b1ee27a-8e2c-438a-b3cb-c31c9afa29ba","role":"org_admin","org_id":"01a15a7c-1242-7a9d-96f9-d417ebbe81b9"}
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.132+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"10e0a3f8-bd43-4402-b07c-4296353449f8","role":"org_user","org_id":"01a15a7c-123f-7266-b9f6-9e6f5e46268b"}
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.176+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"01a15a7c-12e5-7b13-b82c-361683d40a89","role":"org_user","org_id":"01a15a7c-123f-7266-b9f6-9e6f5e46268b","request_id":"9a5530ec-f7f1-49b6-8526-6ba5ffa30577"}
+    passkey_mfa_carryover_http_test.go:67: change step from another client = 200 <nil>; want 401 invalid_session
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.272+0100","caller":"logger/logger.go:<source-root>:382","message":"Deleted organization","org_id":"01a15a7c-1242-7a9d-96f9-d417ebbe81b9"}
+{"level":"INFO","timestamp":"2026-10-20T19:04:03.277+0100","caller":"logger/logger.go:<source-root>:382","message":"Deleted organization","org_id":"01a15a7c-123f-7266-b9f6-9e6f5e46268b"}
+--- FAIL: TestE2E_OSS_PasskeyProofCarriesThroughTheRequiredPasswordChange (0.31s)
+FAIL
+FAIL	github.com/identuum/identuum-idp-oss/internal/e2e	0.700s
+FAIL

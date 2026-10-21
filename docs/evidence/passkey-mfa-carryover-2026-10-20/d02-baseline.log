@@ -1,0 +1,15 @@
+=== RUN   TestE2E_OSS_PasskeyProofCarriesThroughTheRequiredPasswordChange
+    passkey_mfa_carryover_http_test.go:26: oss e2e: migrations: applied=0 of 57 embedded; database at version 57
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.255+0100","caller":"logger/logger.go:<source-root>:382","message":"Created organization","name":"e2e-test-org-acc336c6-533c-4ea7-bdbb-f74e049978c0","domain":"e2e-acc336c6-533c-4ea7-bdbb-f74e049978c0.example.invalid","slug":"e2e-org-acc336c6"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.258+0100","caller":"logger/logger.go:<source-root>:382","message":"Created organization","name":"e2e-test-org-d74419b9-ff72-4d02-93d1-dc2e7aee11ff","domain":"e2e-d74419b9-ff72-4d02-93d1-dc2e7aee11ff.example.invalid","slug":"e2e-org-d74419b9"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.314+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"86d8faa3-5f4e-42a9-915f-ce464b3354c2","role":"org_admin","org_id":"01a15a7b-bd33-757d-883d-356c76323ff4"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.354+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"c82ae646-ab01-4e91-b8f0-8a1be60ac518","role":"org_admin","org_id":"01a15a7b-bd38-79bd-b87d-5e221473c66c"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.381+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"51af17e0-56c6-4261-b327-302b4974d395","role":"org_user","org_id":"01a15a7b-bd33-757d-883d-356c76323ff4"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.409+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"89987de2-68c1-4b41-b319-e73b3e1c4005","role":"site_admin","org_id":"00000000-0000-7000-0000-000000000000"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.449+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"01a15a7b-be06-768f-ac5d-b2f91015ecf8","role":"org_user","org_id":"01a15a7b-bd33-757d-883d-356c76323ff4","request_id":"3d4f2c6b-cc52-4c14-aaae-d799fa55ada9"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.564+0100","caller":"logger/logger.go:<source-root>:382","message":"Created user","user_id":"01a15a7b-be7a-709c-972e-b84eeeed4cb7","role":"org_user","org_id":"01a15a7b-bd33-757d-883d-356c76323ff4","request_id":"65390460-87b1-49ca-b220-fa053dba6b17"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.674+0100","caller":"logger/logger.go:<source-root>:382","message":"Deleted organization","org_id":"01a15a7b-bd38-79bd-b87d-5e221473c66c"}
+{"level":"INFO","timestamp":"2026-10-20T19:03:41.680+0100","caller":"logger/logger.go:<source-root>:382","message":"Deleted organization","org_id":"01a15a7b-bd33-757d-883d-356c76323ff4"}
+--- PASS: TestE2E_OSS_PasskeyProofCarriesThroughTheRequiredPasswordChange (0.51s)
+PASS
+ok  	github.com/identuum/identuum-idp-oss/internal/e2e	0.902s

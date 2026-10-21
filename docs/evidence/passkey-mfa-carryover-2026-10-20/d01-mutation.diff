@@ -1,0 +1,13 @@
+diff --git a/internal/service/login_password_change.go b/internal/service/login_password_change.go
+index 577e466..2539344 100644
+--- a/internal/service/login_password_change.go
++++ b/internal/service/login_password_change.go
+@@ -98,7 +98,7 @@ func (s *MFAEnrollmentService) PeekPasswordChange(ctx context.Context, pendingID
+ 			return PendingPasswordChange{}, ErrMFAEnrollmentInvalid
+ 		}
+ 	}
+-	return PendingPasswordChange{UserID: row.UserID, RememberMe: row.RememberMe, PasskeyVerified: passkey}, nil
++	return PendingPasswordChange{UserID: row.UserID, RememberMe: row.RememberMe, PasskeyVerified: false}, nil
+ }
+ 
+ // ConsumePasswordChange claims the handle once the password has changed.

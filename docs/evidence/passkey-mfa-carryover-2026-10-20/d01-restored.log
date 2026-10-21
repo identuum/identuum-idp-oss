@@ -1,0 +1,8 @@
+=== RUN   TestPasskeyCarryover_UVProofFinishesTheChange
+=== RUN   TestPasskeyCarryover_UVProofFinishesTheChange/401-steps
+=== RUN   TestPasskeyCarryover_UVProofFinishesTheChange/step-status-header
+--- PASS: TestPasskeyCarryover_UVProofFinishesTheChange (0.00s)
+    --- PASS: TestPasskeyCarryover_UVProofFinishesTheChange/401-steps (0.00s)
+    --- PASS: TestPasskeyCarryover_UVProofFinishesTheChange/step-status-header (0.00s)
+PASS
+ok  	github.com/identuum/identuum-idp-oss/internal/handlers	1.486s

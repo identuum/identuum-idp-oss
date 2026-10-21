@@ -1,0 +1,11 @@
+=== RUN   TestPasskeyCarryover_UVProofFinishesTheChange
+=== RUN   TestPasskeyCarryover_UVProofFinishesTheChange/401-steps
+    passkey_password_change_carryover_test.go:301: change step after a UV passkey = 401 mfa_enrollment_required; want 200 with a session and no MFA continuation
+=== RUN   TestPasskeyCarryover_UVProofFinishesTheChange/step-status-header
+    passkey_password_change_carryover_test.go:301: change step after a UV passkey = 200 mfa_enrollment_required; want 200 with a session and no MFA continuation
+--- FAIL: TestPasskeyCarryover_UVProofFinishesTheChange (0.00s)
+    --- FAIL: TestPasskeyCarryover_UVProofFinishesTheChange/401-steps (0.00s)
+    --- FAIL: TestPasskeyCarryover_UVProofFinishesTheChange/step-status-header (0.00s)
+FAIL
+FAIL	github.com/identuum/identuum-idp-oss/internal/handlers	0.432s
+FAIL
