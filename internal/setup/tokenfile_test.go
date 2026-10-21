@@ -7,9 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"testing"
-
-	"golang.org/x/sys/unix"
 )
 
 func TestWriteTokenFile_CreatesWithMode0600(t *testing.T) {
@@ -305,7 +304,7 @@ func TestTokenFileSymlinkDataDirRejectsFileLink(t *testing.T) {
 
 func TestTokenFileRejectsFIFO(t *testing.T) {
 	dir := t.TempDir()
-	if err := unix.Mkfifo(TokenFilePath(dir), 0o600); err != nil {
+	if err := syscall.Mkfifo(TokenFilePath(dir), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := ReadTokenFile(dir); err == nil || got != "" {

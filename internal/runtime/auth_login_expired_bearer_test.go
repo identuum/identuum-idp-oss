@@ -1,4 +1,4 @@
-package handlers
+package runtime
 
 import (
 	"context"
@@ -16,10 +16,13 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 
+	"github.com/identuum/identuum-idp-oss/internal/api"
 	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/auth"
+	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 	"github.com/identuum/identuum-idp-oss/internal/mw"
+	"github.com/identuum/identuum-idp-oss/internal/repository"
 	"github.com/identuum/identuum-idp-oss/internal/service"
 )
 
@@ -30,7 +33,7 @@ import (
 // it with token_invalid.
 
 type pendingRowRepo struct {
-	recoveryPendingRepoStub
+	repository.MFAPendingLoginSessionRepository
 	row *domain.MFAPendingLoginSession
 }
 
@@ -47,7 +50,7 @@ func expiredBearerEngine(t *testing.T, user *domain.User, pending *domain.MFAPen
 		t.Fatalf("GenerateKey: %v", err)
 	}
 	pubBytes, _ := x509.MarshalPKIXPublicKey(priv.Public())
-	keys := &inMemoryKeyRepoForLogout{keys: []domain.SigningKey{{
+	keys := &expiredBearerKeyRepo{keys: []domain.SigningKey{{
 		KID: "kid-eddsa", Algorithm: domain.KeyAlgorithmEdDSA,
 		PublicKey: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubBytes})),
 		State:     domain.KeyStateActive,
@@ -64,22 +67,24 @@ func expiredBearerEngine(t *testing.T, user *domain.User, pending *domain.MFAPen
 		t.Fatalf("sign: %v", err)
 	}
 
-	users := &inMemoryUserLookupForHandlers{byEmail: map[string][]*domain.User{user.Email: {user}}}
-	sessions := service.NewUserSessionService(nil, newSessionRepoForHandlers(), service.UserSessionServiceOptions{DefaultTTL: time.Hour})
-	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: testReplayGuardForHandlers()})
-	mfaUsers := newRecoveryStubUserRepo()
-	mfaUsers.byID[user.ID] = user
+	users := &expiredBearerUserRepo{user: user}
+	sessions := service.NewUserSessionService(nil, &expiredBearerSessionRepo{}, service.UserSessionServiceOptions{DefaultTTL: time.Hour})
+	// These cases refuse the pending handle before consulting any TOTP step.
+	// Unexpected repository calls fail the test through the nil embedding.
+	replay := service.NewTOTPReplayGuard(nil, &expiredBearerTOTPSteps{}, service.TOTPReplayGuardOptions{})
+	mfa := service.NewMFAVerifierService(nil, service.PlaintextTOTPSecretResolver{}, service.MFAVerifierOptions{Replay: replay})
 	enroll := service.NewMFAEnrollmentService(nil, service.MFAEnrollmentRepoOptions{
-		Pending: pendingRowRepo{row: pending}, Users: mfaUsers, Issuer: "Identuum", Cipher: identityMFACipher{}, Replay: testReplayGuardForHandlers(),
+		Pending: pendingRowRepo{row: pending}, Users: users, Issuer: "Identuum", Replay: replay,
 	}, service.MFAEnrollmentServiceOptions{})
 
-	r := gin.New()
-	r.Use(mw.BearerPrincipal(nil, auth.NewRepositoryVerifier(nil, keys, auth.VerifierOptions{}), nil, nil))
-	RegisterAuthSessionRoutes(r, AuthSessionsHandlerDeps{
-		LocalLogin:    service.NewLocalLoginService(nil, users, sessions, mfa),
-		UserSession:   sessions,
-		MFAEnrollment: enroll,
-		Audit:         &audit.Recorder{},
+	// Exercise the real verifier and auth handlers through the composition
+	// layer that is permitted to wire them together.
+	r := api.NewOSSEngine(api.OSSRouterDeps{
+		TokenVerifier:      auth.NewRepositoryVerifier(nil, keys, auth.VerifierOptions{}),
+		LocalLogin:         service.NewLocalLoginService(nil, users, sessions, mfa),
+		UserSessionService: sessions,
+		MFAEnrollment:      enroll,
+		Audit:              &audit.Recorder{},
 	})
 	return r, expired
 }
@@ -94,10 +99,46 @@ func postWithBearer(r *gin.Engine, path, body, token string) *httptest.ResponseR
 }
 
 func expiredBearerUser(t *testing.T) *domain.User {
+	t.Helper()
+	hash, err := crypto.GenerateHash([]byte("correct"))
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
 	return &domain.User{
 		ID: uuid.New(), Email: "alice@example.com", Role: domain.RoleOrgUser, OrganizationID: uuid.New(),
-		PasswordHash: hashPasswordForHandlers(t, "correct"), EmailVerified: true,
+		PasswordHash: hash, EmailVerified: true,
 	}
+}
+
+// Only the methods reached by these four cases are implemented. Embedding
+// the interfaces makes any unexpected repository call fail visibly.
+type expiredBearerKeyRepo struct {
+	repository.KeyRepository
+	keys []domain.SigningKey
+}
+
+func (r *expiredBearerKeyRepo) GetActiveSigningKeys(context.Context) ([]domain.SigningKey, error) {
+	return r.keys, nil
+}
+
+type expiredBearerUserRepo struct {
+	repository.UserRepository
+	user *domain.User
+}
+
+func (r *expiredBearerUserRepo) FindUsersByEmail(context.Context, string) ([]*domain.User, error) {
+	return []*domain.User{r.user}, nil
+}
+
+type expiredBearerSessionRepo struct{ repository.SessionRepository }
+
+func (*expiredBearerSessionRepo) Create(_ context.Context, session *domain.Session) (*domain.Session, error) {
+	session.ID = uuid.New()
+	return session, nil
+}
+
+type expiredBearerTOTPSteps struct {
+	repository.TOTPUsedStepRepository
 }
 
 func assertNoSessionMinted(t *testing.T, what string, w *httptest.ResponseRecorder) {
@@ -140,6 +181,9 @@ func TestLoginMFARoute_ExpiredBearerWithDeadHandleMintsNothing(t *testing.T) {
 	} {
 		r, expired := expiredBearerEngine(t, user, row)
 		w := postWithBearer(r, "/api/v1/auth/login/mfa", `{"session_id":"`+row.ID.String()+`","code":"123456"}`, expired)
+		if w.Code != http.StatusUnauthorized {
+			t.Errorf("%s: status = %d, want 401", name, w.Code)
+		}
 		if w.Code == http.StatusUnauthorized && strings.Contains(w.Body.String(), mw.ReasonTokenInvalid) {
 			t.Errorf("%s: refused on the stale bearer, want the handle to decide", name)
 		}

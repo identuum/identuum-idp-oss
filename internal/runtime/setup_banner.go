@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-
-	"golang.org/x/sys/unix"
+	"syscall"
+	"unsafe"
 
 	"github.com/identuum/identuum-idp-oss/internal/setup"
 )
@@ -52,11 +52,14 @@ func setupOutputIsTerminal(w io.Writer) bool {
 	if err != nil {
 		return false
 	}
-	var ioctlErr error
+	var ioctlErr syscall.Errno
 	if err := conn.Control(func(fd uintptr) {
-		_, ioctlErr = unix.IoctlGetWinsize(int(fd), unix.TIOCGWINSZ)
+		// TIOCGWINSZ writes four unsigned shorts on the supported Unix
+		// platforms. Control keeps the descriptor live for this syscall.
+		var size [4]uint16
+		_, _, ioctlErr = syscall.Syscall(syscall.SYS_IOCTL, fd, syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&size)))
 	}); err != nil {
 		return false
 	}
-	return ioctlErr == nil
+	return ioctlErr == 0
 }

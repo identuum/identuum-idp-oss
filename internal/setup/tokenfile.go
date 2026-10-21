@@ -9,8 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/sys/unix"
+	"syscall"
 )
 
 // tokenFileName is the filename inside $DATA_DIR that holds the setup
@@ -44,23 +43,21 @@ func WriteTokenFile(dataDir, plaintext string) (string, error) {
 		return "", err
 	}
 	defer dir.Close()
-	var st unix.Stat_t
-	err = unix.Fstatat(int(dir.Fd()), tokenFileName, &st, unix.AT_SYMLINK_NOFOLLOW)
-	if err != nil && !errors.Is(err, unix.ENOENT) {
+	info, err := dir.Lstat(tokenFileName)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", fmt.Errorf("setup: inspect token file: %w", err)
 	}
-	if err == nil && st.Mode&unix.S_IFMT != unix.S_IFREG {
+	if err == nil && !info.Mode().IsRegular() {
 		return "", errors.New("setup: token file must be regular")
 	}
 	// Directory-relative operations pin the directory inode. The temporary
 	// file never follows or truncates an existing entry, including hardlinks.
 	name := ".setup-" + rand.Text()
-	fd, err := unix.Openat(int(dir.Fd()), name, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
+	f, err := dir.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("setup: open token file: %w", err)
 	}
-	defer unix.Unlinkat(int(dir.Fd()), name, 0)
-	f := os.NewFile(uintptr(fd), name)
+	defer dir.Remove(name)
 	if err := f.Chmod(0o600); err != nil {
 		_ = f.Close()
 		return "", fmt.Errorf("setup: chmod token file: %w", err)
@@ -74,7 +71,7 @@ func WriteTokenFile(dataDir, plaintext string) (string, error) {
 	}
 	// Rename replaces an entry without following its target, even if another
 	// directory writer replaced the destination after the inspection above.
-	if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), tokenFileName); err != nil {
+	if err := dir.Rename(name, tokenFileName); err != nil {
 		return "", fmt.Errorf("setup: replace token file: %w", err)
 	}
 	return TokenFilePath(dataDir), nil
@@ -82,16 +79,15 @@ func WriteTokenFile(dataDir, plaintext string) (string, error) {
 
 // openTokenDir pins a local directory for all subsequent descriptor-relative IO.
 // Shared-group directories remain supported; world-writable ones are refused.
-func openTokenDir(dataDir string) (*os.File, error) {
+func openTokenDir(dataDir string) (*os.Root, error) {
 	// Follow the operator-selected directory path, including a final symlink.
 	// Open pins its resolved target; Stat checks that same inode, and all file
 	// operations below stay relative to it with their own no-follow checks.
-	fd, err := unix.Open(dataDir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	dir, err := os.OpenRoot(dataDir)
 	if err != nil {
 		return nil, fmt.Errorf("setup: open data dir: %w", err)
 	}
-	dir := os.NewFile(uintptr(fd), dataDir)
-	info, err := dir.Stat()
+	info, err := dir.Stat(".")
 	if err != nil {
 		_ = dir.Close()
 		return nil, fmt.Errorf("setup: stat data dir: %w", err)
@@ -114,14 +110,13 @@ func ReadTokenFile(dataDir string) (string, error) {
 	}
 	defer dir.Close()
 	// NONBLOCK prevents a planted FIFO from hanging before Stat can reject it.
-	fd, err := unix.Openat(int(dir.Fd()), tokenFileName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+	f, err := dir.OpenFile(tokenFileName, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("setup: token file absent: %w", err)
 		}
 		return "", fmt.Errorf("setup: read token file: %w", err)
 	}
-	f := os.NewFile(uintptr(fd), tokenFileName)
 	defer f.Close()
 	info, err := f.Stat()
 	if err != nil {
