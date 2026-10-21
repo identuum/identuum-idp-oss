@@ -183,6 +183,7 @@ func ResolveEncryptionKey(env Env, cfg *Config, uid, gid int, isRoot bool, chown
 	if fi, err := os.Lstat(keyFile); err == nil && !fi.Mode().IsRegular() {
 		return "", fmt.Errorf("appliance: %s is not a regular file — refusing to read or replace it", keyFile)
 	}
+	// #nosec G304 -- Fixed basename in the private 0700 appliance directory; Lstat rejects nonregular entries only at check time, leaving a check-to-open race.
 	switch raw, err := os.ReadFile(keyFile); {
 	case err == nil:
 		key := strings.TrimSpace(string(raw))

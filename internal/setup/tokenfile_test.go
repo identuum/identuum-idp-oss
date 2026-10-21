@@ -219,6 +219,90 @@ func TestTokenFileSharedGroup(t *testing.T) {
 	}
 }
 
+func TestTokenFileSymlinkDataDir(t *testing.T) {
+	for _, mode := range []os.FileMode{0o700, 0o770} {
+		t.Run(mode.String(), func(t *testing.T) {
+			target := t.TempDir()
+			if err := os.Chmod(target, mode); err != nil {
+				t.Fatal(err)
+			}
+			dir := filepath.Join(t.TempDir(), "data")
+			if err := os.Symlink(target, dir); err != nil {
+				t.Fatal(err)
+			}
+			path, err := WriteTokenFile(dir, "synthetic-setup-value")
+			if err != nil {
+				t.Fatal("write through data directory link failed")
+			}
+			if path != TokenFilePath(dir) {
+				t.Fatal("returned path changed")
+			}
+			for _, dataDir := range []string{dir, target} {
+				if got, err := ReadTokenFile(dataDir); err != nil || got != "synthetic-setup-value" {
+					t.Fatal("data directory round trip failed")
+				}
+			}
+			info, err := os.Stat(TokenFilePath(target))
+			if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
+				t.Fatal("target file is not regular with mode 0600")
+			}
+		})
+	}
+}
+
+func TestTokenFileSymlinkDataDirRejectsUnsafeTarget(t *testing.T) {
+	target := t.TempDir()
+	if err := os.Chmod(target, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(TokenFilePath(target), []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(target, dir); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadTokenFile(dir); !errors.Is(err, ErrUnsafeDataDir) || got != "" {
+		t.Fatal("unsafe linked directory read was not refused")
+	}
+	if _, err := WriteTokenFile(dir, "synthetic-setup-value"); !errors.Is(err, ErrUnsafeDataDir) {
+		t.Fatal("unsafe linked directory write was not refused")
+	}
+	data, err := os.ReadFile(TokenFilePath(target))
+	if err != nil || string(data) != "sentinel" {
+		t.Fatal("unsafe directory file changed")
+	}
+}
+
+func TestTokenFileSymlinkDataDirRejectsFileLink(t *testing.T) {
+	target := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "data")
+	if err := os.Symlink(target, dir); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(t.TempDir(), "sentinel")
+	if err := os.WriteFile(sentinel, []byte("sentinel"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sentinel, TokenFilePath(target)); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadTokenFile(dir); err == nil || got != "" {
+		t.Fatal("file link read was not refused")
+	}
+	if _, err := WriteTokenFile(dir, "synthetic-setup-value"); err == nil {
+		t.Fatal("file link write was not refused")
+	}
+	data, err := os.ReadFile(sentinel)
+	if err != nil || string(data) != "sentinel" {
+		t.Fatal("file link target changed")
+	}
+	info, err := os.Stat(sentinel)
+	if err != nil || info.Mode().Perm() != 0o640 {
+		t.Fatal("file link target permissions changed")
+	}
+}
+
 func TestTokenFileRejectsFIFO(t *testing.T) {
 	dir := t.TempDir()
 	if err := unix.Mkfifo(TokenFilePath(dir), 0o600); err != nil {

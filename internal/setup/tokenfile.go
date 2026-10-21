@@ -83,7 +83,10 @@ func WriteTokenFile(dataDir, plaintext string) (string, error) {
 // openTokenDir pins a local directory for all subsequent descriptor-relative IO.
 // Shared-group directories remain supported; world-writable ones are refused.
 func openTokenDir(dataDir string) (*os.File, error) {
-	fd, err := unix.Open(dataDir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	// Follow the operator-selected directory path, including a final symlink.
+	// Open pins its resolved target; Stat checks that same inode, and all file
+	// operations below stay relative to it with their own no-follow checks.
+	fd, err := unix.Open(dataDir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return nil, fmt.Errorf("setup: open data dir: %w", err)
 	}
