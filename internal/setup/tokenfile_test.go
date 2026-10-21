@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestWriteTokenFile_CreatesWithMode0600(t *testing.T) {
@@ -152,5 +155,79 @@ func TestTokenFilePath_StableLocation(t *testing.T) {
 	want := "/tmp/idp-data/setup-token.txt"
 	if got != want {
 		t.Errorf("TokenFilePath = %q; want %q", got, want)
+	}
+}
+
+func TestTokenFileRejectsLinksWithoutChangingTarget(t *testing.T) {
+	for _, hardlink := range []bool{false, true} {
+		t.Run(map[bool]string{false: "symlink", true: "hardlink"}[hardlink], func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(t.TempDir(), "sentinel")
+			if err := os.WriteFile(target, []byte("sentinel"), 0o640); err != nil {
+				t.Fatal(err)
+			}
+			link := os.Symlink
+			if hardlink {
+				link = os.Link
+			}
+			if err := link(target, TokenFilePath(dir)); err != nil {
+				t.Fatal(err)
+			}
+			if !hardlink {
+				if got, err := ReadTokenFile(dir); err == nil || got != "" {
+					t.Fatal("symlink read was not refused")
+				}
+			}
+			_, _ = WriteTokenFile(dir, "synthetic-setup-value")
+			data, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(target)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != "sentinel" || info.Mode().Perm() != 0o640 {
+				t.Fatal("linked target changed")
+			}
+		})
+	}
+}
+
+func TestReadTokenFileRejectsInvalidInput(t *testing.T) {
+	for _, input := range []string{strings.Repeat("a", 4097), "", "a\nb", "a\x00b"} {
+		dir := t.TempDir()
+		if err := os.WriteFile(TokenFilePath(dir), []byte(input), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := ReadTokenFile(dir); err == nil || got != "" {
+			t.Fatal("invalid input was not refused")
+		}
+	}
+}
+
+func TestTokenFileSharedGroup(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o770); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteTokenFile(dir, "synthetic-setup-value"); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadTokenFile(dir); err != nil || got != "synthetic-setup-value" {
+		t.Fatal("shared-group round trip failed")
+	}
+}
+
+func TestTokenFileRejectsFIFO(t *testing.T) {
+	dir := t.TempDir()
+	if err := unix.Mkfifo(TokenFilePath(dir), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadTokenFile(dir); err == nil || got != "" {
+		t.Fatal("FIFO read was not refused")
+	}
+	if _, err := WriteTokenFile(dir, "synthetic-setup-value"); err == nil {
+		t.Fatal("FIFO write was not refused")
 	}
 }

@@ -1,12 +1,16 @@
 package setup
 
 import (
+	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // tokenFileName is the filename inside $DATA_DIR that holds the setup
@@ -29,33 +33,35 @@ func TokenFilePath(dataDir string) string {
 }
 
 // WriteTokenFile writes plaintext to $DATA_DIR/setup-token.txt with mode
-// 0600 (umask is bypassed via os.OpenFile + os.Chmod). Refuses if the
+// 0600 using an exclusive temporary file and atomic replacement. Refuses if the
 // directory is world-writable. Returns the resolved path on success.
 //
 // A trailing newline is appended so `cat` of the file is shell-friendly;
 // ReadTokenFile strips it on read.
 func WriteTokenFile(dataDir, plaintext string) (string, error) {
-	info, err := os.Stat(dataDir)
+	dir, err := openTokenDir(dataDir)
 	if err != nil {
-		return "", fmt.Errorf("setup: stat data dir: %w", err)
+		return "", err
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("setup: data dir %q is not a directory", dataDir)
+	defer dir.Close()
+	var st unix.Stat_t
+	err = unix.Fstatat(int(dir.Fd()), tokenFileName, &st, unix.AT_SYMLINK_NOFOLLOW)
+	if err != nil && !errors.Is(err, unix.ENOENT) {
+		return "", fmt.Errorf("setup: inspect token file: %w", err)
 	}
-	// Reject world-writable directories (perm bit 0o002 set). Group-writable
-	// is permitted — operators commonly run the container as a non-root
-	// uid with a shared gid for the data volume.
-	if info.Mode().Perm()&0o002 != 0 {
-		return "", fmt.Errorf("%w: %q (perm=%#o)", ErrUnsafeDataDir, dataDir, info.Mode().Perm())
+	if err == nil && st.Mode&unix.S_IFMT != unix.S_IFREG {
+		return "", errors.New("setup: token file must be regular")
 	}
-
-	path := TokenFilePath(dataDir)
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	// Directory-relative operations pin the directory inode. The temporary
+	// file never follows or truncates an existing entry, including hardlinks.
+	name := ".setup-" + rand.Text()
+	fd, err := unix.Openat(int(dir.Fd()), name, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("setup: open token file: %w", err)
 	}
-	// Defensive chmod in case the file pre-existed with a different mode.
-	if err := os.Chmod(path, 0o600); err != nil {
+	defer unix.Unlinkat(int(dir.Fd()), name, 0)
+	f := os.NewFile(uintptr(fd), name)
+	if err := f.Chmod(0o600); err != nil {
 		_ = f.Close()
 		return "", fmt.Errorf("setup: chmod token file: %w", err)
 	}
@@ -66,7 +72,32 @@ func WriteTokenFile(dataDir, plaintext string) (string, error) {
 	if err := f.Close(); err != nil {
 		return "", fmt.Errorf("setup: close token file: %w", err)
 	}
-	return path, nil
+	// Rename replaces an entry without following its target, even if another
+	// directory writer replaced the destination after the inspection above.
+	if err := unix.Renameat(int(dir.Fd()), name, int(dir.Fd()), tokenFileName); err != nil {
+		return "", fmt.Errorf("setup: replace token file: %w", err)
+	}
+	return TokenFilePath(dataDir), nil
+}
+
+// openTokenDir pins a local directory for all subsequent descriptor-relative IO.
+// Shared-group directories remain supported; world-writable ones are refused.
+func openTokenDir(dataDir string) (*os.File, error) {
+	fd, err := unix.Open(dataDir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, fmt.Errorf("setup: open data dir: %w", err)
+	}
+	dir := os.NewFile(uintptr(fd), dataDir)
+	info, err := dir.Stat()
+	if err != nil {
+		_ = dir.Close()
+		return nil, fmt.Errorf("setup: stat data dir: %w", err)
+	}
+	if info.Mode().Perm()&0o002 != 0 {
+		_ = dir.Close()
+		return nil, ErrUnsafeDataDir
+	}
+	return dir, nil
 }
 
 // ReadTokenFile reads the plaintext token, stripping any trailing newline
@@ -74,15 +105,43 @@ func WriteTokenFile(dataDir, plaintext string) (string, error) {
 // not exist so callers can distinguish "setup already complete or never
 // initialized" from other I/O errors with errors.Is.
 func ReadTokenFile(dataDir string) (string, error) {
-	path := TokenFilePath(dataDir)
-	data, err := os.ReadFile(path)
+	dir, err := openTokenDir(dataDir)
+	if err != nil {
+		return "", err
+	}
+	defer dir.Close()
+	// NONBLOCK prevents a planted FIFO from hanging before Stat can reject it.
+	fd, err := unix.Openat(int(dir.Fd()), tokenFileName, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("setup: token file absent at %s: %w", path, err)
+			return "", fmt.Errorf("setup: token file absent: %w", err)
 		}
 		return "", fmt.Errorf("setup: read token file: %w", err)
 	}
-	return strings.TrimRight(string(data), "\r\n"), nil
+	f := os.NewFile(uintptr(fd), tokenFileName)
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return "", fmt.Errorf("setup: stat token file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", errors.New("setup: token file must be regular")
+	}
+	const maxBytes = 4096
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("setup: read token file: %w", err)
+	}
+	value := strings.TrimRight(string(data), "\r\n")
+	if len(data) > maxBytes || value == "" {
+		return "", errors.New("setup: invalid token file")
+	}
+	for _, c := range value {
+		if c < '!' || c > '~' {
+			return "", errors.New("setup: invalid token file")
+		}
+	}
+	return value, nil
 }
 
 // DeleteTokenFile removes the plaintext token file. No-op when the file
