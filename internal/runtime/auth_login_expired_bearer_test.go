@@ -17,7 +17,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/identuum/identuum-idp-oss/internal/api"
-	"github.com/identuum/identuum-idp-oss/internal/audit"
 	"github.com/identuum/identuum-idp-oss/internal/auth"
 	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
@@ -84,7 +83,6 @@ func expiredBearerEngine(t *testing.T, user *domain.User, pending *domain.MFAPen
 		LocalLogin:         service.NewLocalLoginService(nil, users, sessions, mfa),
 		UserSessionService: sessions,
 		MFAEnrollment:      enroll,
-		Audit:              &audit.Recorder{},
 	})
 	return r, expired
 }
