@@ -5,6 +5,175 @@ the first public release. Format roughly follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning
 follows [Semantic Versioning](https://semver.org/).
 
+## `v0.9.15`
+
+A sign-in with an expired or invalid old token can proceed, a
+user-verified passkey keeps its MFA proof through a required password
+change, and non-terminal startup output omits the setup code.
+Organization deletion no longer deadlocks with service-account creation,
+and two concurrent setup completions leave one completed setup.
+identuum-ui `7c7f741` embedded (`v0.9.14` embedded `0b8d4a4`; `7c7f741`'s
+`package.json` says `0.9.15`). The delta since `v0.9.14`
+(`git rev-list --count v0.9.14..adb4185` and
+`git diff --shortstat v0.9.14..adb4185`, measured at `adb4185`, before this
+notes update) is 61 commits, 116 files, +4621/−482. The endpoint count
+stays 166 (`grep -c . tools/api-docgen/testdata/endpoints.manifest.txt`).
+
+This release adds one SQL migration,
+`0057_pending_login_passkey_password_change.sql`; the tracked `migrations/`
+directory contains 57 SQL files, with head `0057`.
+
+- **While setup is incomplete, startup prints the setup code only
+  when its output is a terminal — and a container started with a terminal
+  attached (`docker run -t`, or `tty: true` in Compose) is such a terminal,
+  so Docker keeps the code in the container log.**
+  While setup is still required, v0.9.14 printed the setup code at every
+  start, so any place that collected the output — `docker compose logs`, a
+  log file, a log shipper — kept it. Now every start while setup is
+  required prints the wizard URL and the local `show-setup-code` command.
+  The code itself is printed only when standard output is a terminal.
+  Otherwise the line says `setup code not shown because stdout is not a
+  terminal; to display it, run:` and names the command. The shipped
+  Compose files attach no terminal, so with them the logs do not carry the
+  code. Do not attach a terminal; use `show-setup-code`. The
+  `show-setup-code` command itself still prints the code to wherever its
+  output goes, including a redirected destination (code review only; no
+  test checks the redirected case). This
+  upgrade does not erase a code that an earlier version wrote to logs;
+  treat those logs as sensitive while setup remains incomplete. An
+  overlapping completion using a valid setup code waits for the winner
+  and then gets `410 setup_already_complete`. The README, the deployment README, the
+  operator guide and the Compose comments say this.
+- **`show-setup-code` checks the saved code before it prints it.** It
+  refuses a setup file whose value does not match the hash kept in setup
+  state.
+- **Setup-file reads and replacement are protected from linked paths.**
+  File operations use the opened data directory and replace the setup file
+  atomically instead of truncating an existing entry. Reads refuse symlinks
+  and nonregular files, limit the file size and refuse invalid contents. A
+  symlink used for the data directory itself still works: operations stay
+  on its opened target. A world-writable data directory is refused. These
+  are filesystem fixes found during gosec review; they are not a claim that
+  every filesystem path or gosec finding is resolved.
+- **An expired or invalid token no longer blocks a fresh
+  sign-in.**
+  A client that sent an expired, malformed or wrongly signed
+  `Authorization: Bearer` token, or an empty one, to a sign-in request got
+  `401 token_invalid` (or `401 missing_credential`) even with the right
+  password. v0.9.14 fixed this only for a token whose session had ended.
+  Now the token is ignored on exactly these sign-in requests:
+  `POST /api/v1/auth/login`; `POST /api/v1/auth/browser-login`;
+  `POST /api/v1/auth/login/mfa`;
+  `POST /api/v1/auth/login/mfa/enroll/initiate`;
+  `POST /api/v1/auth/login/mfa/enroll/complete`;
+  `POST /api/v1/auth/login/password-change`;
+  `POST /api/v1/auth/login/webauthn/begin`;
+  `POST /api/v1/auth/login/webauthn/finish`;
+  `GET /api/v1/auth/browser-login`. The password, the pending sign-in step
+  or the passkey decides the answer. The ignored token gives the request
+  no identity. On these sign-in requests, a verified token found revoked
+  is still refused with `401 token_revoked`, and a key-store error still
+  answers `503`; a revocation-store error on `POST /api/v1/auth/login`
+  still answers `503`. Ten other routes, three unrouted paths, six other
+  method/path cases on the sign-in paths and ten other spellings of those
+  paths were tested: there an invalid token still gets
+  `401 token_invalid`, and on the ten other routes an empty Bearer value
+  still gets `401 missing_credential`. A trailing slash on
+  `POST /api/v1/auth/login` or `GET /api/v1/auth/browser-login` is still
+  redirected to the path without it.
+- **A user-verified passkey sign-in that requires a password
+  change finishes without a TOTP step, from the same browser only.**
+  A member whose organization requires MFA, whose administrator set a
+  password that must be changed, and who signed in with a passkey that
+  verified them (fingerprint, face or PIN) was asked to enroll in TOTP, or
+  to supply a TOTP code if already enrolled, after choosing the new
+  password. Now the user-verified passkey sign-in finishes after that
+  change without either extra step; existing TOTP enrollment stays
+  unchanged. Presence-only passkeys and password sign-ins continue through
+  the existing MFA policy. The password-change step after such a passkey
+  is bound to the browser that made the passkey sign-in, through an
+  `HttpOnly`, `SameSite=Strict` cookie: another client that has only the
+  step's handle gets `401 invalid_session`, and nothing changes. The
+  session records the passkey sign-in (`acr` phishing-resistant; audit
+  method `passkey`). The user-verified passkey completion rechecks
+  `idp_only` and refuses to issue a session when local sign-in is no
+  longer allowed.
+  Migration 0057 adds the new pending-step kind and its browser-binding
+  column; the database accepts a binding of exactly 32 bytes on the new
+  kind and no binding on the three earlier kinds (`enroll`, `verify`,
+  `password_change`).
+- **Deleting an organization no longer deadlocks with a service-account
+  create.**
+  An organization delete that ran at the same moment as a service-account
+  create, or an agent communication authorization create, in that
+  organization could stop on a database deadlock, and one of the two failed
+  with an internal error. Now deletion excludes new service-account
+  creation while it locks the existing service accounts in a fixed order.
+  A service-account create that arrives while the delete runs waits for
+  it, is then refused as organization not found, and creates nothing. All
+  tombstones of one delete keep one deletion time. Code review found no
+  change to the answer of a request that does not race; no test checks
+  that. Member removal and restore are not covered by this change.
+- **Two setup completions at once: the second gets "already complete".**
+  Two `POST` setup completions at the same moment (for example, a double
+  submit) could both start setup, and the second
+  failed with a wrong error. When one valid completion succeeds, the
+  competing completion gets the existing
+  `410 {"error":"setup_already_complete"}` and cannot replace the first
+  completion's organization or administrator.
+  If the first completion fails on its first active-signing-key read
+  after its organization and administrator writes, setup stays required
+  and the identical request on another instance using the same database
+  then succeeds.
+  The lock needs a database pool of at least two connections (the default
+  is 25). This fix does not add multi-replica or HA support.
+- **The administrator lookup by email finds an address in any case.**
+  The internal administrator lookup of an account by email compared the
+  address exactly, so `Alice@Example.com` or an address with spaces around
+  it did not find `alice@example.com`, and accounts stored in mixed case
+  before v0.9.14 were missed. Now it trims and lowercases the typed address
+  and compares in lower case, as sign-in does since v0.9.14. Stored
+  addresses are not changed. Code review found no change to any route
+  answer in this repository; no test checks that.
+- **Recovery and bootstrap examples keep the password out of the command
+  line.**
+  The `recover-site-admin` and bootstrap examples in the operator guide,
+  the operator test guide and `make help` put the password in the command
+  text, where shell history and process lists keep it. They now read it
+  from a hidden prompt inside the same shell, and the refusal hint no
+  longer shows an inline password. Examples and help changed. Diff review
+  found no runtime password-input code change; no test checks unchanged
+  runtime input.
+- **The build uses Go 1.27.3.** The Go directive and the digest-pinned
+  container builder move from Go 1.27.2 to Go 1.27.3, which fixes
+  GO-2026-6809 in `crypto/x509`. CI pins Grype 0.121.0 and its archive
+  checksum.
+
+### Tests added in this cycle (not user-facing)
+
+- The issuer-confinement fixture removes its own
+  public-only signing-key row, so it does not disrupt later tests on the
+  shared test database. The rotation integration test also removes its own
+  seeded rows before closing its pool. Test cleanup only; signing-key
+  selection and production provisioning are unchanged.
+- Setup-completion proofs through a real
+  PostgreSQL — a late completion cannot overwrite the first one, a first
+  completion whose first active-signing-key read fails after its
+  organization and administrator writes can be retried, and
+  concurrent first-key provisioning
+  creates one default signing key. Tests and an in-memory test fixture
+  only.
+- The passkey password-change browser-purpose test now
+  sends the originating binding cookie, so it fails if the purpose check is
+  removed. Test only.
+- Integration tests for each item above (lock order, setup race, admin
+  email case, passkey carry-over and the pending-step binding constraint
+  through a real PostgreSQL).
+- Integration tests keep their database pool
+  open until fixture cleanup ends, and the end-to-end tests create an
+  active signing key only when none exists and delete only the key they
+  created. Tests only.
+
 ## `v0.9.14`
 
 One email address is one account on the whole server, every sign-in asks
