@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/identuum/identuum-idp-oss/internal/crypto"
 	"github.com/identuum/identuum-idp-oss/internal/domain"
 )
 
@@ -57,9 +58,11 @@ func seedTokenFile(t *testing.T, dir, plaintext string) {
 func TestRunShowSetupCode_SetupRequiredWithValidFile_Prints(t *testing.T) {
 	dir := t.TempDir()
 	seedTokenFile(t, dir, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST")
+	state := stateRequired()
+	state.SetupTokenHash = crypto.HashToken("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567ABCDEFGHIJKLMNOPQRST")
 
 	var stdout, stderr bytes.Buffer
-	rc := runShowSetupCode(context.Background(), dir, stubLoader(stateRequired(), nil), &stdout, &stderr)
+	rc := runShowSetupCode(context.Background(), dir, stubLoader(state, nil), &stdout, &stderr)
 	if rc != 0 {
 		t.Fatalf("rc = %d; want 0; stderr=%q", rc, stderr.String())
 	}
@@ -68,6 +71,62 @@ func TestRunShowSetupCode_SetupRequiredWithValidFile_Prints(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("stderr should be empty on the happy path; got %q", stderr.String())
+	}
+}
+
+func TestRunShowSetupCode_RejectsUnverifiedFile(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		hash string
+	}{
+		{name: "mismatch", hash: crypto.HashToken("different-synthetic-file-content")},
+		{name: "missing"},
+		{name: "malformed", hash: "invalid-hash"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			seedTokenFile(t, dir, strings.Repeat("A", 52))
+			state := stateRequired()
+			state.SetupTokenHash = tc.hash
+			var stdout, stderr bytes.Buffer
+			if rc := runShowSetupCode(context.Background(), dir, stubLoader(state, nil), &stdout, &stderr); rc != 1 {
+				t.Errorf("rc = %d; want 1", rc)
+			}
+			if stdout.Len() != 0 {
+				t.Error("unverified file contents reached stdout")
+			}
+			if got := stderr.String(); got != "identuum-idp: show-setup-code: setup token file does not match setup state\n" {
+				t.Error("expected the safe hash-mismatch diagnostic")
+			}
+		})
+	}
+}
+
+func TestRunShowSetupCode_RejectsSymlinkWithoutOutput(t *testing.T) {
+	dir := t.TempDir()
+	sentinel := filepath.Join(t.TempDir(), "sentinel.txt")
+	contents := []byte(strings.Repeat("B", 52) + "\n")
+	if err := os.WriteFile(sentinel, contents, 0o600); err != nil {
+		t.Fatal("write sentinel fixture failed")
+	}
+	if err := os.Symlink(sentinel, filepath.Join(dir, "setup-token.txt")); err != nil {
+		t.Fatal("create sentinel symlink failed")
+	}
+	state := stateRequired()
+	state.SetupTokenHash = crypto.HashToken(strings.Repeat("A", 52))
+	var stdout, stderr bytes.Buffer
+	if rc := runShowSetupCode(context.Background(), dir, stubLoader(state, nil), &stdout, &stderr); rc != 1 {
+		t.Errorf("rc = %d; want 1", rc)
+	}
+	if stdout.Len() != 0 {
+		t.Error("symlink target contents reached stdout")
+	}
+	if strings.Contains(stderr.String(), strings.Repeat("B", 52)) {
+		t.Error("symlink target contents reached stderr")
+	}
+	after, err := os.ReadFile(sentinel)
+	if err != nil || !bytes.Equal(after, contents) {
+		t.Error("sentinel file was changed")
 	}
 }
 

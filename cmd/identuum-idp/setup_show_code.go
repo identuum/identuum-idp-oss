@@ -162,6 +162,10 @@ func runShowSetupCode(ctx context.Context, dataDir string, loader setupStateLoad
 		fmt.Fprintf(stderr, "identuum-idp: show-setup-code: read setup token file: %v\n", err)
 		return 1
 	}
+	if !setup.VerifyToken(plaintext, state.SetupTokenHash) {
+		fmt.Fprintln(stderr, "identuum-idp: show-setup-code: setup token file does not match setup state")
+		return 1
+	}
 
 	// Print the plaintext exactly, with a trailing newline so a shell
 	// pipe (`identuum-idp show-setup-code ./data | pbcopy`) does not
