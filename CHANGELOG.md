@@ -12,7 +12,7 @@ user-verified passkey keeps its MFA proof through a required password
 change, and non-terminal startup output omits the setup code.
 Organization deletion no longer deadlocks with service-account creation,
 and two concurrent setup completions leave one completed setup.
-identuum-ui `7c7f741` embedded (`v0.9.14` embedded `0b8d4a4`; `7c7f741`'s
+identuum-ui `6d6ddcd` embedded (`v0.9.14` embedded `0b8d4a4`; `6d6ddcd`'s
 `package.json` says `0.9.15`). The delta since `v0.9.14`
 (`git rev-list --count v0.9.14..adb4185` and
 `git diff --shortstat v0.9.14..adb4185`, measured at `adb4185`, before this
