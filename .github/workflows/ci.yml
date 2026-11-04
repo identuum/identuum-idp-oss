@@ -99,10 +99,10 @@ env:
   # single source is go.mod's `go` directive (asserted, not
   # re-declared). Latest-stable owner rule applies to all of them.
   STATICCHECK_VERSION: v0.8.2
-  GRYPE_VERSION: v0.121.0
+  GRYPE_VERSION: v0.121.1
   # sha256 of grype_<version>_linux_amd64.tar.gz from the release's own
   # checksums file; bumped together with GRYPE_VERSION.
-  GRYPE_SHA256: 64e07133d3486115de647a66581461dccf5c732748a0a3119077395565f15519
+  GRYPE_SHA256: bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657
   GOVULNCHECK_VERSION: v1.9.0
   # THE-LAST-BORROWER (2026-09-21): lictor is the judge `make grype-scan`
   # runs (`lictor grype --repo …`, the port of this repository's retired
@@ -111,8 +111,11 @@ env:
   # verified against LICTOR_SHA256 (the linux_amd64 line of the release's
   # checksums.txt), the version printed and asserted — and held to the
   # locally installed lictor by `make toolchain-parity`. Bump both together.
-  LICTOR_VERSION: v0.4.6
-  LICTOR_SHA256: 1f3869fb2d52804f5069c9f54c0eaae3260fd6f28c0896cfb16b5e942295d583
+  LICTOR_VERSION: v0.4.7
+  LICTOR_SHA256: ec2751474226a577482ce360d956567ec671b0eaa8a15cf6558ef7475db9afb4
+  # ACHTA_VERSION (TOOL-FAULTS-1103 ACH-04): the achta version lictor checks the
+  # installed achta against. CI does not install achta; bump with each release.
+  ACHTA_VERSION: v0.5.23
   # THE-CI-PARSES-ITS-OWN-WORKFLOWS (2026-09-06): yq for the workflow-yaml
   # gate, which parses every file under .github/workflows the way GitHub
   # will. Pinned the rulefloor way — an immutable release artifact plus its
