@@ -142,7 +142,7 @@ env:
 jobs:
   verify:
     name: Verify (ci-verify + integration lint)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # P2-24 (owner approved): an ephemeral Postgres so the DB-backed runtime
     # tests RUN here instead of skipping. They skipped in EVERY gate — local
     # and CI — and a skip is green, so the strongest tests in internal/runtime
@@ -249,6 +249,16 @@ jobs:
       # ~49 s of this job) is deliberately NOT cached: it is meant to move.
       # govulncheck's job keeps setup-go's cache and gets no step: 19 s in
       # total, nothing to win (the CE measurement showed the same).
+      #
+      # CI-CACHE-FALLBACK (2026-11-16): the second restore-keys line. With only
+      # the go.sum-scoped prefix, every dependency bump started this job cold
+      # on its PR AND again on main. MEASURED: run 39789605993 (cache hit) —
+      # migrate build 2 s, ci-verify 2:44, job 3:48; runs 41916343811 (PR) and
+      # 41918031341 (main) after the x/net bump changed go.sum — restore 0 s,
+      # migrate build 50 s, ci-verify 7:58, job 10:17. The newest snapshot of
+      # the same job at the same Go version is still almost entirely valid:
+      # GOCACHE is content-addressed and GOMODCACHE is verified against the
+      # new go.sum, so only the changed modules download and rebuild.
       - name: Restore the Go build cache, module cache and staticcheck's cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -259,6 +269,7 @@ jobs:
           key: ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
           restore-keys: |
             ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-
 
       - name: Prove the Go toolchain version
         # THE-UNWATCHED-FOUR: Go's single declaration is go.mod's `go`
@@ -360,7 +371,7 @@ jobs:
         # workflow-env tag, its sha256 checked before it is installed, the
         # printed version asserted against the same declaration. The binary
         # is removed from the tree after install so the checkout stays exactly
-        # the commit the record ties to. ubuntu-24.04 is x86_64: linux_amd64.
+        # the commit the record ties to. ubuntu-26.04 is x86_64: linux_amd64.
         run: |
           curl -sSfL -o yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
           echo "${YQ_SHA256}  yq" | sha256sum -c -
@@ -440,7 +451,7 @@ jobs:
 
   govulncheck:
     name: Govulncheck
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -479,7 +490,7 @@ jobs:
   # the published multi-arch index. arm64 is built, not executed here.
   candidate-image-proof:
     name: Candidate image and binary proof (no push)
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     env:
       CANDIDATE_VERSION: 0.9.15
       PROOF_IMAGE: identuum-idp-oss:candidate-proof
@@ -488,9 +499,29 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # CI-CACHE-FALLBACK (verify job header): this job used setup-go's cache,
+      # whose key it shares with the govulncheck job. govulncheck finishes in
+      # well under a minute and saves first, so this job restored a snapshot
+      # without its own builds and never saved (setup-go's post step: 1-2 s),
+      # and its two cross-compiles took 66 s and 105 s in runs 41918031341 and
+      # 39789605993. It now owns a job-scoped cache, as verify and integration
+      # do. The Docker build compiles inside its own stage and is not affected.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        id: go
         with:
           go-version-file: go.mod
+          cache: false
+
+      - name: Restore the Go build cache and module cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-
 
       - name: Compute commit and scratch names
         id: meta
@@ -649,7 +680,7 @@ jobs:
 
   integration:
     name: Integration Tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     services:
       postgres:
@@ -719,7 +750,9 @@ jobs:
       # THE-OSS-CI-CACHE: same step as the verify job (the header there says
       # why). Measured cold here: the test-db build 43 s and the ~49 s
       # compile gap before the e2e packages report, plus rulefloor-integration's
-      # Go rows.
+      # Go rows. CI-CACHE-FALLBACK (verify job header): the second
+      # restore-keys line keeps a dependency bump warm (migrate 49 s cold,
+      # 2 s warm; tests 4:43 cold, 3:23 warm).
       - name: Restore the Go build cache, module cache and staticcheck's cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -730,6 +763,7 @@ jobs:
           key: ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-${{ github.run_id }}
           restore-keys: |
             ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-${{ hashFiles('go.sum') }}-
+            ${{ github.job }}-${{ runner.os }}-go${{ steps.go.outputs.go-version }}-
 
       - name: Wait for PostgreSQL
         run: |
