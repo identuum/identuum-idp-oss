@@ -499,6 +499,15 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # DOCKER-OVERLAY2 (2026-11-16): Docker 29 on ubuntu-26.04 defaults to the
+      # containerd image store, measured 1.3-2.8x slower for build, load and
+      # run; the script header has the evidence. First step after checkout and
+      # before Buildx, because it restarts dockerd. Only this job: verify and
+      # integration run no Docker in their steps, and their `services:`
+      # Postgres starts before the first step, so a restart would kill it.
+      - name: Put Docker on the overlay2 storage driver
+        run: sh scripts/docker-overlay2.sh
+
       # CI-CACHE-FALLBACK (verify job header): this job used setup-go's cache,
       # whose key it shares with the govulncheck job. govulncheck finishes in
       # well under a minute and saves first, so this job restored a snapshot

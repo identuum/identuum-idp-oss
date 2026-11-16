@@ -96,6 +96,14 @@ jobs:
           ref: ${{ inputs.version_tag }}
           fetch-depth: 0
 
+      # DOCKER-OVERLAY2 (2026-11-16): Docker 29 on ubuntu-26.04 defaults to the
+      # containerd image store, measured 1.3-2.8x slower for build, load and
+      # run; the script header has the evidence. First step after checkout and
+      # before QEMU and Buildx, because it restarts dockerd. The workflow runs
+      # from the dispatched tag (checked above), so the script is that tag's.
+      - name: Put Docker on the overlay2 storage driver
+        run: sh scripts/docker-overlay2.sh
+
       - name: Verify the tag exists and matches the checked-out commit
         run: |
           set -euo pipefail
