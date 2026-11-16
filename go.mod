@@ -1,6 +1,6 @@
 module github.com/identuum/identuum-idp-oss
 
-go 1.27.3
+go 1.27.4
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
