@@ -39,11 +39,10 @@ db:
 #
 # RE-CHECK 2026-11-04 (quarterly). At that review each entry is either renewed
 # with a new date, or deleted because a fix shipped.
-ignore:
-  # GO-2026-5932 / GHSA-... — golang.org/x/crypto/openpgp.
-  # NO FIX AVAILABLE: the openpgp packages are frozen upstream and will not be
-  # patched. NOT REACHABLE: govulncheck reports 0 reachable vulnerabilities for
-  # this module in this repo; nothing here imports openpgp, it arrives as an
-  # indirect dependency of the x/crypto module graph.
-  # Re-check 2026-11-04, or immediately if govulncheck ever reports it reachable.
-  - vulnerability: GO-2026-5932
+#
+# GO-2026-5932 DELETED (2026-11-16): a fix shipped. The Go vulnerability
+# database now records it fixed in golang.org/x/crypto after 2f1f834330b2,
+# which removed the openpgp packages; v0.59.0 (2026-11-11) is the first tag
+# with that commit and go.mod requires it. No entry is left, so there is no
+# `ignore:` key (lictor reads only the block form, not `ignore: []`). A new
+# entry needs its own id, WHY and re-check date as above.
