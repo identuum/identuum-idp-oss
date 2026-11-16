@@ -12,6 +12,7 @@ Measured 2026-09-03 (`go list -m -u`, `govulncheck ./...`, `grype dir:`).
 
 | Module | From | To | Why |
 | --- | --- | --- | --- |
+| `golang.org/x/crypto` | v0.58.0 | **v0.59.0** | Security, 2026-11-16. Clears GO-2026-5932: the Go vulnerability database now records it fixed after `2f1f834330b2`, which removed the `openpgp` packages, and v0.59.0 is the first tag with it. Its `.grype.yaml` suppression had lapsed on 2026-11-04 and is deleted. Carried `x/sync` 0.24.0 → 0.25.0, `x/sys` 0.49.0 → 0.50.0 and `x/text` 0.43.0 → 0.44.0. |
 | `golang.org/x/crypto` | v0.55.0 | **v0.56.0** | Security. GO-2026-6354 and GO-2026-6355, both fixed in 0.56.0. Build, vet and the whole suite unchanged. |
 | `github.com/golang-jwt/jwt/v5` | v5.3.0 | **v5.3.1** | Patch release, no API change. |
 | `github.com/stretchr/testify` | v1.11.1 | **v1.12.1** | Minor, test-only. Judged by the unit suite: green, no code change. Carried `stretchr/objx` v0.5.2 → v0.5.3 with it. |
@@ -41,16 +42,16 @@ Current at latest stable and needing no note: `github.com/google/uuid` v1.6.0,
 
 ## The advisory with no fix
 
-`govulncheck` reports **GO-2026-5932** against `golang.org/x/crypto` with
-`Fixed in: N/A`. There is no version to move to, and this module's own code
-does not call the vulnerable symbol (govulncheck's symbol analysis reports
-zero affecting vulnerabilities). It is therefore reported, not actioned, and
-the scan gate is built to match: a finding with an available fix FAILS, a
-finding with none does not (see lictor's `grype` judge — the port of this
-repository's `tools/grype-gate`, retired when the last consumer switched
-(THE-LAST-BORROWER, 2026-09-21) — and its rule `GRYPE-FIXABLE-FAILS-1`, now in
-lictor's floor). If a fix is published, the gate turns red on the
-next run — which is the point.
+None today. The last one, **GO-2026-5932** (`golang.org/x/crypto/openpgp`),
+was reported for months with `Fixed in: N/A`; this module's own code never
+called it, so it was reported, not actioned. On 2026-11-16 the Go
+vulnerability database recorded a fix (the `openpgp` packages removed after
+`2f1f834330b2`, first tagged in v0.59.0), and x/crypto moved to v0.59.0 (see
+Taken). The scan gate is built for exactly this: a finding with an available
+fix FAILS, a finding with none does not (see lictor's `grype` judge — the
+port of this repository's `tools/grype-gate`, retired when the last consumer
+switched (THE-LAST-BORROWER, 2026-09-21) — and its rule
+`GRYPE-FIXABLE-FAILS-1`, now in lictor's floor).
 
 ## The npm side
 
